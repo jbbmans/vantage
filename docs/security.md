@@ -270,6 +270,29 @@ came from the same report (`sameReport`, as the import decides).
   the comparison as a file is the report center's (`export_report`, `EXPORT_DATA`), a bulk route in the
   privileged-route manifest, as are the console's routes for kinds of report.
 
+## Case diagnosis and guidance on file (ADR-0022)
+
+[ADR-0022](engineering/ADR/0022-case-diagnoser.md) diagnoses every case by rules and keeps the guidance it cites.
+
+- **No AI in the diagnosis.** `shared/caseDiagnosis.ts` is pure: no network, clock or database. It works with AI off,
+  and the case brief only drafts on top of it, as inference.
+- **Read with the reader's own authority.** A diagnosis is built for the person reading the case, from what they may
+  see. What the unit's error reports say about the case needs `VIEW_RECORDS` in its unit and carries no owner. A
+  validated example is offered only to a reader who may open its case; a console reader who may not sees what it shows
+  and not which case it was.
+- **Who writes guidance.** Official policy and system guidance: `platform.settings`, step-up, the enterprise audit
+  family. Command SOPs and SME workflows: `org.config` in the Unit Instance, step-up, the unit-configuration family;
+  each names who approved it. An example: a leader of the case's unit (`REASSIGN_WORK` or `MANAGE_RECORDS`) who did not
+  resolve it, only for a resolved, verified case with a decided cause. All are in the privileged-route manifest, and a
+  member with no Unit Instance role gets 404 from the console's routes.
+- **Never overwritten.** Triggers refuse any change to an entry's words, a second retirement and any deletion (outside
+  the demo database). A new wording retires the old one in the same transaction.
+- **One Unit Instance.** A command's guidance reaches only its own instance's cases. An example and the case it cites
+  are one instance's; migration 030's boundary triggers refuse a row otherwise, and `instanceBoundaryViolations`
+  counts any that exist.
+- **Inference never passes as policy.** Every recommendation carries its source's rank, which nothing raises; a reading
+  from words alone ranks as inference and nothing is built on it; the limits say when no official guidance is on file.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.
@@ -337,6 +360,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 - Only through GenAI.mil, with the key server-side. Each workflow sends a bounded payload of the caller's own data (or exact-unit aggregates for command briefs); inputs are labeled untrusted in the system prompt.
 - Per-user daily token limits and an instance budget. A key lock from the gateway pauses AI and notifies owners.
 - Nothing is written from an AI result without the user pressing save.
+- The case brief is given the rule diagnosis (ADR-0022) and told to keep each statement's label and source and to call anything it adds inference. The diagnosis itself never uses AI.
 
 ## Correspondence and mailboxes
 

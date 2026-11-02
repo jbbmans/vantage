@@ -19,6 +19,8 @@ import { parse } from '../lib/http.ts';
 import {
   getItem, mayClaim, mayReassign, mayResolve, mayProgress, mayAct, readable, type WorkItemRow,
 } from './work.ts';
+import { diagnosisFor } from './caseDiagnosis.ts';
+import { exampleState } from './caseGuidance.ts';
 
 export interface EventRow {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
@@ -125,6 +127,8 @@ export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: 
       hand_off: (row.claimed_by === user.id && readable(scope, user, row)) || mayReassign(scope, user, row),
       apply_procedure: mayAct(scope, user, row) || (row.unit_id ? can(scope, PERMISSIONS.EDIT_WORK, row.unit_id) : false),
     },
+    diagnosis: diagnosisFor(ctx, user, scope, row, events),
+    example: exampleState(ctx, user, scope, row),
   };
 }
 

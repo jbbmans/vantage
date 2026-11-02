@@ -102,6 +102,19 @@ See `PROCEDURE_MODEL.md`. A procedure is versioned code (`shared/procedures.ts`)
 the key and version it was started under. Progress is derived from the item's events. It is never
 stored, and it never infers a decision.
 
+## Case diagnosis
+
+See [ADR-0022](../engineering/ADR/0022-case-diagnoser.md). A case's **diagnosis** is worked out by rules on every read
+(`shared/caseDiagnosis.ts`, versioned) and never stored: ten sections of statements, each labelled Known fact,
+Derived value, Recommendation, Unknown or Human decision required, every recommendation with its source and rank
+(`PROVENANCE` in `shared/procedureTypes.ts`).
+
+- **Case guidance** (`case_guidance`): a cited entry for one issue type (or any) and one section, of one kind: official
+  policy or official system guidance (no Unit Instance; every instance), an approved command SOP or validated SME
+  workflow (one Unit Instance, naming who approved it), or a **validated example** (a resolved, verified case of one
+  unit, with the cause decided on it). Never edited or deleted: a new wording retires the old, and every retirement
+  carries who, when and why.
+
 ## The Record
 
 - **Assigned work**: items where `claimed_by` is the person and the stage is not closed.

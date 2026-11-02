@@ -7,6 +7,17 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-02',
+    title: 'Every case diagnosed, every source shown',
+    items: [
+      'A case now opens with its diagnosis: issue type, probable cause, missing information, research, systems to inspect, calculations, corrective action, approvals, verification and resolution criteria. Rules write it, never AI.',
+      'Each statement says how it is known: a known fact with where it came from, a derived value with the arithmetic, a recommendation with its source and rank, an unknown, or a decision for a person.',
+      'Unit Managers put the command’s approved SOPs and validated SME workflows on file in the console (Case guidance). They rank above the training reference in every diagnosis they speak to.',
+      'A unit leader can hold up a resolved, verified case as an example for the next one like it, if they did not resolve it themselves.',
+      'The queue and the import preview say what each case reads as.',
+    ],
+  },
+  {
     date: '2026-10-29',
     title: 'Error reports, compared report to report',
     items: [

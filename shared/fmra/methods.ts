@@ -328,6 +328,15 @@ export const METHODS: Record<MethodKey, PurchaseMethod> = {
 
 export const METHOD_LIST: PurchaseMethod[] = METHOD_KEYS.map((k) => METHODS[k]);
 
+/** The purchase method a sheet's cell names ("GCSS-MC", "tdy", "Defense Travel"), or null when it names none. */
+export function methodFromText(text: string | null | undefined): MethodKey | null {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return null;
+  if ((METHOD_KEYS as readonly string[]).includes(t)) return t as MethodKey;
+  const hit = METHOD_KEYS.find((k) => METHODS[k].short.toLowerCase() === t || METHODS[k].name.toLowerCase() === t || (k === 'tdy' && /dts|travel|tdy/.test(t)) || (k === 'gcss' && /gcss/.test(t)) || (k === 'servmart' && /servmart/.test(t)));
+  return hit || null;
+}
+
 export const PAYMENT_TIMING = {
   text: 'Several narratives give payment timing as 30-45 days after receipt or acceptance; the ServMart diagram says 30-45 business days. A classroom expectation, not a universal payment deadline, and never a reason to ignore an error during that interval.',
   cite: cite('7', '70-76, 80, 89', 'discrepancy'),

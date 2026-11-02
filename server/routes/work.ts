@@ -16,6 +16,8 @@ import {
   listViews, saveView, deleteView, WORK_STATES, ACTION_KINDS,
 } from '../services/work.ts';
 import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
+import { validateExample, withdrawExample } from '../services/caseGuidance.ts';
+import { exampleSchema, retireSchema } from '../../shared/caseGuidance.ts';
 import { teamWorkload, parseWindow } from '../services/record.ts';
 import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
 import { STAGES } from '../../shared/caseModel.ts';
@@ -124,7 +126,7 @@ workRouter.get('/items', wrap((req, res) => {
   res.json(listItems(req.ctx, req.user, scope, {
     unitId: q.unit_id ?? null, state: q.state ?? null, stage: q.stage ?? null, active: Boolean(q.active), claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
     procedure: q.procedure ?? null,
-    dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset,
+    dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset, diagnose: true,
   }));
 }));
 
@@ -152,6 +154,18 @@ workRouter.post('/items', wrap((req, res) => {
 workRouter.get('/items/:id', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(itemDetail(req.ctx, req.user, scope, String(req.params.id)));
+}));
+
+// A unit leader holds a resolved, verified case up as an example for the next one like it (ADR-0022). Never the person
+// who resolved it; withdrawn with a reason, never removed.
+workRouter.post('/items/:id/example', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const body = parse(exampleSchema, req.body);
+  res.status(201).json(validateExample(req.ctx, req.user, scope, String(req.params.id), { text: body.text, section: body.section ?? null }, clientIp(req)));
+}));
+workRouter.post('/items/:id/example/withdraw', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(withdrawExample(req.ctx, req.user, scope, String(req.params.id), parse(retireSchema, req.body).reason, clientIp(req)));
 }));
 
 const versionOf = (body: unknown) => {

@@ -1,6 +1,8 @@
 import type { Stage } from './caseModel.ts';
 import type { Procedure, StepProgress } from './procedures.ts';
 import type { CONTRIBUTION_DEFINITIONS } from './record.ts';
+import type { CaseDiagnosis } from './caseDiagnosis.ts';
+import type { ExampleState } from './caseGuidance.ts';
 
 /**
  * The shape of GET /api/work/items/:id. The server's builders are annotated with these types, so a change on
@@ -76,6 +78,10 @@ export interface CaseView {
   people: Record<string, CasePerson>;
   contributors: CaseContributor[];
   permissions: CasePermissions;
+  /** The rule diagnosis (ADR-0022), derived on read for this reader. */
+  diagnosis: CaseDiagnosis;
+  /** Whether the case is a validated example, and whether this reader may mark or withdraw it. */
+  example: ExampleState;
 }
 
 export interface WorkItemView {

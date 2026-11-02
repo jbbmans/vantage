@@ -367,6 +367,15 @@ const MIGRATIONS: Migration[] = [
     // Unit Instance. Nothing already written is read, moved or reshaped: the queue's cases stay as they are.
     run: (db) => instanceBoundaryTriggers(db),
   },
+  {
+    id: 30,
+    name: '030_case_guidance',
+    // Guidance on file for the case diagnoser (ADR-0022): command SOPs, validated SME workflows, validated past cases and,
+    // service-wide, cited official policy and system guidance. The table and the triggers that keep an entry as it was put
+    // on file come from schema.sql, which is safe to replay; the boundary keeps a validated case and its entry in one Unit
+    // Instance. Nothing already written is read, moved or reshaped: a diagnosis is derived on read, never stored.
+    run: (db) => instanceBoundaryTriggers(db),
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -614,6 +623,17 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM error_snapshots s WHERE s.source_file_id = NEW.id AND ${orgOf('NEW.unit_id')} <> s.org_id)
       ${refuse('an error report in another Unit Instance was read from this file')}`);
   }
+  // A validated past case and the guidance entry that cites it are one Unit Instance's (ADR-0022), and so is an entry and
+  // the one it replaces. Entries never change (schema.sql); a case an entry cites never moves out from under it.
+  if (columnsOf(db, 'case_guidance').has('work_item_id')) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS case_guidance_same_org BEFORE INSERT ON case_guidance FOR EACH ROW
+      WHEN (NEW.work_item_id IS NOT NULL AND (${orgOf(caseUnit('NEW.work_item_id'))} IS NOT NEW.org_id OR ${caseUnit('NEW.work_item_id')} IS NOT NEW.unit_id))
+        OR (NEW.supersedes_id IS NOT NULL AND (SELECT org_id FROM case_guidance WHERE id = NEW.supersedes_id) IS NOT NEW.org_id)
+      ${refuse('guidance and the case it cites belong to one Unit Instance')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS work_items_guidance_same_org BEFORE UPDATE OF unit_id ON work_items FOR EACH ROW
+      WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM case_guidance g WHERE g.work_item_id = NEW.id)
+      ${refuse('this case is cited as a validated example')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -634,6 +654,7 @@ export function instanceBoundaryTriggers(db: Db) {
 const orgUnitTables = (db: Db) => (['unit_billets', 'training_requirements', 'personnel_responsibilities'] as const).filter((t) => columnsOf(db, t).has('unit_id') && columnsOf(db, t).has('org_id'));
 const billetOrg = (id: string) => `(SELECT org_id FROM unit_billets WHERE id = ${id})`;
 const typeOrg = (id: string) => `(SELECT org_id FROM error_report_types WHERE id = ${id})`;
+const caseUnit = (id: string) => `(SELECT unit_id FROM work_items WHERE id = ${id})`;
 
 /**
  * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
@@ -649,6 +670,11 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     ...(columnsOf(db, 'error_snapshots').has('type_id') ? {
       error_snapshots: `SELECT COUNT(*) AS n FROM error_snapshots s LEFT JOIN source_files f ON f.id = s.source_file_id
         WHERE ${orgOf('s.unit_id')} <> s.org_id OR ${typeOrg('s.type_id')} <> s.org_id OR ${orgOf('f.unit_id')} <> s.org_id`,
+    } : {}),
+    ...(columnsOf(db, 'case_guidance').has('work_item_id') ? {
+      case_guidance: `SELECT COUNT(*) AS n FROM case_guidance g LEFT JOIN work_items w ON w.id = g.work_item_id LEFT JOIN case_guidance p ON p.id = g.supersedes_id
+        WHERE (g.work_item_id IS NOT NULL AND (${orgOf('w.unit_id')} IS NOT g.org_id OR w.unit_id IS NOT g.unit_id))
+          OR (g.supersedes_id IS NOT NULL AND p.org_id IS NOT g.org_id)`,
     } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL

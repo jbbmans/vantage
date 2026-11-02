@@ -13,7 +13,10 @@ import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 import { PROCEDURES, fieldsOf, standing, suggestProcedure } from '../../shared/procedures.ts';
 import { diagnose } from '../../shared/fmra/diagnose.ts';
 import { parseMoney } from '../../shared/money.ts';
-import { METHOD_KEYS, METHODS, type MethodKey } from '../../shared/fmra/methods.ts';
+import { methodFromText, type MethodKey } from '../../shared/fmra/methods.ts';
+import { issueReading, type IssueHow, type SheetField } from '../../shared/caseDiagnosis.ts';
+import { zonedDay } from '../lib/clock.ts';
+import { zoneOf } from '../lib/zone.ts';
 import type { Scanner } from './scanner.ts';
 import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
 import { governingInstance, isWithheld } from './instanceFlags.ts';
@@ -381,6 +384,9 @@ export function normalizeRows(rows: string[][], plan: ImportPlan): { rows: Norma
   return { rows: out, rejections, headers };
 }
 
+/** How many of the new rows read as each issue type, and from what (ADR-0022). A reading from words alone is a lead. */
+export interface PreviewReading { issue: string | null; short: string | null; how: IssueHow | null; rows: number }
+
 export interface PreviewResult {
   headers: string[];
   sheet_name: string;
@@ -388,6 +394,7 @@ export interface PreviewResult {
   will_insert: NormalizedRow[];
   will_update: Array<NormalizedRow & { existing_id: string; claimed_by: string | null; changes: string[]; revisions: Array<{ field: string; from: string | null; to: string | null }> }>;
   procedures?: Record<string, number>;
+  readings: PreviewReading[];
   unchanged: number;
   rejections: Rejection[];
   notes: string[];
@@ -469,10 +476,11 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
 
   const procedures: Record<string, number> = {};
   if (plan.procedure) for (const row of willInsert) { const key = procedureForRow(row, plan) || 'none'; procedures[key] = (procedures[key] || 0) + 1; }
+  const readings = readRows(willInsert, plan, source.filename, zonedDay(zoneOf(ctx, user)));
 
   return {
     headers, sheet_name: plan.sheet_name, total_rows: rows.length,
-    will_insert: willInsert, will_update: willUpdate, unchanged, rejections,
+    will_insert: willInsert, will_update: willUpdate, unchanged, rejections, readings,
     notes: JSON.parse(source.notes || '[]'),
     ...(plan.procedure ? { procedures } : {}),
   };
@@ -576,13 +584,7 @@ export function runImport(
 const columnFor = (plan: ImportPlan, target: MappableField) => Object.entries(plan.mapping).find(([, t]) => t === target)?.[0] || null;
 const valueFor = (row: NormalizedRow, plan: ImportPlan, target: MappableField) => { const col = columnFor(plan, target); return col ? row.data[col] ?? null : null; };
 
-const methodKey = (text: string | null): MethodKey | null => {
-  const t = String(text || '').trim().toLowerCase();
-  if (!t) return null;
-  if ((METHOD_KEYS as readonly string[]).includes(t)) return t as MethodKey;
-  const hit = METHOD_KEYS.find((k) => METHODS[k].short.toLowerCase() === t || METHODS[k].name.toLowerCase() === t || (k === 'tdy' && /dts|travel|tdy/.test(t)) || (k === 'gcss' && /gcss/.test(t)) || (k === 'servmart' && /servmart/.test(t)));
-  return hit || null;
-};
+const methodKey = (text: string | null): MethodKey | null => methodFromText(text);
 
 const centsOrNull = (text: string | null) => {
   const t = String(text ?? '').trim();
@@ -590,6 +592,24 @@ const centsOrNull = (text: string | null) => {
   const parsed = parseMoney(t);
   return parsed.ok ? parsed.cents : null;
 };
+
+const SHEET_TARGETS: SheetField[] = ['commitment', 'obligation', 'delivered', 'paid', 'purchase_method', 'error_text'];
+
+/** What the case diagnoser reads in each new row, before anything is imported or any procedure applied (ADR-0022). */
+function readRows(rows: NormalizedRow[], plan: ImportPlan, filename: string, today: string): PreviewReading[] {
+  const counts = new Map<string, PreviewReading>();
+  for (const row of rows) {
+    const sheet = SHEET_TARGETS.flatMap((field) => { const column = columnFor(plan, field); return column ? [{ field, column, value: row.data[column] ?? '' }] : []; });
+    const r = issueReading({
+      item: { title: row.title, reference: row.reference, due_date: row.due_date, created_at: today, stage: 'not_started', filename, source_row: row.source_row, cells: Object.values(row.data) },
+      sheet, events: [], procedure: null, today,
+    });
+    const key = `${r.key}|${r.how}`;
+    const seen = counts.get(key);
+    if (seen) seen.rows += 1; else counts.set(key, { issue: r.key, short: r.short, how: r.how, rows: 1 });
+  }
+  return [...counts.values()].sort((a, b) => b.rows - a.rows);
+}
 
 export function procedureForRow(row: NormalizedRow, plan: ImportPlan): string | null {
   if (!plan.procedure) return null;

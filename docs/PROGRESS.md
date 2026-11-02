@@ -1,6 +1,35 @@
 # Progress
 
-_Updated 2026-10-29_
+_Updated 2026-11-02_
+
+## What changed (2026-11-02: the automatic case diagnoser)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Every financial case is diagnosed by rules, with no AI, the moment it is imported, and again each time it is read
+([ADR-0022](engineering/ADR/0022-case-diagnoser.md), migration 030).
+
+- **The diagnosis** (the case page, under the figures): issue type, probable cause, missing information, research
+  needed, systems to inspect, calculations, corrective action, approvals, verification and resolution criteria, in
+  that order. Every statement is a Known fact (with the file, row and column, or who recorded it), a Derived value
+  (with the arithmetic), a Recommendation (with its source, rank and citation), an Unknown (a blank or a dash is never
+  zero) or a Human decision required.
+- **Sources in order.** Official policy, official system guidance, the command's approved SOP, a validated SME
+  workflow, the FMRAC training reference, a validated past case, the unvalidated SME walkthrough, then inference. Each
+  diagnosis lists them, says which it used, and says when nothing is on file. A reading from words alone is inference,
+  and nothing else is built on it.
+- **Guidance on file.** Unit Managers put the command's approved SOPs and validated SME workflows on file (console →
+  Case guidance); Vantage Administrators put official policy and system guidance on file for every Unit Instance (admin
+  console → Official guidance). Each is cited, never edited (a new wording retires the old), retired with a reason,
+  and audited.
+- **Validated examples.** A unit leader who did not resolve a resolved, verified case, with a decided cause, holds it up
+  as an example. The next case of the same kind offers it, only to readers who may open it. It is withdrawn with a
+  reason.
+- **Everywhere a case is read.** The queue says what a case without a procedure reads as. The import preview says what
+  the new rows read as before anything is written. The unit's error reports add what they say about the case, for
+  readers of those reports.
+- **AI stays optional.** The case brief is given the rule diagnosis and told to keep every label and source and to call
+  anything it adds inference; the page says the brief ranks last.
 
 ## What changed (2026-10-29: financial error reports)
 

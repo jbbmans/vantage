@@ -13,6 +13,7 @@ import { StageBadge, elapsed, personName } from '@/components/work';
 import LifecycleBars from '@/components/fmra/LifecycleBars';
 import { AiAction, AiResult, useAiModel } from '@/components/AiPanel';
 import { ThreadsForItem } from './Workbench';
+import CaseDiagnosisPanel from '@/components/CaseDiagnosisPanel';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, formatStamp, timeAgo, todayIso } from '@/lib/utils';
@@ -203,6 +204,8 @@ export default function WorkItemPage() {
 
           {c.latest_calculation && <CalculationPanel calc={c.latest_calculation} />}
 
+          <CaseDiagnosisPanel itemId={id} diagnosis={c.diagnosis} example={c.example} onChanged={refresh} />
+
           {procedure && <CaseBrief itemId={id} />}
 
           {!procedure && holding && !closed && <ActionForm itemId={id} item={item} onDone={refresh} />}
@@ -329,7 +332,6 @@ function lifecycleFigures(events: CaseEvent[]) {
 
 function BalanceReading({ events }: { events: CaseEvent[] }) {
   const { recorded, cents, method, complete } = lifecycleFigures(events);
-  const [open, setOpen] = useState(false);
   if (!recorded.some(Boolean)) return null;
   const d = diagnose({ method, commitment: cents[0], obligation: cents[1], delivered: cents[2], paid: cents[3] });
   return (
@@ -345,20 +347,7 @@ function BalanceReading({ events }: { events: CaseEvent[] }) {
       {d.ok && (
         <>
           <p className="mt-4 text-sm leading-relaxed text-ink-2">{d.meaning}</p>
-          <button type="button" onClick={() => setOpen((v) => !v)} className="mt-3 flex items-center gap-1.5 text-xs font-medium text-accent hover:underline" aria-expanded={open}>
-            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />{open ? 'Hide' : 'Show'} the causes the reference offers for these figures
-          </button>
-          {open && (
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {d.causes.map((c) => (
-                <li key={`${c.condition}-${c.key}`} className="rounded-xl bg-surface-2/70 p-3 ring-1 ring-inset ring-line">
-                  <p className="text-sm font-semibold text-ink">{c.label}{c.valid && <span className="ml-2 rounded-md bg-good/10 px-1.5 py-0.5 text-2xs font-medium text-good">may be valid</span>}</p>
-                  <p className="mt-1 text-xs text-ink-2"><span className="text-ink-3">Tell it apart: </span>{c.research}</p>
-                </li>
-              ))}
-              {d.limits.filter((l) => l.startsWith('Do not')).map((l) => <li key={l} className="flex gap-2 rounded-xl bg-bad/[.06] p-3 text-xs text-ink-2 ring-1 ring-inset ring-bad/20 sm:col-span-2"><ShieldAlert className="h-3.5 w-3.5 shrink-0 text-bad" aria-hidden />{l}</li>)}
-            </ul>
-          )}
+          <a href="#diagnosis" className="mt-3 inline-block text-xs font-medium text-accent hover:underline">The possible causes, how to tell them apart and what each would need are in the diagnosis</a>
         </>
       )}
     </section>
@@ -746,7 +735,7 @@ function CaseBrief({ itemId }: { itemId: string }) {
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   if (!available) return null;
   return (
-    <Panel title="Case brief" subtitle="A draft reading in the reference’s answer order. Causes are possibilities to research, never findings."
+    <Panel title="Case brief" subtitle="An AI draft that explains the diagnosis. It ranks last, as inference: anything it adds that the diagnosis does not say is a lead to check, never policy, and causes are possibilities to research, never findings."
       action={<AiAction workflow="case_brief" surface="case" input={{ item_id: itemId }} label={brief ? 'Brief me again' : 'Brief me on this case'} onResult={(output, meta) => setBrief({ output, meta })} />}>
       {brief ? <AiResult output={brief.output} meta={brief.meta} primaryKey="observed_condition" /> : <p className="text-sm text-ink-3">Reads only what stands on this case. Nothing is saved, and nothing it says changes the case.</p>}
     </Panel>

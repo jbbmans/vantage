@@ -154,6 +154,11 @@ test('a case brief reads only what stands on a case the person can open, under t
   assert.ok(evidence.observed.some((o: any) => o.field === 'obligation_amount' && o.not_shown), 'not shown is sent as its own fact');
   assert.match(sent.messages[0].content, /Never present a classroom example as a confirmed live balance/);
   assert.match(sent.messages[0].content, /possible_causes/);
+  assert.equal(evidence.rule_diagnosis.sections.length, 10, 'the rule diagnosis goes with the facts, every section of it');
+  assert.match(evidence.rule_diagnosis.issue, /OCMT/);
+  assert.ok(!JSON.stringify(evidence.rule_diagnosis).includes('99,999.00'), 'and it too reads only what stands');
+  assert.match(sent.messages[0].content, /rule_diagnosis/);
+  assert.match(sent.messages[0].content, /never present a training reference, a past case or an inference as policy/);
 
   await app.register('outsider');
   const denied = await app.call('POST', '/api/ai/assist', { token: (await app.login('outsider')).body.token, body: { workflow: 'case_brief', input: { item_id: id } } });
