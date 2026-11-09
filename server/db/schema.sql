@@ -1484,3 +1484,50 @@ BEGIN SELECT RAISE(ABORT, 'the rows of a filed error report are never changed');
 CREATE TRIGGER IF NOT EXISTS error_snapshot_rows_append_only_delete BEFORE DELETE ON error_snapshot_rows
 FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
 BEGIN SELECT RAISE(ABORT, 'the rows of a filed error report are never removed'); END;
+
+-- Guidance on file for the case diagnoser (ADR-0022, migration 030): one short, cited statement about one issue type and
+-- one section of a diagnosis, ranked by the kind of source it is (shared/procedureTypes.ts PROVENANCE). org_id is the Unit
+-- Instance it binds; NULL is the whole service, which only official policy and official system guidance are, put on file
+-- by a Vantage Administrator. A Unit Manager puts approved command SOPs and validated SME workflows on file for their
+-- instance. A validated historical case names the resolved case (work_item_id), its unit and the cause decided on it.
+-- Never edited or removed: a change is a new entry that retires the one it replaces (supersedes_id), and a retired entry
+-- keeps its words, so any diagnosis given on any day can be rebuilt from what was on file that day.
+CREATE TABLE IF NOT EXISTS case_guidance (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT REFERENCES organizations(id),
+  authority      TEXT NOT NULL CHECK (authority IN ('official_policy', 'official_system_guidance', 'approved_local_sop', 'validated_sme_workflow', 'historical_case')),
+  issue          TEXT NOT NULL CHECK (issue IN ('any', 'umt', 'umt_2way', 'invoice_hold', 'feeder_reject', 'interface_error', 'ocmt', 'udou', 'dou', 'oto')),
+  section        TEXT NOT NULL CHECK (section IN ('probable_cause', 'missing_information', 'research', 'systems', 'calculations', 'corrective_action', 'approvals', 'verification', 'resolution_criteria')),
+  text           TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 1000),
+  -- Where a reader looks it up: the SOP and paragraph, the policy and chapter, or the case.
+  citation       TEXT NOT NULL CHECK (length(citation) BETWEEN 1 AND 300),
+  -- Who approved the SOP or validated the workflow, as the document names them.
+  approved_by    TEXT CHECK (approved_by IS NULL OR length(approved_by) <= 200),
+  effective_on   TEXT,
+  work_item_id   TEXT REFERENCES work_items(id),
+  unit_id        TEXT REFERENCES units(id),
+  cause          TEXT,
+  supersedes_id  TEXT REFERENCES case_guidance(id),
+  recorded_by    TEXT NOT NULL REFERENCES users(id),
+  recorded_at    TEXT NOT NULL,
+  retired_at     TEXT,
+  retired_by     TEXT REFERENCES users(id),
+  retired_reason TEXT,
+  CHECK ((authority IN ('official_policy', 'official_system_guidance')) = (org_id IS NULL)),
+  CHECK ((authority = 'historical_case') = (work_item_id IS NOT NULL)),
+  CHECK (authority <> 'historical_case' OR (unit_id IS NOT NULL AND cause IS NOT NULL)),
+  CHECK (authority NOT IN ('approved_local_sop', 'validated_sme_workflow') OR approved_by IS NOT NULL),
+  CHECK (retired_at IS NULL OR (retired_by IS NOT NULL AND retired_reason IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_case_guidance_org ON case_guidance(org_id, issue) WHERE retired_at IS NULL;
+-- A case is validated as an example once at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_case_guidance_case ON case_guidance(work_item_id) WHERE work_item_id IS NOT NULL AND retired_at IS NULL;
+-- An entry is replaced once: two entries cannot both claim to be the wording that replaced it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_case_guidance_supersedes ON case_guidance(supersedes_id) WHERE supersedes_id IS NOT NULL;
+CREATE TRIGGER IF NOT EXISTS case_guidance_recorded BEFORE UPDATE OF id, org_id, authority, issue, section, text, citation, approved_by, effective_on, work_item_id, unit_id, cause, supersedes_id, recorded_by, recorded_at ON case_guidance FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'guidance on file is never changed: put the new wording on file, and retire this entry'); END;
+CREATE TRIGGER IF NOT EXISTS case_guidance_retired BEFORE UPDATE OF retired_at, retired_by, retired_reason ON case_guidance FOR EACH ROW WHEN OLD.retired_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'a retired guidance entry stays retired'); END;
+CREATE TRIGGER IF NOT EXISTS case_guidance_append_only_delete BEFORE DELETE ON case_guidance
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN SELECT RAISE(ABORT, 'guidance on file is never removed: retire it'); END;

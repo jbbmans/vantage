@@ -34,6 +34,8 @@ import { rowsToCsv } from '../../shared/csv.ts';
 import { REPORT_PERIODS, UNIT_CONFIG_FORMAT } from '../../shared/unitConfig.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_LIMITS, SCORING_METHODS } from '../../shared/dutyScoring.ts';
 import { publishScoringPolicy, withdrawScoringPolicy } from '../services/dutyScoring.ts';
+import { addOrgGuidance, orgGuidance, retireOrgGuidance } from '../services/caseGuidance.ts';
+import { guidanceInputSchema, retireSchema, type GuidanceInput } from '../../shared/caseGuidance.ts';
 import { cachedServiceStatus, instanceOperations } from '../services/instanceOperations.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 import { TRAINING_TYPES } from '../../shared/constants.ts';
@@ -537,6 +539,18 @@ orgsRouter.post('/:orgId/duty-scoring', inOrg('org.config'), wrap((req, res) => 
 }));
 orgsRouter.post('/:orgId/duty-scoring/:id/withdraw', inOrg('org.config'), wrap((req, res) => {
   res.json(withdrawScoringPolicy(req.ctx, req.user, orgOf(req).id, String(req.params.id), ip(req)));
+}));
+
+// Guidance on file for the case diagnoser (ADR-0022): the command's approved SOPs and validated SME workflows, the examples
+// its unit leaders validated, and, read-only, the official guidance the service keeps for everyone.
+orgsRouter.get('/:orgId/case-guidance', inOrg('org.view'), wrap((req, res) => {
+  res.json(orgGuidance(req.ctx, req.user, scopeFor(req.ctx, req.user, req), orgOf(req).id));
+}));
+orgsRouter.post('/:orgId/case-guidance', inOrg('org.config'), wrap((req, res) => {
+  res.status(201).json(addOrgGuidance(req.ctx, req.user, orgOf(req).id, parse(guidanceInputSchema, req.body) as GuidanceInput, ip(req)));
+}));
+orgsRouter.post('/:orgId/case-guidance/:id/retire', inOrg('org.config'), wrap((req, res) => {
+  res.json(retireOrgGuidance(req.ctx, req.user, orgOf(req).id, String(req.params.id), parse(retireSchema, req.body).reason, ip(req)));
 }));
 
 orgsRouter.get('/:orgId/configuration/export', inOrg('org.export'), wrap((req, res) => {

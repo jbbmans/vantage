@@ -567,6 +567,16 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       opened_on: 'performance', age_days: 'performance', data: 'performance',
     },
   },
+  case_guidance: {
+    purpose: 'Guidance the case diagnoser cites: official policy and system guidance for the service, a Unit Instance’s approved SOPs and validated SME workflows, and the resolved cases its unit leaders validated as examples.',
+    authority: 'Official policy and system guidance are put on file by Vantage Administrators; SOPs and workflows by the Unit Instance’s Unit Managers; examples by a unit leader who did not resolve the case. Never changed or removed, retired with a reason; every change audited (ADR-0022).',
+    access: 'Everyone whose case it speaks to. An example names its case only to those who may open that case. Not about a person.',
+    columns: {
+      id: 'technical', org_id: 'technical', authority: 'none', issue: 'none', section: 'none', text: 'performance', citation: 'performance', approved_by: 'identifier',
+      effective_on: 'technical', work_item_id: 'technical', unit_id: 'employment', cause: 'performance', supersedes_id: 'technical', recorded_by: 'identifier',
+      recorded_at: 'technical', retired_at: 'technical', retired_by: 'identifier', retired_reason: 'performance',
+    },
+  },
   report_definitions: {
     purpose: 'A saved report: which report, and the filters it runs with, which may name the Marine it is about. Never its figures.',
     authority: 'Necessary to operate the product.',

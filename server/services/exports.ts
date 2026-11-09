@@ -30,6 +30,8 @@ export const EXPORT_TABLES = [
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // The financial error reports each unit filed, as they were filed, and the kinds it files (ADR-0021).
   'error_report_types', 'error_snapshots', 'error_snapshot_rows',
+  // Guidance on file for the case diagnoser (ADR-0022): the service's official guidance, each instance's own, and its examples.
+  'case_guidance',
   // A person's own drafts and career plan move with the instance too.
   'record_drafts', 'career_steps', 'career_profiles',
   // Where an entry was moved from, and what it said (ADR-0015): an undo still works on the host it moves to.

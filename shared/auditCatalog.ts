@@ -89,6 +89,8 @@ const UNIT = [
   // Configuration: billets, duty types and scoring, training, the structure as a file.
   ...AUDIT_ACTION_FAMILIES.unit_configuration, 'duty_types_standard_added', 'error_report_types_standard_added', 'unit_settings_updated', 'unit_configuration_imported',
   'unit_configuration_exported', 'duty_scoring_policy_published', 'duty_scoring_policy_withdrawn',
+  // Guidance on file for the case diagnoser (ADR-0022): a command SOP or SME workflow, and a validated example.
+  'case_guidance_added', 'case_guidance_retired', 'case_example_validated', 'case_example_withdrawn',
   // The personnel feed.
   'personnel_sync_planned', 'personnel_sync', 'personnel_sync_update', 'personnel_provisioned', 'personnel_profile_updated',
   'personnel_separated', 'personnel_reactivated', 'personnel_restored', 'personnel_link', 'personnel_unlink',
@@ -117,6 +119,8 @@ const ENTERPRISE = [
   'release_deployed', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
   // Features turned off for one Unit Instance, and given back.
   'instance_feature_withheld', 'instance_feature_restored',
+  // Official policy and system guidance the case diagnoser cites for every Unit Instance (ADR-0022).
+  'official_guidance_added', 'official_guidance_retired',
   // Data: backups, archives, restores and the integrity of the trail.
   'backup', 'instance_export', 'instance_import', 'database_restored', 'database_replaced', 'platform_audit_exported',
   'case_history_anchor', 'case_history_anchor_requested', 'audit_chain_anchored', 'audit_anchor_verified',

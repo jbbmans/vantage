@@ -309,6 +309,10 @@ export const platformOperations = () => api.get('/platform/operations');
 export const platformSignInHealth = () => api.get('/platform/sign-in-health');
 export const platformOidcCheck = () => api.post('/platform/sign-in-health/oidc-check');
 export const platformFlags = () => api.get('/platform/flags');
+// Official policy and official system guidance the case diagnoser cites for every Unit Instance (ADR-0022).
+export const platformCaseGuidance = () => api.get('/platform/case-guidance');
+export const platformAddCaseGuidance = (body: unknown) => api.post('/platform/case-guidance', body);
+export const platformRetireCaseGuidance = (id: string, reason: string) => api.post(`/platform/case-guidance/${enc(id)}/retire`, { reason });
 /** Each Unit Instance's version, schema, last upgrade, health, backup and restore (ADR-0014). */
 export const platformInstanceOperations = () => api.get('/platform/instances/operations');
 export const platformReviewUpgrade = (id: string, note: string) => api.post(`/platform/upgrades/${enc(id)}/review`, { note });
@@ -418,6 +422,10 @@ export const orgImportConfiguration = (orgId: string, file: unknown, apply: bool
 // Duty scoring versions (ADR-0012, Task 18 brought forward): published once, withdrawn only before they take effect.
 export const orgPublishScoringPolicy = (orgId: string, body: unknown) => api.post(orgPath(orgId, '/duty-scoring'), body);
 export const orgWithdrawScoringPolicy = (orgId: string, id: string) => api.post(orgPath(orgId, `/duty-scoring/${enc(id)}/withdraw`));
+// Guidance on file for the case diagnoser (ADR-0022): the command's SOPs and SME workflows, and its validated examples.
+export const orgCaseGuidance = (orgId: string) => api.get(orgPath(orgId, '/case-guidance'));
+export const orgAddCaseGuidance = (orgId: string, body: unknown) => api.post(orgPath(orgId, '/case-guidance'), body);
+export const orgRetireCaseGuidance = (orgId: string, id: string, reason: string) => api.post(orgPath(orgId, `/case-guidance/${enc(id)}/retire`), { reason });
 export const orgAccess = (orgId: string) => api.get(orgPath(orgId, '/access'));
 export const orgDecideAccess = (orgId: string, id: string, approve: boolean, note?: string) => api.post(orgPath(orgId, `/access/${enc(id)}/${approve ? 'approve' : 'deny'}`), { note });
 export const orgRevokeAccess = (orgId: string, id: string) => api.post(orgPath(orgId, `/access/${enc(id)}/revoke`));
@@ -480,6 +488,8 @@ export const changeStage = (id: string, body: Record<string, unknown>) => api.po
 export const handOffWork = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/handoff`, body);
 export const calculateCase = (id: string, step?: string | null) => api.post(`${itemPath(id)}/calculate`, step ? { step } : {});
 export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
+export const validateCaseExample = (id: string, body: { text: string; section?: string | null }) => api.post(`${itemPath(id)}/example`, body);
+export const withdrawCaseExample = (id: string, reason: string) => api.post(`${itemPath(id)}/example/withdraw`, { reason });
 export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/suggestion`);
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get<WorkloadResponse>(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 

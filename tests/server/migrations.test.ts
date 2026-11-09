@@ -458,3 +458,27 @@ test('029 adds error reports, empty, and keeps a report, its type and its file i
     db.close();
   } finally { cleanup(); }
 });
+
+test('030 adds guidance on file for the case diagnoser, empty, kept in one Unit Instance and never edited or removed', () => {
+  const { path, cleanup } = atVersion(29, (db) => {
+    // The database as it was before 030: no guidance on file.
+    db.exec('DROP TABLE case_guidance');
+  });
+  try {
+    let db = openDatabase(path);
+    const trail = () => (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND (tbl_name = 'case_guidance' OR name LIKE '%guidance%') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    assert.ok(migrationHistory(db).some((m) => m.id === 30 && m.name === '030_case_guidance'));
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM case_guidance').get() as { n: number }).n, 0, 'nothing is on file until somebody puts it there: Vantage keeps no policy of its own');
+    const triggers = trail();
+    for (const name of ['case_guidance_same_org', 'work_items_guidance_same_org', 'case_guidance_recorded', 'case_guidance_retired', 'case_guidance_append_only_delete']) {
+      assert.ok(triggers.includes(name), name);
+    }
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    db.close();
+    // A second boot changes nothing.
+    db = openDatabase(path);
+    assert.deepEqual(trail(), triggers);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+  } finally { cleanup(); }
+});

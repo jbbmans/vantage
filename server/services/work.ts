@@ -8,6 +8,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
+import { summariesFor } from './caseDiagnosis.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
@@ -92,6 +93,8 @@ export interface ListOptions {
   direction?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
+  /** Give each row a one-line reading from the case diagnoser (ADR-0022). */
+  diagnose?: boolean;
 }
 
 const SORTABLE: Record<string, string> = {
@@ -144,7 +147,8 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
       WHERE ${clause} ORDER BY (w.${column} IS NULL), w.${column} ${direction}, w.natural_key ASC LIMIT ? OFFSET ?`
   ).all(...project.params, ...params, limit, offset) as WorkItemRow[];
 
-  return { total, limit, offset, items: rows.map(hydrate) };
+  const readings = opts.diagnose ? summariesFor(ctx, user, rows) : null;
+  return { total, limit, offset, items: rows.map((r) => (readings ? { ...hydrate(r), diagnosis: readings[r.id] ?? null } : hydrate(r))) };
 }
 
 export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id: string): WorkItemDetail {
