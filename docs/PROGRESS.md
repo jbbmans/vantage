@@ -43,8 +43,13 @@ Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), m
   another instance's duty; the Duty report about oneself or a Marine leaves out why a version changed and who
   published it; an import refreshes the Duty page; a duty row with a retired type is corrected at its Duty Type; the
   form keeps the unit read-only for anyone but its Marine; Edit shows only where a save can succeed; an emptied view
-  of the Duty page falls back to one's own duty.
-- **Tests:** `tests/server/dutyRecords.test.ts` (15), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
+  of the Duty page falls back to one's own duty. A second check of those fixes found five more, also fixed: an
+  import's undo keeps one's own duty in a unit one serves in; a sheet updating a duty compares its conditions as
+  claims, reports a retired type at its Duty Type, and finds the type in the instance it moves to; and the Duty report
+  about oneself gives each Unit Instance's own scoring. A third check found four gaps in those, also fixed: a sheet
+  row naming a unit one does not serve in never searches that instance's types; the report shows only the scoring of
+  instances one serves in now, and none to someone who serves in none; and its workbook sheets name their instance.
+- **Tests:** `tests/server/dutyRecords.test.ts` (19), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
   the record architecture, import and information architecture tests updated for duty's own store.
 - **Left to other Tasks:** approvals, approved points, overrides and duty permissions (18); duty swaps and
   availability; a duty dataset in the Custom report; demo duty.

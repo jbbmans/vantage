@@ -94,7 +94,8 @@ by today, so a file cannot reach back over duty stood under no version.
 
 - **The Marine** records their own duty, for a unit they serve in: a membership, not Counsel that a role in a parent
   unit carries down (whoever records their own duty must be able to correct it, and correcting it asks the same). The
-  same holds when they move an activity to Duty, change a duty's unit, or import duty naming a unit.
+  same holds when they move an activity to Duty, change a duty's unit, import duty naming a unit, or undo an import
+  that moved one.
 - **A leader with Counsel members in a unit** records duty for a Marine there (the awards and counselings rule:
   `detailUnitsFor ∩ Counsel`). `recorded_by` names them. The Marine is notified ("Duty recorded for you"), sees it, and
   cannot change it. The leader and a records manager in the unit can.
@@ -124,7 +125,10 @@ audit, and Undo puts the activity back exactly as it was (`record_lineage`, `LIN
 ### 7. Import and export (ADR-0019)
 
 A Duty sheet or CSV imports as duty. The duty type is matched by code or name among the importer's Unit Instance's
-types; one it does not find is a problem to correct on the review, never a guess. Review status, reviewer, approved and
+types; one it does not find is a problem to correct on the review, never a guess. A row updating one's own duty finds
+its type in the instance of the unit the row moves it to, when that is a unit its owner serves in; a unit they do not
+serve in is never searched, so the row is refused for its unit and says nothing of another instance's types. Its conditions are compared as claims, so a sheet listing them
+in another order, or without the weekend and overnight its times give, changes nothing. Review status, reviewer, approved and
 calculated points, scoring version and length are never read from a file: they are worked out again or start as
 submitted. Duplicates are found on duty type, start day and start time. A duty always comes in shared with a unit, the
 row's own or the person's home unit, and the review says when that is not the unit the row named. Exports carry the
@@ -140,7 +144,11 @@ worked-out columns (Duty Hours, Duty Days, Review Status, Calculated Points, Sco
 - **Duty report** (ADR-0020): about oneself, a Marine or a unit, for a period, the duty stood with hours, calculated
   points, version and status, by Marine where the reader may see figures by Marine, beside the types and scoring. About
   oneself or a Marine it lists what each version scores, as the form does; why a version changed, who published it and
-  the versions withdrawn before they took effect are on the unit's report only, read with its shared records.
+  the versions withdrawn before they took effect are on the unit's report only, read with its shared records. A report
+  about oneself that holds duty stood in more than one Unit Instance names each duty's instance and gives the types and
+  versions of each instance the reader serves in now, named in each table's title as well, since a version number means
+  nothing outside its instance. Duty stood in an instance they have left keeps its type and the version it was scored
+  under, but that instance's configuration is its members'; someone who serves in no instance is shown none.
 - **Retention**: the clock starts at its end day; anonymizing clears title, location, notes and review reason, and keeps
   its type, times, length and score. **Privacy inventory**: every column declared.
 

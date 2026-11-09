@@ -589,3 +589,124 @@ test('a duty row whose type is retired is corrected on the review, at its Duty T
   assert.equal(fixed.body.rows[0].outcome, 'new', JSON.stringify(fixed.body.rows[0]));
   await del(reyes.token, `/api/me/imports/${staged.body.id}`);
 });
+
+test('a sheet that lists a duty’s claims in any order, or without what its times give, does not change it', async () => {
+  // Saturday 0800 to 1600, claiming a holiday: stored as weekend (from its times) and holiday (claimed).
+  const d = await recorded(reyes.token, { date: '2026-03-21', end_date: '2026-03-21', title: 'Saturday DNCO', conditions: ['holiday'] });
+  assert.deepEqual([...d.conditions].sort(), ['holiday', 'weekend']);
+  const row = (conditions: string) => `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Conditions\n${d.id},DNCO,2026-03-21,0800,2026-03-21,1600,Saturday DNCO,${conditions}\n`;
+  for (const conditions of ['"Holiday; Weekend"', 'Holiday']) {
+    const staged = await upload(reyes.token, row(conditions), 'my-duty.csv');
+    assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
+    assert.equal(staged.body.rows[0].outcome, 'unchanged', `${conditions}: ${JSON.stringify(staged.body.rows[0])}`);
+    await del(reyes.token, `/api/me/imports/${staged.body.id}`);
+  }
+  // Dropping the claim is a change.
+  const dropped = await upload(reyes.token, row('Weekend'), 'my-duty.csv');
+  assert.equal(dropped.body.rows[0].outcome, 'update', JSON.stringify(dropped.body.rows[0]));
+  await del(reyes.token, `/api/me/imports/${dropped.body.id}`);
+  assert.equal(rowOf('duties', d.id)!.version, d.version, 'nothing was written');
+});
+
+test('a sheet updating one’s own duty: a retired type is corrected at its Duty Type, and a type is found in the instance it moves to', async () => {
+  const d = await recorded(reyes.token, { date: '2026-04-23', end_date: '2026-04-23', title: 'Thursday DNCO' });
+  const staged = await upload(reyes.token, `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title\n${d.id},OLDW,2026-04-23,0800,2026-04-23,1600,Thursday DNCO\n`, 'my-duty.csv');
+  assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
+  const row = staged.body.rows[0];
+  assert.equal(row.outcome, 'problem', JSON.stringify(row));
+  assert.ok(row.fieldErrors?.duty_type && !row.fieldErrors.duty_type_id, JSON.stringify(row.fieldErrors));
+  const fixed = await put(reyes.token, `/api/me/imports/${staged.body.id}`, { rows: { [row.ref]: { fix: { duty_type: 'SAF' } } } });
+  assert.equal(fixed.body.rows[0].outcome, 'update', JSON.stringify(fixed.body.rows[0]));
+  await del(reyes.token, `/api/me/imports/${staged.body.id}`);
+
+  // Okafor serves in G-8 and G-1, which each have a DNCO: a row moving their duty to G-1 finds G-1's.
+  const theirs = await recorded(okafor.token, { date: '2026-04-24', end_date: '2026-04-24', title: 'Friday DNCO' });
+  const moving = await upload(okafor.token, `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Unit ID\n${theirs.id},DNCO,2026-04-24,0800,2026-04-24,1600,Friday DNCO,G1\n`, 'my-duty.csv');
+  assert.equal(moving.body.rows[0].outcome, 'update', JSON.stringify(moving.body.rows[0]));
+  const done = await post(okafor.token, `/api/me/imports/${moving.body.id}/commit`, { expected: { new: 0, update: 1 } });
+  assert.equal(done.status, 200, JSON.stringify(done.body).slice(0, 300));
+  assert.deepEqual(['unit_id', 'duty_type_id', 'calculated_points'].map((k) => rowOf('duties', theirs.id)![k]), ['G1', T.g1, 9], 'scored by G-1’s version');
+
+  // Reyes serves only in G-8. A row naming G-1 never searches G-1's types: its type name gets the answer a name nobody
+  // has gets, and nothing of G-1's comes back.
+  const answer = async (type: string) => {
+    const s = await upload(reyes.token, `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Unit ID\n${d.id},${type},2026-04-23,0800,2026-04-23,1600,Thursday DNCO,G1\n`, 'my-duty.csv');
+    assert.equal(s.status, 201, JSON.stringify(s.body).slice(0, 300));
+    await del(reyes.token, `/api/me/imports/${s.body.id}`);
+    return s.body.rows[0] as Record<string, any>;
+  };
+  const g1Only = await answer('G-1 Duty NCO');
+  const nobodys = await answer('Nobody’s watch');
+  assert.equal(g1Only.outcome, 'problem');
+  assert.equal(g1Only.reason.replace('G-1 Duty NCO', '…'), nobodys.reason.replace('Nobody’s watch', '…'), JSON.stringify([g1Only, nobodys]));
+  assert.ok(!JSON.stringify(g1Only).includes(T.g1), 'no G-1 type id');
+  const ours = await answer('SAF');
+  assert.equal(ours.outcome, 'problem');
+  assert.match(ours.reason, /unit you serve in/, 'the problem is the unit, not the type');
+  assert.equal(rowOf('duties', d.id)!.unit_id, 'G8');
+});
+
+test('one’s own duty reported across two Unit Instances is read against each instance’s own scoring', async () => {
+  // Okafor now has duty in G-8 and in G-1 (above).
+  const report = await get(okafor.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
+  assert.equal(report.status, 200, JSON.stringify(report.body).slice(0, 300));
+  const tables = report.body.sections.flatMap((s: { tables: Array<Record<string, any>> }) => s.tables) as Array<Record<string, any>>;
+  const stood = tables.find((t) => t.id === 'stood')!;
+  assert.ok(stood.columns.some((c: { key: string }) => c.key === 'instance'), 'each duty says its Unit Instance');
+  assert.ok(stood.rows.some((r: Record<string, unknown>) => r.instance === 'MARFORRES G-1' && r.points === 9), JSON.stringify(stood.rows));
+  assert.ok(tables.some((t) => t.id === 'types') && tables.some((t) => t.id === 'types_G1'), 'G-8’s scoring, and G-1’s beside it');
+  assert.ok(tables.find((t) => t.id === 'versions_G1')!.rows.length >= 1);
+  assert.deepEqual(['types_G1', 'versions_G1'].map((id) => tables.find((t) => t.id === id)!.title), ['Duty types (G1)', 'Scoring versions (G1)'], 'a workbook sheet says whose it is');
+  assert.ok(report.body.notes.some((n: string) => /another Unit Instance you serve in/.test(n)));
+  // One Unit Instance: no instance column.
+  const single = await get(reyes.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
+  assert.ok(!single.body.sections.flatMap((s: { tables: Array<Record<string, any>> }) => s.tables).find((t: Record<string, any>) => t.id === 'stood').columns.some((c: { key: string }) => c.key === 'instance'));
+
+  // Okafor leaves G-1, which then adds a type. Their G-1 duty is still theirs, by its type and version, but G-1's
+  // types and scoring are its members' now.
+  assert.equal((await del(g1lead.token, `/api/org/units/G1/members/${okafor.id}`)).status, 200);
+  const at = '2026-05-01T00:00:00.000Z';
+  app.ctx.db.prepare('INSERT INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)').run('dr-g1-later', 'G1', 'LATER', 'G-1 Later watch', 'Added after they left', at, at);
+  okafor.token = await login('dutyokafor');
+  const left = await get(okafor.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
+  assert.equal(left.status, 200, JSON.stringify(left.body).slice(0, 300));
+  const leftTables = left.body.sections.flatMap((s: { tables: Array<Record<string, any>> }) => s.tables) as Array<Record<string, any>>;
+  assert.ok(leftTables.find((t) => t.id === 'stood')!.rows.some((r: Record<string, unknown>) => r.instance === 'MARFORRES G-1' && r.version === 1));
+  assert.deepEqual(leftTables.filter((t) => /_G1$/.test(t.id)), [], 'none of G-1’s configuration');
+  assert.ok(!JSON.stringify(left.body).includes('Later watch'));
+  assert.ok(left.body.notes.some((n: string) => /no longer serve in/.test(n)));
+
+  // Someone who serves in no Unit Instance now is shown no instance's types or scoring.
+  const leaver = await app.register('dutyleaver');
+  await enroll(app, op.token, 'G8', leaver.id);
+  leaver.token = await login('dutyleaver');
+  await recorded(leaver.token, { date: '2026-04-28', end_date: '2026-04-28' });
+  assert.equal((await del(op.token, `/api/org/units/G8/members/${leaver.id}`)).status, 200);
+  leaver.token = await login('dutyleaver');
+  const none = await get(leaver.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
+  assert.equal(none.status, 200, JSON.stringify(none.body).slice(0, 300));
+  assert.deepEqual(none.body.sections.map((s: { id: string }) => s.id), ['stood']);
+  assert.equal(none.body.sections[0].tables[0].rows.length, 1);
+  assert.equal(none.body.summary.find((s: { label: string }) => s.label === 'Duty types in use').value, null);
+  assert.ok(none.body.notes.some((n: string) => /serve in no Unit Instance/.test(n)));
+  assert.ok(!none.body.notes.some((n: string) => /your own instance’s\./.test(n)));
+});
+
+test('undoing an import never puts one’s own duty back in a unit one no longer serves in', async () => {
+  const section = (app.ctx.db.prepare("SELECT id FROM units WHERE name = 'G8 Duty Section'").get() as { id: string }).id;
+  await enroll(app, op.token, section, diaz.id);
+  diaz.token = await login('dutydiaz');
+  const d = await recorded(diaz.token, { unit_id: section, date: '2026-04-27', end_date: '2026-04-27', title: 'Section DNCO' });
+  // A sheet with its Vantage ID moves it to G-8.
+  const staged = await upload(diaz.token, `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Unit ID\n${d.id},DNCO,2026-04-27,0800,2026-04-27,1600,Section DNCO,G8\n`, 'my-duty.csv');
+  assert.equal(staged.body.rows[0].outcome, 'update', JSON.stringify(staged.body.rows[0]));
+  assert.equal((await post(diaz.token, `/api/me/imports/${staged.body.id}/commit`, { expected: { new: 0, update: 1 } })).status, 200);
+  assert.equal(rowOf('duties', d.id)!.unit_id, 'G8');
+  // Diaz leaves the section, where Counsel from G-8 still reaches.
+  assert.equal((await del(op.token, `/api/org/units/${section}/members/${diaz.id}`)).status, 200);
+  diaz.token = await login('dutydiaz');
+  const undone = await post(diaz.token, `/api/me/imports/${staged.body.id}/undo`);
+  assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 300));
+  assert.equal(rowOf('duties', d.id)!.unit_id, 'G8', 'it stays where its owner can correct it');
+  assert.equal((await put(diaz.token, `/api/records/duties/${d.id}`, { title: 'Section DNCO, corrected' })).status, 200);
+});

@@ -266,6 +266,16 @@ export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, 
 }
 
 /**
+ * Whether the caller may put their record, or one they re-place, in this unit with this visibility: by the table's share
+ * permission, and one's own duty only in a unit one serves in (ADR-0023 §4), so create, edit and an import's undo agree.
+ */
+function placeable(scope: Scope, table: RecordTable, visibility: string, unitId: string | null): boolean {
+  if (table === 'duties') return canPlaceOwnDuty(scope, unitId);
+  return canPlace(scope, visibility, unitId, TABLES[table].shareFlag, Boolean(TABLES[table].personal));
+}
+const placementRefused = (table: RecordTable) => forbidden(table === 'duties' ? 'Record your own duty in a unit you serve in.' : 'You cannot place a record in that unit.');
+
+/**
  * Whether its owner may put a record back where it was, its assignee with it (an import's undo, ADR-0019): the checks an
  * edit that re-places it takes, so an undo never carries what others added in one Unit Instance into another, nor puts a
  * record where its owner may not place it now. Throws the refusal the edit would.
@@ -277,7 +287,7 @@ export function assertRestorable(ctx: AppContext, scope: Scope, user: SessionUse
     if (mayLeaveInstance(ctx, row.unit_id, back.unitId)) assertCarriesNothingAcross(ctx, table, row, back.unitId);
     if (back.visibility === 'unit' && !back.unitId) throw badRequest('Choose a unit before sharing this record.');
     if (back.unitId && back.unitId !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(back.unitId)) throw badRequest('No such unit.');
-    if (!canPlace(scope, back.visibility, back.unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+    if (!placeable(scope, table, back.visibility, back.unitId)) throw placementRefused(table);
     const project = (row.project_id as string | null | undefined) ?? null;
     checkProjectLink(ctx, scope, user.id, table, project, project, back.unitId, true);
   }
@@ -350,9 +360,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
   if (table === 'duties' && !unitId) throw badRequest('Choose the unit this duty was stood for.', { fieldErrors: { unit_id: 'Required.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
-  if (!onBehalf && !(table === 'duties' ? canPlaceOwnDuty(scope, unitId) : canPlace(scope, visibility, unitId, spec.shareFlag, Boolean(spec.personal)))) {
-    throw forbidden(table === 'duties' ? 'Record your own duty in a unit you serve in.' : 'You cannot place a record in that unit.');
-  }
+  if (!onBehalf && !placeable(scope, table, visibility, unitId)) throw placementRefused(table);
   if (table === 'goals' && data.measure_scope === 'unit') unitMeasureAllowed(scope, unitId);
   if (spec.assignee && visibility !== 'unit' && data.assignee_id && data.assignee_id !== user.id) data.assignee_id = null;
   if (spec.assignee) {
@@ -445,9 +453,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (mayLeaveInstance(ctx, row.unit_id, finalUnit)) assertCarriesNothingAcross(ctx, table, row, finalUnit);
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
-  if (scopeChanged && !(table === 'duties' ? canPlaceOwnDuty(scope, finalUnit) : canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal)))) {
-    throw forbidden(table === 'duties' ? 'Record your own duty in a unit you serve in.' : 'You cannot place a record in that unit.');
-  }
+  if (scopeChanged && !placeable(scope, table, finalVisibility, finalUnit)) throw placementRefused(table);
   if (table === 'goals' && (data.measure_scope ?? row.measure_scope) === 'unit' && ['measure_scope', 'unit_id', 'filters', 'metric_id'].some((k) => data[k] !== undefined)) unitMeasureAllowed(scope, finalUnit);
   if (spec.assignee && finalVisibility !== 'unit') { const who = (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null); if (who && who !== user.id) data.assignee_id = null; }
   if (spec.assignee && (data.assignee_id !== undefined || scopeChanged)) {

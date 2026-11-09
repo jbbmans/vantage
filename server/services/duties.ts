@@ -42,9 +42,12 @@ const parseList = (v: unknown): unknown[] => {
  */
 const claimedKey = (v: unknown) => JSON.stringify([...new Set(parseList(v).filter((c): c is string => typeof c === 'string' && (CLAIMED_CONDITIONS as readonly string[]).includes(c)))].sort());
 
+/** Whether two lists of a duty's conditions claim the same: the order, and what its times give, do not count. */
+export const sameClaims = (a: unknown, b: unknown) => claimedKey(a ?? []) === claimedKey(b ?? []);
+
 /** Whether an edit changes what a duty's derived columns and score are worked out from. */
 export const rescoresDuty = (row: Row, data: Row) =>
-  RESCORED_BY.some((k) => data[k] !== undefined && (k === 'conditions' ? claimedKey(data[k] ?? []) !== claimedKey(row[k]) : (data[k] ?? null) !== (row[k] ?? null)));
+  RESCORED_BY.some((k) => data[k] !== undefined && (k === 'conditions' ? !sameClaims(data[k], row[k]) : (data[k] ?? null) !== (row[k] ?? null)));
 
 /**
  * The columns a duty is saved with that the server works out: its length, its conditions (as a list, written as the

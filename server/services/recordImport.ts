@@ -11,6 +11,7 @@ import { canEdit, canPlace, canPlaceOwnDuty, type RecordRow } from '../authz/rec
 import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
+import { sameClaims } from './duties.ts';
 import { scanUpload } from './scanner.ts';
 import { featureOn } from './instanceFlags.ts';
 import { sourcedFieldsFor } from './personnel.ts';
@@ -485,7 +486,12 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       // What the reader filled in for a new record (a course's type from its title) never overwrites what this one holds.
       const said = as === c.from && c.inferred?.length ? Object.fromEntries(Object.entries(record).filter(([k]) => !c.inferred!.includes(k))) : record;
       if (as === 'duties') {
-        const typed = withDutyType(ctx, said, String(mine.unit_id));
+        // Its type is one of the Unit Instance it will be in: the unit the row names, when it keeps placement and that
+        // is a unit its owner serves in, else where it is. A unit they do not serve in is never searched, so a row says
+        // nothing of another instance's types; the edit then refuses the move (ADR-0023 §4, §7).
+        const named = placementMode === 'keep' && typeof said.unit_id === 'string' && said.unit_id && canPlaceOwnDuty(scope, said.unit_id)
+          && ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(said.unit_id) ? said.unit_id : null;
+        const typed = withDutyType(ctx, said, named ?? String(mine.unit_id));
         if (typed.problem) { push('problem', { reason: typed.problem, fieldErrors: { duty_type: typed.problem }, include: false, toggle: false, duplicateOf: ref }); continue; }
       }
       const outcome = updateOne(ctx, user, scope, as, mine, said, placementMode, reqKey, ip, state, c);
@@ -699,7 +705,10 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
   for (const [k, v] of Object.entries(record)) {
     if (k === 'visibility' || k === 'unit_id' || k === 'kind_confirmed') continue;
     const was = current[k];
-    const same = k === 'evidence_links' || k === 'filters' || k === 'conditions' ? JSON.stringify(v ?? []) === JSON.stringify(was ?? []) : (v ?? null) === (was ?? null) || (k === 'ongoing' && Boolean(v) === Boolean(was));
+    // A duty's conditions are its claims: the order a sheet lists them in, and the weekend and overnight its times give,
+    // say nothing new (ADR-0023 §3).
+    const same = table === 'duties' && k === 'conditions' ? sameClaims(v, was)
+      : k === 'evidence_links' || k === 'filters' || k === 'conditions' ? JSON.stringify(v ?? []) === JSON.stringify(was ?? []) : (v ?? null) === (was ?? null) || (k === 'ongoing' && Boolean(v) === Boolean(was));
     if (!same) changes[k] = v;
   }
   if (mode === 'keep' && table !== 'career_steps') {
@@ -738,7 +747,7 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
     return { outcome: 'update', extra: { reason: `Updates your ${TABLE_LABELS[table].one}: ${Object.keys(changes).join(', ')}.`, duplicateOf: { ...ref, version: Number(was.version) } } };
   } catch (e) {
     if (!isRefusal(e)) throw e;
-    return { outcome: 'problem', extra: { reason: (e as Error).message, fieldErrors: (e as HttpError).extra?.fieldErrors as Record<string, string> | undefined, include: false, toggle: false, duplicateOf: ref } };
+    return { outcome: 'problem', extra: { reason: (e as Error).message, fieldErrors: importFieldErrors(table, (e as HttpError).extra?.fieldErrors as Record<string, string> | undefined), include: false, toggle: false, duplicateOf: ref } };
   }
 }
 
