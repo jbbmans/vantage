@@ -11,6 +11,7 @@ import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { buildZip, type ZipEntry } from '../lib/zip.ts';
 import { membershipHistory } from './membership.ts';
+import { isAnonymizedDuty } from './duties.ts';
 
 type Row = Record<string, unknown>;
 
@@ -237,12 +238,14 @@ const extraColumns = (table: string, r: Row): Row => (table === 'counselings' ? 
 
 /**
  * A duty as a file keeps it: its type by code and name (its id is this instance's, and an import finds the type again by
- * code, ADR-0023), and who recorded it and who reviewed it by name, never id.
+ * code, ADR-0023), and who recorded it and who reviewed it by name, never id. A duty a retention schedule anonymized
+ * names nobody, in a file as on a page (`isAnonymizedDuty`).
  */
 function withDutyLabels(ctx: AppContext, r: Row, ownerId: string) {
   const type = ctx.db.prepare('SELECT code, name FROM duty_types WHERE id = ?').get(r.duty_type_id) as { code: string; name: string } | undefined;
   r.duty_type = type?.code ?? null;
   r.duty_type_name = type?.name ?? null;
+  if (isAnonymizedDuty(r)) return;
   if (r.recorded_by && r.recorded_by !== ownerId) r.recorder_label = personLabel(ctx, r.recorded_by);
   if (r.reviewed_by) r.reviewer_label = personLabel(ctx, r.reviewed_by);
 }

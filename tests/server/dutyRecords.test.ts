@@ -504,6 +504,18 @@ test('duty on the timeline, the personnel record, the Duty report, and in retent
   const tally = unitTables.find((t) => t.id === 'by_marine')!.rows as Array<{ count: number }>;
   assert.equal(tally.reduce((n, r) => n + r.count, 0), rows.length - hidden.length, 'in no Marine’s tally');
   assert.ok(byUnit.body.notes.some((n: string) => /anonymized/.test(n)));
+  // Nor in a file: the duty Diaz recorded for Reyes, anonymized, names no recorder in Reyes's export or its own.
+  const relief = app.ctx.db.prepare('SELECT id, title FROM duties WHERE user_id = ? AND recorded_by = ? AND deleted_at IS NULL').get(reyes.id, diaz.id) as { id: string; title: string };
+  assert.equal(relief.title, REDACTED);
+  const archive = await get(reyes.token, '/api/me/export?format=json&sections=duty');
+  assert.equal(archive.status, 200, String(archive.text).slice(0, 300));
+  const exported = (JSON.parse(archive.text).records.duties as Array<Record<string, any>>).find((d) => d.id === relief.id)!;
+  assert.ok(exported && !('recorder_label' in exported) && !('reviewer_label' in exported), JSON.stringify(exported));
+  assert.equal(exported.duty_type, 'DNCO', 'its type stays');
+  const single = await get(reyes.token, `/api/records/duties/${relief.id}/export?format=json`);
+  assert.equal(single.status, 200);
+  assert.ok(!String(single.text).includes('recorder_label'), String(single.text).slice(0, 300));
+  assert.ok(!String(single.text).includes('Diaz'));
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
