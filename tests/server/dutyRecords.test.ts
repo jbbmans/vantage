@@ -484,6 +484,13 @@ test('duty on the timeline, the personnel record, the Duty report, and in retent
   const read = await get(nguyen.token, `/api/records/duties/${target.id}`);
   assert.equal(read.status, 200);
   assert.ok(!('subject_name' in read.body), 'no name put back on an anonymized duty');
+  // Nor on a list that also holds a later duty of theirs, which does name them.
+  const later = await recorded(reyes.token, { date: dayAfter(today(), -5), end_date: dayAfter(today(), -5), title: 'Later DNCO' });
+  const page = await get(nguyen.token, `/api/org/team/${reyes.id}`);
+  assert.equal(page.status, 200, JSON.stringify(page.body).slice(0, 300));
+  const listed = new Map((page.body.duties as Array<Record<string, any>>).map((d) => [d.id, d]));
+  assert.match(String(listed.get(later.id)?.subject_name), /^Cpl Reyes/, JSON.stringify(listed.get(later.id)));
+  assert.ok(listed.has(target.id) && !('subject_name' in listed.get(target.id)!), JSON.stringify(listed.get(target.id)));
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -709,4 +716,18 @@ test('undoing an import never puts one’s own duty back in a unit one no longer
   assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 300));
   assert.equal(rowOf('duties', d.id)!.unit_id, 'G8', 'it stays where its owner can correct it');
   assert.equal((await put(diaz.token, `/api/records/duties/${d.id}`, { title: 'Section DNCO, corrected' })).status, 200);
+});
+
+test('a duty row’s conditions cleared on the review come in as none', async () => {
+  const staged = await upload(reyes.token, 'Duty Type,Start Date,Start Time,End Date,End Time,Title,Conditions\nDNCO,2026-05-04,0800,2026-05-04,1600,Monday DNCO,Moonlight\n', 'my-duty.csv');
+  assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
+  const row = staged.body.rows[0];
+  assert.equal(row.outcome, 'problem', JSON.stringify(row));
+  const cleared = await put(reyes.token, `/api/me/imports/${staged.body.id}`, { rows: { [row.ref]: { fix: { conditions: null } } } });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body).slice(0, 300));
+  assert.equal(cleared.body.rows[0].outcome, 'new', JSON.stringify(cleared.body.rows[0]));
+  const done = await post(reyes.token, `/api/me/imports/${staged.body.id}/commit`, { expected: { new: 1, update: 0 } });
+  assert.equal(done.status, 200, JSON.stringify(done.body).slice(0, 300));
+  const made = app.ctx.db.prepare("SELECT conditions FROM duties WHERE user_id = ? AND title = 'Monday DNCO'").get(reyes.id) as { conditions: string };
+  assert.deepEqual(JSON.parse(made.conditions), []);
 });

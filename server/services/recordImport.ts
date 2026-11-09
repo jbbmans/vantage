@@ -576,9 +576,12 @@ function sanitizeFix(as: ImportTable, fix: Record<string, unknown>): Row {
   for (const k of NEVER_FROM_FILE) columns.delete(k);
   for (const c of columns.values()) if (c.exportOnly) columns.delete(c.key);
   // A set of pairs (a goal's filters) or a list (a duty's conditions) is typed as the spreadsheet holds it, and read the
-  // way the spreadsheet is.
-  return Object.fromEntries(Object.entries(fix).filter(([k]) => columns.has(k))
-    .map(([k, v]) => [k, (columns.get(k)!.kind === 'json' || columns.get(k)!.kind === 'list') && typeof v === 'string' ? readCell(columns.get(k)!, v).value : v]));
+  // way the spreadsheet is: one cleared on the review is an empty cell, so none, never null.
+  return Object.fromEntries(Object.entries(fix).filter(([k]) => columns.has(k)).map(([k, v]) => {
+    const column = columns.get(k)!;
+    const read = (column.kind === 'json' || column.kind === 'list') && (typeof v === 'string' || v == null);
+    return [k, read ? readCell(column, typeof v === 'string' ? v : '').value : v];
+  }));
 }
 
 function suggestionFor(c: Candidate, as: ImportTable): ImportReviewRow['suggestion'] {

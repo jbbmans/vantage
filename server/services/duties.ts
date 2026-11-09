@@ -98,9 +98,12 @@ export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[]): R
     .all(JSON.stringify(people)) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>).map((u) => [u.id, u]) : []);
   return rows.map((r) => {
     const type = types.get(String(r.duty_type_id));
-    const owner = names.get(String(r.user_id));
-    const recorder = r.recorded_by && r.recorded_by !== r.user_id ? names.get(String(r.recorded_by)) : undefined;
-    const reviewer = r.reviewed_by ? names.get(String(r.reviewed_by)) : undefined;
+    // The names are looked up once for the whole list, so a person on another row is in them: an anonymized row is
+    // given none of them, whoever else is on the list.
+    const hidden = anonymized(r);
+    const owner = hidden ? undefined : names.get(String(r.user_id));
+    const recorder = !hidden && r.recorded_by && r.recorded_by !== r.user_id ? names.get(String(r.recorded_by)) : undefined;
+    const reviewer = !hidden && r.reviewed_by ? names.get(String(r.reviewed_by)) : undefined;
     return {
       ...r,
       conditions: parseList(r.conditions),
