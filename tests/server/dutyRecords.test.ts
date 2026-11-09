@@ -822,3 +822,29 @@ test('a duty row’s conditions corrected on the review: cleared come in as none
   assert.equal(claimed.body.rows[0].outcome, 'update', JSON.stringify(claimed.body.rows[0]));
   assert.equal((await del(reyes.token, `/api/me/imports/${again.body.id}`)).status, 200);
 });
+
+test('an imported copy of a duty a leader recorded, once anonymized, says it was imported and names nobody', async () => {
+  const byDiaz = await post(diaz.token, '/api/records/duties', duty({ user_id: reyes.id, date: '2026-02-02', end_date: '2026-02-02', title: 'Relief watch' }));
+  assert.equal(byDiaz.status, 201, JSON.stringify(byDiaz.body));
+  const single = await get(reyes.token, `/api/records/duties/${byDiaz.body.id}/export?format=json`);
+  assert.equal(single.status, 200);
+  const doc = JSON.parse(single.text);
+  doc.record.id = 'dr-relief-copy'; doc.record.start_time = '0900'; doc.record.end_time = '1700';
+  const staged = await app.call('POST', '/api/me/imports', { token: reyes.token, raw: Buffer.from(JSON.stringify(doc)), headers: { 'content-type': 'application/json', 'x-filename': 'relief.json' } });
+  assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
+  assert.match(String(staged.body.rows[0].author), /Diaz/, JSON.stringify(staged.body.rows[0]));
+  const done = await post(reyes.token, `/api/me/imports/${staged.body.id}/commit`, { expected: { new: staged.body.counts.new, update: staged.body.counts.update } });
+  assert.equal(done.status, 200, JSON.stringify(done.body).slice(0, 300));
+  const copy = app.ctx.db.prepare("SELECT id FROM duties WHERE user_id = ? AND title = 'Relief watch' AND id <> ?").get(reyes.id, byDiaz.body.id) as { id: string };
+  assert.match(String((await get(reyes.token, `/api/records/duties/${copy.id}`)).body.imported?.author), /Diaz/, 'by whose word it came in');
+
+  saveSchedule(app.ctx, 'G8', { record_type: 'duties', retain_days: 30, disposition: 'anonymize', enabled: true }, op.id);
+  runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id });
+  for (const token of [reyes.token, nguyen.token]) {
+    const read = await get(token, `/api/records/duties/${copy.id}`);
+    assert.equal(read.status, 200, JSON.stringify(read.body).slice(0, 300));
+    assert.equal(read.body.title, REDACTED);
+    assert.ok(read.body.imported && read.body.imported.author === null, JSON.stringify(read.body.imported));
+    assert.ok(!JSON.stringify(read.body).includes('Diaz'), JSON.stringify(read.body));
+  }
+});

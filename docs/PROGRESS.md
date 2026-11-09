@@ -56,8 +56,9 @@ Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), m
   suspended instance counted as one served in. A fifth found two more, also fixed: a correction on the review that
   still did not read was dropped, so the row read as unchanged or gave the schema's words, where it now names the bad
   value at its field; and a unit report whose duty in the period was all anonymized showed an empty tally saying no
-  duty was stood, where it now shows none.
-- **Tests:** `tests/server/dutyRecords.test.ts` (20), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
+  duty was stood, where it now shows none. A sixth found one more, also fixed: an imported copy of a duty a leader
+  recorded still named that leader as its source once anonymized.
+- **Tests:** `tests/server/dutyRecords.test.ts` (21), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
   the record architecture, import and information architecture tests updated for duty's own store.
 - **Left to other Tasks:** approvals, approved points, overrides and duty permissions (18); duty swaps and
   availability; a duty dataset in the Custom report; demo duty.
