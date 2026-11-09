@@ -48,7 +48,8 @@ Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), m
   claims, reports a retired type at its Duty Type, and finds the type in the instance it moves to; and the Duty report
   about oneself gives each Unit Instance's own scoring. A third check found four gaps in those, also fixed: a sheet
   row naming a unit one does not serve in never searches that instance's types; the report shows only the scoring of
-  instances one serves in now, and none to someone who serves in none; and its workbook sheets name their instance.
+  instances one serves in now, and none to someone who serves in none; and another instance's workbook sheets name it. A last check found two more, also fixed: a row for a duty in an
+  instance one has left still searched that instance's types, and a suspended instance counted as one served in.
   An automated review then found four more, also fixed: a list holding an anonymized duty named its Marine when a later
   duty of theirs was on the same list, and so did the unit's Duty report and its by-Marine tally, and an export named its
   recorder and reviewer; and conditions cleared on an import's review blocked the row.

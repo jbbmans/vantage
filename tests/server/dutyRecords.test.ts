@@ -690,6 +690,12 @@ test('one’s own duty reported across two Unit Instances is read against each i
   assert.ok(tables.find((t) => t.id === 'versions_G1')!.rows.length >= 1);
   assert.deepEqual(['types_G1', 'versions_G1'].map((id) => tables.find((t) => t.id === id)!.title), ['Duty types (G1)', 'Scoring versions (G1)'], 'a workbook sheet says whose it is');
   assert.ok(report.body.notes.some((n: string) => /another Unit Instance you serve in/.test(n)));
+  // A suspended instance is not one Okafor serves in now, as the duty form says.
+  app.ctx.db.prepare("UPDATE organizations SET status = 'suspended' WHERE id = 'G1'").run();
+  const suspended = await get(okafor.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
+  app.ctx.db.prepare("UPDATE organizations SET status = 'active' WHERE id = 'G1'").run();
+  assert.equal(suspended.status, 200, JSON.stringify(suspended.body).slice(0, 300));
+  assert.deepEqual(suspended.body.sections.flatMap((x: { tables: Array<{ id: string }> }) => x.tables).filter((x: { id: string }) => /_G1$/.test(x.id)), []);
   // One Unit Instance: no instance column.
   const single = await get(reyes.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
   assert.ok(!single.body.sections.flatMap((s: { tables: Array<Record<string, any>> }) => s.tables).find((t: Record<string, any>) => t.id === 'stood').columns.some((c: { key: string }) => c.key === 'instance'));
@@ -700,6 +706,31 @@ test('one’s own duty reported across two Unit Instances is read against each i
   const at = '2026-05-01T00:00:00.000Z';
   app.ctx.db.prepare('INSERT INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)').run('dr-g1-later', 'G1', 'LATER', 'G-1 Later watch', 'Added after they left', at, at);
   okafor.token = await login('dutyokafor');
+  // A sheet row for their G-1 duty, frozen now, is matched to its own type alone: G-1's new type gets the answer a name
+  // nobody has gets, with the unit named or not, and on the review too. The row as it stands is still unchanged.
+  const frozen = app.ctx.db.prepare("SELECT id FROM duties WHERE user_id = ? AND unit_id = 'G1' AND title = 'Friday DNCO'").get(okafor.id) as { id: string };
+  const sheetRow = async (type: string, unit: string | null) => {
+    const csv = unit === null
+      ? `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title\n${frozen.id},${type},2026-04-24,0800,2026-04-24,1600,Friday DNCO\n`
+      : `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Unit ID\n${frozen.id},${type},2026-04-24,0800,2026-04-24,1600,Friday DNCO,${unit}\n`;
+    const staged = await upload(okafor.token, csv, 'my-duty.csv');
+    assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
+    return staged;
+  };
+  for (const unit of [null, 'G1', 'G8']) {
+    const later = await sheetRow('LATER', unit);
+    const nobody = await sheetRow('Nobody’s watch', unit);
+    assert.equal(later.body.rows[0].reason, nobody.body.rows[0].reason, `${unit}: ${JSON.stringify([later.body.rows[0], nobody.body.rows[0]])}`);
+    assert.match(later.body.rows[0].reason, /frozen/);
+    assert.ok(!JSON.stringify(later.body).includes('dr-g1-later'), 'no G-1 type id');
+    const fixed = await put(okafor.token, `/api/me/imports/${nobody.body.id}`, { rows: { [nobody.body.rows[0].ref]: { fix: { duty_type: 'G-1 Later watch' } } } });
+    assert.equal(fixed.body.rows[0].reason, nobody.body.rows[0].reason, JSON.stringify(fixed.body.rows[0]));
+    assert.ok(!JSON.stringify(fixed.body).includes('dr-g1-later'));
+    for (const s of [later, nobody]) await del(okafor.token, `/api/me/imports/${s.body.id}`);
+  }
+  const asItStands = await sheetRow('DNCO', 'G1');
+  assert.equal(asItStands.body.rows[0].outcome, 'unchanged', JSON.stringify(asItStands.body.rows[0]));
+  await del(okafor.token, `/api/me/imports/${asItStands.body.id}`);
   const left = await get(okafor.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
   assert.equal(left.status, 200, JSON.stringify(left.body).slice(0, 300));
   const leftTables = left.body.sections.flatMap((s: { tables: Array<Record<string, any>> }) => s.tables) as Array<Record<string, any>>;

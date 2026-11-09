@@ -126,8 +126,11 @@ audit, and Undo puts the activity back exactly as it was (`record_lineage`, `LIN
 
 A Duty sheet or CSV imports as duty. The duty type is matched by code or name among the importer's Unit Instance's
 types; one it does not find is a problem to correct on the review, never a guess. A row updating one's own duty finds
-its type in the instance of the unit the row moves it to, when that is a unit its owner serves in; a unit they do not
-serve in is never searched, so the row is refused for its unit and says nothing of another instance's types. Its conditions are compared as claims, so a sheet listing them
+its type in the instance of the unit the row moves it to, when that is a unit its owner serves in, else in its own
+unit's. Only an instance its owner serves in is ever searched, so a row says nothing of another instance's types: one
+naming a unit they do not serve in is refused for its unit, or for its Duty Type when the duty's own instance has no
+such type, and a duty its owner may no longer change (they left its unit) is matched to its own type alone, so the
+edit's refusal answers whatever the row names. Its conditions are compared as claims, so a sheet listing them
 in another order, or without the weekend and overnight its times give, changes nothing. Review status, reviewer, approved and
 calculated points, scoring version and length are never read from a file: they are worked out again or start as
 submitted. Duplicates are found on duty type, start day and start time. A duty always comes in shared with a unit, the
@@ -145,10 +148,12 @@ worked-out columns (Duty Hours, Duty Days, Review Status, Calculated Points, Sco
   points, version and status, by Marine where the reader may see figures by Marine, beside the types and scoring. About
   oneself or a Marine it lists what each version scores, as the form does; why a version changed, who published it and
   the versions withdrawn before they took effect are on the unit's report only, read with its shared records. A report
-  about oneself that holds duty stood in more than one Unit Instance names each duty's instance and gives the types and
-  versions of each instance the reader serves in now, named in each table's title as well, since a version number means
-  nothing outside its instance. Duty stood in an instance they have left keeps its type and the version it was scored
-  under, but that instance's configuration is its members'; someone who serves in no instance is shown none.
+  about oneself that holds duty stood outside the reader's own Unit Instance names each duty's instance and gives the
+  types and versions of each active instance the reader serves in now, each named in its headings; another instance's
+  tables also carry its short name in their titles, so a workbook's sheets say whose they are. A version number means
+  nothing outside its instance. Duty stood in an instance they have left, or one no longer active, keeps its type and
+  the version it was scored under, but that instance's configuration is its members'; someone who serves in no active
+  instance is shown none.
 - **Retention**: the clock starts at its end day; anonymizing clears title, location, notes and review reason, and keeps
   its type, times, length and score. Nothing names a person beside an anonymized duty again (`isAnonymizedDuty`): not a
   list, a Marine's page, an export or the unit's Duty report, whose totals count it and whose by-Marine tally leaves it

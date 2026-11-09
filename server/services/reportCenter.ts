@@ -698,7 +698,15 @@ const POLICY_STANDING = { in_force: 'In force', scheduled: 'Scheduled', supersed
 
 function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: ReportQuery, period: Period | null): Built {
   // The duty types and scoring of the Unit Instance the report is in: the reader's own, when it is about themselves.
-  const orgId = t.subject === 'self' ? primaryOrgOf(ctx, t.userId!)?.orgId ?? null : orgOfUnit(ctx, t.unitId);
+  // About themselves, an instance is theirs while they serve in one of its units and it is active, as the duty form
+  // offers it (scopeFor): their primary one, else another they serve in, else none (ADR-0023 §8).
+  const served = new Set(t.subject === 'self'
+    ? (ctx.db.prepare(`SELECT DISTINCT u.org_id FROM unit_members um JOIN units u ON u.id = um.unit_id
+                        WHERE um.user_id = ? AND u.active = 1 AND u.org_id IS NOT NULL
+                          AND COALESCE((SELECT o.status FROM organizations o WHERE o.id = u.org_id), 'active') = 'active'`).all(t.userId) as Array<{ org_id: string }>).map((r) => r.org_id)
+    : []);
+  const primary = t.subject === 'self' ? primaryOrgOf(ctx, t.userId!)?.orgId ?? null : null;
+  const orgId = t.subject === 'self' ? (primary && served.has(primary) ? primary : [...served].sort()[0] ?? null) : orgOfUnit(ctx, t.unitId);
   const asOf = asOfDay(ctx, user, q);
   const scoringOf = (org: string | null) => {
     const types = org ? listDutyTypes(ctx, org) : [];
@@ -734,11 +742,8 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   const otherOrgs = [...new Set([...instanceOf.values()].filter((o): o is string => Boolean(o) && o !== orgId))];
   const multi = otherOrgs.length > 0;
   // Another instance's types and scoring are shown only while the reader serves in it, as the duty form offers them.
-  // Duty stood in one they have left keeps its type and the version it was scored under; that instance's configuration
-  // is its members' (ADR-0023 §8). Someone who serves in no instance now is shown none.
-  const served = new Set(t.subject === 'self' && multi
-    ? (ctx.db.prepare('SELECT DISTINCT u.org_id FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 AND u.org_id IS NOT NULL').all(t.userId) as Array<{ org_id: string }>).map((r) => r.org_id)
-    : []);
+  // Duty stood in one they have left, or one no longer active, keeps its type and the version it was scored under; that
+  // instance's configuration is its members' (ADR-0023 §8). Someone who serves in no instance now is shown none.
   const shownOrgs = otherOrgs.filter((o) => served.has(o));
   const leftOrgs = otherOrgs.length - shownOrgs.length;
   const homeless = t.subject === 'self' && !orgId;

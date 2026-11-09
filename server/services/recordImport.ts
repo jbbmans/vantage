@@ -487,12 +487,18 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       const said = as === c.from && c.inferred?.length ? Object.fromEntries(Object.entries(record).filter(([k]) => !c.inferred!.includes(k))) : record;
       if (as === 'duties') {
         // Its type is one of the Unit Instance it will be in: the unit the row names, when it keeps placement and that
-        // is a unit its owner serves in, else where it is. A unit they do not serve in is never searched, so a row says
-        // nothing of another instance's types; the edit then refuses the move (ADR-0023 §4, §7).
-        const named = placementMode === 'keep' && typeof said.unit_id === 'string' && said.unit_id && canPlaceOwnDuty(scope, said.unit_id)
+        // is a unit its owner serves in, else where it is, which is one they serve in while they may change it. Only an
+        // instance they serve in is ever searched, so a row says nothing of another's types. A duty they may no longer
+        // change (they left its unit) is matched to its own type alone, and the edit's refusal answers whatever the row
+        // names (ADR-0023 §4, §7).
+        const refused = editRefusal(scope, user, mine);
+        const named = !refused && placementMode === 'keep' && typeof said.unit_id === 'string' && said.unit_id && canPlaceOwnDuty(scope, said.unit_id)
           && ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(said.unit_id) ? said.unit_id : null;
-        const typed = withDutyType(ctx, said, named ?? String(mine.unit_id));
-        if (typed.problem) { push('problem', { reason: typed.problem, fieldErrors: { duty_type: typed.problem }, include: false, toggle: false, duplicateOf: ref }); continue; }
+        const typed = withDutyType(ctx, said, named ?? String(mine.unit_id), refused ? String(mine.duty_type_id) : null);
+        if (typed.problem) {
+          push('problem', { reason: refused ?? typed.problem, ...(refused ? {} : { fieldErrors: { duty_type: typed.problem } }), include: false, toggle: false, duplicateOf: ref });
+          continue;
+        }
       }
       const outcome = updateOne(ctx, user, scope, as, mine, said, placementMode, reqKey, ip, state, c);
       push(outcome.outcome, outcome.extra);
@@ -678,15 +684,18 @@ function careerInput(body: Row) {
  * A duty row's type as one of the Unit Instance's it is recorded in: by the code or the name the file gives, else the id
  * a Vantage export gives when it is that instance's. Sets duty_type_id on the record, or says why it cannot.
  */
-function withDutyType(ctx: AppContext, record: Row, unitId: string | null): { problem: string | null } {
+/** `only`: the one type it may be, for a duty its owner may no longer change: its own. */
+function withDutyType(ctx: AppContext, record: Row, unitId: string | null, only: string | null = null): { problem: string | null } {
   const said = str(record.duty_type).trim();
   const fromId = str(record.duty_type_id).trim();
   const name = str(record.duty_type_name).trim();
   delete record.duty_type; delete record.duty_type_name;
   const org = orgOfUnit(ctx, unitId);
   if (!org) return { problem: 'Duty is recorded for a unit you serve in, and you serve in none here.' };
-  const find = (word: string) => (word ? ctx.db.prepare('SELECT id FROM duty_types WHERE org_id = ? AND (lower(code) = lower(?) OR lower(name) = lower(?)) ORDER BY active DESC, code = ? DESC LIMIT 1').get(org, word, word, word) as { id: string } | undefined : undefined);
-  const byId = fromId ? ctx.db.prepare('SELECT id FROM duty_types WHERE id = ? AND org_id = ?').get(fromId, org) as { id: string } | undefined : undefined;
+  const restrict = only ? ' AND id = ?' : '';
+  const just = only ? [only] : [];
+  const find = (word: string) => (word ? ctx.db.prepare(`SELECT id FROM duty_types WHERE org_id = ? AND (lower(code) = lower(?) OR lower(name) = lower(?))${restrict} ORDER BY active DESC, code = ? DESC LIMIT 1`).get(org, word, word, ...just, word) as { id: string } | undefined : undefined);
+  const byId = fromId ? ctx.db.prepare(`SELECT id FROM duty_types WHERE id = ? AND org_id = ?${restrict}`).get(fromId, org, ...just) as { id: string } | undefined : undefined;
   const hit = find(said) ?? byId ?? find(name);
   if (!hit) return { problem: said || name ? `“${(said || name).slice(0, 40)}” is not one of your unit’s duty types. Correct it to one of them, or ask a Unit Manager to add it.` : 'Duty Type: Required.' };
   record.duty_type_id = hit.id;
@@ -703,6 +712,10 @@ function insertOne(ctx: AppContext, user: SessionUser, table: ImportTable, body:
 const savepoint = <T>(ctx: AppContext, fn: () => T): T => ctx.db.transaction(fn)();
 
 /** A spreadsheet row with the Vantage ID of the person's own record: an update, of the columns the file has. */
+/** Why its owner may not change a record, as the edit itself answers, or null. */
+const editRefusal = (scope: Scope, user: SessionUser, current: Row) => (canEdit(scope, user.id, current as unknown as RecordRow) ? null
+  : current.frozen_at ? 'That record is frozen because you left its unit.' : 'That record is not yours to edit.');
+
 function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: ImportTable, current: Row, record: Row, mode: 'keep' | 'private', reqKey: object, ip: string | undefined, state: RunState, c: Candidate): { outcome: RowOutcome; extra: Partial<ImportReviewRow> } {
   const changes: Row = {};
   for (const [k, v] of Object.entries(record)) {
@@ -725,7 +738,8 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
   }
   const ref = { table, id: String(current.id), title: titleOf(table, current) };
   if (!Object.keys(changes).length) return { outcome: 'unchanged', extra: { reason: 'Its Vantage ID is your record, and the row says what it already says.', include: false, toggle: false, duplicateOf: ref } };
-  if (table !== 'career_steps' && !canEdit(scope, user.id, current as unknown as RecordRow)) return { outcome: 'problem', extra: { reason: current.frozen_at ? 'That record is frozen because you left its unit.' : 'That record is not yours to edit.', include: false, toggle: false, duplicateOf: ref } };
+  const refused = table === 'career_steps' ? null : editRefusal(scope, user, current);
+  if (refused) return { outcome: 'problem', extra: { reason: refused, include: false, toggle: false, duplicateOf: ref } };
   const stored = () => (ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(current.id) ?? {}) as Row;
   const was = stored();
   try {

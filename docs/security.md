@@ -105,7 +105,7 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   migration 031); moving an activity to Duty carries nobody else's comments or files across an instance, even
   from an activity in no unit. The form's options, and the Duty report about oneself or a Marine, give only
   the types of an instance the caller serves in and what its versions score, never who published them or why; an
-  import row naming a unit in another instance never searches that instance's types (ADR-0023).
+  import row searches only the duty types of an active instance its owner serves in now (ADR-0023).
   A configuration file never loads a scoring version that would reach back over duty already stood.
 - **Exports are audited and minimal.** The roster CSV carries names, ranks, units, billets and roles, never
   EDIPI, email or records (`organization_roster_exported`); a username made from a card, which is the
