@@ -49,8 +49,9 @@ Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), m
   about oneself gives each Unit Instance's own scoring. A third check found four gaps in those, also fixed: a sheet
   row naming a unit one does not serve in never searches that instance's types; the report shows only the scoring of
   instances one serves in now, and none to someone who serves in none; and its workbook sheets name their instance.
-  An automated review then found two more, also fixed: a list holding an anonymized duty named its Marine when a later
-  duty of theirs was on the same list, and conditions cleared on an import's review blocked the row.
+  An automated review then found three more, also fixed: a list holding an anonymized duty named its Marine when a later
+  duty of theirs was on the same list, and so did the unit's Duty report and its by-Marine tally; and conditions cleared
+  on an import's review blocked the row.
 - **Tests:** `tests/server/dutyRecords.test.ts` (20), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
   the record architecture, import and information architecture tests updated for duty's own store.
 - **Left to other Tasks:** approvals, approved points, overrides and duty permissions (18); duty swaps and

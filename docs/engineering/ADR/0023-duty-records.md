@@ -150,7 +150,8 @@ worked-out columns (Duty Hours, Duty Days, Review Status, Calculated Points, Sco
   nothing outside its instance. Duty stood in an instance they have left keeps its type and the version it was scored
   under, but that instance's configuration is its members'; someone who serves in no instance is shown none.
 - **Retention**: the clock starts at its end day; anonymizing clears title, location, notes and review reason, and keeps
-  its type, times, length and score. **Privacy inventory**: every column declared.
+  its type, times, length and score. Nothing names a person beside an anonymized duty again (`isAnonymizedDuty`): not a
+  list, a Marine's page or the unit's Duty report, whose totals count it and whose by-Marine tally leaves it out. **Privacy inventory**: every column declared.
 
 ## Decided, and defaults John can change
 

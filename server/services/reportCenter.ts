@@ -14,6 +14,7 @@ import { teamWorkload } from './record.ts';
 import { personnelRoster } from './personnelRecords.ts';
 import { listDutyTypes, listTrainingRequirements } from './unitConfig.ts';
 import { listScoringPolicies } from './dutyScoring.ts';
+import { isAnonymizedDuty } from './duties.ts';
 import { stageOf } from './cases.ts';
 import { comparisonWithChanges, overviewOf } from './errorReports.ts';
 import { withGoalProgress } from './records.ts';
@@ -719,11 +720,11 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   // unit record, so a report about yourself reads all of yours and one about a Marine or a unit reads what is in its units.
   const own = ownership(t, 'duties');
   const span = periodClause('duties', 't', period?.from, period?.to);
-  const stood = ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
+  const stood = ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
                                        t.calculated_points, t.approved_points, t.scoring_version
                                   FROM duties t WHERE ${own.sql} AND t.deleted_at IS NULL AND ${span.sql}
                                  ORDER BY t.date DESC, t.start_time DESC LIMIT ${SCAN_LIMIT}`).all(...own.params, ...span.params) as Array<{
-    id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; date: string; start_time: string; end_date: string; end_time: string; hours: number; days: number;
+    id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; location: string | null; notes: string | null; date: string; start_time: string; end_date: string; end_time: string; hours: number; days: number;
     approval_status: DutyStatus; calculated_points: number | null; approved_points: number | null; scoring_version: number | null;
   }>;
   const typeNames = new Map((ctx.db.prepare('SELECT id, name FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...new Set(stood.map((d) => d.duty_type_id))])) as Array<{ id: string; name: string }>).map((x) => [x.id, x.name]));
@@ -746,7 +747,10 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   /** A short name for a table title, which a workbook also names its sheet by. */
   const orgTags = new Map(orgRows.map((o) => [o.id, o.short_name || o.id]));
   const byMarine = t.subject === 'unit' && t.detail;
-  const marines = byMarine ? namesOf(ctx, stood.map((d) => d.user_id)) : new Map<string, string>();
+  // A duty a retention schedule anonymized counts in the unit's totals and names nobody, in the list or by Marine.
+  const named = stood.filter((d) => !isAnonymizedDuty(d));
+  const anonymous = stood.length - named.length;
+  const marines = byMarine ? namesOf(ctx, named.map((d) => d.user_id)) : new Map<string, string>();
   const hoursStood = r2(stood.reduce((n, d) => n + (Number(d.hours) || 0), 0));
   const calculated = r2(stood.reduce((n, d) => n + (Number(d.calculated_points) || 0), 0));
   const pending = stood.filter((d) => d.approval_status === 'pending').length;
@@ -761,14 +765,14 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
       { key: 'hours', label: 'Hours', kind: 'hours', width: 7 }, { key: 'points', label: 'Calculated points', kind: 'number', width: 8 },
       { key: 'version', label: 'Version', kind: 'number', width: 6 }, { key: 'status', label: 'Status', width: 9 },
     ] as ReportColumn[], stood.map((d) => ({
-      marine: marines.get(d.user_id) || null, ...(multi ? { instance: orgNames.get(instanceOf.get(d.unit_id) ?? '') ?? null } : {}), type: typeNames.get(d.duty_type_id) || null, title: d.title, start: d.date, end: d.end_date,
+      marine: isAnonymizedDuty(d) ? null : marines.get(d.user_id) || null, ...(multi ? { instance: orgNames.get(instanceOf.get(d.unit_id) ?? '') ?? null } : {}), type: typeNames.get(d.duty_type_id) || null, title: d.title, start: d.date, end: d.end_date,
       hours: Number(d.hours), points: d.calculated_points, version: d.scoring_version, status: DUTY_STATUS_LABELS[d.approval_status] || words(d.approval_status),
     })), 'No duty is recorded in the period.')],
   };
   const tallies: ReportSection[] = [];
   if (byMarine && stood.length) {
     const per = new Map<string, { count: number; hours: number; points: number }>();
-    for (const d of stood) { const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0 }; p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0; per.set(d.user_id, p); }
+    for (const d of named) { const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0 }; p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0; per.set(d.user_id, p); }
     tallies.push({
       id: 'by_marine', heading: 'By Marine',
       tables: [table('by_marine', 'Duty by Marine', [
@@ -831,6 +835,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
       ...(multi && !homeless ? ['The duty types in use, Scored, Version in force and Since are your own instance’s.'] : []),
       ...(homeless ? ['You serve in no Unit Instance now, so no instance’s duty types or scoring are shown.'] : []),
       ...(t.subject === 'unit' && !t.detail ? [NO_DETAIL] : []),
+      ...(byMarine && anonymous ? [`${anonymous === 1 ? 'One duty' : `${anonymous} duties`} a retention schedule anonymized ${anonymous === 1 ? 'counts' : 'count'} in the totals and ${anonymous === 1 ? 'names' : 'name'} nobody.`] : []),
     ],
     filters: [{ label: 'Scoring standing on', value: formatDTG(asOf) }],
   };

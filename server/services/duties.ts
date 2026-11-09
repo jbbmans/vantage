@@ -83,6 +83,12 @@ const label = (r: { abbr: string | null; last_name: string; first_name?: string 
 const parsedBasis = (v: unknown) => { try { return typeof v === 'string' ? JSON.parse(v) : v ?? null; } catch { return null; } };
 
 /**
+ * A duty a retention schedule anonymized: its words are gone, and nothing puts a person's name back beside it, on a
+ * list, a Marine's page or a report. Its type, times, length and score still count in a unit's totals (ADR-0023).
+ */
+export const isAnonymizedDuty = (r: { title?: unknown; notes?: unknown; location?: unknown }) => r.notes === REDACTED || r.title === REDACTED || r.location === REDACTED;
+
+/**
  * What a duty list shows beside each row: its type's name and code, its conditions and scoring basis read back, and
  * the people on it by name for anyone who may read it: whom it is for (to anyone but them), who recorded it (when not
  * its Marine), and who reviewed it. No names on a duty a retention schedule anonymized, where a name would put back what
@@ -92,7 +98,7 @@ export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[]): R
   if (!rows.length) return rows;
   const typeIds = [...new Set(rows.map((r) => String(r.duty_type_id)))];
   const types = new Map((ctx.db.prepare('SELECT id, code, name, active FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(typeIds)) as Array<{ id: string; code: string; name: string; active: number }>).map((t) => [t.id, t]));
-  const anonymized = (r: Row) => r.notes === REDACTED || r.title === REDACTED || r.location === REDACTED;
+  const anonymized = isAnonymizedDuty;
   const people = [...new Set(rows.flatMap((r) => (anonymized(r) ? [] : [r.user_id, r.recorded_by, r.reviewed_by])).filter((id): id is string => typeof id === 'string' && id !== viewerId))];
   const names = new Map(people.length ? (ctx.db.prepare('SELECT u.id, u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (SELECT value FROM json_each(?))')
     .all(JSON.stringify(people)) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>).map((u) => [u.id, u]) : []);

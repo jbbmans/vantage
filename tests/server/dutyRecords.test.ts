@@ -491,6 +491,19 @@ test('duty on the timeline, the personnel record, the Duty report, and in retent
   const listed = new Map((page.body.duties as Array<Record<string, any>>).map((d) => [d.id, d]));
   assert.match(String(listed.get(later.id)?.subject_name), /^Cpl Reyes/, JSON.stringify(listed.get(later.id)));
   assert.ok(listed.has(target.id) && !('subject_name' in listed.get(target.id)!), JSON.stringify(listed.get(target.id)));
+  // Nor in the unit's report: it counts in the totals, and in no Marine's.
+  const byUnit = await get(op.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'unit', unit_id: 'G8', period: 'all' })}`);
+  assert.equal(byUnit.status, 200, JSON.stringify(byUnit.body).slice(0, 300));
+  const unitTables = tablesOf(byUnit.body);
+  const rows = unitTables.find((t) => t.id === 'stood')!.rows as Array<Record<string, any>>;
+  assert.ok(unitTables.find((t) => t.id === 'stood')!.columns.some((c: { key: string }) => c.key === 'marine'), 'the report names Marines');
+  const hidden = rows.filter((r) => r.title === REDACTED);
+  assert.ok(hidden.length >= 1 && hidden.every((r) => r.marine === null), JSON.stringify(hidden));
+  assert.ok(rows.some((r) => r.title === 'Later DNCO' && /^Cpl Reyes/.test(String(r.marine))));
+  assert.equal(byUnit.body.summary.find((f: { label: string }) => f.label === 'Duty stood').value, rows.length, 'counted in the totals');
+  const tally = unitTables.find((t) => t.id === 'by_marine')!.rows as Array<{ count: number }>;
+  assert.equal(tally.reduce((n, r) => n + r.count, 0), rows.length - hidden.length, 'in no Marine’s tally');
+  assert.ok(byUnit.body.notes.some((n: string) => /anonymized/.test(n)));
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
