@@ -83,8 +83,8 @@ const label = (r: { abbr: string | null; last_name: string; first_name?: string 
 const parsedBasis = (v: unknown) => { try { return typeof v === 'string' ? JSON.parse(v) : v ?? null; } catch { return null; } };
 
 /**
- * A duty a retention schedule anonymized: its words are gone, and nothing puts a person's name back beside it, on a
- * list, a Marine's page or a report. Its type, times, length and score still count in a unit's totals (ADR-0023).
+ * A duty a retention schedule anonymized: its words are gone, and its row names no one on a list, a Marine's page, an
+ * export or the unit's Duty report. Its type, times, length and score still count in a unit's totals (ADR-0023 §8).
  */
 export const isAnonymizedDuty = (r: { title?: unknown; notes?: unknown; location?: unknown }) => r.notes === REDACTED || r.title === REDACTED || r.location === REDACTED;
 

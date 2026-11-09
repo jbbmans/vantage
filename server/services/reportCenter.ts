@@ -775,7 +775,9 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
     })), 'No duty is recorded in the period.')],
   };
   const tallies: ReportSection[] = [];
-  if (byMarine && stood.length) {
+  // A duty a retention schedule anonymized is in no Marine's tally, so a period of nothing else has none to show: the
+  // note says why the totals hold more than the tally.
+  if (byMarine && named.length) {
     const per = new Map<string, { count: number; hours: number; points: number }>();
     for (const d of named) { const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0 }; p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0; per.set(d.user_id, p); }
     tallies.push({

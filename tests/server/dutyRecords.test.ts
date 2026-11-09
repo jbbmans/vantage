@@ -504,6 +504,16 @@ test('duty on the timeline, the personnel record, the Duty report, and in retent
   const tally = unitTables.find((t) => t.id === 'by_marine')!.rows as Array<{ count: number }>;
   assert.equal(tally.reduce((n, r) => n + r.count, 0), rows.length - hidden.length, 'in no Marine’s tally');
   assert.ok(byUnit.body.notes.some((n: string) => /anonymized/.test(n)));
+  // A period of nothing else has no tally to show, rather than one that says no duty was stood beside totals that count it.
+  const day = String(target.date);
+  const thatDay = app.ctx.db.prepare("SELECT title, notes, location FROM duties WHERE unit_id = 'G8' AND deleted_at IS NULL AND date <= ? AND end_date >= ?").all(day, day) as Array<Record<string, unknown>>;
+  assert.ok(thatDay.length >= 1 && thatDay.every((d) => d.title === REDACTED), JSON.stringify(thatDay));
+  const onlyHidden = await get(op.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'unit', unit_id: 'G8', period: 'all', from: day, to: day })}`);
+  assert.equal(onlyHidden.status, 200, JSON.stringify(onlyHidden.body).slice(0, 300));
+  assert.equal(onlyHidden.body.summary.find((f: { label: string }) => f.label === 'Duty stood').value, thatDay.length);
+  assert.ok(!tablesOf(onlyHidden.body).some((t) => t.id === 'by_marine'), JSON.stringify(tablesOf(onlyHidden.body).map((t) => t.id)));
+  assert.ok(tablesOf(onlyHidden.body).every((t) => t.empty !== 'No duty is recorded in the period.' || t.rows.length), 'no table says no duty was stood');
+  assert.ok(onlyHidden.body.notes.some((n: string) => /anonymized/.test(n)));
   // Nor in a file: the duty Diaz recorded for Reyes, anonymized, names no recorder in Reyes's export or its own.
   const relief = app.ctx.db.prepare('SELECT id, title FROM duties WHERE user_id = ? AND recorded_by = ? AND deleted_at IS NULL').get(reyes.id, diaz.id) as { id: string; title: string };
   assert.equal(relief.title, REDACTED);
@@ -774,16 +784,41 @@ test('undoing an import never puts one’s own duty back in a unit one no longer
   assert.equal((await put(diaz.token, `/api/records/duties/${d.id}`, { title: 'Section DNCO, corrected' })).status, 200);
 });
 
-test('a duty row’s conditions cleared on the review come in as none', async () => {
+test('a duty row’s conditions corrected on the review: cleared come in as none, and one that still does not read is said at its field', async () => {
   const staged = await upload(reyes.token, 'Duty Type,Start Date,Start Time,End Date,End Time,Title,Conditions\nDNCO,2026-05-04,0800,2026-05-04,1600,Monday DNCO,Moonlight\n', 'my-duty.csv');
   assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 300));
   const row = staged.body.rows[0];
   assert.equal(row.outcome, 'problem', JSON.stringify(row));
-  const cleared = await put(reyes.token, `/api/me/imports/${staged.body.id}`, { rows: { [row.ref]: { fix: { conditions: null } } } });
+  const fix = (id: string, ref: string, conditions: unknown) => put(reyes.token, `/api/me/imports/${id}`, { rows: { [ref]: { fix: { conditions } } } });
+  // A correction that still does not read is said as the cell was, at its field, so the row keeps its Fix.
+  for (const wrong of ['Moonlight', 'Holiday; Moonlight', ['bogus']]) {
+    const res = await fix(staged.body.id, row.ref, wrong);
+    assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 300));
+    const r = res.body.rows[0];
+    assert.equal(r.outcome, 'problem', `${JSON.stringify(wrong)}: ${JSON.stringify(r)}`);
+    assert.match(String(r.reason), /^Conditions: “(Moonlight|bogus)” is not one of: /, JSON.stringify(r));
+    assert.ok(r.fieldErrors?.conditions, JSON.stringify(r));
+  }
+  const holiday = await fix(staged.body.id, row.ref, 'holiday');
+  assert.equal(holiday.body.rows[0].outcome, 'new', JSON.stringify(holiday.body.rows[0]));
+  assert.deepEqual(holiday.body.rows[0].fields.conditions, ['holiday']);
+  const cleared = await fix(staged.body.id, row.ref, null);
   assert.equal(cleared.status, 200, JSON.stringify(cleared.body).slice(0, 300));
   assert.equal(cleared.body.rows[0].outcome, 'new', JSON.stringify(cleared.body.rows[0]));
   const done = await post(reyes.token, `/api/me/imports/${staged.body.id}/commit`, { expected: { new: 1, update: 0 } });
   assert.equal(done.status, 200, JSON.stringify(done.body).slice(0, 300));
-  const made = app.ctx.db.prepare("SELECT conditions FROM duties WHERE user_id = ? AND title = 'Monday DNCO'").get(reyes.id) as { conditions: string };
+  const made = app.ctx.db.prepare("SELECT id, conditions FROM duties WHERE user_id = ? AND title = 'Monday DNCO'").get(reyes.id) as { id: string; conditions: string };
   assert.deepEqual(JSON.parse(made.conditions), []);
+
+  // On a row updating it, the same: never taken as saying what the duty already says.
+  const again = await upload(reyes.token, `Vantage ID,Duty Type,Start Date,Start Time,End Date,End Time,Title,Conditions\n${made.id},DNCO,2026-05-04,0800,2026-05-04,1600,Monday DNCO,Moonlight\n`, 'my-duty-again.csv');
+  assert.equal(again.status, 201, JSON.stringify(again.body).slice(0, 300));
+  const update = again.body.rows[0];
+  assert.equal(update.outcome, 'problem', JSON.stringify(update));
+  const still = await fix(again.body.id, update.ref, 'Moonlight');
+  assert.equal(still.body.rows[0].outcome, 'problem', JSON.stringify(still.body.rows[0]));
+  assert.match(String(still.body.rows[0].reason), /^Conditions: “Moonlight” is not one of: /);
+  const claimed = await fix(again.body.id, update.ref, 'Holiday');
+  assert.equal(claimed.body.rows[0].outcome, 'update', JSON.stringify(claimed.body.rows[0]));
+  assert.equal((await del(reyes.token, `/api/me/imports/${again.body.id}`)).status, 200);
 });

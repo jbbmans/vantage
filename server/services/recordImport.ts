@@ -461,7 +461,8 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
     const choice = choices[c.ref] ?? {};
     const as = targetOf(c, choices);
     let record = convert(c, as);
-    if (choice.fix) record = { ...record, ...sanitizeFix(as, choice.fix) };
+    const correction = choice.fix ? sanitizeFix(as, choice.fix) : null;
+    if (correction) record = { ...record, ...correction.values };
     for (const k of NEVER_FROM_FILE) delete record[k];
     if (as === 'duties') for (const k of DUTY_FROM_SERVER) delete record[k];
     // A link to a project is kept only to the project this import brings in (or finds here) for it.
@@ -473,6 +474,7 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
     };
     const push = (outcome: RowOutcome, extra: Partial<ImportReviewRow> = {}) => { state.rows.push({ ...base, outcome, ...extra }); };
     const fixed = Boolean(choice.fix && Object.keys(choice.fix).length) || Boolean(choice.as && choice.as !== c.from);
+    if (correction?.problem) { push('problem', { reason: correction.problem, fieldErrors: correction.fieldErrors, include: false, toggle: false }); continue; }
     if (c.problem && !fixed) { push('problem', { reason: c.problem, fieldErrors: c.fieldErrors, include: false, toggle: false }); continue; }
 
     // Already here: a Vantage export's record is never overwritten; a spreadsheet's Vantage ID updates the person's own.
@@ -576,18 +578,31 @@ function convert(c: Candidate, as: ImportTable): Row {
   return { ...named, visibility: c.record.visibility, unit_id: c.record.unit_id };
 }
 
-/** A correction, kept to the fields of the record type it goes into. */
-function sanitizeFix(as: ImportTable, fix: Record<string, unknown>): Row {
+/**
+ * A correction, kept to the fields of the record type it goes into, and what in it still does not read, said as a
+ * spreadsheet cell that does not read is.
+ */
+function sanitizeFix(as: ImportTable, fix: Record<string, unknown>): { values: Row; problem: string | null; fieldErrors: Record<string, string> } {
   const columns = new Map(RECORD_COLUMNS[as].map((c) => [c.key, c]));
   for (const k of NEVER_FROM_FILE) columns.delete(k);
   for (const c of columns.values()) if (c.exportOnly) columns.delete(c.key);
+  const values: Row = {};
+  const fieldErrors: Record<string, string> = {};
   // A set of pairs (a goal's filters) or a list (a duty's conditions) is typed as the spreadsheet holds it, and read the
-  // way the spreadsheet is: one cleared on the review is an empty cell, so none, never null.
-  return Object.fromEntries(Object.entries(fix).filter(([k]) => columns.has(k)).map(([k, v]) => {
-    const column = columns.get(k)!;
-    const read = (column.kind === 'json' || column.kind === 'list') && (typeof v === 'string' || v == null);
-    return [k, read ? readCell(column, typeof v === 'string' ? v : '').value : v];
-  }));
+  // way the spreadsheet is: one cleared on the review is an empty cell, so none, never null, and one that still does not
+  // read is said at its field, so the row keeps its Fix.
+  for (const [k, v] of Object.entries(fix)) {
+    const column = columns.get(k);
+    if (!column) continue;
+    const listed = column.kind === 'list' && Array.isArray(v);
+    const read = listed || ((column.kind === 'json' || column.kind === 'list') && (typeof v === 'string' || v == null));
+    if (!read) { values[k] = v; continue; }
+    const cell = readCell(column, listed ? (v as unknown[]).map(String).join('; ') : typeof v === 'string' ? v.trim() : '');
+    values[k] = cell.value;
+    if (cell.error) fieldErrors[k] = cell.error;
+  }
+  const first = Object.entries(fieldErrors)[0];
+  return { values, problem: first ? `${columns.get(first[0])!.header}: ${first[1]}` : null, fieldErrors };
 }
 
 function suggestionFor(c: Candidate, as: ImportTable): ImportReviewRow['suggestion'] {
@@ -683,8 +698,8 @@ function careerInput(body: Row) {
 /**
  * A duty row's type as one of the Unit Instance's it is recorded in: by the code or the name the file gives, else the id
  * a Vantage export gives when it is that instance's. Sets duty_type_id on the record, or says why it cannot.
+ * @param only The one type it may be, for a duty its owner may no longer change: its own.
  */
-/** `only`: the one type it may be, for a duty its owner may no longer change: its own. */
 function withDutyType(ctx: AppContext, record: Row, unitId: string | null, only: string | null = null): { problem: string | null } {
   const said = str(record.duty_type).trim();
   const fromId = str(record.duty_type_id).trim();
@@ -711,11 +726,11 @@ function insertOne(ctx: AppContext, user: SessionUser, table: ImportTable, body:
 /** Run fn in its own savepoint: a refusal undoes only what fn wrote, and the import carries on to the next row. */
 const savepoint = <T>(ctx: AppContext, fn: () => T): T => ctx.db.transaction(fn)();
 
-/** A spreadsheet row with the Vantage ID of the person's own record: an update, of the columns the file has. */
 /** Why its owner may not change a record, as the edit itself answers, or null. */
 const editRefusal = (scope: Scope, user: SessionUser, current: Row) => (canEdit(scope, user.id, current as unknown as RecordRow) ? null
   : current.frozen_at ? 'That record is frozen because you left its unit.' : 'That record is not yours to edit.');
 
+/** A spreadsheet row with the Vantage ID of the person's own record: an update, of the columns the file has. */
 function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: ImportTable, current: Row, record: Row, mode: 'keep' | 'private', reqKey: object, ip: string | undefined, state: RunState, c: Candidate): { outcome: RowOutcome; extra: Partial<ImportReviewRow> } {
   const changes: Row = {};
   for (const [k, v] of Object.entries(record)) {
