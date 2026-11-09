@@ -10,7 +10,7 @@ import { withSudo } from '@/components/SudoDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import { Table, useParam } from '@/components/common';
-import { keys, invalidateDomains, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
+import { keys, invalidateImported, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
@@ -261,7 +261,7 @@ function DataTab() {
   const csvOk = sections.length === 1 && (Boolean(categoryOf(sections[0])?.table) || sections[0] === 'profile');
   const chosenFormat = format === 'csv' && !csvOk ? 'xlsx' : format;
   const undo = async (i: ImportSummary) => {
-    try { await api.undoRecordImport(i.id); invalidateDomains(qc, 'activity', 'training', 'award', 'counseling', 'goal', 'task', 'project', 'career'); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: ['record-imports'] }); toast.success('Import undone.'); }
+    try { await api.undoRecordImport(i.id); invalidateImported(qc); toast.success('Import undone.'); }
     catch (e) { toast.error(api.errorText(e)); }
   };
   const recent = (imports?.imports ?? []).filter((i) => i.status === 'imported' || i.status === 'undone').slice(0, 8);

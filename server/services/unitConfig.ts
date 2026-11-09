@@ -2,7 +2,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { badRequest, conflict, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { listScoringPolicies, scoringOverview } from './dutyScoring.ts';
+import { listScoringPolicies, scoringOverview, scoringToday } from './dutyScoring.ts';
 import { scoringPolicyProblems, type ScoringBand, type ScoringCombine, type ScoringMethod, type ScoringMultiplier } from '../../shared/dutyScoring.ts';
 import { getOrg, orgSettings } from './organizations.ts';
 import { VERSION } from '../version.ts';
@@ -499,7 +499,13 @@ export function planConfigurationImport(ctx: AppContext, orgId: string, file: Un
   const scoring = [...(file.scoringPolicies ?? [])].sort((a, b) => a.version - b.version);
   if (scoring.length) {
     const own = (ctx.db.prepare('SELECT COUNT(*) AS n FROM duty_scoring_policies WHERE org_id = ?').get(orgId) as { n: number }).n;
-    const problem = own ? 'this Unit Instance keeps its own scoring versions' : scoringVersionsProblem(scoring);
+    // Duty already stood here was scored under no version; one taking effect on or before today would reach back over
+    // it, so that the version in force on a duty's first day would change after it was stood (ADR-0023 §3).
+    const stood = !own && Boolean(ctx.db.prepare('SELECT 1 FROM duties d JOIN units u ON u.id = d.unit_id WHERE u.org_id = ? LIMIT 1').get(orgId));
+    const today = scoringToday(ctx);
+    const problem = own ? 'this Unit Instance keeps its own scoring versions'
+      : stood && scoring.some((p) => !p.withdrawn_at && p.effective_from <= today) ? 'this Unit Instance already holds duty, and a version taking effect by today would reach back over it; publish versions in the console instead'
+        : scoringVersionsProblem(scoring);
     for (const p of scoring) lines.push({ kind: 'scoring_policy', label: `Duty scoring version ${p.version} from ${p.effective_from}${p.withdrawn_at ? ' (withdrawn)' : ''}`, outcome: problem ? 'skip' : 'add', ...(problem ? { reason: problem } : {}) });
   }
 

@@ -240,7 +240,8 @@ It shows configuration only: no secret, no host name and nothing about another U
   to fit; now it is refused.
 - `orgMembers` takes a limit: 500 for a page as before, none for the roster.
 - **Not done here, by design:**
-  - recording duty, swaps and availability (Task 17);
+  - recording duty, swaps and availability (Task 17; recording is done in ADR-0023, swaps and availability are not in
+    the specification's Task 17 and stay open);
   - approvals, point overrides, fairness, and reports on points (Task 18);
   - training compliance (Task 19);
   - per-unit settings below the instance: each setting is the whole instance's;

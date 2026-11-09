@@ -7,6 +7,18 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-09',
+    title: 'Duty has a record of its own',
+    items: [
+      'Records → Duty records each duty you stood: its duty type, unit, location, and when it began and ended, to the minute. Vantage works out its hours, duty days, overnight and weekend, and the points your Unit Instance’s scoring gives it, before you save.',
+      'Each duty keeps the scoring version in force on its first day. A later version never changes the points of duty already recorded.',
+      'Duty is submitted for review and counts once a reviewer approves it. Once approved or rejected it stays as it was decided.',
+      'A leader who counsels a Marine records duty for them from the Marine’s page; the Marine is told, and only the leader or a records manager changes it.',
+      'An activity you once logged as duty is offered on the Duty page to record as duty, with its type and times. Nothing moves unless you choose it, and the move can be undone.',
+      'Duty imports and exports with your records, and the Duty report lists the duty stood in a period with its hours and points.',
+    ],
+  },
+  {
     date: '2026-11-02',
     title: 'Every case diagnosed, every source shown',
     items: [

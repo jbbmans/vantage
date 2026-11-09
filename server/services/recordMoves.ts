@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
-import { MOVABLE_LABELS, MOVABLE_TABLES, isDrawnFromWork, isMovableTable, kindText, movedFields, recordKindOf, type KindReading, type MovableTable } from '../../shared/recordKinds.ts';
-import { orgOfUnit, scopeFor } from '../authz/scope.ts';
-import { assertFileableProject, canPlace, recordedByOther, type RecordRow } from '../authz/records.ts';
-import { TABLES, activityFingerprint, checkTimeframe, getRecord, readableRecord } from './records.ts';
+import {
+  LINEAGE_LABELS, MOVABLE_TABLES, isDrawnFromWork, isLineageTable, isMovableTable, kindText, movedFields, recordKindOf,
+  type KindReading, type LineageTable, type MovableTable,
+} from '../../shared/recordKinds.ts';
+import { dutyFromActivity, isDecidedDuty } from '../../shared/duty.ts';
+import { orgOfUnit, sameInstance, scopeFor } from '../authz/scope.ts';
+import { assertFileableProject, canPlace, canPlaceOwnDuty, recordedByOther, type RecordRow } from '../authz/records.ts';
+import { TABLES, activityFingerprint, assertCarriesNothingAcross, checkTimeframe, getRecord, mayLeaveInstance, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
+import { dutyColumns, dutyCandidates } from './duties.ts';
 import { audit } from './audit.ts';
 import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
@@ -20,7 +25,7 @@ import { newId, now } from '../lib/ids.ts';
  */
 
 type Row = RecordRow & Record<string, unknown>;
-interface LineageRow { seq: number; id: string; user_id: string; unit_id: string | null; from_table: MovableTable; from_id: string; to_table: MovableTable; to_id: string; snapshot: string; method: 'move' | 'undo'; reason: string | null; moved_by: string; at: string; kept_for_hold_at: string | null }
+interface LineageRow { seq: number; id: string; user_id: string; unit_id: string | null; from_table: LineageTable; from_id: string; to_table: LineageTable; to_id: string; snapshot: string; method: 'move' | 'undo'; reason: string | null; moved_by: string; at: string; kept_for_hold_at: string | null }
 
 export interface MoveProblem { code: string; message: string }
 
@@ -35,7 +40,7 @@ const holdsFor = (ctx: AppContext, row: Row) => holdState(ctx, orgOfUnit(ctx, ro
  * theirs alone: not one drawn from a financial case, not one frozen when a membership ended, not one a legal hold covers,
  * and not an award a leader recorded for them.
  */
-export function moveProblem(ctx: AppContext, userId: string, table: MovableTable, row: Row, holds: HoldState = holdsFor(ctx, row)): MoveProblem | null {
+export function moveProblem(ctx: AppContext, userId: string, table: LineageTable, row: Row, holds: HoldState = holdsFor(ctx, row)): MoveProblem | null {
   if (row.user_id !== userId) return { code: 'owner_only', message: 'Only the Marine an entry belongs to can move it to another record type.' };
   if (row.deleted_at) return { code: 'deleted', message: 'Restore this entry from the recycle bin before moving it.' };
   if (row.frozen_at) return { code: 'frozen', message: 'This entry was frozen when its unit membership ended, so it stays as it is.' };
@@ -43,19 +48,21 @@ export function moveProblem(ctx: AppContext, userId: string, table: MovableTable
     return { code: 'drawn_from_work', message: 'This entry was drawn from a financial case and stays tied to that case.' };
   }
   if (table === 'awards' && recordedByOther(row)) return { code: 'recorded_by_other', message: 'A leader recorded this award for you, so it stays an award. Ask them if it needs correcting.' };
+  if (table === 'duties' && recordedByOther(row)) return { code: 'recorded_by_other', message: 'A leader recorded this duty for you, so it stays duty. Ask them if it needs correcting.' };
+  if (table === 'duties' && isDecidedDuty(row.approval_status)) return { code: 'duty_decided', message: 'This duty has been reviewed, so it stays as it was decided.' };
   if (holds.instance || holds.types.has(table) || holds.users.has(row.user_id)) return { code: 'legal_hold', message: 'A legal hold covers this entry, so it stays where it is until the hold is released.' };
   return null;
 }
 
 const moveBody = z.object({
-  to: z.enum(MOVABLE_TABLES),
+  to: z.enum([...MOVABLE_TABLES, 'duties']),
   /** The person's corrections to what the entry becomes, such as an award's type or a course's hours. */
   fields: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().trim().max(500).nullish(),
   version: z.number().int().optional(),
 });
 
-const rawRow = (ctx: AppContext, table: MovableTable, id: string) => ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown>;
+const rawRow = (ctx: AppContext, table: LineageTable, id: string) => ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown>;
 const columnsOf = (ctx: AppContext, table: string) => (ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
 const requiredOf = (ctx: AppContext, table: string) =>
   new Set((ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; notnull: number }>).filter((c) => c.notnull).map((c) => c.name));
@@ -64,7 +71,7 @@ const requiredOf = (ctx: AppContext, table: string) =>
 // projects the person may file under, and a value type is checked against the instance's own when the entry is edited.
 const NOT_CORRECTED = new Set(['project_id', 'dollar_type']);
 
-function insertRow(ctx: AppContext, table: MovableTable, row: Record<string, unknown>) {
+function insertRow(ctx: AppContext, table: LineageTable, row: Record<string, unknown>) {
   const cols = Object.keys(row);
   try {
     ctx.db.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map((c) => row[c]));
@@ -78,7 +85,7 @@ function insertRow(ctx: AppContext, table: MovableTable, row: Record<string, unk
  * Files and comments go where the entry goes, whoever added them, kept or in the bin. A file the entry already holds there
  * (the same file added twice, once on each side of a move) is binned rather than doubled.
  */
-function carry(ctx: AppContext, from: MovableTable, fromId: string, to: MovableTable, toId: string) {
+function carry(ctx: AppContext, from: LineageTable, fromId: string, to: LineageTable, toId: string) {
   ctx.db.prepare(`UPDATE attachments SET deleted_at = ? WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL
                      AND sha256 IN (SELECT sha256 FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL)`).run(now(), from, fromId, to, toId);
   ctx.db.prepare('UPDATE attachments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
@@ -93,14 +100,20 @@ function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq' | 'kept_
   return id;
 }
 
-function auditMove(ctx: AppContext, undone: boolean, actorId: string, unitId: string | null, from: MovableTable, fromId: string, to: MovableTable, toId: string, ip?: string) {
+function auditMove(ctx: AppContext, undone: boolean, actorId: string, unitId: string | null, from: LineageTable, fromId: string, to: LineageTable, toId: string, ip?: string) {
   // Each end names the other, so the trail of either id says where the entry went or came from.
   audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: from, entity_id: fromId, unit_id: unitId, detail: `to ${to} ${toId}`, ip });
   audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: to, entity_id: toId, unit_id: unitId, detail: `from ${from} ${fromId}`, ip });
 }
 
 function movable(table: string): MovableTable {
-  if (!isMovableTable(table)) throw notFound('Only activities, awards and training move between record types.');
+  if (!isMovableTable(table)) throw notFound(table === 'duties' ? 'Duty moves back to Activities only by undoing the move that brought it.' : 'Only activities, awards and training move between record types.');
+  return table;
+}
+
+/** A record type whose entries have a move history: the movable ones, and duty. */
+function inLineage(table: string): LineageTable {
+  if (!isLineageTable(table)) throw notFound('Only activities, awards, training and duty have a move history.');
   return table;
 }
 
@@ -109,7 +122,11 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
   const from = movable(table);
   const input = parse(moveBody, body);
   const to = input.to;
-  if (to === from) throw badRequest(`It is already in ${MOVABLE_LABELS[to].place}.`);
+  if (to === from) throw badRequest(`It is already in ${LINEAGE_LABELS[to].place}.`);
+  if (to === 'duties') {
+    if (from !== 'activities') throw badRequest('Only an activity moves to Duty.');
+    return moveToDuty(ctx, user, id, input, reqKey, ip);
+  }
   // Found and refused as an open would be: nobody learns more about an entry by trying to move it than by opening it.
   const row = readableRecord(ctx, user, from, id, reqKey) as Row;
   const problem = moveProblem(ctx, user.id, from, row);
@@ -149,7 +166,7 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
 }
 
 /** Every move in an entry's history, newest first: a chain of moves and undos ends in this one record. */
-function lineageOf(ctx: AppContext, table: MovableTable, id: string): LineageRow[] {
+function lineageOf(ctx: AppContext, table: LineageTable, id: string): LineageRow[] {
   const linked = ctx.db.prepare('SELECT rowid AS seq, * FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
   const found = new Map<string, LineageRow>();
   const seen = new Set<string>();
@@ -173,7 +190,7 @@ function lineageOf(ctx: AppContext, table: MovableTable, id: string): LineageRow
 
 /** Puts back the entry this one was moved from, exactly as it was, with the files and comments it has gathered since. */
 export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object, ip?: string) {
-  const current = movable(table);
+  const current = inLineage(table);
   const row = readableRecord(ctx, user, current, id, reqKey) as Row;
   const problem = moveProblem(ctx, user.id, current, row);
   if (problem) throw forbidden(problem.message, problem.code);
@@ -191,8 +208,11 @@ export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable,
   const at = now();
   const restored: Record<string, unknown> = {};
   for (const c of columnsOf(ctx, back)) if (c in before) restored[c] = before[c];
-  // Its content as it was; where it sits now, so an undo never carries what was added here back across a boundary.
-  Object.assign(restored, { id: last.from_id, user_id: row.user_id, unit_id: row.unit_id, visibility: row.visibility, version: Number(before.version || 1) + 1, updated_at: at, deleted_at: null, frozen_at: null });
+  // Its content as it was; where it sits now, so an undo never carries what was added here back across a boundary. An
+  // activity that was private before it became duty (always shared with its unit) is private again: an undo never
+  // leaves it shared wider than its owner had it.
+  const visibility = current === 'duties' && before.visibility === 'private' ? 'private' : row.visibility;
+  Object.assign(restored, { id: last.from_id, user_id: row.user_id, unit_id: row.unit_id, visibility, version: Number(before.version || 1) + 1, updated_at: at, deleted_at: null, frozen_at: null });
   // Moved back to Activities, it is work its owner did: it is not offered for a move again. Its project is kept only if
   // it is still one its owner may file under, from the unit the entry sits in now.
   if (back === 'activities') {
@@ -220,7 +240,7 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
  * is nobody's to read back here: that the entry moved still shows.
  */
 export function recordLineage(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {
-  const current = movable(table);
+  const current = inLineage(table);
   const row = readableRecord(ctx, user, current, id, reqKey) as Row;
   const owner = row.user_id === user.id;
   const moves = lineageOf(ctx, current, id);
@@ -265,3 +285,49 @@ export function keepAsActivity(ctx: AppContext, user: SessionUser, id: string, r
   audit(ctx, { actor_id: user.id, action: 'record_kind_confirmed', entity: 'activities', entity_id: id, unit_id: row.unit_id, detail: 'kept as an activity', ip });
   return { ok: true, id };
 }
+
+/**
+ * An activity its owner says was a duty they stood, moved to Duty (ADR-0023): one transaction, as every move, with its
+ * files, comments and lineage, and an undo. The owner gives what an activity does not hold: the duty type, the times,
+ * and the unit it was stood for (one they serve in, inside the Unit Instance the activity is in). It is worked out and
+ * scored as a duty recorded now is, and submitted for review.
+ */
+function moveToDuty(ctx: AppContext, user: SessionUser, id: string, input: z.infer<typeof moveBody>, reqKey: object, ip?: string) {
+  const row = readableRecord(ctx, user, 'activities', id, reqKey) as Row;
+  const problem = moveProblem(ctx, user.id, 'activities', row);
+  if (problem) throw forbidden(problem.message, problem.code);
+  if (input.version !== undefined && input.version !== row.version) throw conflict('This entry changed while you were looking at it. Reload to see the latest version.', 'stale');
+  const scope = scopeFor(ctx, user, reqKey);
+  const spec = TABLES.duties;
+  const given = input.fields || {};
+  const corrections = Object.fromEntries(Object.entries(given).filter(([k]) => spec.fields.includes(k)));
+  const unitId = (typeof given.unit_id === 'string' && given.unit_id) || row.unit_id || scope.homeUnitId || null;
+  if (!unitId || !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('Choose the unit this duty was stood for.', { fieldErrors: { unit_id: 'Required.' } });
+  if (!canPlaceOwnDuty(scope, unitId)) throw forbidden('Duty is recorded in a unit you serve in.', 'placement');
+  // What others added to the entry stays in the Unit Instance it was added in (ADR-0008): an entry in a unit stays in its
+  // instance, and one in no unit takes nobody else's comments or files into an instance they were not added in, as an
+  // edit that shares it there would not.
+  if (row.unit_id && !sameInstance(ctx, row.unit_id, unitId)) throw forbidden('This entry stays in its Unit Instance. Record the duty in a unit there.', 'cross_instance');
+  if (mayLeaveInstance(ctx, (row.unit_id as string | null) ?? null, unitId)) assertCarriesNothingAcross(ctx, 'activities', row as unknown as RecordRow, unitId);
+  const data = parse(RECORD_SCHEMAS.duties as never, { ...dutyFromActivity(row), ...corrections }) as Record<string, unknown>;
+  checkTimeframe('duties', data);
+  const derived = dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true });
+  const at = now();
+  const toId = newId();
+  const created: Record<string, unknown> = { id: toId, user_id: row.user_id, unit_id: unitId, visibility: 'unit', created_at: row.created_at, updated_at: at, recorded_by: user.id, submitted_at: at, approval_status: 'pending' };
+  for (const f of spec.fields) if (data[f] !== undefined) created[f] = spec.json.includes(f) ? JSON.stringify(data[f] ?? []) : data[f];
+  for (const [k, v] of Object.entries(derived)) created[k] = k === 'conditions' ? JSON.stringify(v ?? []) : v;
+  const snapshot = JSON.stringify(rawRow(ctx, 'activities', id));
+  let lineageId = '';
+  ctx.db.transaction(() => {
+    insertRow(ctx, 'duties', created);
+    carry(ctx, 'activities', id, 'duties', toId);
+    ctx.db.prepare('DELETE FROM activities WHERE id = ?').run(id);
+    lineageId = writeLineage(ctx, { user_id: row.user_id, unit_id: unitId, from_table: 'activities', from_id: id, to_table: 'duties', to_id: toId, snapshot, method: 'move', reason: input.reason || null, moved_by: user.id, at });
+    auditMove(ctx, false, user.id, unitId, 'activities', id, 'duties', toId, ip);
+  })();
+  return { table: 'duties' as const, id: toId, lineage_id: lineageId, record: getRecord(ctx, 'duties', toId) };
+}
+
+/** The person's activities that read like duty they stood, for them to move to Duty or keep (ADR-0023). */
+export const dutyMoveCandidates = (ctx: AppContext, user: SessionUser) => dutyCandidates(ctx, user, (r, holds) => moveProblem(ctx, user.id, 'activities', r, holds));

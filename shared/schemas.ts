@@ -5,6 +5,7 @@ import {
 } from './constants.ts';
 import { passwordProblem } from './password.ts';
 import { parseTime, TIME_HINT } from './timeframe.ts';
+import { SCORING_CONDITIONS } from './dutyScoring.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -182,6 +183,36 @@ export const counselingSchema = z.object({
   version: z.number().int().optional(),
 });
 
+/** A time of day a record must have: a duty's start and end (ADR-0023). */
+const requiredTime = z.string({ error: 'Required.' }).max(8).transform((v, ctx) => {
+  const time = parseTime(v);
+  if (!time) { ctx.addIssue({ code: 'custom', message: v.trim() ? TIME_HINT : 'Required.' }); return z.NEVER; }
+  return time;
+});
+
+/**
+ * A duty a Marine stood (Task 17, ADR-0023). Its hours, duty days, overnight, multi-day and weekend are worked out by the
+ * server from its start and end; its points, scoring version and review are never taken from the request.
+ */
+export const dutySchema = z.object({
+  duty_type_id: z.string({ error: 'Choose the duty type.' }).trim().min(1, 'Choose the duty type.').max(64),
+  /** The Marine it is for, when a leader records it on their behalf. */
+  user_id: optText(64),
+  title: optText(200),
+  location: optText(200),
+  date: isoDate,
+  start_time: requiredTime,
+  end_date: isoDate,
+  end_time: requiredTime,
+  /** What only whoever records it can say (holiday, short notice, extended, consecutive); weekend and overnight are worked out. */
+  conditions: z.array(z.enum(SCORING_CONDITIONS.map((c) => c.key) as [string, ...string[]])).max(SCORING_CONDITIONS.length).optional(),
+  notes: optText(4000),
+  /** Duty is stood for a unit: never a private note. */
+  visibility: z.literal('unit', { error: 'Duty is recorded for a unit, never as a private note.' }).optional(),
+  unit_id: unitIdField,
+  version: z.number().int().optional(),
+});
+
 export const RECORD_SCHEMAS = {
   activities: activitySchema,
   projects: projectSchema,
@@ -190,6 +221,7 @@ export const RECORD_SCHEMAS = {
   trainings: trainingSchema,
   awards: awardSchema,
   counselings: counselingSchema,
+  duties: dutySchema,
 } as const;
 export type RecordTable = keyof typeof RECORD_SCHEMAS;
 

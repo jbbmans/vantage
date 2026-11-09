@@ -76,9 +76,9 @@ export const REPORT_SPECS: Record<ReportType, ReportSpec> = {
     needs: 'Viewing the unit’s shared records. Figures by Marine need opening member records.',
   },
   duty: {
-    key: 'duty', title: 'Duty', group: 'Your unit', subjects: ['unit'], filters: ['as_of'], period: null,
-    question: 'The duty the Unit Instance stands, and how duty is scored on a given day.',
-    needs: 'Viewing the unit’s shared records.',
+    key: 'duty', title: 'Duty', group: 'Your unit', subjects: ['self', 'member', 'unit'], filters: ['period', 'as_of'], period: 'last90',
+    question: 'The duty stood in the period, its hours and points, the duty the Unit Instance stands and how it is scored.',
+    needs: 'Your own duty, a Marine’s in a unit you lead, or a unit whose shared records you may view.',
   },
   financial: {
     key: 'financial', title: 'Financial KPI', group: 'Financial work', subjects: ['unit'], filters: ['period', 'procedure'], period: 'last90',

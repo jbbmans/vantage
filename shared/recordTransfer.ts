@@ -5,7 +5,9 @@ import {
 } from './constants.ts';
 import { CAREER_CATEGORIES, CAREER_STATUSES } from './record.ts';
 import { isDrawnFromWork, trainingType } from './recordKinds.ts';
-import { timeframeProblems, isTimeframed } from './timeframe.ts';
+import { timeframeProblems, isTimeframed, TIMEFRAMES } from './timeframe.ts';
+import { SCORING_CONDITIONS } from './dutyScoring.ts';
+import { DUTY_STATUSES } from './duty.ts';
 import { goalSchema } from './schemas.ts';
 
 /**
@@ -23,7 +25,7 @@ export const PERSONAL_FORMAT = 'vantage-personal/1';
 export const RECORD_FORMAT = 'vantage-record/1';
 
 /** What an import writes, in the order it writes them: projects first, so work filed under one keeps its link. */
-export const IMPORT_TABLES = ['projects', 'goals', 'tasks', 'activities', 'trainings', 'awards', 'counselings', 'career_steps'] as const;
+export const IMPORT_TABLES = ['projects', 'goals', 'tasks', 'activities', 'trainings', 'awards', 'counselings', 'duties', 'career_steps'] as const;
 export type ImportTable = (typeof IMPORT_TABLES)[number];
 export const isImportTable = (t: unknown): t is ImportTable => (IMPORT_TABLES as readonly unknown[]).includes(t);
 
@@ -35,6 +37,7 @@ export const TABLE_LABELS: Record<ImportTable, { one: string; many: string }> = 
   trainings: { one: 'training', many: 'Training' },
   awards: { one: 'award', many: 'Awards' },
   counselings: { one: 'counseling', many: 'Counselings' },
+  duties: { one: 'duty', many: 'Duty' },
   career_steps: { one: 'career step', many: 'Career plan' },
 };
 
@@ -57,8 +60,6 @@ export interface TransferCategory {
   imports: true | string;
 }
 
-export const DUTY_NOT_IMPORTED = 'Vantage does not keep duty records yet, so duty rows are listed and left out. They are never turned into Activities.';
-
 export const TRANSFER_CATEGORIES: readonly TransferCategory[] = [
   { key: 'profile', label: 'Profile and readiness', hint: 'Name, rank, MOS, EAS, PFT and CFT, qualifications, education level, preferences.', table: null, imports: true },
   { key: 'activities', label: 'Activities', hint: 'Work you did, every category.', table: 'activities', imports: true },
@@ -75,7 +76,7 @@ export const TRANSFER_CATEGORIES: readonly TransferCategory[] = [
   { key: 'projects', label: 'Projects', hint: 'Projects you own.', table: 'projects', imports: true },
   { key: 'tasks', label: 'Tasks', hint: 'Tasks you own.', table: 'tasks', imports: true },
   { key: 'career', label: 'Career plan', hint: 'Your military goal, civilian interests and planned steps.', table: 'career_steps', imports: true },
-  { key: 'duty', label: 'Duty', hint: 'Duty stood. Not recorded in Vantage yet.', table: null, imports: DUTY_NOT_IMPORTED },
+  { key: 'duty', label: 'Duty', hint: 'Duty you stood: its type, times, conditions and the points it was scored.', table: 'duties', imports: true },
   { key: 'personnel', label: 'Personnel history', hint: 'Units served in, billets, responsibilities and every change to them.', table: null, imports: 'Those who manage your membership in each Unit Instance keep it; an import cannot write it.' },
   { key: 'attachments', label: 'Attachments', hint: 'The files on the records exported (ZIP only).', table: null, imports: true },
   { key: 'account', label: 'Account history', hint: 'Memberships, roles, notifications, comments, your audit trail, AI use, email log, drafts, case contributions, moves, sign-in security.', table: null, imports: 'It is the record of what happened in Vantage: kept in the export, never written back.' },
@@ -99,7 +100,7 @@ export function inCategory(category: TransferCategory, row: Record<string, unkno
 export interface SectionSelection {
   all: boolean;
   tables: Map<ImportTable, TransferCategory[] | 'all'>;
-  profile: boolean; personnel: boolean; attachments: boolean; account: boolean; duty: boolean;
+  profile: boolean; personnel: boolean; attachments: boolean; account: boolean;
   keys: string[];
 }
 
@@ -120,19 +121,23 @@ export function selectSections(keys: readonly string[] | null | undefined): Sect
   return {
     all, tables, keys: chosen,
     profile: chosen.includes('profile'), personnel: chosen.includes('personnel'), attachments: chosen.includes('attachments'),
-    account: chosen.includes('account'), duty: chosen.includes('duty'),
+    account: chosen.includes('account'),
   };
 }
 
 // ——— Spreadsheet columns ———
 
-export type ColumnKind = 'text' | 'date' | 'time' | 'number' | 'flag' | 'enum' | 'links' | 'json';
+export type ColumnKind = 'text' | 'date' | 'time' | 'number' | 'flag' | 'enum' | 'list' | 'links' | 'json';
 export interface TransferColumn {
   key: string; header: string; aliases?: string[]; kind?: ColumnKind;
   /** The values an enum column takes, and what an unknown one becomes (none: it is a problem to correct). */
   values?: readonly string[]; fallback?: string;
   /** Other words for some of its values: "letter of appreciation" for loa. */
   synonyms?: Record<string, string>;
+  /** What a list column writes for each value ("Short notice"), which it reads back as the value. */
+  labels?: Record<string, string>;
+  /** Written by an export so the file says it, never read back by an import: the server works it out (a duty's hours). */
+  exportOnly?: boolean;
 }
 
 const ID: TransferColumn = { key: 'id', header: 'Vantage ID' };
@@ -228,6 +233,25 @@ export const RECORD_COLUMNS: Record<ImportTable, TransferColumn[]> = {
     { key: 'due_date', header: 'Due Date', aliases: ['Due', 'Deadline'], kind: 'date' },
     VISIBILITY, UNIT,
   ],
+  // A duty's type by its code (or name) in the importer's Unit Instance, never an id; its length, review and score are
+  // written so the file says them, and worked out again by the server on the way back in (ADR-0023).
+  duties: [
+    ID, { key: 'duty_type', header: 'Duty Type', aliases: ['Duty', 'Duty Code', 'Watch', 'Watch Type'] },
+    { key: 'title', header: 'Title', aliases: ['Post', 'Description'] },
+    { key: 'date', header: 'Start Date', aliases: ['Date', 'Duty Date', 'Date On'], kind: 'date' },
+    { key: 'start_time', header: 'Start Time', aliases: ['Time On'], kind: 'time' },
+    { key: 'end_date', header: 'End Date', aliases: ['Date Off', 'Through'], kind: 'date' },
+    { key: 'end_time', header: 'End Time', aliases: ['Time Off'], kind: 'time' },
+    { key: 'location', header: 'Location', aliases: ['Where', 'Post Location'] },
+    { key: 'conditions', header: 'Conditions', kind: 'list', values: SCORING_CONDITIONS.map((c) => c.key), labels: Object.fromEntries(SCORING_CONDITIONS.map((c) => [c.key, c.label])) },
+    { key: 'hours', header: 'Duty Hours', kind: 'number', exportOnly: true },
+    { key: 'days', header: 'Duty Days', kind: 'number', exportOnly: true },
+    { key: 'approval_status', header: 'Review Status', kind: 'enum', values: DUTY_STATUSES, exportOnly: true },
+    { key: 'calculated_points', header: 'Calculated Points', kind: 'number', exportOnly: true },
+    { key: 'scoring_version', header: 'Scoring Version', kind: 'number', exportOnly: true },
+    { key: 'submitted_at', header: 'Recorded On', exportOnly: true },
+    NOTES, UNIT,
+  ],
   career_steps: [
     ID, { key: 'title', header: 'Title', aliases: ['Step', 'Milestone'] },
     { key: 'category', header: 'Category', kind: 'enum', values: CAREER_CATEGORIES, fallback: 'military' },
@@ -264,7 +288,7 @@ export const READINESS_COLUMNS: TransferColumn[] = [
 
 // ——— Routing a sheet or a row to its record type ———
 
-export type RouteTarget = { table: ImportTable; preset?: Record<string, unknown>; label: string } | { table: 'duty' | 'profile'; label: string };
+export type RouteTarget = { table: ImportTable; preset?: Record<string, unknown>; label: string } | { table: 'profile'; label: string };
 
 const ROUTES: Array<{ names: string[]; target: RouteTarget }> = [
   { names: ['activity', 'activities', 'work', 'accomplishment', 'accomplishments', 'entry', 'entries', 'log'], target: { table: 'activities', label: 'Activities' } },
@@ -282,7 +306,7 @@ const ROUTES: Array<{ names: string[]; target: RouteTarget }> = [
   { names: ['project', 'projects'], target: { table: 'projects', label: 'Projects' } },
   { names: ['task', 'tasks', 'to do', 'todo'], target: { table: 'tasks', label: 'Tasks' } },
   { names: ['career', 'career plan', 'career step', 'career steps', 'career-steps'], target: { table: 'career_steps', label: 'Career plan' } },
-  { names: ['duty', 'duties', 'watch', 'watches', 'duty log', 'duty roster'], target: { table: 'duty', label: 'Duty' } },
+  { names: ['duty', 'duties', 'watch', 'watches', 'duty log', 'duty roster'], target: { table: 'duties', label: 'Duty' } },
   { names: ['profile', 'personal', 'personal data', 'readiness', 'about me'], target: { table: 'profile', label: 'Profile' } },
 ];
 
@@ -334,7 +358,8 @@ export function tableFromHeaders(headers: readonly string[]): ImportTable | null
   let bestScore = 0;
   let tie = false;
   for (const table of IMPORT_TABLES) {
-    const columns = RECORD_COLUMNS[table];
+    // What an export writes only for reading (a duty's hours) says nothing about what a sheet holds.
+    const columns = RECORD_COLUMNS[table].filter((c) => !c.exportOnly);
     const map = guessColumns(columns, headers);
     let score = 0;
     for (const [key, header] of Object.entries(map)) {
@@ -388,14 +413,14 @@ export function readRow(table: ImportTable, row: Record<string, string>, mapping
   const fieldErrors: Record<string, string> = {};
   for (const column of columns) {
     const header = mapping[column.key];
-    if (!header) continue;
+    if (!header || column.exportOnly) continue;
     const raw = cell(row, header);
     const value = readCell(column, raw);
     if (value.error) fieldErrors[column.key] = value.error;
     record[column.key] = value.value;
   }
   // "Present" in the end date, or Yes in Ongoing, is still going (ADR-0018); an end date given is the day it ended.
-  if (isTimeframed(table) && mapping.end_date) {
+  if (isTimeframed(table) && TIMEFRAMES[table].ongoing && mapping.end_date) {
     const end = cell(row, mapping.end_date);
     if (STILL_GOING.test(end)) { record.end_date = null; record.ongoing = 1; delete fieldErrors.end_date; }
   }
@@ -404,7 +429,7 @@ export function readRow(table: ImportTable, row: Record<string, string>, mapping
   const inferred: string[] = [];
   if (table === 'trainings' && !record.type && record.title) { record.type = trainingType(String(record.title)); inferred.push('type'); }
   if (table === 'trainings' && record.ongoing && record.status === 'completed') record.status = 'in_progress';
-  const required = table === 'awards' || table === 'projects' ? 'name' : table === 'counselings' ? 'summary' : 'title';
+  const required = table === 'awards' || table === 'projects' ? 'name' : table === 'counselings' ? 'summary' : table === 'duties' ? 'duty_type' : 'title';
   if (!String(record[required] ?? '').trim()) fieldErrors[required] = 'Required.';
   if (isTimeframed(table) && !Object.keys(fieldErrors).length) {
     const tf = timeframeProblems(table, record);
@@ -420,7 +445,7 @@ const cell = (row: Record<string, string>, header: string) => unprotectCell(Stri
 
 export function readCell(column: TransferColumn, raw: string): { value: unknown; error?: string } {
   // An empty set of pairs is none (a goal's filters are never null).
-  if (!raw) return { value: column.kind === 'flag' ? 0 : column.kind === 'json' ? {} : null };
+  if (!raw) return { value: column.kind === 'flag' ? 0 : column.kind === 'json' ? {} : column.kind === 'list' ? [] : null };
   switch (column.kind) {
     case 'date': { const d = toISODate(raw); return d ? { value: d } : { value: null, error: 'Not a date this reads (use YYYY-MM-DD or MM/DD/YYYY).' }; }
     case 'time': { const t = toTime(raw); return t ? { value: t } : { value: null, error: 'Not a time (use 0800 or 08:00).' }; }
@@ -429,6 +454,18 @@ export function readCell(column: TransferColumn, raw: string): { value: unknown;
     case 'enum': {
       const e = enumValue(column, raw);
       return e.unknown ? { value: null, error: `“${raw.slice(0, 40)}” is not one of: ${(column.values ?? []).join(', ')}.` } : { value: e.value };
+    }
+    case 'list': {
+      // "Weekend; Holiday": each one by its value or its label, once.
+      const named = Object.fromEntries(Object.entries(column.labels ?? {}).map(([v, l]) => [norm(l), v]));
+      const values: string[] = [];
+      for (const part of raw.split(/[;,]/).map((p) => p.trim()).filter(Boolean)) {
+        const e = enumValue(column, part);
+        const value = e.value ?? named[norm(part)] ?? null;
+        if (!value) return { value: null, error: `“${part.slice(0, 40)}” is not one of: ${Object.values(column.labels ?? {}).join(', ') || (column.values ?? []).join(', ')}.` };
+        if (!values.includes(value)) values.push(value);
+      }
+      return { value: values };
     }
     case 'json': {
       try {
@@ -451,7 +488,8 @@ export function sheetRow(table: ImportTable, row: Record<string, unknown>): Reco
   const out: Record<string, unknown> = {};
   for (const column of RECORD_COLUMNS[table]) {
     const value = row[column.key];
-    out[column.header] = column.kind === 'flag' ? (value ? 'Yes' : '') : column.kind === 'json' ? (value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value) : '') : value ?? '';
+    out[column.header] = column.kind === 'flag' ? (value ? 'Yes' : '') : column.kind === 'json' ? (value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value) : '')
+      : column.kind === 'list' ? (Array.isArray(value) ? value.map((v) => column.labels?.[String(v)] ?? String(v)).join('; ') : '') : value ?? '';
   }
   // Still going: "Present" in End Date and Yes in Ongoing, as an activity's (ADR-0018).
   if (table === 'trainings' && ongoingOf(row)) { out['End Date'] = 'Present'; out.Ongoing = 'Yes'; }
@@ -470,8 +508,8 @@ export interface ImportReviewRow {
   /** Where it is in the file: "Awards, row 4", or the record type in a Vantage export. */
   source: string;
   /** The record type it was read as, and the one it goes into. */
-  from: ImportTable | 'duty';
-  as: ImportTable | 'duty';
+  from: ImportTable;
+  as: ImportTable;
   title: string; date: string | null;
   outcome: RowOutcome;
   /** Why it has that outcome, in a sentence. */
@@ -498,7 +536,7 @@ export interface ImportReview {
   /** For a Vantage file: whose it says it is, and when it was made. */
   exported: { username: string | null; exported_at: string | null; display_name: string | null } | null;
   notes: string[];
-  sheets: Array<{ name: string; table: ImportTable | 'duty' | 'profile' | 'skip' | 'record_type'; routedBy: 'sheet' | 'file' | 'record_type' | 'headers' | 'chosen' | 'none'; headers: string[]; mapping: Record<string, string>; rows: number }>;
+  sheets: Array<{ name: string; table: ImportTable | 'profile' | 'skip' | 'record_type'; routedBy: 'sheet' | 'file' | 'record_type' | 'headers' | 'chosen' | 'none'; headers: string[]; mapping: Record<string, string>; rows: number }>;
   rows: ImportReviewRow[];
   counts: Record<RowOutcome, number>;
   /** `seen`: a digest of the profile as the review read it; the commit stops if it changed since. */
@@ -522,7 +560,7 @@ export interface ImportSummary {
 
 /** What the person chose on the review, as the page sends it (the server's importPlanSchema checks it). */
 export interface ImportPlanBody {
-  sheets?: Record<string, { table?: ImportTable | 'skip' | 'duty' | 'profile'; mapping?: Record<string, string> }>;
+  sheets?: Record<string, { table?: ImportTable | 'skip' | 'profile'; mapping?: Record<string, string> }>;
   rows?: Record<string, { include?: boolean; as?: ImportTable; fix?: Record<string, unknown> }>;
   placement?: 'keep' | 'private';
   profile?: 'skip' | 'fill' | 'replace';

@@ -71,6 +71,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   for (const r of records.counselings ?? []) if (r.counselor_id && r.counselor_id !== userId) r.counselor_label = personLabel(ctx, r.counselor_id);
   for (const r of records.awards ?? []) if (r.recorded_by && r.recorded_by !== userId) r.recorder_label = personLabel(ctx, r.recorded_by);
   for (const r of records.counselings ?? []) if (r.user_id !== userId) r.subject_label = personLabel(ctx, r.user_id);
+  for (const r of records.duties ?? []) withDutyLabels(ctx, r, userId);
   const recordIds = new Map<string, Set<string>>();
   for (const [table, rows] of Object.entries(records)) recordIds.set(table, new Set(rows.map((r) => String(r.id))));
 
@@ -231,8 +232,20 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
 }
 
 /** What a record type's spreadsheet carries beyond the import's columns: who else wrote it. */
-const extraHeaders = (table: string) => (table === 'counselings' || table === 'awards' ? ['Recorded By'] : []);
-const extraColumns = (table: string, r: Row): Row => (table === 'counselings' ? { 'Recorded By': r.counselor_label ?? '' } : table === 'awards' ? { 'Recorded By': r.recorder_label ?? '' } : {});
+const extraHeaders = (table: string) => (table === 'counselings' || table === 'awards' || table === 'duties' ? ['Recorded By'] : []);
+const extraColumns = (table: string, r: Row): Row => (table === 'counselings' ? { 'Recorded By': r.counselor_label ?? '' } : table === 'awards' || table === 'duties' ? { 'Recorded By': r.recorder_label ?? '' } : {});
+
+/**
+ * A duty as a file keeps it: its type by code and name (its id is this instance's, and an import finds the type again by
+ * code, ADR-0023), and who recorded it and who reviewed it by name, never id.
+ */
+function withDutyLabels(ctx: AppContext, r: Row, ownerId: string) {
+  const type = ctx.db.prepare('SELECT code, name FROM duty_types WHERE id = ?').get(r.duty_type_id) as { code: string; name: string } | undefined;
+  r.duty_type = type?.code ?? null;
+  r.duty_type_name = type?.name ?? null;
+  if (r.recorded_by && r.recorded_by !== ownerId) r.recorder_label = personLabel(ctx, r.recorded_by);
+  if (r.reviewed_by) r.reviewer_label = personLabel(ctx, r.reviewed_by);
+}
 
 /**
  * A record type's rows for a spreadsheet, which an import reads back as its reader's own: only the exporter's. What they
@@ -298,6 +311,7 @@ export function buildRecordExport(ctx: AppContext, table: ImportTable, row: Row,
   const record: Row = { ...row };
   if (table === 'counselings' && row.counselor_id && row.counselor_id !== row.user_id) record.counselor_label = personLabel(ctx, row.counselor_id);
   if (table === 'awards' && row.recorded_by && row.recorded_by !== row.user_id) record.recorder_label = personLabel(ctx, row.recorded_by);
+  if (table === 'duties') withDutyLabels(ctx, record, String(row.user_id));
   const doc = { format: RECORD_FORMAT, version: VERSION, exported_at: now(), table, record, attachments: meta };
   const stem = `vantage-${TABLE_LABELS[table].one.replace(/\s+/g, '-')}-${String(row.id).slice(0, 8)}`;
   const csv = `\uFEFF${rowsToCsv([{ ...sheetRow(table, record), ...extraColumns(table, record) }], [...sheetHeaders(table), ...extraHeaders(table)])}`;

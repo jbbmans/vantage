@@ -46,7 +46,7 @@ test('the sidebar is the specification’s structure: each group lists its pages
   // Awards are a record: the page keeps its address and sits under Records.
   await page.goto('/career/awards');
   const records = rail.getByRole('list', { name: 'Records pages' });
-  await listed(records).toEqual(['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Drafts', 'Contributions']);
+  await listed(records).toEqual(['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Duty', 'Drafts', 'Contributions']);
   await expect(records.getByRole('link', { name: 'Awards' })).toHaveAttribute('aria-current', 'page');
   await expect(rail.getByRole('list', { name: 'Training & Development pages' })).toHaveCount(0);
   await expect(page).toHaveTitle('Awards · Records · Vantage');

@@ -415,7 +415,7 @@ export function Duty({ org }: { org: OrgSummary }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="max-w-2xl text-sm text-ink-2">Vantage does not record duty yet. When it does, each duty is scored under the scoring version in force on its day.</p>
+        <p className="max-w-2xl text-sm text-ink-2">Marines record the duty they stood under Records → Duty, choosing from these types. Each duty is scored under the scoring version in force on its first day, and keeps that score when a later version is published.</p>
         {can('org.config') && <span className="ml-auto flex flex-wrap gap-2">
           {missing.length > 0 && <Button size="sm" onClick={() => act(`Added ${missing.length} duty types.`, () => api.orgAddStandardDutyTypes(org.id), refresh)}>Add the standard list</Button>}
           <Button size="sm" variant="primary" onClick={() => setEditing({ code: '', name: '', description: '' })}><Plus className="h-4 w-4" />New duty type</Button>

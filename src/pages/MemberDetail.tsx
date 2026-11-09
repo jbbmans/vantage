@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity } from 'lucide-react';
+import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Tabs, Panel, EmptyState, Badge, Skeleton, Stat } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -10,7 +10,7 @@ import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, CategoryDot, DescriptionList, Table, useParam } from '@/components/common';
 import { CounselingFields, AwardFields, emptyCounseling, emptyAward } from '@/pages/Career';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
-import { keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
+import { canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
@@ -21,6 +21,9 @@ import { humanize, fullName, cn } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
 import { PersonnelPanel } from '@/components/PersonnelRecord';
 import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
+import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/DutyDialog';
+import { DUTY_STATUS_LABELS, formatHours } from '../../shared/duty';
+import type { Duty } from '../../shared/types';
 
 export default function MemberDetail() {
   const cfg = useMetrics();
@@ -40,6 +43,8 @@ export default function MemberDetail() {
   const [tab, setTab] = useParam('tab', 'personnel');
   const [counseling, setCounseling] = useState<any>(null);
   const [award, setAward] = useState<any>(null);
+  const [duty, setDuty] = useState<DutyMode | null>(null);
+  const [dutyView, setDutyView] = useState<Duty | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [prep, setPrep] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const myTrack = useTrack();
@@ -82,6 +87,7 @@ export default function MemberDetail() {
       <PageHeader eyebrow={assignments.map((m) => `${m.unit_short || m.unit_name}${m.billet ? ` · ${m.billet}` : ''}`).join(' · ') || 'No unit'} title={fullName(person)} lede={`${person.rank_name || 'No rank'}${person.mos ? ` · MOS ${person.mos}` : ''}${person.eas ? ` · EAS ${person.eas}` : ''} · ${trackMeta(track).name} track${isSelf ? ' · this is you' : ''}`}>
         {canEditProfile && <Button onClick={() => setProfile({ first_name: person.first_name, last_name: person.last_name, middle_initial: person.middle_initial || '', rank_id: person.rank_id || '', mos: person.mos || '', eas: person.eas || '' })}><Pencil className="h-4 w-4" />Edit profile</Button>}
         {canCounsel && <Button onClick={() => setAward({ ...emptyAward('unit', unitId), user_id: id })}><AwardIcon className="h-4 w-4" />Recommend award</Button>}
+        {canCounsel && <Button onClick={() => setDuty({ kind: 'new', forUser: { id, name: fullName(person) } })}><Timer className="h-4 w-4" />Record duty</Button>}
         {canCounsel && <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}><MessageSquare className="h-4 w-4" />New counseling</Button>}
         {records && <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>}
       </PageHeader>
@@ -103,7 +109,7 @@ export default function MemberDetail() {
         <Stat label="Counselings" value={records.counselings.length} hint={pendingAck ? `${pendingAck} not yet acknowledged` : 'all acknowledged'} tone={pendingAck ? 'warn' : undefined} />
       </div>
       </>}
-      <Tabs value={shownTab} onChange={setTab} className="mb-4" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records.activities.length }, { value: 'counseling', label: 'Counseling', count: records.counselings.length }, { value: 'career', label: 'Awards and training', count: records.awards.length + records.trainings.length }, { value: 'roles', label: 'Roles' }] : [])]} />
+      <Tabs value={shownTab} onChange={setTab} className="mb-4" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records.activities.length }, { value: 'counseling', label: 'Counseling', count: records.counselings.length }, { value: 'career', label: 'Awards and training', count: records.awards.length + records.trainings.length }, { value: 'duty', label: 'Duty', count: records.duties.length }, { value: 'roles', label: 'Roles' }] : [])]} />
 
       {shownTab === 'personnel' && <PersonnelPanel record={record} onTab={records ? setTab : undefined} onChanged={reload} />}
 
@@ -141,6 +147,12 @@ export default function MemberDetail() {
         </div>
       )}
 
+      {tab === 'duty' && (records.duties.length === 0 ? <div className="card"><EmptyState icon={Timer} title="No duty shared with your units" description="Duty this Marine stood for a unit you lead shows here, with its hours, its points and where it stands with its reviewers." action={canCounsel ? <Button variant="primary" onClick={() => setDuty({ kind: 'new', forUser: { id, name: fullName(person) } })}>Record duty</Button> : undefined} /></div> : (
+        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-28 text-right">Points</th><th className="w-28">Status</th><th className="w-28"></th></>}>
+          {records.duties.map((r) => <tr key={r.id}><td className="text-xs"><TimeframeText table="duties" row={r} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setDutyView(r)}>{r.title || r.duty_type_name || 'Duty'}</button><span className="block text-xs text-ink-3">{[r.title ? r.duty_type_name : null, r.recorded_by && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === identity?.user.id ? 'you' : r.recorder_name || 'a leader'}` : null].filter(Boolean).join(' · ')}</span></td><td className="fig text-right text-xs">{formatHours(r.hours)}</td><td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}</td><td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td><td className="text-right">{canCorrectDuty(identity, r) && <Button size="xs" variant="ghost" onClick={() => setDuty({ kind: 'edit', row: r })}>Edit</Button>}</td></tr>)}
+        </Table></div>
+      ))}
+
       {tab === 'roles' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Held roles">{!records.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{records.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span>{r.expires_at ? <Badge tone="warn">until {new Date(r.expires_at).toLocaleDateString()}</Badge> : null}</span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
@@ -152,6 +164,10 @@ export default function MemberDetail() {
 
       <RecordDialog store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : `New counseling for ${person.last_name}`} noun="Counseling" size="lg" validate={(d: any) => (!d.summary.trim() ? 'A summary is required.' : null)} onSaved={() => refetch()} fields={(d: any, set, errors) => <CounselingFields d={d} set={set} errors={errors} leader />} />
       <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) setAward(null); }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg" validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />
+      <DutyDialog mode={duty} open={Boolean(duty)} onOpenChange={(o) => { if (!o) setDuty(null); }} onSaved={() => { refetch(); setTab('duty'); }} />
+      <Dialog open={Boolean(dutyView)} onOpenChange={(o) => { if (!o) setDutyView(null); }} title={dutyView ? dutyView.title || dutyView.duty_type_name || 'Duty' : ''} size="lg">
+        {dutyView && <DutyDetail row={dutyView} me={identity?.user.id} />}
+      </Dialog>
       <Dialog open={Boolean(profile)} onOpenChange={(o) => { if (!o) setProfile(null); }} title={`Edit ${person.last_name}'s profile`} description="Rank changes notify the Marine. Email and password stay theirs." size="sm" footer={<><Button variant="ghost" onClick={() => setProfile(null)}>Cancel</Button><Button variant="primary" onClick={saveProfile}>Save</Button></>}>
         {profile && <div className="grid grid-cols-2 gap-3"><Field label="First name"><Input value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} /></Field><Field label="Last name"><Input value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} /></Field><Field label="Rank"><Select value={profile.rank_id || '__none'} onValueChange={(v) => setProfile({ ...profile, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'None' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field><Field label="MOS"><Input value={profile.mos} onChange={(e) => setProfile({ ...profile, mos: e.target.value })} /></Field><Field label="EAS"><Input type="date" value={profile.eas} onChange={(e) => setProfile({ ...profile, eas: e.target.value })} /></Field><Field label="Middle initial"><Input value={profile.middle_initial} onChange={(e) => setProfile({ ...profile, middle_initial: e.target.value })} maxLength={4} /></Field></div>}
       </Dialog>

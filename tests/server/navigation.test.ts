@@ -21,7 +21,7 @@ test('the menu is the specification’s top-level structure, with Help and Setti
   assert.deepEqual(GROUPS.filter((g) => g.foot).map((g) => g.label), ['Help']);
   assert.deepEqual(FOOTER.map((p) => p.label), ['Settings']);
   const pages = (id: string) => GROUPS.find((g) => g.id === id)!.pages.map((p) => p.label);
-  assert.deepEqual(pages('records'), ['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Drafts', 'Contributions']);
+  assert.deepEqual(pages('records'), ['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Duty', 'Drafts', 'Contributions']);
   assert.deepEqual(pages('development'), ['Training', 'Career plan', 'Goals', 'Readiness', 'MARADMINs']);
   assert.deepEqual(pages('personnel'), ['Overview', 'Roster', 'Workload']);
   assert.deepEqual(pages('reports'), ['Packages', 'Analysis', 'Report library', 'Unit dashboard']);

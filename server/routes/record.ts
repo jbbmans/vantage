@@ -9,7 +9,8 @@ import {
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { recordTimeline } from '../services/timeline.ts';
-import { moveCandidates } from '../services/recordMoves.ts';
+import { moveCandidates, dutyMoveCandidates } from '../services/recordMoves.ts';
+import { dutyOptions } from '../services/duties.ts';
 
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
@@ -31,6 +32,11 @@ recordRouter.get('/timeline', wrap((req, res) => res.json(recordTimeline(req.ctx
 
 // Activities that read like an award received or training completed, for their owner to move or keep (ADR-0015).
 recordRouter.get('/move-candidates', wrap((req, res) => res.json(moveCandidates(req.ctx, req.user))));
+
+// What the duty form offers (ADR-0023): the units, duty types in use and scoring versions to record duty with, for the
+// caller or, with ?for=, for a Marine they may record it for. The activities that read like duty, for their owner to move.
+recordRouter.get('/duty/options', wrap((req, res) => res.json(dutyOptions(req.ctx, req.user, req, typeof req.query.for === 'string' ? req.query.for : null))));
+recordRouter.get('/duty/candidates', wrap((req, res) => res.json(dutyMoveCandidates(req.ctx, req.user))));
 
 recordRouter.get('/drafts', wrap((req, res) => res.json(listDrafts(req.ctx, req.user))));
 recordRouter.post('/drafts/from-work', wrap((req, res) => {

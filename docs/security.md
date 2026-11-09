@@ -95,6 +95,17 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   effect tomorrow or later, after every version not withdrawn, so it never rescores duty already stood and
   can always be withdrawn before it applies. Publishing and withdrawing are audited with the reason.
   Deleting a row by hand is not blocked by a trigger, since restore and the demo reset delete rows.
+- **Duty is scored by the server, never by the request or a file.** A duty's hours, days, conditions,
+  scoring version, calculated points and review status are worked out or set by the server; the API and an
+  import drop any the caller sends. An approved or rejected duty is refused any edit, delete, move or undo
+  (`duty_decided`), and the table's CHECKs hold a decision to its reviewer, time and reason. A leader records
+  duty for a Marine only where they hold Counsel members over them; the Marine cannot change it. One's own
+  duty goes only in a unit one serves in, never one that Counsel inherited from a parent unit reaches (create,
+  edit, move and import alike). A duty, its type and its scoring version stay in one Unit Instance (triggers,
+  migration 031); moving an activity to Duty carries nobody else's comments or files across an instance, even
+  from an activity in no unit. The form's options, and the Duty report about oneself or a Marine, give only
+  the caller's own instance's types and what its versions score, never who published them or why (ADR-0023).
+  A configuration file never loads a scoring version that would reach back over duty already stood.
 - **Exports are audited and minimal.** The roster CSV carries names, ranks, units, billets and roles, never
   EDIPI, email or records (`organization_roster_exported`); a username made from a card, which is the
   EDIPI, is left blank, and the instance's audit pages, search and export leave it out too. The audit export is filtered, refused above

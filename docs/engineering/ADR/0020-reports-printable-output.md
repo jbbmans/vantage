@@ -58,7 +58,7 @@ never say different things.
 | Unit performance, Leadership | `unitDashboard` | a unit |
 | Personnel | `personnelRoster` (ADR-0017), with its own read rule | a unit |
 | Workload | `teamWorkload` | a unit |
-| Duty | duty types and the scoring version in force (`policyOn`) | a unit |
+| Duty | duty stood in the period (ADR-0023), duty types and the scoring version in force (`policyOn`) | oneself, a Marine, a unit |
 | Financial KPI, Error report | the unit's shared cases | a unit |
 | Custom | a dataset, its columns, grouping and order | yourself, a Marine, a unit |
 
@@ -73,8 +73,9 @@ never say different things.
   The error report lists each case by its error type (its procedure), reference, stage, amount, holder, due date and
   age, open by default, with state, procedure and overdue filters. Amounts are added as each case records them; a
   case does not say what kind of amount it holds, and the report says so.
-- **Duty** shows the duty types and how duty is scored on a given day, every version with its status. Duty records
-  begin with Task 17, and the report says so rather than showing zeros.
+- **Duty** shows the duty types and how duty is scored on a given day, every version with its status. Since Task 17
+  (ADR-0023) it also lists the duty stood in the period, with hours, calculated points, version and status, about
+  oneself, a Marine or a unit, by Marine where the reader may see figures by Marine.
 - **Custom** reads activities, training, awards, counselings, goals, tasks, or (for a unit) its financial cases, with
   the columns, grouping (by a column or by month, with totals of its measures) and order chosen. Its value totals add
   only the value types that count toward a total, as the activity report does; each row keeps its own. A counseling is listed
@@ -176,5 +177,5 @@ Workload, Roster and Analysis link to their report. Packages and Analysis, and t
 - Browser printing is tested in Chromium (the browser test prints the page to PDF). Which browsers MCEN fields is not
   recorded here; one that does not repeat a table's header and footer on every printed page loses the running handling
   line after the first page, and the PDF carries it everywhere.
-- Left to other Tasks: duty records (17) and their scoring (18) fill the Duty report; financial error snapshots and
+- Left to other Tasks: duty records (17, done in ADR-0023) and their review (18) fill the Duty report; financial error snapshots and
   comparison (15); one set of analytics components (21).

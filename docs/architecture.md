@@ -31,8 +31,8 @@ training, with the row as it stood before). `awards.recorded_by` names who enter
 
 Each kind of record keeps its own table, and `shared/recordKinds.ts` names it with who writes it, who may correct
 it and which system outside Vantage holds the official copy. An Activity is work a person did. An award, a course
-or a counseling has a record of its own, and a duty will once Task 17 builds duty records; entries already in
-Activities that read like awards or training stay there until their owner moves them. The timeline under Record is read from each table when it is asked
+a counseling or a duty has a record of its own; entries already in Activities that read like awards, training or
+duty stay there until their owner moves them. The timeline under Record is read from each table when it is asked
 for and never stored. An entry its owner filed in the wrong place moves to its own record and back, keeping its
 files, comments and lineage. An award a leader recorded for a Marine is the leader's and the chain's to change, not
 the Marine's. See [ADR-0015](engineering/ADR/0015-core-record-architecture.md).

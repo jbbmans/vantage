@@ -269,14 +269,14 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: { id: 'technical', org_id: 'technical', unit_id: 'none', title: 'none', code: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
   },
   duty_types: {
-    purpose: 'The kinds of duty a Unit Instance stands, which its duty records will name.',
+    purpose: 'The kinds of duty a Unit Instance stands, which its duty records name.',
     authority: 'Unit administration; kept by the Unit Instance’s Unit Managers, every change audited.',
     access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person.',
     columns: { id: 'technical', org_id: 'technical', code: 'none', name: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
   },
   duty_scoring_policies: {
     purpose: 'How a Unit Instance scores each kind of duty, as versions with the day each takes effect, so duty is scored under the policy of its day.',
-    authority: 'Unit administration (Task 18); published by the Unit Instance’s Unit Managers, never changed after, every version audited.',
+    authority: 'Unit administration (ADR-0012, ADR-0023); published by the Unit Instance’s Unit Managers, never changed after, every version audited. A duty keeps the version it was scored under.',
     access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person.',
     columns: { id: 'technical', org_id: 'technical', version: 'technical', effective_from: 'technical', policy: 'none', note: 'none', created_by: 'identifier', created_at: 'technical', withdrawn_at: 'technical', withdrawn_by: 'identifier' },
   },
@@ -428,6 +428,20 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       status: 'performance', recommending_official: 'identifier', approving_authority: 'identifier', citation: 'performance', notes: 'performance',
       submitted_at: 'performance', approved_at: 'performance', presented_at: 'performance', recorded_by: 'identifier', version: 'technical', frozen_at: 'technical',
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  duties: {
+    purpose: 'Duty a Marine stood (Task 17, ADR-0023): its type, unit, place, start and end, what it ran to, what was claimed for it, who recorded it, where it stands with its reviewers, and the points it was scored under the Unit Instance’s scoring version.',
+    authority: 'Unit duty administration; recorded by the Marine or a leader who counsels them in the unit, every change audited. Points come from the Unit Instance’s published scoring versions.',
+    access: 'The Marine; those who counsel them in the unit it was stood for. Always a unit record, never a private note.',
+    columns: {
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', duty_type_id: 'employment', title: 'employment', location: 'employment',
+      date: 'employment', start_time: 'employment', end_date: 'employment', end_time: 'employment', hours: 'employment', days: 'employment',
+      overnight: 'employment', multi_day: 'employment', conditions: 'employment', notes: 'performance',
+      recorded_by: 'identifier', submitted_at: 'technical', approval_status: 'performance', reviewed_by: 'identifier', reviewed_at: 'technical',
+      review_reason: 'performance', approved_points: 'performance', scoring_policy_id: 'technical', scoring_version: 'technical',
+      calculated_points: 'performance', scoring_basis: 'performance',
+      version: 'technical', frozen_at: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
   },
   attachments: {

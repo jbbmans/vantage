@@ -9,7 +9,7 @@ import { removeMember } from '../../server/services/org.ts';
 
 /**
  * Task 13 (ADR-0019): a person's records go out and come back by what they are. An award stays an award, a course a
- * course, a counseling a counseling; duty is listed and left out, never turned into Activities; nothing a file says
+ * course, a counseling a counseling, duty duty (ADR-0023), never turned into Activities; nothing a file says
  * places a record in another Unit Instance or names a record here that is not the importer's own.
  */
 
@@ -46,7 +46,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-test('a workbook comes in by record type: awards stay awards, courses training, duty is listed and never becomes an Activity', async () => {
+test('a workbook comes in by record type: awards stay awards, courses training, duty is duty and never becomes an Activity', async () => {
   const book = writeWorkbook([
     { name: 'Awards', rows: [['Name', 'Type', 'Status', 'Date', 'Approved'], ['Navy and Marine Corps Achievement Medal', 'Personal', 'approved', '2026-05-01', '05/20/2026']] },
     { name: 'Education', rows: [['Title', 'Date', 'Provider'], ['Bachelor of Science, Accounting', '2025-12-15', 'UMGC']] },
@@ -61,11 +61,15 @@ test('a workbook comes in by record type: awards stay awards, courses training, 
   const review = staged.body;
   assert.equal(review.source, 'xlsx');
   const sheet = (name: string) => review.sheets.find((s: { name: string }) => s.name === name);
-  assert.deepEqual([sheet('Awards').table, sheet('Education').table, sheet('Volunteer').table, sheet('Duty').table, sheet('Log').table, sheet('Everything else').table], ['awards', 'trainings', 'activities', 'duty', 'activities', 'record_type']);
-  assert.equal(review.counts.not_imported, 3, 'two duty rows and a watch');
-  assert.equal(review.counts.problem, 1, 'the unknown record type');
-  assert.match(review.rows.find((r: { outcome: string }) => r.outcome === 'problem').reason, /Spaceship/);
-  assert.ok(review.notImported.some((n: { key: string; count: number }) => n.key === 'duty' && n.count === 3));
+  assert.deepEqual([sheet('Awards').table, sheet('Education').table, sheet('Volunteer').table, sheet('Duty').table, sheet('Log').table, sheet('Everything else').table], ['awards', 'trainings', 'activities', 'duties', 'activities', 'record_type']);
+  assert.equal(review.counts.not_imported, 0);
+  assert.deepEqual(review.notImported, []);
+  // Duty is read as duty (ADR-0023): these rows name no duty type of G8's and no times, so each is a problem to correct,
+  // never an Activity.
+  const problems = review.rows.filter((r: { outcome: string }) => r.outcome === 'problem');
+  assert.equal(problems.length, 4, JSON.stringify(problems.map((r: { reason: string }) => r.reason)));
+  assert.ok(problems.some((r: { reason: string }) => /Spaceship/.test(r.reason)));
+  assert.deepEqual(problems.filter((r: { as: string }) => r.as === 'duties').map((r: { title: string }) => r.title).sort(), ['Barracks duty', 'Officer of the Day', 'Staff Duty NCO']);
   // The log entry that reads like an award is offered as one and stays an Activity until its owner says so (ADR-0015).
   const medal = review.rows.find((r: { title: string }) => r.title.startsWith('Received the Navy'));
   assert.equal(medal.as, 'activities');
@@ -98,10 +102,10 @@ test('a workbook comes in by record type: awards stay awards, courses training, 
   assert.equal(again.body.counts.new, 0, JSON.stringify(again.body.rows.filter((r: { outcome: string }) => r.outcome === 'new').map((r: { title: string }) => r.title)));
   assert.equal(again.body.counts.duplicate, 9);
   // A Record Type Vantage does not know is read as what the person says the row is.
-  const unknown = again.body.rows.find((r: { outcome: string }) => r.outcome === 'problem');
+  const unknown = again.body.rows.find((r: { outcome: string; reason: string }) => r.outcome === 'problem' && /Spaceship/.test(r.reason));
   const said = await put(marine.token, `/api/me/imports/${again.body.id}`, { rows: { [unknown.ref]: { as: 'tasks' } } });
   assert.equal(said.status, 200, JSON.stringify(said.body).slice(0, 300));
-  assert.equal(said.body.counts.problem, 0);
+  assert.equal(said.body.counts.problem, 3, 'the duty rows still need a type and times');
   assert.deepEqual(said.body.rows.filter((r: { outcome: string }) => r.outcome === 'new').map((r: { as: string; title: string }) => [r.as, r.title]), [['tasks', 'Nothing']]);
   assert.equal((await app.call('DELETE', `/api/me/imports/${again.body.id}`, { token: marine.token })).status, 200);
   assert.equal(status(again.body.id), 'cancelled');

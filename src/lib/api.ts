@@ -2,7 +2,8 @@ import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { UnitManagerRole } from '../../shared/permissions';
-import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
+import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
+import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type {
@@ -138,7 +139,7 @@ export const digestSendNow = () => api.post('/me/digest/send-now');
 export const emailVerify = (email: string) => api.post('/me/email/verify', { email });
 export const emailConfirm = (token: string) => api.post('/me/email/confirm', { token });
 
-export const STORES = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings'] as const;
+export const STORES = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings', 'duties'] as const;
 export type Store = (typeof STORES)[number];
 export const listRecords = <S extends Store>(store: S, params: Record<string, string | undefined> = {}) => {
   const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v!)}`).join('&');
@@ -158,10 +159,10 @@ export const attachmentUrl = (store: Store, id: string, attachmentId: string) =>
 
 export const comments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/comments`);
 // Moving an entry to the record type it belongs in, and back (ADR-0015). Its owner's alone.
-export const moveRecord = (store: MovableTable, id: string, body: { to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) =>
-  api.post<{ table: MovableTable; id: string; lineage_id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/move`, body);
-export const undoMove = (store: MovableTable, id: string) => api.post<{ table: MovableTable; id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/undo-move`);
-export const recordLineage = (store: MovableTable, id: string) => api.get<LineageResponse>(`/records/${store}/${encodeURIComponent(id)}/lineage`);
+export const moveRecord = (store: MovableTable, id: string, body: { to: LineageTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) =>
+  api.post<{ table: LineageTable; id: string; lineage_id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/move`, body);
+export const undoMove = (store: LineageTable, id: string) => api.post<{ table: LineageTable; id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/undo-move`);
+export const recordLineage = (store: LineageTable, id: string) => api.get<LineageResponse>(`/records/${store}/${encodeURIComponent(id)}/lineage`);
 export const keepAsActivity = (id: string) => api.post(`/records/activities/${encodeURIComponent(id)}/keep`);
 export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
@@ -499,6 +500,9 @@ export const assignedWork = () => api.get<AssignedItem[]>('/record/assigned');
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
 export const recordTimeline = (params: Record<string, string | undefined> = {}) => api.get<TimelineResponse>(`/record/timeline?${qs(params)}`);
 export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/move-candidates');
+// Duty (ADR-0023): what the form records it with, for oneself or a Marine one may record it for, and the activities that read like duty.
+export const dutyOptions = (forId?: string | null) => api.get<DutyOptionsResponse>(`/record/duty/options${forId ? `?for=${encodeURIComponent(forId)}` : ''}`);
+export const dutyCandidates = () => api.get<DutyCandidatesResponse>('/record/duty/candidates');
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);

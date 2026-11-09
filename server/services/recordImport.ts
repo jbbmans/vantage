@@ -6,8 +6,8 @@ import { HttpError, badRequest, conflict, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readZip, ZipError } from '../lib/zip.ts';
 import { readWorkbook, WorkbookError } from '../lib/workbook.ts';
-import { scopeFor, type Scope } from '../authz/scope.ts';
-import { canEdit, canPlace, type RecordRow } from '../authz/records.ts';
+import { orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
+import { canEdit, canPlace, canPlaceOwnDuty, type RecordRow } from '../authz/records.ts';
 import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
@@ -18,13 +18,13 @@ import { withPersonnelNote } from './personnelRecords.ts';
 import { audit } from './audit.ts';
 import { attachmentPath } from './personalExport.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem, DATA_EXPORT_FORMATS } from '../../shared/dataTransfer.ts';
-import { parseDelimited, toISODate, MAX_IMPORT_COLUMNS } from '../../shared/csv.ts';
+import { parseDelimited, MAX_IMPORT_COLUMNS } from '../../shared/csv.ts';
 import { prefsSchema, profileSchema, readinessSchema, type RecordTable } from '../../shared/schemas.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { screenImport } from '../../shared/duplicates.ts';
 import { isDrawnFromWork, isMovableTable, kindText, movedFields, recordKindOf } from '../../shared/recordKinds.ts';
 import {
-  DUTY_NOT_IMPORTED, IMPORT_TABLES, PERSONAL_FORMAT, PROFILE_COLUMNS, READINESS_COLUMNS, RECORD_COLUMNS, RECORD_FORMAT, DELETED_AT_HEADER,
+  IMPORT_TABLES, PERSONAL_FORMAT, PROFILE_COLUMNS, READINESS_COLUMNS, RECORD_COLUMNS, RECORD_FORMAT, DELETED_AT_HEADER,
   TABLE_LABELS, guessColumns, isImportTable, isRecordTypeHeader, readCell, readRow, routeFor, tableFromHeaders,
   type ImportResults, type ImportReview, type ImportReviewRow, type ImportTable, type RowOutcome, type RouteTarget,
 } from '../../shared/recordTransfer.ts';
@@ -51,16 +51,22 @@ type SourceKind = ImportReview['source'];
 export const IMPORT_MAX_ROWS = 5000;
 /** A Vantage export's records, at most: as many as an account holds by default (VANTAGE_MAX_RECORDS_PER_USER). */
 export const IMPORT_MAX_RECORDS = 20_000;
-const ATTACHABLE = new Set<string>(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
+const ATTACHABLE = new Set<string>(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals', 'duties']);
 /** Fields that name people or records here. A file never sets them: the import does, or nothing does. */
 const NEVER_FROM_FILE = ['id', 'user_id', 'assignee_id', 'counselor_id', 'recorded_by', 'fingerprint', 'kind_confirmed_at', 'frozen_at', 'deleted_at', 'version'];
+/**
+ * What a duty never takes from a file (ADR-0023): its review (a file never approves duty), its score and the version
+ * that gave it, its length and when it was submitted. The server works them out again under the importer's own Unit
+ * Instance, and the duty comes in submitted for review.
+ */
+const DUTY_FROM_SERVER = ['approval_status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_points', 'calculated_points', 'scoring_version', 'scoring_policy_id', 'scoring_basis', 'submitted_at', 'hours', 'days', 'overnight', 'multi_day'];
 
 // ——— The plan: what the person chose ———
 
 const fixValue = z.union([z.string().max(8000), z.number(), z.boolean(), z.null(), z.array(z.string().max(2000)).max(20)]);
 export const importPlanSchema = z.object({
   sheets: z.record(z.string().max(120), z.object({
-    table: z.enum([...IMPORT_TABLES, 'skip', 'duty', 'profile'] as [string, ...string[]]).optional(),
+    table: z.enum([...IMPORT_TABLES, 'skip', 'profile'] as [string, ...string[]]).optional(),
     mapping: z.record(z.string().max(60), z.string().max(200)).optional(),
   })).optional(),
   rows: z.record(z.string().max(200), z.object({
@@ -82,7 +88,7 @@ export type ImportPlan = z.infer<typeof importPlanSchema> & { scanned?: Record<s
 
 interface Candidate {
   ref: string; source: string;
-  from: ImportTable | 'duty';
+  from: ImportTable;
   /** The record's id in the file. */
   sourceId: string | null;
   record: Row;
@@ -150,8 +156,8 @@ function parseJson(buf: Buffer): Row {
   throw badRequest('That JSON file is not a Vantage personal export.');
 }
 
-const titleOf = (table: ImportTable | 'duty', r: Row) => str(table === 'awards' || table === 'projects' ? r.name : table === 'counselings' ? r.summary : r.title).slice(0, 140);
-const dateOf = (table: ImportTable | 'duty', r: Row) => str(table === 'tasks' || table === 'career_steps' ? r.due_date : table === 'goals' ? r.period_end ?? r.period_start : table === 'projects' ? r.start_date ?? r.target_date : r.date) || null;
+const titleOf = (table: ImportTable, r: Row) => str(table === 'awards' || table === 'projects' ? r.name : table === 'counselings' ? r.summary : table === 'duties' ? r.title || r.duty_type_name || r.duty_type : r.title).slice(0, 140);
+const dateOf = (table: ImportTable, r: Row) => str(table === 'tasks' || table === 'career_steps' ? r.due_date : table === 'goals' ? r.period_end ?? r.period_start : table === 'projects' ? r.start_date ?? r.target_date : r.date) || null;
 const CAREER_FIELDS = ['title', 'category', 'status', 'due_date', 'notes', 'source_label', 'source_url', 'source_checked_on'];
 
 /** A record's own fields from a Vantage export row: never its id, owner, counselor or assignee, which name people here. */
@@ -161,6 +167,8 @@ function ownFields(table: ImportTable, row: Row): Row {
   for (const f of fields) if (row[f] !== undefined) out[f] = row[f];
   if (table !== 'career_steps') { out.visibility = row.visibility; out.unit_id = row.unit_id ?? null; }
   if (table === 'activities' && row.kind_confirmed_at) out.kind_confirmed = true;
+  // A duty's type comes back by its code, found again in the importer's Unit Instance; the id is only a fallback there.
+  if (table === 'duties') { out.duty_type = row.duty_type ?? null; out.duty_type_name = row.duty_type_name ?? null; }
   return out;
 }
 
@@ -198,6 +206,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
         author = str(raw.recorder_label) || 'Another Marine';
         if (!record.recommending_official) record.recommending_official = author;
       }
+      if (table === 'duties' && raw.recorded_by && str(raw.recorded_by) !== owner) author = str(raw.recorder_label) || 'Another Marine';
       const sourceId = str(raw.id) || null;
       candidates.push({
         ref: `${table}:${sourceId ?? candidates.length}`, source: `${TABLE_LABELS[table].many} in the export`, from: table, sourceId, record,
@@ -356,7 +365,7 @@ function fromSpreadsheet(content: Buffer, kind: 'csv' | 'xlsx', filename: string
       total += 1;
       const ref = `s${s}r${i + 2}`;
       const where = `${sheet.name}, row ${i + 2}`;
-      let target: { table: ImportTable | 'duty' | 'profile'; preset?: Row } | null = isImportTable(table) || table === 'duty' ? { table, preset: route.preset ?? undefined } : null;
+      let target: { table: ImportTable | 'profile'; preset?: Row } | null = isImportTable(table) ? { table, preset: route.preset ?? undefined } : null;
       if (table === 'record_type') {
         const said = String(row[typeHeader!] ?? '').trim();
         target = routeFor(said);
@@ -369,14 +378,6 @@ function fromSpreadsheet(content: Buffer, kind: 'csv' | 'xlsx', filename: string
         }
       }
       if (!target || target.table === 'profile') return;
-      if (target.table === 'duty') {
-        // Listed, never imported: what the duty was and the day it was stood, as the person would know it.
-        const cells = Object.entries(row).filter(([, v]) => v.trim());
-        const date = cells.map(([, v]) => toISODate(v.trim())).find(Boolean) ?? null;
-        const title = cells.find(([h]) => /duty|title|name|post|watch|billet/i.test(h))?.[1] ?? cells.find(([, v]) => !toISODate(v.trim()))?.[1] ?? '';
-        candidates.push(blank(ref, where, 'duty', { title: title.trim(), date }, null));
-        return;
-      }
       const t = target.table;
       const read = readRow(t, row, mappingFor(t));
       // A sheet's preset fills what the row does not say: the type on an Education sheet, the category on a Volunteer one.
@@ -388,11 +389,7 @@ function fromSpreadsheet(content: Buffer, kind: 'csv' | 'xlsx', filename: string
     });
   });
   if (total >= IMPORT_MAX_ROWS) notes.push(`Imports read at most ${IMPORT_MAX_ROWS} rows; split a larger file.`);
-  const duty = candidates.filter((c) => c.from === 'duty').length;
-  return {
-    kind, exported: null, notes, candidates, sheets, profile, attachments: [],
-    notImported: duty ? [{ key: 'duty', label: 'Duty rows', count: duty, reason: DUTY_NOT_IMPORTED }] : [],
-  };
+  return { kind, exported: null, notes, candidates, sheets, profile, attachments: [], notImported: [] };
 }
 
 function readSource(content: Buffer, filename: string, plan: ImportPlan): Source {
@@ -415,6 +412,8 @@ function contentKey(table: ImportTable, r: Row): string {
     case 'projects': return [t(r.name), str(r.start_date)].join('|');
     case 'tasks': return [t(r.title), str(r.due_date)].join('|');
     case 'career_steps': return [t(r.title), str(r.category)].join('|');
+    // One duty a Marine stood is its type, from its start: two of one type never start at the same moment.
+    case 'duties': return [str(r.duty_type_id), str(r.date), str(r.start_time)].join('|');
     default: return '';
   }
 }
@@ -461,8 +460,9 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
     const choice = choices[c.ref] ?? {};
     const as = targetOf(c, choices);
     let record = convert(c, as);
-    if (as !== 'duty' && choice.fix) record = { ...record, ...sanitizeFix(as, choice.fix) };
+    if (choice.fix) record = { ...record, ...sanitizeFix(as, choice.fix) };
     for (const k of NEVER_FROM_FILE) delete record[k];
+    if (as === 'duties') for (const k of DUTY_FROM_SERVER) delete record[k];
     // A link to a project is kept only to the project this import brings in (or finds here) for it.
     delete record.project_id;
     if (c.vantage && c.sourceProject && (as === 'activities' || as === 'tasks')) record.project_id = projectIds.get(c.sourceProject) ?? null;
@@ -471,7 +471,6 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       outcome: 'new', reason: null, include: true, toggle: true, suggestion: suggestionFor(c, as), placement: null, author: c.author, fields: record,
     };
     const push = (outcome: RowOutcome, extra: Partial<ImportReviewRow> = {}) => { state.rows.push({ ...base, outcome, ...extra }); };
-    if (as === 'duty') { push('not_imported', { reason: DUTY_NOT_IMPORTED, include: false, toggle: false }); continue; }
     const fixed = Boolean(choice.fix && Object.keys(choice.fix).length) || Boolean(choice.as && choice.as !== c.from);
     if (c.problem && !fixed) { push('problem', { reason: c.problem, fieldErrors: c.fieldErrors, include: false, toggle: false }); continue; }
 
@@ -485,6 +484,10 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       if (choice.include === false) { push('excluded', { reason: 'You left it out.', duplicateOf: ref }); continue; }
       // What the reader filled in for a new record (a course's type from its title) never overwrites what this one holds.
       const said = as === c.from && c.inferred?.length ? Object.fromEntries(Object.entries(record).filter(([k]) => !c.inferred!.includes(k))) : record;
+      if (as === 'duties') {
+        const typed = withDutyType(ctx, said, String(mine.unit_id));
+        if (typed.problem) { push('problem', { reason: typed.problem, fieldErrors: { duty_type: typed.problem }, include: false, toggle: false, duplicateOf: ref }); continue; }
+      }
       const outcome = updateOne(ctx, user, scope, as, mine, said, placementMode, reqKey, ip, state, c);
       push(outcome.outcome, outcome.extra);
       continue;
@@ -492,6 +495,11 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
     if (c.deleted && choice.include !== true) { push('excluded', { reason: 'It was in the recycle bin when it was exported.', include: false }); continue; }
     if (choice.include === false) { push('excluded', { reason: 'You left it out.', include: false }); continue; }
 
+    // A duty's type, found in the Unit Instance it will be recorded in, before it is matched against what is here.
+    if (as === 'duties') {
+      const typed = withDutyType(ctx, record, place(ctx, scope, as, record, placementMode).unitId);
+      if (typed.problem) { push('problem', { reason: typed.problem, fieldErrors: { duty_type: typed.problem }, include: false, toggle: false }); continue; }
+    }
     // Imported before, the same thing already here, or twice in this file.
     const before = c.sourceId ? importedBefore(ctx, user.id, as, c.sourceId) : null;
     const fingerprint = as === 'activities' ? (c.fingerprint && as === c.from ? importedWorkFingerprint(user.id, c.fingerprint) : activityFingerprint(user.id, record as never)) : null;
@@ -518,7 +526,7 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       state.created.set(c.ref, { table: as, id });
       if (as === 'projects' && c.sourceId) projectIds.set(c.sourceId, id);
       const notes: string[] = [];
-      if (!placed.kept && placed.why) notes.push(placed.why);
+      if (placed.why && (!placed.kept || as === 'duties')) notes.push(placed.why);
       const nearOne = near.get(c.ref);
       if (nearOne) notes.push(`Looks like “${nearOne}” on the same day; leave it out if it is the same.`);
       if (c.author) notes.push(`Written by ${c.author}; it comes in as your own copy, marked as imported.`);
@@ -527,7 +535,7 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       state.origins.push({ table: as, id, action: 'created', sourceId: c.sourceId, ref: c.source, author: c.author, before: null, versionAfter: 1 });
     } catch (e) {
       if (!isRefusal(e)) throw e;
-      push('problem', { reason: (e as Error).message, fieldErrors: (e as HttpError).extra?.fieldErrors as Record<string, string> | undefined, include: false, toggle: false });
+      push('problem', { reason: (e as Error).message, fieldErrors: importFieldErrors(as, (e as HttpError).extra?.fieldErrors as Record<string, string> | undefined), include: false, toggle: false });
     }
   }
 
@@ -543,12 +551,12 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
   return state;
 }
 
-const order = (t: ImportTable | 'duty') => (t === 'duty' ? IMPORT_TABLES.length : IMPORT_TABLES.indexOf(t));
-const targetOf = (c: Candidate, choices: NonNullable<ImportPlan['rows']>): ImportTable | 'duty' => (c.from === 'duty' ? 'duty' : choices[c.ref]?.as ?? c.from);
+const order = (t: ImportTable) => IMPORT_TABLES.indexOf(t);
+const targetOf = (c: Candidate, choices: NonNullable<ImportPlan['rows']>): ImportTable => choices[c.ref]?.as ?? c.from;
 
 /** The row as the record type it goes into: as read, or carried across as a move carries it (shared/recordKinds.ts). */
-function convert(c: Candidate, as: ImportTable | 'duty'): Row {
-  if (as === 'duty' || as === c.from || c.from === 'duty') return { ...c.record };
+function convert(c: Candidate, as: ImportTable): Row {
+  if (as === c.from) return { ...c.record };
   if (isMovableTable(c.from) && isMovableTable(as)) return { ...movedFields(c.from, c.record, as), visibility: c.record.visibility, unit_id: c.record.unit_id };
   // Between other types only the title carries; the rest is for its owner to fill in.
   const title = titleOf(c.from, c.record);
@@ -560,12 +568,14 @@ function convert(c: Candidate, as: ImportTable | 'duty'): Row {
 function sanitizeFix(as: ImportTable, fix: Record<string, unknown>): Row {
   const columns = new Map(RECORD_COLUMNS[as].map((c) => [c.key, c]));
   for (const k of NEVER_FROM_FILE) columns.delete(k);
-  // A set of pairs (a goal's filters) is typed as the spreadsheet holds it, and read the way the spreadsheet is.
+  for (const c of columns.values()) if (c.exportOnly) columns.delete(c.key);
+  // A set of pairs (a goal's filters) or a list (a duty's conditions) is typed as the spreadsheet holds it, and read the
+  // way the spreadsheet is.
   return Object.fromEntries(Object.entries(fix).filter(([k]) => columns.has(k))
-    .map(([k, v]) => [k, columns.get(k)!.kind === 'json' && typeof v === 'string' ? readCell(columns.get(k)!, v).value : v]));
+    .map(([k, v]) => [k, (columns.get(k)!.kind === 'json' || columns.get(k)!.kind === 'list') && typeof v === 'string' ? readCell(columns.get(k)!, v).value : v]));
 }
 
-function suggestionFor(c: Candidate, as: ImportTable | 'duty'): ImportReviewRow['suggestion'] {
+function suggestionFor(c: Candidate, as: ImportTable): ImportReviewRow['suggestion'] {
   if (as !== 'activities' || c.from !== 'activities' || c.record.kind_confirmed || c.fingerprint) return null;
   const reading = recordKindOf(kindText('activities', c.record));
   return reading ? { to: reading.kind === 'award' ? 'awards' : 'trainings', why: reading.why } : null;
@@ -615,10 +625,30 @@ function nearDuplicates(ctx: AppContext, userId: string, candidates: Candidate[]
   return out;
 }
 
+/**
+ * A refusal's field errors under the columns a sheet has, so the review offers the field to correct: a duty's type is
+ * its Duty Type column, which the record holds as duty_type_id (a retired type, or one of another Unit Instance).
+ */
+function importFieldErrors(table: ImportTable, errors: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (table !== 'duties' || !errors?.duty_type_id) return errors;
+  const { duty_type_id: type, ...rest } = errors;
+  return { ...rest, duty_type: type };
+}
+
 function place(ctx: AppContext, scope: Scope, table: ImportTable, record: Row, mode: 'keep' | 'private'): { visibility: string; unitId: string | null; kept: boolean; why: string | null } {
   if (table === 'career_steps') return { visibility: 'private', unitId: null, kept: true, why: null };
   const spec = TABLES[table as RecordTable];
   const home = scope.homeUnitId ?? null;
+  // Duty is stood for a unit, so it is never private (ADR-0023): in the unit the file names if its owner serves there,
+  // else their own.
+  if (table === 'duties') {
+    const wanted = typeof record.unit_id === 'string' && record.unit_id ? record.unit_id : null;
+    const placeable = (u: string | null): u is string => Boolean(u && ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(u) && canPlaceOwnDuty(scope, u));
+    const unitId = placeable(wanted) ? wanted : home;
+    const why = unitId !== wanted && wanted ? 'The unit it was stood for is not one you serve in here, so it comes in under your own unit.'
+      : mode === 'private' ? 'Duty is stood for a unit, so it comes in shared with that unit, not private.' : null;
+    return { visibility: 'unit', unitId, kept: true, why };
+  }
   const wantedVisibility = record.visibility === 'unit' ? 'unit' : 'private';
   const wantedUnit = typeof record.unit_id === 'string' && record.unit_id ? record.unit_id : null;
   if (mode === 'private') return { visibility: 'private', unitId: home, kept: wantedVisibility === 'private' && (!wantedUnit || wantedUnit === home), why: 'Brought in private, as you chose.' };
@@ -633,6 +663,25 @@ function careerInput(body: Row) {
   const parsed = careerStepSchema.safeParse(Object.fromEntries(CAREER_FIELDS.filter((f) => body[f] != null && body[f] !== '').map((f) => [f, body[f]])));
   if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? 'That is not a career step.', { fieldErrors: Object.fromEntries(parsed.error.issues.map((i) => [String(i.path[0] ?? '_'), i.message])) });
   return parsed.data as Row;
+}
+
+/**
+ * A duty row's type as one of the Unit Instance's it is recorded in: by the code or the name the file gives, else the id
+ * a Vantage export gives when it is that instance's. Sets duty_type_id on the record, or says why it cannot.
+ */
+function withDutyType(ctx: AppContext, record: Row, unitId: string | null): { problem: string | null } {
+  const said = str(record.duty_type).trim();
+  const fromId = str(record.duty_type_id).trim();
+  const name = str(record.duty_type_name).trim();
+  delete record.duty_type; delete record.duty_type_name;
+  const org = orgOfUnit(ctx, unitId);
+  if (!org) return { problem: 'Duty is recorded for a unit you serve in, and you serve in none here.' };
+  const find = (word: string) => (word ? ctx.db.prepare('SELECT id FROM duty_types WHERE org_id = ? AND (lower(code) = lower(?) OR lower(name) = lower(?)) ORDER BY active DESC, code = ? DESC LIMIT 1').get(org, word, word, word) as { id: string } | undefined : undefined);
+  const byId = fromId ? ctx.db.prepare('SELECT id FROM duty_types WHERE id = ? AND org_id = ?').get(fromId, org) as { id: string } | undefined : undefined;
+  const hit = find(said) ?? byId ?? find(name);
+  if (!hit) return { problem: said || name ? `“${(said || name).slice(0, 40)}” is not one of your unit’s duty types. Correct it to one of them, or ask a Unit Manager to add it.` : 'Duty Type: Required.' };
+  record.duty_type_id = hit.id;
+  return { problem: null };
 }
 
 function insertOne(ctx: AppContext, user: SessionUser, table: ImportTable, body: Row, reqKey: object, ip: string | undefined, importId: string, fingerprint: string | null, review: boolean): string {
@@ -650,7 +699,7 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
   for (const [k, v] of Object.entries(record)) {
     if (k === 'visibility' || k === 'unit_id' || k === 'kind_confirmed') continue;
     const was = current[k];
-    const same = k === 'evidence_links' || k === 'filters' ? JSON.stringify(v ?? []) === JSON.stringify(was ?? []) : (v ?? null) === (was ?? null) || (k === 'ongoing' && Boolean(v) === Boolean(was));
+    const same = k === 'evidence_links' || k === 'filters' || k === 'conditions' ? JSON.stringify(v ?? []) === JSON.stringify(was ?? []) : (v ?? null) === (was ?? null) || (k === 'ongoing' && Boolean(v) === Boolean(was));
     if (!same) changes[k] = v;
   }
   if (mode === 'keep' && table !== 'career_steps') {
@@ -658,7 +707,7 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
     if (record.unit_id !== undefined && (record.unit_id || null) !== (current.unit_id ?? null)) changes.unit_id = record.unit_id || null;
   }
   // "Only me" holds for a record the file updates too: what it changes is not shared on.
-  if (mode === 'private' && table !== 'career_steps' && current.visibility !== 'private') {
+  if (mode === 'private' && table !== 'career_steps' && table !== 'duties' && current.visibility !== 'private') {
     changes.visibility = 'private';
     if (table === 'goals' && current.measure_scope === 'unit') changes.measure_scope = 'subject';
   }

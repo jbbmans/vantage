@@ -88,9 +88,10 @@ permissions, never role names, and no one at either upper tier can widen their o
 
 Each kind of record keeps its own store, named in `shared/recordKinds.ts` with who writes it, who may
 correct it and which outside system holds the official copy. An Activity is work a person did, and never
-stands in for an award, a course or a counseling; duty records come with Task 17. The person's timeline (`GET /api/record/timeline`)
+stands in for an award, a course, a counseling or a duty. A duty (`duties`, migration 031) is scored on the server under the
+version in force on its first day and keeps that score ([ADR-0023](ADR/0023-duty-records.md)). The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
-training in one transaction that carries its files and comments, keeps the row as it stood in
+training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in
 `record_lineage`, is audited at both ends and can be undone; nothing moves on its own, and migration 023
 moved nothing. An award keeps who recorded it (`awards.recorded_by`), and a leader's recommendation is never
 its subject's to change. See [ADR-0015](ADR/0015-core-record-architecture.md).

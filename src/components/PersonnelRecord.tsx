@@ -230,7 +230,7 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
   const counts = record.records;
   const links: Array<[string, number, string, string?]> = counts ? [
     ['Training', counts.trainings, 'career'], ['Education', counts.education, 'career'], ['Awards', counts.awards, 'career'], ['Counseling', counts.counselings, 'counseling'],
-    ['Duty', counts.duty, 'activities', 'Logged as Operations activities'], ['Activities', counts.activities, 'activities'], ['Goals', counts.goals, 'overview'], ['Open tasks', counts.tasks, 'overview'],
+    ['Duty', counts.duty, 'duty'], ['Activities', counts.activities, 'activities'], ['Goals', counts.goals, 'overview'], ['Open tasks', counts.tasks, 'overview'],
   ] : [];
   // A name opens that Marine's page for a reader who sees Marines on a roster; the Marine reading their own record
   // may not, so for them it is a name.

@@ -303,8 +303,8 @@ function historyOf(ctx: AppContext, userId: string, orgIds: string[] | null, vie
 
 /**
  * How many of each kind of record the reader may open, by the rules the Marine page reads them with (ADR-0015): all of
- * them for the Marine; for anyone else, those shared with a unit the reader may open records in. Duty is counted from
- * Operations activities until duty keeps records of its own (Task 17).
+ * them for the Marine; for anyone else, those shared with a unit the reader may open records in. Duty is its own record
+ * (ADR-0023), always shared with the unit it was stood for.
  */
 function recordCounts(ctx: AppContext, userId: string, units: string[] | null, readerId: string): NonNullable<PersonnelRecordResponse['records']> {
   const shared = units ? "AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))" : '';
@@ -317,7 +317,7 @@ function recordCounts(ctx: AppContext, userId: string, units: string[] | null, r
     counselings: units
       ? (ctx.db.prepare("SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))))").get(userId, readerId, JSON.stringify(units)) as { n: number }).n
       : count('SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL'),
-    duty: count(`SELECT COUNT(*) AS n FROM activities WHERE user_id = ? AND deleted_at IS NULL AND category = 'Operations' ${shared}`),
+    duty: count(`SELECT COUNT(*) AS n FROM duties WHERE user_id = ? AND deleted_at IS NULL ${shared}`),
     activities: count(`SELECT COUNT(*) AS n FROM activities WHERE user_id = ? AND deleted_at IS NULL ${shared}`),
     goals: (ctx.db.prepare(`SELECT COUNT(*) AS n FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ${shared}`).get(userId, userId, ...args) as { n: number }).n,
     tasks: (ctx.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' ${shared}`).get(userId, userId, ...args) as { n: number }).n,

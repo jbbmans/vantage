@@ -376,6 +376,20 @@ const MIGRATIONS: Migration[] = [
     // Instance. Nothing already written is read, moved or reshaped: a diagnosis is derived on read, never stored.
     run: (db) => instanceBoundaryTriggers(db),
   },
+  {
+    id: 31,
+    name: '031_duty_records',
+    // Duty as a record of its own (Task 17, ADR-0023). The duties table comes from schema.sql, which is safe to replay; the
+    // boundary keeps a duty, its type and its scoring version in one Unit Instance, and its start and end are kept in
+    // order as every record's are (ADR-0018). The move history widens to name duty, so an activity that was a duty can be
+    // moved to it by its owner and back. Nothing already written moves: an activity logged as duty stays one until its
+    // owner moves it (John's decision of 2026-10-17), so the migration declares nothing it reshapes.
+    run: (db) => {
+      widenRecordLineage(db);
+      instanceBoundaryTriggers(db);
+      timeframeTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -634,6 +648,21 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM case_guidance g WHERE g.work_item_id = NEW.id)
       ${refuse('this case is cited as a validated example')}`);
   }
+  // A duty is stood in a unit of the Unit Instance whose duty type it is and whose scoring version scored it (ADR-0023),
+  // and a duty type never moves out from under the duty recorded against it. A version's instance never changes
+  // (duty_scoring_policies_published).
+  if (columnsOf(db, 'duties').has('duty_type_id')) {
+    const crossing = `${orgOf('NEW.unit_id')} <> ${dutyTypeOrg('NEW.duty_type_id')} OR (NEW.scoring_policy_id IS NOT NULL AND ${orgOf('NEW.unit_id')} <> ${scoringOrg('NEW.scoring_policy_id')})`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS duties_same_org_insert BEFORE INSERT ON duties FOR EACH ROW
+      WHEN ${crossing}
+      ${refuse('a duty, its unit, its duty type and its scoring version belong to one Unit Instance')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS duties_same_org_update BEFORE UPDATE OF unit_id, duty_type_id, scoring_policy_id ON duties FOR EACH ROW
+      WHEN (NEW.unit_id IS NOT OLD.unit_id OR NEW.duty_type_id IS NOT OLD.duty_type_id OR NEW.scoring_policy_id IS NOT OLD.scoring_policy_id) AND (${crossing})
+      ${refuse('a duty, its unit, its duty type and its scoring version belong to one Unit Instance')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS duty_types_duties_same_org BEFORE UPDATE OF org_id ON duty_types FOR EACH ROW
+      WHEN NEW.org_id IS NOT OLD.org_id AND EXISTS (SELECT 1 FROM duties d WHERE d.duty_type_id = NEW.id AND ${orgOf('d.unit_id')} <> NEW.org_id)
+      ${refuse('duty in another Unit Instance is recorded against this duty type')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -655,6 +684,8 @@ const orgUnitTables = (db: Db) => (['unit_billets', 'training_requirements', 'pe
 const billetOrg = (id: string) => `(SELECT org_id FROM unit_billets WHERE id = ${id})`;
 const typeOrg = (id: string) => `(SELECT org_id FROM error_report_types WHERE id = ${id})`;
 const caseUnit = (id: string) => `(SELECT unit_id FROM work_items WHERE id = ${id})`;
+const dutyTypeOrg = (id: string) => `(SELECT org_id FROM duty_types WHERE id = ${id})`;
+const scoringOrg = (id: string) => `(SELECT org_id FROM duty_scoring_policies WHERE id = ${id})`;
 
 /**
  * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
@@ -675,6 +706,10 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
       case_guidance: `SELECT COUNT(*) AS n FROM case_guidance g LEFT JOIN work_items w ON w.id = g.work_item_id LEFT JOIN case_guidance p ON p.id = g.supersedes_id
         WHERE (g.work_item_id IS NOT NULL AND (${orgOf('w.unit_id')} IS NOT g.org_id OR w.unit_id IS NOT g.unit_id))
           OR (g.supersedes_id IS NOT NULL AND p.org_id IS NOT g.org_id)`,
+    } : {}),
+    ...(columnsOf(db, 'duties').has('duty_type_id') ? {
+      duties: `SELECT COUNT(*) AS n FROM duties d LEFT JOIN duty_types t ON t.id = d.duty_type_id LEFT JOIN duty_scoring_policies p ON p.id = d.scoring_policy_id
+        WHERE ${orgOf('d.unit_id')} <> t.org_id OR ${orgOf('d.unit_id')} <> p.org_id`,
     } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL
@@ -840,6 +875,24 @@ export function dropPersonnelHistoryTriggers(db: Db) {
   for (const name of PERSONNEL_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
 
+/**
+ * The move history names duty once there is a duty record (migration 031, ADR-0023). SQLite cannot widen a CHECK in
+ * place, so a history from before it is copied into the table as schema.sql defines it now, every row and its order
+ * (rowid) kept, and the old one dropped. A history that already names duty is left as it is.
+ */
+export function widenRecordLineage(db: Db) {
+  const current = (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'record_lineage'").get() as { sql: string } | undefined)?.sql;
+  if (!current || current.includes("'duties'")) return;
+  const definition = /CREATE TABLE IF NOT EXISTS record_lineage \([\s\S]*?\n\);/.exec(SCHEMA)?.[0];
+  if (!definition) throw new Error('schema.sql does not define record_lineage');
+  db.exec(definition.replace('CREATE TABLE IF NOT EXISTS record_lineage (', 'CREATE TABLE record_lineage_031 ('));
+  const kept = [...columnsOf(db, 'record_lineage')].filter((c) => columnsOf(db, 'record_lineage_031').has(c));
+  db.exec(`INSERT INTO record_lineage_031 (rowid, ${kept.join(', ')}) SELECT rowid, ${kept.join(', ')} FROM record_lineage ORDER BY rowid`);
+  db.exec('DROP TABLE record_lineage');
+  db.exec('ALTER TABLE record_lineage_031 RENAME TO record_lineage');
+  for (const index of SCHEMA.match(/CREATE INDEX IF NOT EXISTS idx_record_lineage_\w+ ON record_lineage\([^)]*\);/g) ?? []) db.exec(index);
+}
+
 /** A time of day as the columns hold it, HH:MM on a 24-hour clock; schema.sql says the same. */
 const timeOfDayCheck = (column: string) => `${column} IS NULL OR ${column} GLOB '[01][0-9]:[0-5][0-9]' OR ${column} GLOB '2[0-3]:[0-5][0-9]'`;
 
@@ -935,7 +988,7 @@ export function backfillAwardRecorders(db: Db) {
 }
 
 /** The record types that take attachments, each with the unit its row sits in. */
-const ATTACHMENT_HOSTS = ['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals'] as const;
+const ATTACHMENT_HOSTS = ['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals', 'duties'] as const;
 
 /**
  * Files attached before they kept a unit take the one their record sits in now. For a record moved before the boundary

@@ -11,7 +11,7 @@ import type { RecordTable } from '../../shared/schemas.ts';
 
 /** The records that show a comment thread. A training is a line in a log, with no page to hold one. */
 // Training takes comments too, so what was said on an entry moved there stays in view (ADR-0015).
-export const COMMENTABLE = new Set<string>(['activities', 'awards', 'trainings', 'counselings', 'tasks', 'projects', 'goals']);
+export const COMMENTABLE = new Set<string>(['activities', 'awards', 'trainings', 'counselings', 'tasks', 'projects', 'goals', 'duties']);
 
 const MAX_BODY = 4000;
 
@@ -115,6 +115,7 @@ function recordUrl(table: string, id: string) {
   if (table === 'activities') return `/records/${id}`;
   if (table === 'awards') return `/career/awards?open=${id}`;
   if (table === 'counselings') return `/career/counseling?open=${id}`;
+  if (table === 'duties') return `/record/duty?open=${id}`;
   return `/records/${table}/${id}`;
 }
 

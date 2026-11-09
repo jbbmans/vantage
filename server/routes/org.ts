@@ -16,7 +16,7 @@ import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { listPermissions, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
-import type { Activity, Award, Counseling, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
+import type { Activity, Award, Counseling, Duty, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
@@ -25,6 +25,7 @@ import { zonedDay } from '../lib/clock.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
+import { withDutyNames } from '../services/duties.ts';
 import { addResponsibility, assignmentSchema, bulkPersonnel, bulkSchema, changeAssignment, endResponsibility, personnelAccess, personnelRecord, personnelRoster, profileUnitsFor, responsibilitySchema, supervisorCandidates, withPersonnelNote } from '../services/personnelRecords.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 
@@ -96,7 +97,7 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   const unitIds = subtreeIds(req.ctx, unitId);
   const members = membersAcross(req.ctx, unitIds).map((m) => ({ id: m.id, first_name: m.first_name, last_name: m.last_name, mos: m.mos, billet: m.billet, rank_abbr: m.rank_abbr, unit_id: m.unit_id, team: m.team }));
   const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, units: unitIds, generated_at: now(), members };
-  for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards'] as const) {
+  for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'duties'] as const) {
     out[table] = (req.ctx.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC`).all(JSON.stringify(unitIds)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
   }
   audit(req.ctx, { actor_id: req.user.id, action: 'export', entity: 'unit', entity_id: unitId, unit_id: unitId, ip: clientIp(req) });
@@ -479,7 +480,8 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   if (!isSelf) { delete person.email; audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) }); }
   const ph = units.map(() => '?').join(',');
   const unitClause = isSelf ? '' : `AND visibility = 'unit' AND unit_id IN (${ph})`;
-  const scoped = <T,>(table: 'activities' | 'trainings' | 'awards') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
+  const scoped = <T,>(table: 'activities' | 'trainings' | 'awards' | 'duties') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC${table === 'duties' ? ', start_time DESC' : ''} LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
+  const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties')) as unknown as Duty[];
   const counselings = isSelf
     ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id) as Counseling[]
     : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units) as Counseling[];
@@ -501,7 +503,7 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
-    activities: scoped<Activity>('activities'), trainings: scoped<Training>('trainings'), awards: scoped<Award>('awards'), counselings, goals, tasks,
+    activities: scoped<Activity>('activities'), trainings: scoped<Training>('trainings'), awards: scoped<Award>('awards'), duties, counselings, goals, tasks,
   };
   res.json(body);
 }));

@@ -2,9 +2,9 @@ import type { AppContext } from '../context.ts';
 import { PERMISSIONS, can, isMember, assertSameInstance, type Scope } from './scope.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
 
-export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null }
+export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null; approval_status?: string | null }
 
-/** An award somebody entered for the Marine it is about: a leader's recommendation (ADR-0015). */
+/** An award or a duty somebody entered for the Marine it is about: a leader's recommendation or record (ADR-0015, ADR-0023). */
 export const recordedByOther = (row: RecordRow) => Boolean(row.recorded_by && row.recorded_by !== row.user_id);
 
 /** SQL fragment restricting a record table to rows the caller may read. */
@@ -31,6 +31,8 @@ export function canRead(scope: Scope, userId: string, row: RecordRow): boolean {
 
 export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.frozen_at) return false;
+  // A duty its reviewer approved or rejected stays as it was decided (ADR-0023): nobody edits, moves or deletes it.
+  if (row.approval_status === 'approved' || row.approval_status === 'rejected') return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.acknowledged_at) return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
   // A recommendation is its recorder's and the chain's to change, never its subject's: a Marine does not mark their own
@@ -49,6 +51,12 @@ export const ASSIGNEE_FIELDS: Record<string, readonly string[]> = { tasks: ['sta
 export function isAssignee(scope: Scope, userId: string, row: RecordRow): boolean {
   return Boolean(row.assignee_id && row.assignee_id === userId && row.user_id !== userId && row.visibility === 'unit' && row.unit_id && isMember(scope, row.unit_id) && !row.frozen_at);
 }
+
+/**
+ * Where one may put duty one stood oneself: a unit one serves in (ADR-0023 §4), never one that only Counsel inherited
+ * from a parent unit reaches. Its owner could not correct or delete it there (canEdit asks the same membership).
+ */
+export const canPlaceOwnDuty = (scope: Scope, unitId: string | null): unitId is string => Boolean(unitId) && isMember(scope, unitId as string);
 
 /** May the caller place a record with this visibility inside this unit? */
 export function canPlace(scope: Scope, visibility: string, unitId: string | null, shareFlag: number, personal = false): boolean {

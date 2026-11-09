@@ -1,7 +1,7 @@
 import {
   Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
   Gauge, GraduationCap, HeartPulse, History, Inbox, KeyRound, LayoutDashboard, Library, LifeBuoy, ListChecks, Mail, MessagesSquare,
-  NotebookPen, ScrollText, Settings2, ShieldCheck, Target, UserPlus, Users, UsersRound, Workflow,
+  NotebookPen, ScrollText, Settings2, ShieldCheck, Target, Timer, UserPlus, Users, UsersRound, Workflow,
   type LucideIcon,
 } from 'lucide-react';
 import type { TeamSection } from '@/lib/teamAccess';
@@ -82,6 +82,7 @@ export const GROUPS: NavGroup[] = [
       { to: '/record/activities', label: 'Activities', icon: NotebookPen, hint: 'Every activity you logged' },
       { to: '/career/awards', label: 'Awards', icon: Award, hint: 'Recommendations and what came of them' },
       { to: '/career/counseling', label: 'Counseling', icon: MessagesSquare, hint: 'Counselings given and received' },
+      { to: '/record/duty', label: 'Duty', icon: Timer, hint: 'Duty you stood, its hours and its points' },
       { to: '/record/drafts', label: 'Drafts', icon: FilePen, hint: 'Entries drawn from your work, waiting for you', count: 'drafts' },
       { to: '/record/contributions', label: 'Contributions', icon: Workflow, hint: 'What you did on each case you worked' },
     ],
