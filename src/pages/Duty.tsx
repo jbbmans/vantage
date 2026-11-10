@@ -126,18 +126,19 @@ export default function Duty() {
           description="Duty submitted in the units where you review it shows here, the longest-waiting first. Your own duty is another reviewer’s to decide." /></div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table minWidth={820} head={<><th className="w-32">Waiting since</th><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-64"><span className="sr-only">Decide</span></th></>}>
+          {/* The duty leads, so a phone shows what it is and whose before the table scrolls; it opens with every decision. */}
+          <Table minWidth={900} head={<><th>Duty</th><th className="w-32">Waiting since</th><th className="w-44">When</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-[17rem]"><span className="sr-only">Decide</span></th></>}>
             {waiting.map((r) => (
               <tr key={r.id}>
-                <td className="text-xs"><span className="block text-ink">{timeAgo(r.submitted_at)}</span><time dateTime={r.submitted_at} className="fig block text-2xs text-ink-3">{formatStamp(r.submitted_at)}</time></td>
-                <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
-                <td>
+                <td className="min-w-[11rem]">
                   <button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView(r)}>{r.title || r.duty_type_name || 'Duty'}</button>
                   <span className="block text-xs text-ink-3">{[r.subject_name, r.title ? r.duty_type_name : null, r.recorder_name && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === me ? 'you' : r.recorder_name}` : null, r.frozen_at ? 'its Marine has left the unit' : null].filter(Boolean).join(' · ')}</span>
                 </td>
+                <td className="text-xs"><span className="block text-ink">{timeAgo(r.submitted_at)}</span><time dateTime={r.submitted_at} className="fig block text-2xs text-ink-3">{formatStamp(r.submitted_at)}</time></td>
+                <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
                 <td className="fig text-right text-xs">{formatHours(r.hours)}</td>
                 <td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}{r.scoring_version != null && <span className="block text-2xs text-ink-3">version {r.scoring_version}</span>}</td>
-                <td><DutyReviewActions row={r} me={me} brief className="flex flex-wrap items-center justify-end gap-1" /></td>
+                <td><DutyReviewActions row={r} me={me} brief className="flex items-center justify-end gap-1 whitespace-nowrap" /></td>
               </tr>
             ))}
           </Table>
@@ -150,7 +151,7 @@ export default function Duty() {
           action={<Button variant="primary" onClick={() => setForm({ kind: 'new' })}>Record duty</Button>} /></div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-36"></th></>}>
+          <Table minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-44"></th></>}>
             {shown.map((r) => (
               <tr key={r.id}>
                 <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
@@ -162,9 +163,9 @@ export default function Duty() {
                 <td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}{r.scoring_version != null && <span className="block text-2xs text-ink-3">version {r.scoring_version}</span>}</td>
                 <td className="fig text-right text-xs"><ApprovedPoints row={r} /></td>
                 <td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td>
-                <td className="text-right">
+                <td className="whitespace-nowrap text-right">
                   <Button size="xs" variant="ghost" onClick={() => setView(r)}>View</Button>
-                  {canEditRow(r) && <><Button size="xs" variant="ghost" onClick={() => setForm({ kind: 'edit', row: r })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(r)}>Delete</Button></>}
+                  {canEditRow(r) && <><Button size="xs" variant="ghost" onClick={() => setForm({ kind: 'edit', row: r })}>{r.approval_status === 'returned' ? 'Correct' : 'Edit'}</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(r)}>Delete</Button></>}
                 </td>
               </tr>
             ))}
@@ -173,7 +174,7 @@ export default function Duty() {
       )}
 
       <Dialog open={Boolean(viewed)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={viewed ? viewed.title || viewed.duty_type_name || 'Duty' : ''} description={viewed ? formatTimeframe('duties', viewed, { pattern: 'd MMMM yyyy' }) || undefined : undefined} size="lg"
-        footer={viewed ? <><DownloadMenu size="sm" choices={recordDownloads('duties', viewed.id, true)} />{canEditRow(viewed) && <Button onClick={() => editViewed(viewed)}>{viewed.approval_status === 'returned' ? 'Correct it' : 'Edit'}</Button>}</> : undefined}>
+        footer={viewed ? <><DownloadMenu size="sm" choices={recordDownloads('duties', viewed.id, true)} />{canEditRow(viewed) && viewed.approval_status !== 'returned' && <Button onClick={() => editViewed(viewed)}>Edit</Button>}</> : undefined}>
         {viewed && hasReviewOptions(viewed.review) && (
           <section aria-label={viewed.user_id === me ? 'Its review' : 'Your decision'} className="mb-3 rounded-md border border-line bg-surface-2 px-3 py-2.5">
             <h3 className="eyebrow mb-1.5">{viewed.user_id === me ? 'Its review' : 'Your decision'}</h3>

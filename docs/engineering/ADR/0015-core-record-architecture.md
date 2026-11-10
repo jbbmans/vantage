@@ -67,7 +67,7 @@ The record kinds a Marine writes about themselves:
 | Award, Recognition | `awards` (`personal_award`, `unit_award`; the other types) | the person, or a leader who recommends them | whoever recorded it (section 5); never the subject of a recommendation | iAPS and MOL, for an award |
 | Counseling | `counselings` | the counselor, or the person for their own notes | the counselor until it is acknowledged; never its subject | the signed counseling the command keeps |
 | Goal | `goals` | the person, or a leader who assigns it | its owner; its assignee for status and progress | none |
-| Duty | `duties` (Task 17, [ADR-0023](0023-duty-records.md)) | the person, or a leader with Counsel members who records it for them | whoever recorded it, and a records manager, while it waits for review; never once decided; never its subject when a leader recorded it | the unit's duty roster |
+| Duty | `duties` (Task 17, [ADR-0023](0023-duty-records.md)) | the person, or a leader with Counsel members who records it for them | whoever recorded it, and a records manager, while it waits for review or is returned for correction; never once approved or rejected (a reviewer reopens it first, [ADR-0024](0024-duty-review-permissions-scoring.md)); never its subject when a leader recorded it | the unit's duty roster |
 | Financial Error Snapshot | none yet: Task 15 | | | the report it was uploaded from |
 
 The registry's other entries cover identity, accounts, membership, the personnel roster, units, teams, billets,

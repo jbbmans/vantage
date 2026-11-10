@@ -180,7 +180,7 @@ export function DutyReviewHistory({ id, className }: { id: string; className?: s
           return (
             <li key={e.id} className="px-3 py-2 text-sm">
               <p className="flex flex-wrap items-baseline justify-between gap-x-3">
-                <span className="text-ink"><span className="font-medium">{DUTY_REVIEW_EVENT_LABELS[e.event]}</span> <span className="text-ink-2">by {who(e)}{e.by_owner && e.event === 'approved' ? ', under their own self-approval authority' : ''}</span></span>
+                <span className="text-ink"><span className="font-medium">{DUTY_REVIEW_EVENT_LABELS[e.event]}</span> <span className="text-ink-2">by {who(e)}{e.by_owner && e.event === 'approved' ? `, under ${e.by_me ? 'your' : 'their'} own self-approval authority` : ''}</span></span>
                 <time dateTime={e.at} className="fig text-xs text-ink-3">{formatStamp(e.at)}</time>
               </p>
               {result && <p className="fig text-xs text-ink-2">{result}</p>}

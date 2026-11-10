@@ -1,10 +1,52 @@
 # Progress
 
-_Updated 2026-11-09_
+_Updated 2026-11-10_
+
+## What changed (2026-11-10: duty review, permissions and approved points)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Duty is reviewed, and counts only once approved, at its approved points
+([ADR-0024](engineering/ADR/0024-duty-review-permissions-scoring.md), migration 032).
+
+- **Submit, then approve, return or reject.** Recording a duty submits it. A reviewer in its unit approves it, returns
+  it for correction with a reason, or rejects it with a reason. A returned duty is corrected by whoever may correct it,
+  and saving the correction sends it back; it can also be sent back as it is. A reviewer reopens a decision with a
+  reason, which is how a wrong one is corrected: a decided duty is still refused every edit. Each decision is for the
+  duty as the reviewer saw it (its version), so two reviewers never decide the same duty twice.
+- **Calculated points and approved points are apart.** Calculated points are what the duty's scoring version gave it
+  and are never changed by a review. Approved points are what count. Approval at the calculated points copies them;
+  anything else is an override, at approval or afterwards, and takes its own permission and a reason, kept on the duty
+  with who set it and when. Setting them back withdraws the override.
+- **Three permissions.** Review duty (approve, return, reject, reopen), Override duty points, and Approve own duty.
+  Each works only with View shared records in the duty's unit, held through the chain of command: a Vantage
+  Administrator or a Unit Manager reviews nothing by that office. The standard SNCO and SNCOIC roles review, and the
+  SNCOIC may override; migration 032 gives the same to the standard roles already in each unit that could already do
+  that work, and to no role a unit made itself. Viewing, recording for others, duty types, scoring and export keep the
+  permissions they had.
+- **Nobody decides their own duty, and self-approval is by named role only** (John, 2026-11-10: "role only"). Nobody
+  returns, rejects, reopens or sets the points of their own duty, whatever they hold. Approving one's own duty, at its
+  calculated points, takes a role that names Approve own duty. No standard role does, not even Unit Leader; full unit
+  authority does not include it; and nobody gives it to themselves by any path (a role granted to oneself, a
+  permission added to a role one holds, a role raised to reach the units beneath, one's own join code or invitation).
+- **No review ever rescores.** Approval copies the stored score. A scoring version published later changes nothing
+  already recorded, calculated or approved, and the upgrade changes no duty.
+- **Every decision is kept.** `duty_reviews` holds each decision, change of points and resubmission with who, when,
+  the reason and the points, and is never rewritten. Each is audited without its reason, and the Marine, whoever
+  recorded the duty and the reviewer it concerns are told by its type and day only.
+- **Where it shows.** Records → Duty shows calculated and approved points side by side and totals what counts; To
+  review lists the duty waiting for the reader, longest-waiting first, never their own. A duty opens with the
+  decisions open to its reader and its review history; a Marine's page offers the same. The Duty report gains Approved
+  points and an Override column, and ranks the by-Marine tally by what counts. The role editors list the three
+  permissions under Duty.
+- **Imports, exports, moves and retention.** A file never brings a review in, and an import's undo never puts one
+  back. Exports carry approved points beside calculated ones, and one's own copy carries the review history by name. A
+  reviewed duty does not leave its Unit Instance and cannot be moved back to an activity. Anonymizing a duty redacts
+  every reason and closes it to review; destroying it destroys its history.
 
 ## What changed (2026-11-09: duty records)
 
-**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+**Partial.** Merged in #67; HawkScan not run (no key); CI disregarded on John's word.
 
 Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), migration 031).
 
@@ -19,8 +61,8 @@ Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), m
   change. With no version in force it has no points and says so, and a configuration file cannot load versions that
   would reach back over it.
 - **Submitted for review.** Every duty starts submitted (pending). Approving, returning, rejecting and approved points
-  are Task 18's; the review columns are in place, held together by CHECKs, and an approved or rejected duty is refused
-  any change, delete, move or undo.
+  came with Task 18 (above); the review columns are in place, held together by CHECKs, and an approved or rejected duty
+  is refused any change, delete, move or undo.
 - **Recorded for a Marine.** A leader who counsels a Marine records duty for them from the Marine's page (Record duty,
   and a Duty tab). The Marine is told, sees who recorded it, and cannot change it; the leader and a records manager
   can.

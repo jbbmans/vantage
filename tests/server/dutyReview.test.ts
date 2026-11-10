@@ -840,7 +840,8 @@ test('the Duty report and every export tell approved points from calculated poin
   assert.match(String(copy.overrider_label), /Alvarez/);
   const reviews = exported.duty_reviews as Array<Record<string, any>>;
   assert.equal(reviews.length, (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM duty_reviews v JOIN duties d ON d.id = v.duty_id WHERE d.user_id = ?').get(reyes.id) as { n: number }).n);
-  assert.ok(reviews.length >= 6 && reviews.every((r) => r.duty_id && r.event), JSON.stringify(reviews[0]));
+  assert.ok(reviews.length >= 6 && reviews.every((r) => r.duty_id && r.event && !('actor_id' in r)), JSON.stringify(reviews[0]));
+  assert.ok(reviews.some((r) => r.actor === 'me') && reviews.some((r) => /Nguyen/.test(String(r.actor))) && reviews.some((r) => /Alvarez/.test(String(r.actor))), 'who decided, by name, never by id');
   // A file never brings a review in: one's own copy imported by another Marine comes in submitted, with nothing approved.
   const csv = await get(reyes.token, '/api/me/export?format=csv&sections=duty');
   const copied = await upload(okafor.token, String(csv.text), 'vantage-reyes-duty.csv');
@@ -907,7 +908,8 @@ test('retention: an anonymized duty keeps its decision and its points, loses its
   for (const key of ['reviewer_label', 'overrider_label', 'recorder_label']) assert.ok(!(key in copy), key);
   const lines = (archive.duty_reviews as Array<Record<string, any>>).filter((r) => r.duty_id === d.id);
   assert.equal(lines.length, 3);
-  assert.ok(lines.every((r) => !('actor_label' in r) && (r.reason === null || r.reason === REDACTED)), JSON.stringify(lines));
+  assert.ok(lines.every((r) => !('actor_id' in r) && (r.actor === null || r.actor === 'me') && (r.reason === null || r.reason === REDACTED)), JSON.stringify(lines));
+  assert.deepEqual(lines.map((r) => r.actor), [null, 'me', null], 'nobody else is named on an anonymized duty');
 
   // Destroyed: the duty and its history go together, with foreign keys on.
   saveSchedule(app.ctx, 'G8', { record_type: 'duties', retain_days: 365, disposition: 'destroy', enabled: true }, op.id);

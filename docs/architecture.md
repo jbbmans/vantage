@@ -37,6 +37,11 @@ for and never stored. An entry its owner filed in the wrong place moves to its o
 files, comments and lineage. An award a leader recorded for a Marine is the leader's and the chain's to change, not
 the Marine's. See [ADR-0015](engineering/ADR/0015-core-record-architecture.md).
 
+A duty is reviewed in its unit: approved, returned for correction or rejected, and it counts only once approved, at
+approved points kept apart from the points its scoring version calculated. `duty_reviews` keeps every decision.
+Nobody decides their own duty unless a role someone else gave them names Approve own duty. See
+[ADR-0024](engineering/ADR/0024-duty-review-permissions-scoring.md).
+
 ## Correspondence
 
 A thread carries three separate dates, not one: `response_at` when somebody replied, `ksd_at` when the

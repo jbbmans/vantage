@@ -107,6 +107,22 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   the types of an instance the caller serves in and what its versions score, never who published them or why; an
   import row searches only the duty types of an active instance its owner serves in now (ADR-0023).
   A configuration file never loads a scoring version that would reach back over duty already stood.
+- **Duty review is decided by one rule, on the server** (ADR-0024). `dutyReviewOptions` says who may approve,
+  return, reject, reopen or set the points of a duty; `reviewDuty` enforces it and every duty read carries its
+  answer, so a page offers only what the server will take. Reviewing takes Review duty and View shared records in
+  the duty's unit, both held through the chain of command: Vantage access and Unit Instance authority never
+  complete it, so a Vantage Administrator or a Unit Manager reviews nothing by that office. Points other than the
+  calculated ones take Override duty points and a reason, at approval or afterwards. **Nobody returns, rejects,
+  reopens or sets the points of their own duty.** Approving one's own, at its calculated points only and never once
+  it is frozen, takes Approve own duty, a named-only permission: no standard role carries it, a unit's leader and
+  full unit authority do not include it (`FULL_UNIT_AUTHORITY`, `has()`), and nobody gives it to themselves by a role
+  granted to oneself, a permission added to a role one holds, a role raised to reach the units beneath, or one's own
+  join code or invitation (`self_grant`). A decision carries the duty's version and is refused if the duty changed
+  (`stale`). No review scores a duty again. Each decision is written with its `duty_reviews` row and its audit entry
+  in one transaction; the history is never rewritten (triggers), stays in its duty's Unit Instance, and a reviewed
+  duty does not leave that instance or move back to an activity. Reasons are kept on the duty and its history, never
+  in the audit trail or a notification, so a retention schedule can clear them; an anonymized duty is closed to
+  review. A file never brings a review in, and an import's undo never restores one.
 - **Exports are audited and minimal.** The roster CSV carries names, ranks, units, billets and roles, never
   EDIPI, email or records (`organization_roster_exported`); a username made from a card, which is the
   EDIPI, is left blank, and the instance's audit pages, search and export leave it out too. The audit export is filtered, refused above
