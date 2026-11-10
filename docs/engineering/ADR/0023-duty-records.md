@@ -157,13 +157,14 @@ worked-out columns (Duty Hours, Duty Days, Review Status, Calculated Points, Sco
   instance is shown none.
 - **Retention**: the clock starts at its end day; anonymizing clears title, location, notes and review reason, and keeps
   its type, times, length and score. An anonymized duty's row carries no one's name (`isAnonymizedDuty`): a list, a
-  Marine's page, its own page (an imported copy still says it was imported, not by whose word) and the record and
-  personal exports give it no Marine, recorder or reviewer by name, and the unit's Duty report leaves its Marine column
-  empty and keeps it out of the by-Marine tally (left out altogether when nothing else is in the period), while its
-  totals count it, with a note saying so. It stays its Marine's record, as an anonymized award does. As for every
-  record, its comments and the notifications about them, the notification sent when a leader recorded it (which names
-  its type and day, never its words), the audit trail and the instance archive keep their people. **Privacy
-  inventory**: every column declared.
+  Marine's page, its own read (`GET /api/records/duties/:id`, where an imported copy still says when it was imported,
+  and to its importer from which file, but not by whose word) and the record and personal exports give it no Marine,
+  recorder or reviewer by name, and the unit's Duty report leaves its Marine column empty and keeps it out of the
+  by-Marine tally (left out altogether when nothing else is in the period), while its totals count it, with a note
+  saying so. It stays its Marine's record, as an anonymized award does. As for every record, its comments and the
+  notifications about them, the notification sent when a leader recorded it (which names its type and day, never its
+  words), the audit trail, the importer's own record of what their file said (ADR-0019) and the instance archive keep
+  their people. **Privacy inventory**: every column declared.
 
 ## Decided, and defaults John can change
 
