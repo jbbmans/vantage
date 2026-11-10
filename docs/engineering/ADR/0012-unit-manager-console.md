@@ -242,7 +242,8 @@ It shows configuration only: no secret, no host name and nothing about another U
 - **Not done here, by design:**
   - recording duty, swaps and availability (Task 17; recording is done in ADR-0023, swaps and availability are not in
     the specification's Task 17 and stay open);
-  - approvals, point overrides, fairness, and reports on points (Task 18);
+  - approvals, point overrides, fairness, and reports on points (Task 18; approvals, overrides and approved points
+    in the Duty report are done in [ADR-0024](0024-duty-review-permissions-scoring.md));
   - training compliance (Task 19);
   - per-unit settings below the instance: each setting is the whole instance's;
   - scoring versions in the configuration file (section 10);
@@ -260,7 +261,7 @@ It shows configuration only: no secret, no host name and nothing about another U
   recalculating historical scores. Versions with effective dates, immutable in the database, keep every
   score explainable by the version of its day.
 - **Allowing a version to take effect in the past.** Rejected: it would change points for duty already
-  stood. Correcting one duty's points is an override with a reason, which belongs to Task 18.
+  stood. Correcting one duty's points is an override with a reason, which belongs to Task 18 (ADR-0024 §5).
 - **Clamping out-of-range settings on save.** Rejected: a Unit Manager who asks for something Vantage does
   not allow is told so. Clamping on read stays, for imported files and older rows.
 - **Deleting retired configuration rows.** Rejected: the audit trail, and later duty records, name them.

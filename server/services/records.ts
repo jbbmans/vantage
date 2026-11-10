@@ -9,7 +9,8 @@ import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
 import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/timeframe.ts';
 import { periodClause } from './timeframes.ts';
-import { assertDutyOpen, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
+import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
+import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -123,7 +124,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
-  if (table === 'duties') return withDutyNames(ctx, user.id, hydrated);
+  if (table === 'duties') return withDutyNames(ctx, user.id, hydrated, scope);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -255,6 +256,11 @@ export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, 
   if (added.some(crosses)) {
     throw forbidden('Other people commented on this record or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
   }
+  // A duty's review history is its reviewers' words in the Unit Instance that reviewed it (ADR-0024): it stays there,
+  // and the duty with it. The database refuses the same move (duties_reviews_same_org).
+  if (table === 'duties' && ctx.db.prepare('SELECT 1 FROM duty_reviews WHERE duty_id = ? LIMIT 1').get(row.id)) {
+    throw forbidden('This duty has been reviewed in its Unit Instance, so it stays there. Record the duty again in the other one.', 'cross_instance');
+  }
   if (table !== 'projects') return;
   // Work filed under a project goes only where it already is. The owner's own unplaced work belongs to no instance;
   // anyone else's is theirs, and stays out of an instance they do not serve in.
@@ -368,6 +374,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
   checkProjectLink(ctx, scope, user.id, table, (data.project_id as string | null | undefined) ?? null, null, unitId, false);
+  if (table === 'duties') assertDutyWords(data);
   const derived = table === 'duties' ? dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true }) : null;
   if (derived) data.conditions = derived.conditions;
 
@@ -465,6 +472,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // A duty is worked out again, and scored under the version in force on its (new) first day, when what it is scored by
   // changes; otherwise it keeps the score it has (ADR-0023).
   const given = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  if (table === 'duties') assertDutyWords(given);
   const derived = table === 'duties' && (rescoresDuty(row as Record<string, unknown>, given) || scopeChanged)
     ? dutyColumns(ctx, { ...row, ...given, unit_id: finalUnit }, { typeChanged: given.duty_type_id !== undefined && given.duty_type_id !== row.duty_type_id })
     : null;
@@ -486,19 +494,29 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     sets.push('fingerprint = ?');
     vals.push(keptFingerprint(row.user_id, (row as Record<string, unknown>).fingerprint, merged));
   }
+  // A returned duty that is corrected goes back for review with the correction (ADR-0024 §3): the same update sets it
+  // waiting again, and its line of review history and audit entry are written with it or not at all.
+  const resubmits = table === 'duties' && row.approval_status === 'returned';
+  if (resubmits) { sets.push(...RESUBMIT_SETS); vals.push(vals[0]); }
   const expected = data.version as number | undefined;
   let result;
+  let tellReviewer: (() => void) | null = null;
   try {
-    if (expected !== undefined) {
-      result = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ? AND version = ?`).run(...vals, id, expected);
-      if (result.changes === 0) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: getRecord(ctx, table, id) });
-    } else {
-      ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
-    }
+    ctx.db.transaction(() => {
+      if (expected !== undefined) {
+        result = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ? AND version = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id, expected);
+        if (result.changes === 0) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: getRecord(ctx, table, id) });
+      } else {
+        const changed = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id).changes;
+        if (resubmits && !changed) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: getRecord(ctx, table, id) });
+      }
+      if (resubmits) tellReviewer = resubmittedByCorrection(ctx, user, row, finalUnit as string, String(vals[0]), ip);
+    })();
   } catch (error) {
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
+  (tellReviewer as (() => void) | null)?.();
   const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
   auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {

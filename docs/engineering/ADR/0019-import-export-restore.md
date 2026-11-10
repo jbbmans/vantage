@@ -43,6 +43,7 @@ record's download and the Your data page all read it, so a column the export wri
 | Counselings, goals, projects, tasks, career plan | their own tables | ✓ |
 | Attachments | `attachments`, in a ZIP | ✓ onto the record they came with |
 | Duty | `duties` (Task 17, ADR-0023) | ✓ as duty, the type matched in the importer's Unit Instance; review, points and length never from a file |
+| Duty review history | `duty_reviews` (Task 18, ADR-0024) | kept in the file, people by name; never imported, and an import's undo never restores a review |
 | Personnel history | memberships, billets, responsibilities | kept in the file; the people who manage membership write it |
 | Account history | trail, notifications, comments, drafts, moves, AI and email logs | kept in the file; the record of what happened, never written back |
 

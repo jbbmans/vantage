@@ -180,10 +180,20 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   multi-day are worked out by the server (`shared/duty.ts`), as are its conditions (weekend and overnight from its
   times; holiday, short notice, extended and consecutive claimed). It is scored once, under the version in force on
   its first day, and keeps that version's id and number, its calculated points and how they were worked out; it is
-  scored again only when its days, times, type, conditions or unit change. It is submitted for review (`pending`);
-  approval, return, rejection and approved points are Task 18's, and an approved or rejected duty is never changed,
-  deleted or moved. A leader who counsels a Marine may record it for them (`recorded_by`); the Marine is told and
-  cannot change it. A duty, its type and its scoring version stay in one Unit Instance (triggers).
+  scored again only when its days, times, type, conditions or unit change. It is submitted for review (`pending`),
+  and an approved or rejected duty is never changed, deleted or moved. A leader who counsels a Marine may record it
+  for them (`recorded_by`); the Marine is told and cannot change it. A duty, its type and its scoring version stay in
+  one Unit Instance (triggers).
+- **Duty review** (ADR-0024): a reviewer in the duty's unit (Review duty with View shared records, held through the
+  chain of command) **approves** it, **returns** it for correction with a reason, or **rejects** it with a reason; a
+  correction sends a returned duty back, and a decision is **reopened** with a reason. A duty counts only once
+  approved, at its **approved points**, which are apart from its **calculated points**: approval copies the calculated
+  ones, and any other figure is an **override** (Override duty points, with a reason, at approval or afterwards). No
+  review scores a duty again. Nobody decides their own duty; approving one's own, at its calculated points, takes a
+  role that names **Approve own duty**, which no standard role and no full unit authority holds and nobody grants
+  themselves: a role names it when the role is made, and it counts only for a Marine someone else granted that role.
+  Every decision, change of points and resubmission is a row of `duty_reviews`, never rewritten, in its
+  duty's Unit Instance, and gone only with its duty.
 - **A move** between activities, awards and training, or from an activity to duty, is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and
   writes **record lineage** (`record_lineage`): from, to, the whole row as it stood, who, when and why.

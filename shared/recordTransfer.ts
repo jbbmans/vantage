@@ -234,7 +234,8 @@ export const RECORD_COLUMNS: Record<ImportTable, TransferColumn[]> = {
     VISIBILITY, UNIT,
   ],
   // A duty's type by its code (or name) in the importer's Unit Instance, never an id; its length, review and score are
-  // written so the file says them, and worked out again by the server on the way back in (ADR-0023).
+  // written so the file says them, and worked out again by the server on the way back in (ADR-0023). It comes back in
+  // submitted for review, whatever the file says of its review or its approved points (ADR-0024).
   duties: [
     ID, { key: 'duty_type', header: 'Duty Type', aliases: ['Duty', 'Duty Code', 'Watch', 'Watch Type'] },
     { key: 'title', header: 'Title', aliases: ['Post', 'Description'] },
@@ -248,6 +249,8 @@ export const RECORD_COLUMNS: Record<ImportTable, TransferColumn[]> = {
     { key: 'days', header: 'Duty Days', kind: 'number', exportOnly: true },
     { key: 'approval_status', header: 'Review Status', kind: 'enum', values: DUTY_STATUSES, exportOnly: true },
     { key: 'calculated_points', header: 'Calculated Points', kind: 'number', exportOnly: true },
+    // What counts once the duty is approved (ADR-0024): empty until then. A file never approves duty, so it is never read back.
+    { key: 'approved_points', header: 'Approved Points', kind: 'number', exportOnly: true },
     { key: 'scoring_version', header: 'Scoring Version', kind: 'number', exportOnly: true },
     { key: 'submitted_at', header: 'Recorded On', exportOnly: true },
     NOTES, UNIT,

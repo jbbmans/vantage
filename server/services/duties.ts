@@ -1,5 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { PERMISSIONS, can, detailUnitsFor, isMember, orgOfUnit, scopeFor } from '../authz/scope.ts';
+import { PERMISSIONS, can, detailUnitsFor, isMember, orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
 import { REDACTED } from '../../shared/constants.ts';
 import {
@@ -9,7 +9,8 @@ import {
 import { isDrawnFromWork } from '../../shared/recordKinds.ts';
 import { listScoringPolicies, scoringToday } from './dutyScoring.ts';
 import { holdState, type HoldState } from './holds.ts';
-import type { RecordRow } from '../authz/records.ts';
+import { dutyReviewAuthority, type RecordRow } from '../authz/records.ts';
+import { NO_REVIEW_OPTIONS, dutyReviewOptions, type DutyReviewOptions } from '../../shared/dutyReview.ts';
 
 /**
  * Duty records (Task 17, ADR-0023). The record itself goes through the record routes and server/services/records.ts
@@ -89,17 +90,39 @@ const parsedBasis = (v: unknown) => { try { return typeof v === 'string' ? JSON.
 export const isAnonymizedDuty = (r: { title?: unknown; notes?: unknown; location?: unknown }) => r.notes === REDACTED || r.title === REDACTED || r.location === REDACTED;
 
 /**
- * What a duty list shows beside each row: its type's name and code, its conditions and scoring basis read back, and
- * the people on it by name for anyone who may read it: whom it is for (to anyone but them), who recorded it (when not
- * its Marine), and who reviewed it. No names on a duty a retention schedule anonymized, where a name would put back what
- * it took out.
+ * Only a retention schedule leaves that marker in a duty's words. A duty that carries it names nobody and is closed to
+ * review (ADR-0024 §7), so one saved with it by hand, a form's or a file's, would wait unseen by every reviewer: the
+ * words a person gives a duty are never the marker. `data` is what a save sets.
  */
-export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[]): Row[] {
+export function assertDutyWords(data: Row): void {
+  const fieldErrors: Record<string, string> = {};
+  for (const field of ['title', 'location', 'notes']) if (typeof data[field] === 'string' && (data[field] as string).trim() === REDACTED) fieldErrors[field] = 'Say this another way.';
+  if (Object.keys(fieldErrors).length) throw badRequest('That wording is what Vantage leaves in place of a duty’s words when a retention schedule clears them. Say it another way.', { fieldErrors });
+}
+
+/**
+ * What the reader may do to a duty's review, as it stands (ADR-0024 §3): the one rule the review route enforces and
+ * every read sends with the duty, so a page offers the decisions the server will take. A duty a retention schedule
+ * anonymized is closed: its words are gone, and it stays as it was decided.
+ */
+export function dutyReviewFor(scope: Scope, userId: string, row: Row): DutyReviewOptions {
+  if (isAnonymizedDuty(row)) return NO_REVIEW_OPTIONS;
+  const duty = row as Row & RecordRow & { deleted_at?: string | null };
+  return dutyReviewOptions({ user_id: duty.user_id, approval_status: String(duty.approval_status), frozen_at: duty.frozen_at, deleted_at: duty.deleted_at }, userId, dutyReviewAuthority(scope, userId, duty));
+}
+
+/**
+ * What a duty list shows beside each row: its type's name and code, its conditions and scoring basis read back, what the
+ * reader may do to its review, and the people on it by name for anyone who may read it: whom it is for (to anyone but
+ * them), who recorded it (when not its Marine), who reviewed it and who set its points apart. No names on a duty a
+ * retention schedule anonymized, where a name would put back what it took out.
+ */
+export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[], scope: Scope = scopeFor(ctx, { id: viewerId })): Row[] {
   if (!rows.length) return rows;
   const typeIds = [...new Set(rows.map((r) => String(r.duty_type_id)))];
   const types = new Map((ctx.db.prepare('SELECT id, code, name, active FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(typeIds)) as Array<{ id: string; code: string; name: string; active: number }>).map((t) => [t.id, t]));
   const anonymized = isAnonymizedDuty;
-  const people = [...new Set(rows.flatMap((r) => (anonymized(r) ? [] : [r.user_id, r.recorded_by, r.reviewed_by])).filter((id): id is string => typeof id === 'string' && id !== viewerId))];
+  const people = [...new Set(rows.flatMap((r) => (anonymized(r) ? [] : [r.user_id, r.recorded_by, r.reviewed_by, r.points_overridden_by])).filter((id): id is string => typeof id === 'string' && id !== viewerId))];
   const names = new Map(people.length ? (ctx.db.prepare('SELECT u.id, u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (SELECT value FROM json_each(?))')
     .all(JSON.stringify(people)) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>).map((u) => [u.id, u]) : []);
   return rows.map((r) => {
@@ -110,6 +133,7 @@ export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[]): R
     const owner = hidden ? undefined : names.get(String(r.user_id));
     const recorder = !hidden && r.recorded_by && r.recorded_by !== r.user_id ? names.get(String(r.recorded_by)) : undefined;
     const reviewer = !hidden && r.reviewed_by ? names.get(String(r.reviewed_by)) : undefined;
+    const overrider = !hidden && r.points_overridden_by ? names.get(String(r.points_overridden_by)) : undefined;
     return {
       ...r,
       conditions: parseList(r.conditions),
@@ -118,6 +142,8 @@ export function withDutyNames(ctx: AppContext, viewerId: string, rows: Row[]): R
       ...(owner ? { subject_name: label(owner) } : {}),
       ...(recorder ? { recorder_name: label({ abbr: recorder.abbr, last_name: recorder.last_name }) } : {}),
       ...(reviewer ? { reviewer_name: label({ abbr: reviewer.abbr, last_name: reviewer.last_name }) } : {}),
+      ...(overrider ? { overrider_name: label({ abbr: overrider.abbr, last_name: overrider.last_name }) } : {}),
+      review: dutyReviewFor(scope, viewerId, r),
     };
   });
 }

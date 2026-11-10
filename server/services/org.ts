@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, RECORD_READING_BITS, ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
-import { assertSameInstance, can, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
+import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, NAMED_ONLY_BITS, RECORD_READING_BITS, ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
+import { assertSameInstance, can, chainBits, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -317,9 +317,7 @@ export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): bool
   return orgCan(scope, 'org.roles', orgOfUnit(ctx, unitId));
 }
 
-/** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
-export const chainBits = (scope: Scope, unitId: string) =>
-  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+export { chainBits };
 
 /**
  * Authority a person would give themselves through Unit Instance authority: by granting themselves a role, leading a
@@ -331,11 +329,23 @@ export const chainBits = (scope: Scope, unitId: string) =>
  */
 export function guardSelfReach(_ctx: AppContext, actor: SessionUser, scope: Scope, unitId: string, bits: number, targetId: string, act: string): void {
   if (targetId !== actor.id) return;
+  guardSelfNamed(actor, bits, targetId, act);
   const fromUnit = chainBits(scope, unitId);
   const added = bits & ~fromUnit & ~PERMISSIONS.VIEW_UNIT;
   if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || !added) return;
   const what = added & RECORD_READING_BITS ? 'a role that reads Marines’ records' : 'unit authority the chain of command has not given you';
   throw forbidden(`${act} would give you ${what}. Another Unit Manager, or the unit’s chain of command, does that for you.`, 'self_grant');
+}
+
+/**
+ * Authority a role must name (approving one's own duty, ADR-0024 §2) is never taken by one's own hand: not by granting
+ * oneself a role that names it, redeeming one's own join code or invitation for one, or widening a role one holds. That
+ * holds for a Unit Leader and for full unit authority as it does for a Unit Manager: neither includes it, so it would be
+ * new to whoever took it. Someone else with authority over the unit's roles grants it, and the trail names them.
+ */
+export function guardSelfNamed(actor: Pick<SessionUser, 'id'>, bits: number, targetId: string, act: string): void {
+  if (targetId !== actor.id || !(bits & NAMED_ONLY_BITS)) return;
+  throw forbidden(`${act} would let you approve your own duty. Someone else with authority over the unit’s roles grants that.`, 'self_grant');
 }
 
 /** How an account comes to exist at someone else's hand: they imported it, or it answered their invitation or join code. */
@@ -467,6 +477,8 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   if (role.key === 'unit-leader' && !isUnitOwner(ctx, targetId, unitId)) throw badRequest('Transfer unit ownership to grant the Unit Leader role.');
   const targetScope = scopeFor(ctx, { id: targetId });
   if (!targetScope.unitIds.includes(unitId)) throw badRequest('That Marine is not a member of this unit.');
+  // Whoever the grantor is, the Unit Leader included: approving your own duty is granted by someone else (ADR-0024 §2).
+  guardSelfNamed(actor, role.permissions, targetId, `Granting yourself ${role.name}`);
   if (isUnitOwner(ctx, actor.id, unitId)) return;
   if (orgStaffing(ctx, scope, unitId)) {
     guardSelfReach(ctx, actor, scope, unitId, role.permissions, targetId, `Granting yourself ${role.name}`);

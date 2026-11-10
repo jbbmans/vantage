@@ -2,6 +2,7 @@ import type { Visibility } from './constants.ts';
 import type { ProgressResult } from './metricEngine.ts';
 import type { PermissionKey, RoleTemplate } from './permissions.ts';
 import type { DutyScoringBasis } from './duty.ts';
+import type { DutyReviewOptions } from './dutyReview.ts';
 
 export interface Rank { id: string; grade: string; abbr: string; name: string; tier: string; sort: number }
 
@@ -92,6 +93,8 @@ export interface Duty extends BaseRecord {
   recorded_by: string | null; submitted_at: string;
   approval_status: 'pending' | 'approved' | 'returned' | 'rejected';
   reviewed_by: string | null; reviewed_at: string | null; review_reason: string | null; approved_points: number | null;
+  /** Set when its approved points were set apart from the calculated ones (ADR-0024): why, by whom, when. */
+  points_override_reason: string | null; points_overridden_by: string | null; points_overridden_at: string | null;
   scoring_policy_id: string | null; scoring_version: number | null; calculated_points: number | null;
   scoring_basis: DutyScoringBasis | null;
   duty_type_name: string | null; duty_type_code: string | null; duty_type_active: boolean | null;
@@ -100,6 +103,10 @@ export interface Duty extends BaseRecord {
   /** Set when someone other than the Marine recorded it. */
   recorder_name?: string;
   reviewer_name?: string;
+  /** Who set its approved points apart from the calculated ones, to anyone but them. */
+  overrider_name?: string;
+  /** What the reader may do to its review, as it stands (ADR-0024): the rule the server enforces. */
+  review?: DutyReviewOptions;
 }
 
 export interface Counseling extends BaseRecord {

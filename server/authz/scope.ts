@@ -1,5 +1,5 @@
 import type { AppContext } from '../context.ts';
-import { PERMISSIONS, ALL_PERMISSIONS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, orgStructureBits, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
+import { PERMISSIONS, FULL_UNIT_AUTHORITY, NAMED_ONLY_BITS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, orgStructureBits, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
 import { now } from '../lib/ids.ts';
 import { forbidden } from '../lib/errors.ts';
 
@@ -81,6 +81,17 @@ function ancestorsOf(tree: ReturnType<typeof unitTree>, unitId: string): string[
 
 const cache = new WeakMap<object, Map<string, Scope>>();
 
+/**
+ * Authority a role must name (approving one's own duty; John, "role only", ADR-0024 §2) counts for a person only from a
+ * role that someone else granted them. Not from a grant that names nobody or names its own holder, whatever wrote it;
+ * and not from the default role or the Unit Leader role, which come with joining a unit and with leading it, never from
+ * a decision about one person. The routes refuse each of those too. This is the one place every path ends at: a row
+ * that reached the table some other way confers the rest of its role and not this. An SQL expression over a member_roles
+ * row aliased `grant` and its role aliased `role`.
+ */
+export const grantedByAnother = (grant: string, role: string) =>
+  `(${grant}.granted_by IS NOT NULL AND ${grant}.granted_by <> ${grant}.user_id AND ${role}.is_default = 0 AND ${role}.key IS NOT 'unit-leader')`;
+
 export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object): Scope {
   if (reqKey) {
     const m = cache.get(reqKey);
@@ -96,11 +107,11 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
        FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND ${liveUnit} ORDER BY um.is_primary DESC, um.joined_at`
   ).all(user.id) as Scope['memberships'];
   const roles = db.prepare(
-    `SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, mr.expires_at
+    `SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, mr.expires_at, ${grantedByAnother('mr', 'r')} AS granted
        FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN units u ON u.id = mr.unit_id
        JOIN unit_members um ON um.user_id = mr.user_id AND um.unit_id = mr.unit_id
       WHERE mr.user_id = ? AND ${liveUnit} AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC`
-  ).all(user.id, at) as Array<Scope['roles'][number] & { expires_at: string | null }>;
+  ).all(user.id, at) as Array<Scope['roles'][number] & { expires_at: string | null; granted: number }>;
   const owned = (db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND ${liveUnit} AND ${seatedLeader('u')}`).all(user.id) as Array<{ id: string }>).map((r) => r.id);
   const orgRows = db.prepare(
     `SELECT r.org_id, r.role, r.expires_at FROM org_roles r JOIN organizations o ON o.id = r.org_id
@@ -118,16 +129,21 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
   const sources: Record<string, Source[]> = {};
   const source = (unitId: string, s: Source) => { (sources[unitId] ||= []).push(s); };
   for (const g of roles) {
-    permissions[g.unit_id] = (permissions[g.unit_id] || 0) | g.permissions;
+    // What a role must name (approving one's own duty) counts only from a role someone else granted this person: see
+    // grantedByAnother. Everything else the role names is theirs however they came by it.
+    const bits = g.granted ? g.permissions : g.permissions & ~NAMED_ONLY_BITS;
+    permissions[g.unit_id] = (permissions[g.unit_id] || 0) | bits;
     positions[g.unit_id] = Math.max(positions[g.unit_id] || 0, g.position);
-    if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | g.permissions;
-    source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits: g.permissions, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
+    if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | bits;
+    source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
   }
+  // Leading a unit is every permission in it but the ones a role must name (approving one's own duty, ADR-0024 §2; John,
+  // "role only"): those stay as the leader's roles give them, here and in the units beneath.
   for (const id of owned) {
-    permissions[id] = ALL_PERMISSIONS;
+    permissions[id] = (permissions[id] || 0) | FULL_UNIT_AUTHORITY;
     positions[id] = Math.max(positions[id] || 0, 100);
-    authority[id] = ALL_PERMISSIONS;
-    source(id, { kind: 'owner', unitId: id, bits: ALL_PERMISSIONS });
+    authority[id] = (authority[id] || 0) | FULL_UNIT_AUTHORITY;
+    source(id, { kind: 'owner', unitId: id, bits: FULL_UNIT_AUTHORITY });
   }
 
   // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
@@ -194,7 +210,7 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     permissions,
     positions,
     ownedUnitIds: owned,
-    roles: roles.map(({ expires_at: _e, ...r }) => r),
+    roles: roles.map(({ expires_at: _e, granted: _g, ...r }) => r),
     readableUnitIds: Object.entries(permissions).filter(([, bits]) => has(bits, PERMISSIONS.VIEW_RECORDS)).map(([id]) => id),
     viewableUnitIds: [...viewable],
     topPosition: Object.values(positions).reduce((a, b) => Math.max(a, b), 0),
@@ -216,6 +232,9 @@ export const can = (scope: Scope, flag: number, unitId: string | null | undefine
 export const positionIn = (scope: Scope, unitId: string | null | undefined) => (unitId ? scope.positions[unitId] || 0 : 0);
 export const isMember = (scope: Scope, unitId: string | null | undefined) => Boolean(unitId) && scope.unitIds.includes(unitId!);
 export const unitsWith = (scope: Scope, flag: number) => Object.entries(scope.permissions).filter(([, bits]) => has(bits, flag)).map(([id]) => id);
+/** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
+export const chainBits = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
 
 /**
  * A Unit Instance role confers authority only while its holder belongs to a unit of that Unit Instance (ADR-0010): it is

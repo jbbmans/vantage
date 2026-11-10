@@ -431,9 +431,9 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   duties: {
-    purpose: 'Duty a Marine stood (Task 17, ADR-0023): its type, unit, place, start and end, what it ran to, what was claimed for it, who recorded it, where it stands with its reviewers, and the points it was scored under the Unit Instance’s scoring version.',
+    purpose: 'Duty a Marine stood (Task 17, ADR-0023): its type, unit, place, start and end, what it ran to, what was claimed for it, who recorded it, where it stands with its reviewers, the points it was scored under the Unit Instance’s scoring version, and the points it was approved for and who set them apart from the scoring, when and why (ADR-0024).',
     authority: 'Unit duty administration; recorded by the Marine or a leader who counsels them in the unit, every change audited. Points come from the Unit Instance’s published scoring versions.',
-    access: 'The Marine; those who counsel them in the unit it was stood for. Always a unit record, never a private note.',
+    access: 'The Marine; those who read shared records in the unit it was stood for, who are also the only ones who may review it. Always a unit record, never a private note.',
     columns: {
       id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', duty_type_id: 'employment', title: 'employment', location: 'employment',
       date: 'employment', start_time: 'employment', end_date: 'employment', end_time: 'employment', hours: 'employment', days: 'employment',
@@ -441,7 +441,18 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       recorded_by: 'identifier', submitted_at: 'technical', approval_status: 'performance', reviewed_by: 'identifier', reviewed_at: 'technical',
       review_reason: 'performance', approved_points: 'performance', scoring_policy_id: 'technical', scoring_version: 'technical',
       calculated_points: 'performance', scoring_basis: 'performance',
+      points_override_reason: 'performance', points_overridden_by: 'identifier', points_overridden_at: 'technical',
       version: 'technical', frozen_at: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  duty_reviews: {
+    purpose: 'A duty’s review history (Task 18, ADR-0024): each approval, return, rejection, reopening, resubmission and change to its approved points, with who did it, when, the reason given, and the points the scoring gave and the points that counted.',
+    authority: 'Unit duty administration; written by the reviewer’s or the Marine’s own action with the change it records, and kept as written. Every one is also in the audit trail.',
+    access: 'Whoever may read the duty: its Marine, and those who read shared records in its unit. Its reasons are redacted when a retention schedule anonymizes the duty, and it is destroyed with the duty.',
+    columns: {
+      id: 'technical', duty_id: 'technical', unit_id: 'employment', actor_id: 'identifier', event: 'performance', from_status: 'performance', to_status: 'performance',
+      reason: 'performance', calculated_points: 'performance', approved_points: 'performance', scoring_version: 'technical', override: 'performance',
+      by_owner: 'technical', created_at: 'technical',
     },
   },
   attachments: {

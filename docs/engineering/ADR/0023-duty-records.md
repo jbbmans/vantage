@@ -184,12 +184,13 @@ worked-out columns (Duty Hours, Duty Days, Review Status, Calculated Points, Sco
 
 ## Not done here
 
-- Approve, return, reject, approved points, overrides, self-approval authority and duty-specific permissions (Task 18).
+- Approve, return, reject, approved points, overrides, self-approval authority and duty-specific permissions (Task 18,
+  done in [ADR-0024](0024-duty-review-permissions-scoring.md)).
 - Duty swaps and availability, which ADR-0012 listed for Task 17 but the specification's Task 17 does not include.
 - A duty dataset in the Custom report; demo duty.
 
 ## Consequences
 
 - Every duty carries the version and points it was scored under, and why.
-- Task 18 adds decisions to rows that already hold their review columns, guarded so a decision stands.
+- Task 18 adds decisions to rows that already hold their review columns, guarded so a decision stands (ADR-0024).
 - Migration 031 adds one empty table and rebuilds `record_lineage` with its rows; nothing already written is reshaped.

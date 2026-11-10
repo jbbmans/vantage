@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Upload, ShieldCheck, ArrowRightLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Upload, ShieldCheck, ArrowRightLeft, ChevronDown, ChevronUp, ClipboardCheck } from 'lucide-react';
 import { PageHeader, Button, EmptyState, Badge, Stat, Segmented, Skeleton } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -12,24 +12,28 @@ import RecordLineage from '@/components/RecordLineage';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import DownloadMenu, { categoryDownloads, recordDownloads } from '@/components/DownloadMenu';
 import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/DutyDialog';
+import { ApprovedPoints, DutyReviewActions, DutyReviewHistory } from '@/components/DutyReview';
 import { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
-import { can, canCorrectDuty, useDeleteRecord, useDuties, useDutyCandidates, useIdentity, useKeepAsActivity, useRestoreRecord } from '@/lib/queries';
+import { can, canCorrectDuty, useDeleteRecord, useDuties, useDutyCandidates, useDutyReviewQueue, useIdentity, useKeepAsActivity, useRestoreRecord } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { PERMISSIONS } from '../../shared/permissions';
 import { formatNumber } from '../../shared/metrics';
 import { formatTimeframe } from '../../shared/timeframe';
 import { DUTY_STATUS_LABELS, formatHours, type DutyCandidate } from '../../shared/duty';
+import { countedPoints, hasReviewOptions } from '../../shared/dutyReview';
+import { formatStamp, timeAgo } from '@/lib/utils';
 import type { Duty as DutyRow } from '../../shared/types';
 import { usePlace } from '@/lib/place';
 
 const SHOWN = 5;
 
-type Who = 'mine' | 'recorded' | 'units';
+type Who = 'mine' | 'recorded' | 'units' | 'review';
 
 /**
- * Records → Duty (Task 17, ADR-0023): the duty a Marine stood, each with its type, times, what it ran to and the points
- * the Unit Instance's scoring gave it, where it stands with its reviewers, and the activities that read like duty for
- * their owner to move here. A leader also sees the duty they recorded for their Marines, and what their units hold.
+ * Records → Duty (Task 17, ADR-0023; Task 18, ADR-0024): the duty a Marine stood, each with its type, times, what it ran
+ * to, the points the Unit Instance's scoring gave it and the points it was approved for, where it stands with its
+ * reviewers, and the activities that read like duty for their owner to move here. A leader also sees the duty they
+ * recorded for their Marines and what their units hold, and a reviewer the duty waiting for their decision.
  */
 export default function Duty() {
   const place = usePlace();
@@ -40,6 +44,7 @@ export default function Duty() {
   const [openId, setOpenId] = useParam('open');
   const [who, setWho] = useParam('who', 'mine');
   const { data: rows, isPending } = useDuties();
+  const { data: queue, isPending: queuePending } = useDutyReviewQueue();
   const del = useDeleteRecord('duties');
   const restore = useRestoreRecord('duties');
   const [form, setForm] = useState<DutyMode | null>(null);
@@ -52,8 +57,23 @@ export default function Duty() {
   const recorded = all.filter((r) => r.user_id !== me && r.recorded_by === me);
   const units = all.filter((r) => r.user_id !== me);
   // A view with nothing left in it (the last duty recorded for a Marine deleted, an old link) falls back to one's own.
-  const whoShown: Who = who === 'recorded' && recorded.length ? 'recorded' : who === 'units' && units.length ? 'units' : 'mine';
-  const shown = whoShown === 'recorded' ? recorded : whoShown === 'units' ? units : mine;
+  // The review view is for someone who reviews duty somewhere, whether or not anything waits (the server says which).
+  const reviewer = Boolean(queue?.reviewer);
+  const waiting = useMemo(() => queue?.items ?? [], [queue]);
+  const whoShown: Who = who === 'review' && reviewer ? 'review' : who === 'recorded' && recorded.length ? 'recorded' : who === 'units' && units.length ? 'units' : 'mine';
+  const shown = whoShown === 'review' ? waiting : whoShown === 'recorded' ? recorded : whoShown === 'units' ? units : mine;
+
+  // A decision takes its duty out of the queue, and with it the button that made it. Focus goes to the next duty waiting
+  // (the one before when it was the last, the queue itself when none is left), so a reviewer working down the list by
+  // keyboard or screen reader keeps their place.
+  const queueRows = useRef(new Map<string, HTMLButtonElement>());
+  const queueRegion = useRef<HTMLDivElement>(null);
+  const [decided, setDecided] = useState<{ id: string; next: string | null } | null>(null);
+  useEffect(() => {
+    if (!decided || waiting.some((w) => w.id === decided.id)) return;
+    ((decided.next && queueRows.current.get(decided.next)) || queueRegion.current)?.focus();
+    setDecided(null);
+  }, [decided, waiting]);
 
   // A notification, a timeline entry or a move opens the duty it is about.
   useEffect(() => {
@@ -62,9 +82,15 @@ export default function Duty() {
     if (r) setView(r);
   }, [openId, rows]);
 
+  // The open duty as the lists hold it now, so a decision made on it (here or by someone else) shows without reopening.
+  // Whichever is newer wins: a decision just made is ahead of a list still being read again.
+  const listed = view ? all.find((r) => r.id === view.id) ?? waiting.find((r) => r.id === view.id) : undefined;
+  const viewed = view ? (listed && listed.version >= view.version ? listed : view) : null;
+
   const totals = useMemo(() => ({
     hours: mine.reduce((n, r) => n + (Number(r.hours) || 0), 0),
     points: mine.reduce((n, r) => n + (Number(r.calculated_points) || 0), 0),
+    approved: mine.reduce((n, r) => n + countedPoints(r), 0),
     pending: mine.filter((r) => r.approval_status === 'pending').length,
     returned: mine.filter((r) => r.approval_status === 'returned').length,
   }), [mine]);
@@ -74,10 +100,11 @@ export default function Duty() {
   const canEditRow = (r: DutyRow) => canCorrectDuty(identity, r);
   const goTo = (entry: MovedEntry) => { setView(null); setOpenId(''); navigate(entryHref(entry.table, entry.id)); };
   const openSaved = (saved: { id: string }) => { if (saved.id) setOpenId(saved.id); };
+  const editViewed = (r: DutyRow) => { setView(null); setOpenId(''); setForm({ kind: 'edit', row: r }); };
 
   return (
     <div className="page">
-      <PageHeader eyebrow={place.group} title="Duty" lede="The duty you stood: its type, its times and the points your Unit Instance's scoring gives it. Duty is submitted for review and counts once a reviewer approves it.">
+      <PageHeader eyebrow={place.group} title="Duty" lede="The duty you stood: its type, its times and the points your Unit Instance's scoring gives it. Duty is submitted for review and counts, at its approved points, once a reviewer approves it.">
         <Button variant="primary" onClick={() => setForm({ kind: 'new' })}><Plus className="h-4 w-4" />Record duty</Button>
         <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import</Button>
         <DownloadMenu label="Export" choices={categoryDownloads('duty')} />
@@ -86,26 +113,60 @@ export default function Duty() {
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Duty stood" value={mine.length} hint={mine.length === 1 ? 'one entry' : `${mine.length} entries`} />
         <Stat label="Hours" value={formatNumber(Math.round(totals.hours * 100) / 100)} />
-        <Stat label="Calculated points" value={formatNumber(Math.round(totals.points * 100) / 100)} hint="before review" />
+        <Stat label="Approved points" value={formatNumber(Math.round(totals.approved * 100) / 100)} hint={`${formatNumber(Math.round(totals.points * 100) / 100)} calculated`} />
         <Stat label="Awaiting review" value={totals.pending} hint={totals.returned ? `${totals.returned} returned to you` : undefined} tone={totals.returned ? 'warn' : undefined} />
       </div>
 
       <DutySuggestions onRecord={(activity) => setForm({ kind: 'move', activity })} />
 
-      {(recorded.length > 0 || units.length > 0) && (
+      {reviewer && whoShown !== 'review' && (queue?.total ?? 0) > 0 && (
+        <section aria-label="Duty waiting for your review" className="card mb-3 flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+          <p className="min-w-0 text-sm text-ink"><ClipboardCheck className="mr-1.5 inline h-4 w-4 text-accent" aria-hidden /><span className="font-medium">{queue!.total === 1 ? 'One duty is waiting for your review' : `${queue!.total} duties are waiting for your review`}</span>{waiting[0]?.submitted_at ? <span className="text-ink-3"> · the longest since {timeAgo(waiting[0].submitted_at)}</span> : null}</p>
+          <Button size="sm" variant="soft" onClick={() => setWho('review')}>Review {queue!.total === 1 ? 'it' : 'them'}</Button>
+        </section>
+      )}
+
+      {(recorded.length > 0 || units.length > 0 || reviewer) && (
         <div className="mb-3">
           <Segmented<Who> label="Whose duty" value={whoShown} onChange={(v) => setWho(v === 'mine' ? '' : v)}
-            options={[{ value: 'mine' as Who, label: `Yours (${mine.length})` }, ...(recorded.length ? [{ value: 'recorded' as Who, label: `Recorded by you (${recorded.length})` }] : []), { value: 'units' as Who, label: `Your units (${units.length})` }]} />
+            options={[{ value: 'mine' as Who, label: `Yours (${mine.length})` }, ...(recorded.length ? [{ value: 'recorded' as Who, label: `Recorded by you (${recorded.length})` }] : []), ...(units.length ? [{ value: 'units' as Who, label: `Your units (${units.length})` }] : []), ...(reviewer ? [{ value: 'review' as Who, label: `To review (${queue?.total ?? 0})` }] : [])]} />
         </div>
       )}
 
-      {isPending ? <Skeleton className="h-48" /> : shown.length === 0 ? (
+      {/* The queue's card is what focus falls back to after a decision. It stays a direct child of the page, as every
+          section is: a wrapper here would let the table's screen-reader-only header widen the page on a phone. */}
+      {whoShown === 'review' ? (queuePending ? <Skeleton className="h-48" /> : waiting.length === 0 ? (
+        <div ref={queueRegion} tabIndex={-1} role="group" aria-label="Duty waiting for your review" className="card outline-none"><EmptyState icon={ClipboardCheck} title="Nothing is waiting for your review"
+          description="Duty submitted in the units where you review it shows here, the longest-waiting first. Your own duty is another reviewer’s to decide." /></div>
+      ) : (
+        <div ref={queueRegion} tabIndex={-1} role="group" aria-label="Duty waiting for your review" className="card outline-none" style={{ overflow: 'hidden' }}>
+          {/* The duty leads, so a phone shows what it is and whose before the table scrolls; it opens with every decision. */}
+          <Table minWidth={900} head={<><th>Duty</th><th className="w-32">Waiting since</th><th className="w-44">When</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-[17rem]"><span className="sr-only">Decide</span></th></>}>
+            {waiting.map((r, i) => (
+              <tr key={r.id}>
+                <td className="min-w-[11rem]">
+                  <button type="button" ref={(el) => { if (el) queueRows.current.set(r.id, el); else queueRows.current.delete(r.id); }} className="text-left font-medium text-ink hover:underline" onClick={() => setView(r)}>{r.title || r.duty_type_name || 'Duty'}</button>
+                  <span className="block text-xs text-ink-3">{[r.subject_name, r.title ? r.duty_type_name : null, r.recorder_name && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === me ? 'you' : r.recorder_name}` : null, r.frozen_at ? 'its Marine has left the unit' : null].filter(Boolean).join(' · ')}</span>
+                </td>
+                <td className="text-xs"><span className="block text-ink">{timeAgo(r.submitted_at)}</span><time dateTime={r.submitted_at} className="fig block text-2xs text-ink-3">{formatStamp(r.submitted_at)}</time></td>
+                <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
+                <td className="fig text-right text-xs">{formatHours(r.hours)}</td>
+                <td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}{r.scoring_version != null && <span className="block text-2xs text-ink-3">version {r.scoring_version}</span>}</td>
+                <td><DutyReviewActions row={r} me={me} brief className="flex items-center justify-end gap-1 whitespace-nowrap"
+                  onDone={(saved) => { if (saved.approval_status !== 'pending') setDecided({ id: r.id, next: (waiting[i + 1] ?? waiting[i - 1])?.id ?? null }); }} /></td>
+              </tr>
+            ))}
+          </Table>
+          {(queue?.total ?? 0) > waiting.length && <p className="border-t border-line px-5 py-2 text-2xs text-ink-3">Showing the {waiting.length} longest-waiting of {queue!.total}.</p>}
+          {(queue?.units.length ?? 0) > 1 && <p className="border-t border-line px-5 py-2 text-2xs text-ink-3">Waiting in {queue!.units.map((u) => `${u.name} (${u.count})`).join(', ')}.</p>}
+        </div>
+      )) : isPending ? <Skeleton className="h-48" /> : shown.length === 0 ? (
         <div className="card"><EmptyState icon={ShieldCheck} title="No duty recorded"
           description="Record each duty once you have stood it: the duty type, when it began and when it ended. The points come from your Unit Instance’s scoring, and a reviewer approves them."
           action={<Button variant="primary" onClick={() => setForm({ kind: 'new' })}>Record duty</Button>} /></div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-28 text-right">Points</th><th className="w-28">Status</th><th className="w-36"></th></>}>
+          <Table minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-44"></th></>}>
             {shown.map((r) => (
               <tr key={r.id}>
                 <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
@@ -115,10 +176,11 @@ export default function Duty() {
                 </td>
                 <td className="fig text-right text-xs">{formatHours(r.hours)}</td>
                 <td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}{r.scoring_version != null && <span className="block text-2xs text-ink-3">version {r.scoring_version}</span>}</td>
+                <td className="fig text-right text-xs"><ApprovedPoints row={r} /></td>
                 <td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td>
-                <td className="text-right">
+                <td className="whitespace-nowrap text-right">
                   <Button size="xs" variant="ghost" onClick={() => setView(r)}>View</Button>
-                  {canEditRow(r) && <><Button size="xs" variant="ghost" onClick={() => setForm({ kind: 'edit', row: r })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(r)}>Delete</Button></>}
+                  {canEditRow(r) && <><Button size="xs" variant="ghost" onClick={() => setForm({ kind: 'edit', row: r })}>{r.approval_status === 'returned' ? 'Correct' : 'Edit'}</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(r)}>Delete</Button></>}
                 </td>
               </tr>
             ))}
@@ -126,12 +188,19 @@ export default function Duty() {
         </div>
       )}
 
-      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view ? view.title || view.duty_type_name || 'Duty' : ''} description={view ? formatTimeframe('duties', view, { pattern: 'd MMMM yyyy' }) || undefined : undefined} size="lg"
-        footer={view ? <><DownloadMenu size="sm" choices={recordDownloads('duties', view.id, true)} />{canEditRow(view) && <Button onClick={() => { const r = view; setView(null); setOpenId(''); setForm({ kind: 'edit', row: r }); }}>Edit</Button>}</> : undefined}>
-        {view && <DutyDetail row={view} me={me} />}
-        {view && <div className="mt-4"><Attachments table="duties" id={view.id} canEdit={canEditRow(view)} /></div>}
-        {view && <RecordLineage store="duties" id={view.id} onUndone={goTo} className="mt-4" />}
-        {view && <div className="mt-4"><Comments table="duties" id={view.id} canModerate={Boolean(view.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.unit_id)} /></div>}
+      <Dialog open={Boolean(viewed)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={viewed ? viewed.title || viewed.duty_type_name || 'Duty' : ''} description={viewed ? formatTimeframe('duties', viewed, { pattern: 'd MMMM yyyy' }) || undefined : undefined} size="lg"
+        footer={viewed ? <><DownloadMenu size="sm" choices={recordDownloads('duties', viewed.id, true)} />{canEditRow(viewed) && viewed.approval_status !== 'returned' && <Button onClick={() => editViewed(viewed)}>Edit</Button>}</> : undefined}>
+        {viewed && hasReviewOptions(viewed.review) && (
+          <section aria-label={viewed.user_id === me ? 'Its review' : 'Your decision'} className="mb-3 rounded-md border border-line bg-surface-2 px-3 py-2.5">
+            <h3 className="eyebrow mb-1.5">{viewed.user_id === me ? 'Its review' : 'Your decision'}</h3>
+            <DutyReviewActions row={viewed} me={me} onDone={setView} onCorrect={canEditRow(viewed) ? () => editViewed(viewed) : undefined} />
+          </section>
+        )}
+        {viewed && <DutyDetail row={viewed} me={me} />}
+        {viewed && <DutyReviewHistory id={viewed.id} className="mt-4" />}
+        {viewed && <div className="mt-4"><Attachments table="duties" id={viewed.id} canEdit={canEditRow(viewed)} /></div>}
+        {viewed && <RecordLineage store="duties" id={viewed.id} onUndone={goTo} className="mt-4" />}
+        {viewed && <div className="mt-4"><Comments table="duties" id={viewed.id} canModerate={Boolean(viewed.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, viewed.unit_id)} /></div>}
       </Dialog>
 
       <DutyDialog mode={form} open={Boolean(form)} onOpenChange={(o) => { if (!o) setForm(null); }} onSaved={openSaved} />

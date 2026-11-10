@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { wrap, parse } from '../lib/http.ts';
+import { wrap, parse, clientIp } from '../lib/http.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import {
@@ -11,6 +11,7 @@ import { zoneOf } from '../lib/zone.ts';
 import { recordTimeline } from '../services/timeline.ts';
 import { moveCandidates, dutyMoveCandidates } from '../services/recordMoves.ts';
 import { dutyOptions } from '../services/duties.ts';
+import { dutyReviewQueue } from '../services/dutyReview.ts';
 
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
@@ -37,6 +38,8 @@ recordRouter.get('/move-candidates', wrap((req, res) => res.json(moveCandidates(
 // caller or, with ?for=, for a Marine they may record it for. The activities that read like duty, for their owner to move.
 recordRouter.get('/duty/options', wrap((req, res) => res.json(dutyOptions(req.ctx, req.user, req, typeof req.query.for === 'string' ? req.query.for : null))));
 recordRouter.get('/duty/candidates', wrap((req, res) => res.json(dutyMoveCandidates(req.ctx, req.user))));
+// Duty waiting for the caller's decision, in the units where they review it (ADR-0024).
+recordRouter.get('/duty/review-queue', wrap((req, res) => res.json(dutyReviewQueue(req.ctx, req.user, req, { unitId: typeof req.query.unit_id === 'string' ? req.query.unit_id : null }, clientIp(req)))));
 
 recordRouter.get('/drafts', wrap((req, res) => res.json(listDrafts(req.ctx, req.user))));
 recordRouter.post('/drafts/from-work', wrap((req, res) => {

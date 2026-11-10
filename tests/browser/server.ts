@@ -58,6 +58,23 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify(ctx.mailer.outbox));
     return;
   }
+  // A scoring version takes effect tomorrow at the earliest (ADR-0012) and duty is recorded once it has been stood, so no
+  // spec can reach duty with calculated points through the product alone. This puts a version in force for a Unit
+  // Instance that has none: three points for each of its duty types, from a day long past. Test server only.
+  if (req.method === 'POST' && req.url?.startsWith('/api/__test/duty-scoring')) {
+    const orgId = new URL(req.url, 'http://localhost').searchParams.get('org') || 'G8';
+    const today = new Date().toISOString().slice(0, 10);
+    const inForce = ctx.db.prepare('SELECT 1 FROM duty_scoring_policies WHERE org_id = ? AND withdrawn_at IS NULL AND effective_from <= ?').get(orgId, today);
+    if (!inForce) {
+      const types = ctx.db.prepare('SELECT id FROM duty_types WHERE org_id = ? AND active = 1').all(orgId) as Array<{ id: string }>;
+      const next = (ctx.db.prepare('SELECT COALESCE(MAX(version), 0) + 1 AS n FROM duty_scoring_policies WHERE org_id = ?').get(orgId) as { n: number }).n;
+      ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
+        .run(`browser-test-scoring-${orgId}`, orgId, next, '2020-01-01', JSON.stringify({ rules: types.map((t) => ({ duty_type_id: t.id, method: 'fixed', points: 3, bands: null })), multipliers: [], combine: 'highest' }), 'Browser tests: three points a duty', new Date().toISOString());
+    }
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
   app(req, res);
 });
 server.listen(port, '127.0.0.1', () => console.log(`Vantage browser-test server on http://localhost:${port}`));

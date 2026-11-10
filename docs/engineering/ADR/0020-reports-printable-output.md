@@ -75,7 +75,9 @@ never say different things.
   case does not say what kind of amount it holds, and the report says so.
 - **Duty** shows the duty types and how duty is scored on a given day, every version with its status. Since Task 17
   (ADR-0023) it also lists the duty stood in the period, with hours, calculated points, version and status, about
-  oneself, a Marine or a unit, by Marine where the reader may see figures by Marine.
+  oneself, a Marine or a unit, by Marine where the reader may see figures by Marine. Since Task 18 (ADR-0024) it shows
+  approved points beside calculated ones and whether they are an override, counts approved duty and its points in the
+  summary, and ranks the by-Marine tally by what counts.
 - **Custom** reads activities, training, awards, counselings, goals, tasks, or (for a unit) its financial cases, with
   the columns, grouping (by a column or by month, with totals of its measures) and order chosen. Its value totals add
   only the value types that count toward a total, as the activity report does; each row keeps its own. A counseling is listed
@@ -177,5 +179,5 @@ Workload, Roster and Analysis link to their report. Packages and Analysis, and t
 - Browser printing is tested in Chromium (the browser test prints the page to PDF). Which browsers MCEN fields is not
   recorded here; one that does not repeat a table's header and footer on every printed page loses the running handling
   line after the first page, and the PDF carries it everywhere.
-- Left to other Tasks: duty records (17, done in ADR-0023) and their review (18) fill the Duty report; financial error snapshots and
+- Left to other Tasks: duty records (17, done in ADR-0023) and their review (18, done in ADR-0024) fill the Duty report; financial error snapshots and
   comparison (15); one set of analytics components (21).
