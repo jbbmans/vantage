@@ -29,14 +29,17 @@ export function ApprovedPoints({ row: r }: { row: Duty }) {
 /** The decisions that say why before they are made. */
 type Ask = 'approve_with_points' | 'return' | 'reject' | 'reopen' | 'change_points';
 
-const ASKS: Record<Ask, { action: DutyReviewAction; title: string; confirm: string; reason: string; placeholder: string; withPoints: boolean; danger?: boolean; done: string; lede: (r: Duty) => string }> = {
+const ASKS: Record<Ask, { action: DutyReviewAction; title: string; confirm: string; reason: string; placeholder: string; withPoints: boolean; danger?: boolean; done: string; lede: (r: Duty, me?: string) => string }> = {
   approve_with_points: {
     action: 'approve', title: 'Approve with different points', confirm: 'Approve', reason: 'Why these points', placeholder: 'What the scoring could not know', withPoints: true, done: 'Approved.',
     lede: (r) => `The scoring gave this duty ${points(r.calculated_points)}${r.scoring_version != null ? ` under version ${r.scoring_version}` : ''}. Give the points it should count for, and why. Both are kept with the duty, and its Marine reads them.`,
   },
   return: {
     action: 'return', title: 'Return for correction', confirm: 'Return it', reason: 'What needs correcting', placeholder: 'What to fix before it comes back', withPoints: false, done: 'Returned for correction.',
-    lede: (r) => `It goes back to ${r.subject_name || 'its Marine'} to correct, and returns to review when they save it. They read what you write here.`,
+    // A duty somebody recorded for its Marine is corrected by whoever recorded it, never by the Marine (ADR-0023 §4).
+    lede: (r, me) => !r.recorded_by || r.recorded_by === r.user_id ? `It goes back to ${r.subject_name || 'its Marine'} to correct, and returns to review when they save it. They read what you write here.`
+      : r.recorded_by === me ? `You recorded this duty for ${r.subject_name || 'its Marine'}, so it comes back to you to correct, and returns to review when you save it. Its Marine reads what you write here.`
+        : `${r.recorder_name || 'A leader'} recorded this duty for ${r.subject_name || 'its Marine'}, so it goes back to them to correct, and returns to review when they save it. They and its Marine read what you write here.`,
   },
   reject: {
     action: 'reject', title: 'Reject this duty', confirm: 'Reject it', reason: 'Why it is rejected', placeholder: 'Why this duty does not count', withPoints: false, danger: true, done: 'Rejected.',
@@ -99,7 +102,7 @@ export function DutyReviewActions({ row, me, onDone, onCorrect, brief = false, c
       {o.change_points && !brief && <Button size={size} onClick={() => setAsk('change_points')} disabled={busy}><SlidersHorizontal className="h-3.5 w-3.5" />Change points…</Button>}
       {o.reopen && !brief && <Button size={size} variant="ghost" onClick={() => setAsk('reopen')} disabled={busy}><RotateCcw className="h-3.5 w-3.5" />Reopen…</Button>}
 
-      {ask && <AskDialog key={`${row.id}:${ask}:${row.version}`} ask={ask} row={row} onClose={() => setAsk(null)} onDone={onDone} />}
+      {ask && <AskDialog key={`${row.id}:${ask}:${row.version}`} ask={ask} row={row} me={me} onClose={() => setAsk(null)} onDone={onDone} />}
       <ConfirmDialog open={confirmOwn} onOpenChange={setConfirmOwn} title="Approve your own duty?" danger={false} confirmLabel="Approve"
         body={<>A role you hold lets you approve duty you stood yourself. {what === 'this duty' ? 'It' : `“${what}”`} is approved for {points(row.calculated_points)}, the points the scoring gave it, and the record shows that you approved it yourself.</>}
         onConfirm={async () => { setConfirmOwn(false); await send('approve', `Approved for ${points(row.calculated_points)}.`); }} />
@@ -107,7 +110,7 @@ export function DutyReviewActions({ row, me, onDone, onCorrect, brief = false, c
   );
 }
 
-function AskDialog({ ask, row, onClose, onDone }: { ask: Ask; row: Duty; onClose: () => void; onDone?: (saved: Duty) => void }) {
+function AskDialog({ ask, row, me, onClose, onDone }: { ask: Ask; row: Duty; me?: string; onClose: () => void; onDone?: (saved: Duty) => void }) {
   const uid = useId();
   const toast = useToast();
   const decide = useReviewDuty();
@@ -145,7 +148,7 @@ function AskDialog({ ask, row, onClose, onDone }: { ask: Ask; row: Duty; onClose
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !decide.isPending) onClose(); }} title={spec.title} description={spec.lede(row)} size="md"
+    <Dialog open onOpenChange={(open) => { if (!open && !decide.isPending) onClose(); }} title={spec.title} description={spec.lede(row, me)} size="md"
       footer={<><Button variant="ghost" onClick={onClose} disabled={decide.isPending}>Cancel</Button><Button variant={spec.danger ? 'danger' : 'primary'} onClick={submit} loading={decide.isPending}>{spec.confirm}</Button></>}>
       <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); submit(); }} aria-describedby={problem ? `${uid}-problem` : undefined}>
         {spec.withPoints && (

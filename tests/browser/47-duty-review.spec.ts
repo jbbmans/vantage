@@ -38,12 +38,12 @@ async function leader(browser: Browser) {
   return { context, page };
 }
 
-/** Records a duty over the API as whoever `page` is signed in as: 0800 to 1600 on a day of its own, three points. */
-async function stand(page: Page, code: string, title: string, offset: number) {
+/** Records a duty over the API as whoever `page` is signed in as, for themselves or for a Marine they lead: 0800 to 1600 on a day of its own, three points. */
+async function stand(page: Page, code: string, title: string, offset: number, forMarine?: string) {
   const options = await (await page.request.get('/api/record/duty/options')).json();
   const type = (options.types as Array<{ id: string; code: string }>).find((t) => t.code === code);
   expect(type, `duty type ${code}`).toBeTruthy();
-  const res = await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: type!.id, unit_id: 'G8', title, date: day(offset), start_time: '0800', end_date: day(offset), end_time: '1600', visibility: 'unit' } });
+  const res = await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: type!.id, unit_id: 'G8', title, date: day(offset), start_time: '0800', end_date: day(offset), end_time: '1600', visibility: 'unit', ...(forMarine ? { user_id: forMarine } : {}) } });
   expect(res.ok(), await res.text()).toBeTruthy();
   const body = await res.json();
   expect(body.calculated_points, 'scored under the version in force').toBe(3);
@@ -228,6 +228,39 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await expect(notedView).toContainText('Relieved on time.');
   await expect(notedView).not.toContainText('Why it was rejected');
   await closeDialogs(page);
+
+  // Deciding a duty from the queue takes its row away. Focus goes to the next duty waiting, so a reviewer working down
+  // the list by keyboard keeps their place.
+  await stand(page, 'DNCO', `First ${tag}`, 9);
+  await stand(page, 'DNCO', `Second ${tag}`, 10);
+  await stand(lead.page, 'SAF', `Recorded ${tag}`, 11, me.user?.id ?? me.id);
+  await lead.page.goto('/record/duty?who=review');
+  const waitingGroup = lead.page.getByRole('group', { name: 'Duty waiting for your review' });
+  const duties = waitingGroup.locator('tbody tr td:first-child button');
+  await expect(duties.filter({ hasText: `First ${tag}` })).toBeVisible();
+  const order = await duties.allTextContents();
+  const next = order[order.indexOf(`First ${tag}`) + 1];
+  expect(next, 'a duty waits after it').toBeTruthy();
+  await waitingGroup.getByRole('button', { name: `Approve First ${tag} for 3 points` }).click();
+  await toast(lead.page, 'Approved for 3 points.');
+  await expect(duties.filter({ hasText: `First ${tag}` })).toHaveCount(0);
+  await expect(duties.filter({ hasText: next }).first()).toBeFocused();
+
+  // A duty its reviewer recorded for the Marine is the reviewer's to correct, and returning it says so. After the
+  // dialog closes and the row goes, focus is still in the queue.
+  await waitingGroup.getByRole('button', { name: `Return Recorded ${tag} for correction` }).click();
+  const ownReturn = lead.page.getByRole('dialog', { name: 'Return for correction' });
+  await expect(ownReturn).toContainText('You recorded this duty for');
+  await expect(ownReturn).toContainText('it comes back to you to correct');
+  await ownReturn.getByLabel('What needs correcting').fill('The post was the gate, not the barracks.');
+  await ownReturn.getByRole('button', { name: 'Return it' }).click();
+  await toast(lead.page, 'Returned for correction.');
+  await expect(duties.filter({ hasText: `Recorded ${tag}` })).toHaveCount(0);
+  await expect.poll(() => lead.page.evaluate(() => {
+    const group = document.querySelector('[aria-label="Duty waiting for your review"]');
+    return Boolean(group && document.activeElement && group.contains(document.activeElement));
+  }), { message: 'focus stays in the queue' }).toBe(true);
+  expect(await axe(lead.page), 'the queue after a decision').toEqual([]);
 
   // A phone: the queue and a decision fit.
   await stand(page, 'SAF', `Phone ${tag}`, 7);

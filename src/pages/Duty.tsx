@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Upload, ShieldCheck, ArrowRightLeft, ChevronDown, ChevronUp, ClipboardCheck } from 'lucide-react';
 import { PageHeader, Button, EmptyState, Badge, Stat, Segmented, Skeleton } from '@/components/ui/primitives';
@@ -59,9 +59,21 @@ export default function Duty() {
   // A view with nothing left in it (the last duty recorded for a Marine deleted, an old link) falls back to one's own.
   // The review view is for someone who reviews duty somewhere, whether or not anything waits (the server says which).
   const reviewer = Boolean(queue?.reviewer);
-  const waiting = queue?.items ?? [];
+  const waiting = useMemo(() => queue?.items ?? [], [queue]);
   const whoShown: Who = who === 'review' && reviewer ? 'review' : who === 'recorded' && recorded.length ? 'recorded' : who === 'units' && units.length ? 'units' : 'mine';
   const shown = whoShown === 'review' ? waiting : whoShown === 'recorded' ? recorded : whoShown === 'units' ? units : mine;
+
+  // A decision takes its duty out of the queue, and with it the button that made it. Focus goes to the next duty waiting
+  // (the one before when it was the last, the queue itself when none is left), so a reviewer working down the list by
+  // keyboard or screen reader keeps their place.
+  const queueRows = useRef(new Map<string, HTMLButtonElement>());
+  const queueRegion = useRef<HTMLDivElement>(null);
+  const [decided, setDecided] = useState<{ id: string; next: string | null } | null>(null);
+  useEffect(() => {
+    if (!decided || waiting.some((w) => w.id === decided.id)) return;
+    ((decided.next && queueRows.current.get(decided.next)) || queueRegion.current)?.focus();
+    setDecided(null);
+  }, [decided, waiting]);
 
   // A notification, a timeline entry or a move opens the duty it is about.
   useEffect(() => {
@@ -121,24 +133,27 @@ export default function Duty() {
         </div>
       )}
 
+      {/* The queue's card is what focus falls back to after a decision. It stays a direct child of the page, as every
+          section is: a wrapper here would let the table's screen-reader-only header widen the page on a phone. */}
       {whoShown === 'review' ? (queuePending ? <Skeleton className="h-48" /> : waiting.length === 0 ? (
-        <div className="card"><EmptyState icon={ClipboardCheck} title="Nothing is waiting for your review"
+        <div ref={queueRegion} tabIndex={-1} role="group" aria-label="Duty waiting for your review" className="card outline-none"><EmptyState icon={ClipboardCheck} title="Nothing is waiting for your review"
           description="Duty submitted in the units where you review it shows here, the longest-waiting first. Your own duty is another reviewer’s to decide." /></div>
       ) : (
-        <div className="card" style={{ overflow: 'hidden' }}>
+        <div ref={queueRegion} tabIndex={-1} role="group" aria-label="Duty waiting for your review" className="card outline-none" style={{ overflow: 'hidden' }}>
           {/* The duty leads, so a phone shows what it is and whose before the table scrolls; it opens with every decision. */}
           <Table minWidth={900} head={<><th>Duty</th><th className="w-32">Waiting since</th><th className="w-44">When</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-[17rem]"><span className="sr-only">Decide</span></th></>}>
-            {waiting.map((r) => (
+            {waiting.map((r, i) => (
               <tr key={r.id}>
                 <td className="min-w-[11rem]">
-                  <button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView(r)}>{r.title || r.duty_type_name || 'Duty'}</button>
+                  <button type="button" ref={(el) => { if (el) queueRows.current.set(r.id, el); else queueRows.current.delete(r.id); }} className="text-left font-medium text-ink hover:underline" onClick={() => setView(r)}>{r.title || r.duty_type_name || 'Duty'}</button>
                   <span className="block text-xs text-ink-3">{[r.subject_name, r.title ? r.duty_type_name : null, r.recorder_name && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === me ? 'you' : r.recorder_name}` : null, r.frozen_at ? 'its Marine has left the unit' : null].filter(Boolean).join(' · ')}</span>
                 </td>
                 <td className="text-xs"><span className="block text-ink">{timeAgo(r.submitted_at)}</span><time dateTime={r.submitted_at} className="fig block text-2xs text-ink-3">{formatStamp(r.submitted_at)}</time></td>
                 <td className="text-xs"><TimeframeText table="duties" row={r} /></td>
                 <td className="fig text-right text-xs">{formatHours(r.hours)}</td>
                 <td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}{r.scoring_version != null && <span className="block text-2xs text-ink-3">version {r.scoring_version}</span>}</td>
-                <td><DutyReviewActions row={r} me={me} brief className="flex items-center justify-end gap-1 whitespace-nowrap" /></td>
+                <td><DutyReviewActions row={r} me={me} brief className="flex items-center justify-end gap-1 whitespace-nowrap"
+                  onDone={(saved) => { if (saved.approval_status !== 'pending') setDecided({ id: r.id, next: (waiting[i + 1] ?? waiting[i - 1])?.id ?? null }); }} /></td>
               </tr>
             ))}
           </Table>

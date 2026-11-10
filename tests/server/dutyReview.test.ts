@@ -385,6 +385,18 @@ test('a duty’s words are never the marker a retention schedule leaves, so nobo
   assert.equal(edited.status, 400, JSON.stringify(edited.body));
   assert.equal(edited.body.fieldErrors.notes, 'Say this another way.');
   assert.equal(rowOf('duties', d.id)!.notes, 'As stood.');
+  // A file is held to the same: the row that brings the marker is refused on the review, and nothing is written.
+  const sheet = await get(reyes.token, '/api/me/export?format=csv&sections=duty');
+  assert.equal(sheet.status, 200);
+  const [header, ...lines] = String(sheet.text).trim().split(/\r?\n/);
+  const line = lines.find((l) => l.includes('Words of its own'))!;
+  assert.ok(line?.includes('As stood.'), 'the duty is in the sheet with its notes');
+  const staged = await upload(reyes.token, `${header}\n${line.replace('As stood.', REDACTED)}\n`, 'vantage-duty.csv');
+  assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 400));
+  assert.deepEqual([staged.body.rows[0].outcome, staged.body.rows[0].include], ['problem', false], JSON.stringify(staged.body.rows[0]).slice(0, 300));
+  assert.match(staged.body.rows[0].reason, /Say it another way/);
+  assert.equal(staged.body.counts.update, 0);
+  assert.equal(rowOf('duties', d.id)!.notes, 'As stood.');
   // So it stays where its reviewers see it and can decide it.
   const queue = await get(nguyen.token, '/api/record/duty/review-queue');
   assert.ok(queue.body.items.some((i: Record<string, any>) => i.id === d.id));
@@ -590,6 +602,18 @@ test('a role names approving your own duty when it is made, never afterwards, an
   assert.equal((await put(op.token, `/api/org/roles/${encodeURIComponent(made.id)}`, { permissions: PERMISSIONS.VIEW_UNIT | BIT })).body.code, 'named_when_made');
   assert.equal(permissionsOf(made.id) & BIT, 0);
 
+  // A role made naming it does not come to whoever made it by a join code of their own: refused at the route, and
+  // they are not seated in the cell by it.
+  const cellRole = await post(op.token, '/api/org/roles', { unit_id: 'G8SA', name: 'Cell duty officer', position: 0, permissions: PERMISSIONS.VIEW_UNIT | BIT });
+  assert.equal(cellRole.status, 201, JSON.stringify(cellRole.body));
+  const carrying = await post(op.token, '/api/org/units/G8SA/join-codes', { role_id: cellRole.body.id });
+  assert.equal(carrying.status, 201, JSON.stringify(carrying.body));
+  const ownCode = await post(op.token, `/api/org/join-codes/${encodeURIComponent(carrying.body.code)}/join`);
+  assert.equal(ownCode.status, 403, JSON.stringify(ownCode.body));
+  assert.equal(ownCode.body.code, 'self_grant');
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = 'G8SA'").get(op.id), undefined, 'not seated by their own code');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(op.id, cellRole.body.id), undefined);
+
   // Were the permission in a default role all the same (a database from elsewhere, a hand edit), it would count for
   // nobody: the default role comes with membership, not from a grant. The leader joins with their own code and stands duty.
   const force = (id: string, on: boolean) => app.ctx.db.prepare(`UPDATE roles SET permissions = permissions ${on ? '|' : '& ~'} ? WHERE id = ?`).run(BIT, id);
@@ -639,6 +663,33 @@ test('a role names approving your own duty when it is made, never afterwards, an
   assert.equal(scopeFor(app.ctx, { id: reyes.id }).permissions.G8 & BIT, 0);
   app.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(reyes.id, named.id);
   assert.equal(rowOf('duties', mine.id)!.approval_status, 'pending');
+});
+
+test('a decision is told only to people who can still open the duty: a reviewer who has left the role hears nothing more of it', async () => {
+  const told = (dutyId: string) => notesFor(nguyen.id, dutyId).map((n) => n.title);
+  // While they review, the reviewer whose return is answered is told.
+  const first = await recorded(reyes.token, { title: 'Answered while its reviewer still reviews' });
+  await decide(nguyen.token, first.id, 'return', { reason: 'Say who relieved you.' });
+  assert.deepEqual(told(first.id), []);
+  await decide(reyes.token, first.id, 'resubmit');
+  assert.equal(told(first.id).length, 1, JSON.stringify(told(first.id)));
+
+  // Out of the role, they can no longer open the duty, and nothing about it reaches them.
+  const second = await recorded(reyes.token, { title: 'Answered after its reviewer left the role' });
+  await decide(nguyen.token, second.id, 'return', { reason: 'Say who relieved you.' });
+  const seat = app.ctx.db.prepare("SELECT * FROM member_roles WHERE user_id = ? AND role_id = 'G8:snco'").get(nguyen.id) as Record<string, any>;
+  assert.ok(seat, 'the SNCO holds the SNCO role');
+  app.ctx.db.prepare("UPDATE member_roles SET expires_at = '2020-01-01T00:00:00.000Z' WHERE user_id = ? AND role_id = 'G8:snco'").run(nguyen.id);
+  try {
+    assert.notEqual((await get(nguyen.token, `/api/records/duties/${second.id}`)).status, 200, 'no longer theirs to open');
+    await decide(reyes.token, second.id, 'resubmit');
+    await decide(top.token, second.id, 'approve');
+    await decide(top.token, second.id, 'reopen', { reason: 'Approved on the wrong day.' });
+    assert.deepEqual(told(second.id), []);
+  } finally {
+    app.ctx.db.prepare("UPDATE member_roles SET expires_at = ? WHERE user_id = ? AND role_id = 'G8:snco'").run(seat.expires_at ?? null, nguyen.id);
+  }
+  assert.equal((await get(nguyen.token, `/api/records/duties/${second.id}`)).status, 200);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------

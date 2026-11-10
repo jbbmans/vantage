@@ -208,8 +208,9 @@ approved. Migration 032 changes no duty's status, points or version.
 - **Records → Duty**: calculated and approved points side by side; what counts in the totals is approved points.
   **To review** lists the duty waiting for the reader's decision (`GET /api/record/duty/review-queue`: their units,
   longest-waiting first, never their own, audited as a list of those Marines' records), with Approve, Return and Reject
-  on each row. A duty opens with the decisions open to its reader, a required reason where one is required, and its
-  review history. A returned duty shows why, and its form says that saving sends it back.
+  on each row. A decision takes its row out of the queue and leaves focus on the next duty waiting. A duty opens with
+  the decisions open to its reader, a required reason where one is required, and its review history. Returning a duty
+  somebody recorded for its Marine says that it goes back to whoever recorded it. A returned duty shows why, and its form says that saving sends it back.
 - **A Marine's page**: the same decisions and history on the Duty tab.
 - **Duty report**: Approved points and an Override column, approved counts and points in the summary, and the by-Marine
   tally ranked by what counts.
@@ -254,5 +255,11 @@ approved. Migration 032 changes no duty's status, points or version.
   permissions on upgrade; no role gains self-approval.
 - `has()` now treats named-only permissions apart from `ADMINISTRATOR`, so any later permission that must be explicitly
   granted can join `NAMED_ONLY_BITS`.
-- Rollback: revert the commit. The three columns, `duty_reviews` and the role bits can stay in the database unread; to
-  remove them, clear bits 18 to 20 from `roles.permissions`, drop `duty_reviews` and the three `duties` columns.
+- Rollback: revert the commit. The three columns, `duty_reviews` and the role bits can stay in the database unread. To
+  remove them, in this order: clear bits 18 to 20 from `roles.permissions`; drop the triggers
+  `duties_reviews_same_org` and `duty_reviews_same_org_insert` (the first reads `duty_reviews` on every change of a
+  duty's unit, and SQLite keeps a trigger after the table it reads is gone, so skipping this breaks those edits and the
+  column drops); drop `duty_reviews`; drop the index `idx_duties_review`; then drop `points_overridden_at`,
+  `points_overridden_by` and `points_override_reason` from `duties`, in that order, since the check that holds the
+  three together sits on the first. Set the stored `schema_version` back to 31 if 032 should run again on a later
+  upgrade.
