@@ -42,7 +42,7 @@ record's download and the Your data page all read it, so a column the export wri
 | Training, PME, education, certifications, qualifications | `trainings` (by `type`) | ✓ |
 | Counselings, goals, projects, tasks, career plan | their own tables | ✓ |
 | Attachments | `attachments`, in a ZIP | ✓ onto the record they came with |
-| Duty | none yet (Task 17) | listed, never written, **never made an Activity** |
+| Duty | `duties` (Task 17, ADR-0023) | ✓ as duty, the type matched in the importer's Unit Instance; review, points and length never from a file |
 | Personnel history | memberships, billets, responsibilities | kept in the file; the people who manage membership write it |
 | Account history | trail, notifications, comments, drafts, moves, AI and email logs | kept in the file; the record of what happened, never written back |
 
@@ -110,7 +110,8 @@ The export still holds only the exporter's own data: their records, and the name
 
 **Records keep their type.** An award comes back an award, a course training, a counseling a counseling. A row in
 Activities that only reads like an award or a course is offered to its owner as that type and goes in as one only when
-they say so (ADR-0015, John's "Marine confirms", 2026-10-17). Duty rows are listed and left out.
+they say so (ADR-0015, John's "Marine confirms", 2026-10-17). Duty rows were listed and left out until Task 17; they
+now import as duty (ADR-0023).
 
 ### 4. Boundaries: ids are never trusted
 
@@ -155,5 +156,5 @@ wrote). Both are in the infrastructure backup and the privacy inventory. Nothing
 - The review costs one rolled-back run per change. Files are bounded (50 MB, 5,000 spreadsheet rows, 20,000 records of a Vantage
   file, 10,000 ZIP entries).
 - Undo is once, and partial where the person changed things after.
-- Duty rows wait for Task 17; then the registry's `duty` category becomes a table and imports.
+- Duty rows waited for Task 17; the registry's `duty` category is now the `duties` table and imports (ADR-0023).
 - The activity CSV import and work intake are unchanged.

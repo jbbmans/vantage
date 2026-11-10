@@ -326,7 +326,10 @@ test('the Timeline lists each kind from its own record, filters by kind, and rea
   await expect(page.getByRole('link', { name: /Corporals Course/ })).toHaveAttribute('href', `/career/training?open=${pme.id}`);
   await expect(page.getByRole('link', { name: /Navy and Marine Corps Achievement Medal/ })).toHaveAttribute('href', `/career/awards?open=${award.id}`);
   await expect(page.getByRole('link', { name: /Quarterly counseling/ })).toContainText('by SSgt Reyes');
-  await expect(page.getByText(/not on your timeline yet, because Vantage does not record/)).toBeVisible();
+  // Every kind has its own record now that duty does (Task 17): nothing is listed as not yet recorded, and no Duty
+  // chip shows for a Marine with no duty.
+  await expect(page.getByText(/not on your timeline yet/)).toHaveCount(0);
+  await expect(kinds.getByRole('button', { name: /^Duty/ })).toHaveCount(0);
   expect(await axe(page)).toEqual([]);
 
   await chip('Awards').click();

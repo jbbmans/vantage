@@ -159,7 +159,8 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   (`record_imports`) is staged, reviewed by a rolled-back run of the same writes a form makes, then written
   once; each record it wrote is listed in `record_import_origins` (created, updated with what it said before,
   a file attached, a profile field set), which is what a record's page shows and what the one undo reads. A
-  file's ids never name a record here, and duty rows are listed and never made Activities.
+  file's ids never name a record here, and a duty row comes in as duty, its type found by code in the importer's own
+  Unit Instance, and is never made an Activity.
 - **Report** (ADR-0020): one document (`vantage-report/1` in `shared/reportCatalog.ts`) about the reader, a Marine
   they lead, or a unit and the units beneath it: title, whom it is about, unit, period, generated on and by, the
   filters in force, the handling line, figures, sections of charts and tables, and notes. It is built when asked
@@ -174,8 +175,16 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   still open, reopened, resolved; amount, owner and status changed), worked out on request and never stored. A filed
   report and its rows never change and are never deleted; one filed in error is **withdrawn** with a reason, kept, and
   in no comparison. Filing never creates or changes a case in the queue.
-- **Duty**: no store yet; duty records are Task 17's.
-- **A move** between activities, awards and training is its owner's alone. One transaction gives the
+- **Duty** (`duties`, ADR-0023): a duty a Marine stood, for one unit (always shared with it, never private), of one
+  of its Unit Instance's duty types, with its start and end day and time. Its hours, duty days, overnight and
+  multi-day are worked out by the server (`shared/duty.ts`), as are its conditions (weekend and overnight from its
+  times; holiday, short notice, extended and consecutive claimed). It is scored once, under the version in force on
+  its first day, and keeps that version's id and number, its calculated points and how they were worked out; it is
+  scored again only when its days, times, type, conditions or unit change. It is submitted for review (`pending`);
+  approval, return, rejection and approved points are Task 18's, and an approved or rejected duty is never changed,
+  deleted or moved. A leader who counsels a Marine may record it for them (`recorded_by`); the Marine is told and
+  cannot change it. A duty, its type and its scoring version stay in one Unit Instance (triggers).
+- **A move** between activities, awards and training, or from an activity to duty, is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and
   writes **record lineage** (`record_lineage`): from, to, the whole row as it stood, who, when and why.
   An undo puts the entry back under its original id. Readers of an entry see that it moved; what it said

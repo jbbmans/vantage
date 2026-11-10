@@ -41,8 +41,8 @@ database triggers, the server's checks, the SQL period clause, analysis, imports
 | Assignment (`unit_members`) | `assignment_start` | `assignment_end` | | | open | any day of it is in the period |
 | Responsibility | `starts_on` | `ends_on` | | | open | any day of it is in the period |
 
-Counselings and tasks keep their one date: they happen on a day. Duty records are Task 17's and will take the same
-registry.
+Counselings and tasks keep their one date: they happen on a day. Duty records (Task 17, ADR-0023) take the same
+registry: start and end day, both times required, never ongoing, in a period by overlap.
 
 - **Days** are calendar days (YYYY-MM-DD) and **times** are the wall clock where it happened (HH:MM, 24-hour), as the
   date already was: nothing is converted between time zones. The forms take a time as Marines write it ("0800",

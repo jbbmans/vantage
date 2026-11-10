@@ -99,12 +99,12 @@ test('the registry names the store of every record type the records API serves',
 });
 
 test('the registry: every timeline kind with a store is read from a table the timeline reads', () => {
-  const timelineTables: Array<TimelineItem['table']> = ['activities', 'trainings', 'awards', 'counselings', 'goals'];
+  const timelineTables: Array<TimelineItem['table']> = ['activities', 'trainings', 'awards', 'counselings', 'goals', 'duties'];
   for (const kind of RECORD_KINDS.filter((k) => k.timeline && k.store)) {
     assert.ok((timelineTables as string[]).includes(kind.store!.table), `${kind.key} is on the timeline, but the timeline does not read ${kind.store!.table}`);
   }
-  // The timeline's kinds without a store are the ones it says are coming.
-  assert.deepEqual(RECORD_KINDS.filter((k) => k.timeline && !k.store).map((k) => k.key), ['duty']);
+  // Every timeline kind has its store now that duty has one (Task 17, ADR-0023).
+  assert.deepEqual(RECORD_KINDS.filter((k) => k.timeline && !k.store).map((k) => k.key), []);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -605,6 +605,10 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   items.recognition = (await made(lopez.token, 'awards', { name: 'Meritorious Mast', type: 'meritorious_mast', status: 'presented', date: '2025-10-20' })).id;
   items.counseling = (await made(nguyen.token, 'counselings', { user_id: lopez.id, type: 'monthly', date: '2026-06-01', summary: 'Solid month.', visibility: 'unit' })).id;
   items.goal = (await made(lopez.token, 'goals', { title: 'Close 50 ULOs', metric: 'manual', target_value: 50, status: 'achieved', period_end: '2026-06-30' })).id;
+  // Duty has its own store (Task 17, ADR-0023): one of G8's duty types, stood before any window below.
+  const at = new Date().toISOString();
+  app.ctx.db.prepare("INSERT INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES ('tl-dnco', 'G8', 'TLDNCO', 'Duty NCO', NULL, 1, ?, ?)").run(at, at);
+  items.duty = (await made(lopez.token, 'duties', { duty_type_id: 'tl-dnco', date: '2025-09-05', start_time: '0800', end_date: '2025-09-06', end_time: '0800', unit_id: 'G8' })).id;
   // Not on it: a binned entry, a goal not yet achieved.
   const binned = await entry(lopez.token, { title: 'Binned entry', date: '2026-03-02' });
   await del(lopez.token, `/api/records/activities/${binned.id}`);
@@ -615,7 +619,7 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   const snapshot = () => {
     const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);
     const counts = Object.fromEntries(tables.map((t) => [t, (app.ctx.db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n]));
-    const rows = Object.fromEntries(['activities', 'trainings', 'awards', 'counselings', 'goals', 'record_lineage'].map((t) => [t, app.ctx.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+    const rows = Object.fromEntries(['activities', 'trainings', 'awards', 'counselings', 'goals', 'duties', 'record_lineage'].map((t) => [t, app.ctx.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
     return JSON.stringify({ counts, rows });
   };
   const unchanged = snapshot();
@@ -639,6 +643,7 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   assert.equal(timeline.items.find((i) => i.kind === 'award')!.href, `/career/awards?open=${items.award}`);
   assert.equal(timeline.items.find((i) => i.kind === 'pme')!.href, `/career/training?open=${items.pme}`);
   assert.equal(timeline.items.find((i) => i.kind === 'counseling')!.href, `/career/counseling?open=${items.counseling}`);
+  assert.equal(timeline.items.find((i) => i.kind === 'duty')!.href, `/record/duty?open=${items.duty}`);
   assert.equal(timeline.items.find((i) => i.kind === 'award')!.date, '2026-05-20', 'an award is dated when it was presented');
   const dates = timeline.items.map((i) => i.date);
   assert.deepEqual(dates, [...dates].sort().reverse(), 'newest first');
@@ -646,7 +651,7 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   assert.equal(timeline.total, Object.keys(items).length);
   assert.equal(timeline.truncated, false);
   assert.deepEqual(timeline.counts, Object.fromEntries(storedKinds.map((k) => [k.key, 1])));
-  assert.deepEqual(timeline.pending, [{ key: 'duty', label: 'Duty', plannedIn: 'Task 17' }]);
+  assert.deepEqual(timeline.pending, []);
 
   // A window by day, both ends kept.
   const windowed = await get(lopez.token, '/api/record/timeline?from=2026-02-01&to=2026-04-01');

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Award, BadgeCheck, BookOpen, CalendarRange, GraduationCap, Info, MessagesSquare, NotebookPen, Plus, Target, type LucideIcon } from 'lucide-react';
+import { Award, BadgeCheck, BookOpen, CalendarRange, GraduationCap, Info, MessagesSquare, NotebookPen, Plus, Target, Timer, type LucideIcon } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, PageHeader, Skeleton } from '@/components/ui/primitives';
 import { DateText, StatusBadge, useParam } from '@/components/common';
 import { TimeframeText } from '@/components/Timeframe';
@@ -8,6 +8,7 @@ import { QueryFailure } from '@/components/QueryFailure';
 import { useRecordTimeline } from '@/lib/queries';
 import { formatDate } from '../../shared/metrics';
 import { RECORD_KINDS, type TimelineItem, type TimelineResponse } from '../../shared/recordKinds';
+import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty';
 import { humanize } from '@/lib/utils';
 import { usePlace } from '@/lib/place';
 import { placeName } from '@/config/nav';
@@ -25,6 +26,7 @@ const KINDS: Kind[] = [
   { key: 'award', one: 'Award', many: 'Awards', icon: Award },
   { key: 'recognition', one: 'Recognition', many: 'Recognition', icon: Award },
   { key: 'counseling', one: 'Counseling', many: 'Counselings', icon: MessagesSquare },
+  { key: 'duty', one: 'Duty', many: 'Duty', icon: Timer },
   { key: 'goal', one: 'Goal reached', many: 'Goals reached', icon: Target },
 ];
 function kindOf(key: string): Kind {
@@ -41,6 +43,8 @@ function describe(item: TimelineItem): { title: string; detail: string | null } 
     const type = item.detail === 'loa' ? 'Letter of appreciation' : item.detail ? humanize(item.detail) : null;
     return { title: item.title, detail: type && type.toLowerCase() !== item.title.trim().toLowerCase() ? type : null };
   }
+  // Duty is named by its title, else its type; the type goes beneath a title that is not it.
+  if (item.table === 'duties') return { title: item.title, detail: item.detail && item.detail !== item.title ? item.detail : null };
   return { title: item.title, detail: item.detail };
 }
 
@@ -171,7 +175,7 @@ function Entry({ item }: { item: TimelineItem }) {
           </span>
         </span>
         {/* An activity or course that ran longer than a day shows its days, placed on its first (ADR-0018). */}
-        <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-2">{item.end_date || item.ongoing ? <TimeframeText table="activities" row={item} /> : <DateText value={item.date} />}<StatusBadge value={item.status} /></span>
+        <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-2">{item.end_date || item.ongoing ? <TimeframeText table="activities" row={item} /> : <DateText value={item.date} />}{item.table === 'duties' && item.status ? <Badge tone={item.status === 'approved' ? 'good' : item.status === 'rejected' ? 'bad' : item.status === 'returned' ? 'warn' : 'info'}>{DUTY_STATUS_LABELS[item.status as DutyStatus] ?? humanize(item.status)}</Badge> : <StatusBadge value={item.status} />}</span>
       </Link>
     </li>
   );

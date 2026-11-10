@@ -1046,17 +1046,17 @@ CREATE TABLE IF NOT EXISTS record_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_record_drafts_user ON record_drafts(user_id, updated_at DESC);
 
--- An entry its owner moved from one record type to another (ADR-0015): an activity that was an award or a course, or
--- back. The row as it stood before the move is kept whole in snapshot, so nothing the new type has no field for is lost,
+-- An entry its owner moved from one record type to another (ADR-0015): an activity that was an award, a course or a duty
+-- (ADR-0023), or back. The row as it stood before the move is kept whole in snapshot, so nothing the new type has no field for is lost,
 -- and an undo puts it back exactly. Its rows go when the record they lead to is destroyed.
 CREATE TABLE IF NOT EXISTS record_lineage (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id),
   -- The unit the entry sat in when it moved, so the move is in that Unit Instance's trail and archive.
   unit_id     TEXT REFERENCES units(id),
-  from_table  TEXT NOT NULL CHECK (from_table IN ('activities', 'awards', 'trainings')),
+  from_table  TEXT NOT NULL CHECK (from_table IN ('activities', 'awards', 'trainings', 'duties')),
   from_id     TEXT NOT NULL,
-  to_table    TEXT NOT NULL CHECK (to_table IN ('activities', 'awards', 'trainings')),
+  to_table    TEXT NOT NULL CHECK (to_table IN ('activities', 'awards', 'trainings', 'duties')),
   to_id       TEXT NOT NULL,
   snapshot    TEXT NOT NULL,
   method      TEXT NOT NULL CHECK (method IN ('move', 'undo')),
@@ -1240,7 +1240,7 @@ CREATE TABLE IF NOT EXISTS unit_billets (
 CREATE INDEX IF NOT EXISTS idx_unit_billets_org ON unit_billets(org_id, active);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unit_billets_title ON unit_billets(org_id, COALESCE(unit_id, ''), lower(title)) WHERE active = 1;
 
--- The kinds of duty a Unit Instance stands (Task 17 records duty against them; Task 18 scores it).
+-- The kinds of duty a Unit Instance stands (ADR-0012). Duty is recorded against them (duties, ADR-0023).
 CREATE TABLE IF NOT EXISTS duty_types (
   id          TEXT PRIMARY KEY,
   org_id      TEXT NOT NULL REFERENCES organizations(id),
@@ -1305,6 +1305,60 @@ CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_order BEFORE INSERT ON duty_s
   WHEN NEW.withdrawn_at IS NULL AND EXISTS (SELECT 1 FROM duty_scoring_policies p WHERE p.org_id = NEW.org_id AND p.withdrawn_at IS NULL
     AND ((p.version < NEW.version AND p.effective_from >= NEW.effective_from) OR (p.version > NEW.version AND p.effective_from <= NEW.effective_from)))
 BEGIN SELECT RAISE(ABORT, 'duty scoring versions take effect in order: a new version takes effect after every version not withdrawn'); END;
+
+-- A duty a Marine stood (Task 17, ADR-0023): one of its Unit Instance's duty types, in one of its units, from a start day
+-- and time to an end day and time. Duty is stood for a unit, so it is never a private note. Its hours, duty days,
+-- overnight and multi-day are worked out by the server from its start and end; its conditions are the scoring conditions
+-- it was stood under (weekend and overnight worked out, the rest claimed by whoever recorded it). It is scored under the
+-- version in force on its first day, kept with it (scoring_policy_id, scoring_version, calculated_points and how they
+-- were reached, scoring_basis), so a later version never rescores it. recorded_by is whoever submitted it: the Marine,
+-- or a leader recording it for them. The review columns are Task 18's: a duty is recorded as pending, and the checks
+-- below keep a decision whole once there is one. The unit, type and version are one Unit Instance's (instanceBoundaryTriggers).
+CREATE TABLE IF NOT EXISTS duties (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id),
+  unit_id           TEXT NOT NULL REFERENCES units(id),
+  visibility        TEXT NOT NULL DEFAULT 'unit' CHECK (visibility = 'unit'),
+  duty_type_id      TEXT NOT NULL REFERENCES duty_types(id),
+  title             TEXT,
+  location          TEXT,
+  date              TEXT NOT NULL,
+  start_time        TEXT NOT NULL CHECK (start_time GLOB '[01][0-9]:[0-5][0-9]' OR start_time GLOB '2[0-3]:[0-5][0-9]'),
+  end_date          TEXT NOT NULL,
+  end_time          TEXT NOT NULL CHECK (end_time GLOB '[01][0-9]:[0-5][0-9]' OR end_time GLOB '2[0-3]:[0-5][0-9]'),
+  hours             REAL NOT NULL CHECK (hours > 0 AND hours <= 720),
+  days              INTEGER NOT NULL CHECK (days >= 1 AND days <= 30),
+  overnight         INTEGER NOT NULL DEFAULT 0 CHECK (overnight IN (0, 1)),
+  multi_day         INTEGER NOT NULL DEFAULT 0 CHECK (multi_day IN (0, 1)),
+  conditions        TEXT NOT NULL DEFAULT '[]',
+  notes             TEXT,
+  recorded_by       TEXT REFERENCES users(id),
+  submitted_at      TEXT NOT NULL,
+  approval_status   TEXT NOT NULL DEFAULT 'pending' CHECK (approval_status IN ('pending', 'approved', 'returned', 'rejected')),
+  reviewed_by       TEXT REFERENCES users(id),
+  reviewed_at       TEXT,
+  review_reason     TEXT,
+  approved_points   REAL CHECK (approved_points IS NULL OR approved_points >= 0),
+  scoring_policy_id TEXT REFERENCES duty_scoring_policies(id),
+  scoring_version   INTEGER,
+  calculated_points REAL CHECK (calculated_points IS NULL OR calculated_points >= 0),
+  scoring_basis     TEXT,
+  version           INTEGER NOT NULL DEFAULT 1,
+  frozen_at         TEXT,
+  deleted_at        TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  -- A decision names who made it and when; points are approved only on an approved duty; a return or rejection says why.
+  CHECK (approval_status = 'pending' OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)),
+  CHECK (approved_points IS NULL OR approval_status = 'approved'),
+  CHECK (approval_status NOT IN ('returned', 'rejected') OR review_reason IS NOT NULL),
+  -- Scored under a version means both its id and its number.
+  CHECK ((scoring_policy_id IS NULL) = (scoring_version IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_duties_user ON duties(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_duties_unit ON duties(unit_id, visibility, date);
+CREATE INDEX IF NOT EXISTS idx_duties_type ON duties(duty_type_id);
+CREATE INDEX IF NOT EXISTS idx_duties_recorder ON duties(recorded_by);
 
 -- Vantage support changing how somebody signs in when that account holds authority: one staff member asks, with a
 -- reason, and another approves before the change is made (ADR-0013). A request is used once, by the staff member who

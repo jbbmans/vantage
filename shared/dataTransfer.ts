@@ -95,7 +95,7 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
   },
   {
     id: 'personal_import', kind: 'data', label: 'Your records', format: 'A Vantage personal export (ZIP or JSON), a record download, a workbook (.xlsx) or a CSV',
-    holds: 'One person’s records by type: profile, activities, awards, training, counselings, goals, projects, tasks, career plan and attachments.',
+    holds: 'One person’s records by type: profile, activities, awards, training, duty, counselings, goals, projects, tasks, career plan and attachments.',
     who: 'The person, into their own account.',
     routes: ['POST /api/me/imports', 'GET /api/me/imports', 'GET /api/me/imports/:id', 'PUT /api/me/imports/:id', 'DELETE /api/me/imports/:id', 'POST /api/me/imports/:id/commit', 'POST /api/me/imports/:id/undo'],
     restores: 'Adds and updates the person’s own records, reviewed first, in one transaction; it can be undone.',

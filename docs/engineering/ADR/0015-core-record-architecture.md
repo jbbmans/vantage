@@ -67,7 +67,7 @@ The record kinds a Marine writes about themselves:
 | Award, Recognition | `awards` (`personal_award`, `unit_award`; the other types) | the person, or a leader who recommends them | whoever recorded it (section 5); never the subject of a recommendation | iAPS and MOL, for an award |
 | Counseling | `counselings` | the counselor, or the person for their own notes | the counselor until it is acknowledged; never its subject | the signed counseling the command keeps |
 | Goal | `goals` | the person, or a leader who assigns it | its owner; its assignee for status and progress | none |
-| Duty | none yet: Task 17 | | | |
+| Duty | `duties` (Task 17, [ADR-0023](0023-duty-records.md)) | the person, or a leader with Counsel members who records it for them | whoever recorded it, and a records manager, while it waits for review; never once decided; never its subject when a leader recorded it | the unit's duty roster |
 | Financial Error Snapshot | none yet: Task 15 | | | the report it was uploaded from |
 
 The registry's other entries cover identity, accounts, membership, the personnel roster, units, teams, billets,
@@ -77,7 +77,7 @@ exports and the audit trail, each with its store and who corrects it.
 ### 2. An Activity is one kind, and never stands in for another
 
 - **Only work a person did is an Activity.** An award received, a course completed or a counseling keeps a record
-  of its own, and so will a duty once Task 17 builds duty records.
+  of its own, and so does a duty (Task 17, ADR-0023).
 - **A conservative classifier** (`recordKindOf`) reads an entry's words and says whether they read like an award the
   person received or training they completed:
   - **An award received:** an award's name, one of its common abbreviations or award words (medal, commendation,
@@ -122,7 +122,8 @@ every time it is asked for:
   - `kind`, the kind it holds (null for every kind), so the page never shows one kind's entries as another's while
     the next answer is on its way;
   - `counts` by kind, `total`, and `truncated` when there were more than were returned;
-  - `pending`: the timeline kinds that have no store yet, today Duty (Task 17), so an empty lane is not read as none.
+  - `pending`: the timeline kinds that have no store yet, so an empty lane is not read as none. Duty had none until
+    Task 17 (ADR-0023), and is now a timeline source.
 - **Its window:** `from` and `to` as `YYYY-MM-DD`, refused when invalid or reversed; `limit` 200 by default, 500 at
   most, taken as a whole number.
 - **One kind:** `kind` returns that kind's newest entries rather than those among everything's newest. `counts` stays
@@ -294,8 +295,8 @@ or training, and moves the ones that really are. Each move keeps its lineage and
 
 ### 8. Left to other Tasks
 
-- **Duty (Task 17).** It has no store. The registry lists it as planned, the timeline names it as pending, and nothing
-  suggests moving an entry to it. A duty logged as an Activity stays one until Task 17 builds duty records.
+- **Duty (Task 17).** Done in [ADR-0023](0023-duty-records.md): `duties` is its store, the timeline reads it, and
+  Records → Duty offers the activities that read like duty for their owner to move, with lineage and undo.
 - **Financial error snapshots (Task 15).** No store yet. The registry lists it as planned, off the timeline.
 - **Semantic import and export (Task 13).** Importing awards, training and the other kinds into their own records is
   Task 13's. Until then the activities import counts what reads as belonging elsewhere and changes nothing.

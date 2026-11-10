@@ -3,12 +3,13 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther } from '../authz/records.ts';
+import { readableClause, canEdit, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { REDACTED, valueType } from '../../shared/constants.ts';
-import { isDrawnFromWork, isMovableTable, kindText, recordKindOf, type MovableTable } from '../../shared/recordKinds.ts';
+import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
 import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/timeframe.ts';
 import { periodClause } from './timeframes.ts';
+import { assertDutyOpen, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -66,6 +67,11 @@ export const TABLES: Record<RecordTable, TableSpec> = {
   trainings: { fields: ['date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'type', 'hours', 'provider', 'status', 'notes'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   awards: { fields: ['period_start', 'date', 'name', 'type', 'status', 'recommending_official', 'approving_authority', 'citation', 'notes', 'submitted_at', 'approved_at', 'presented_at'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   counselings: { fields: ['date', 'type', 'counselor_name', 'summary', 'strengths', 'improvements', 'goals_set', 'follow_up_date'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, counselor: true, orderBy: 't.date DESC, t.created_at DESC' },
+  // A duty's length, conditions and score are the server's to work out (duties.ts), never these fields (ADR-0023).
+  duties: {
+    fields: ['duty_type_id', 'title', 'location', 'date', 'start_time', 'end_date', 'end_time', 'conditions', 'notes'],
+    json: ['conditions', 'scoring_basis'], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.start_time DESC, t.created_at DESC',
+  },
 };
 
 export const RECORD_TABLE_NAMES = Object.keys(TABLES) as RecordTable[];
@@ -117,6 +123,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
+  if (table === 'duties') return withDutyNames(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -167,9 +174,10 @@ export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppCont
   return withTypedProgress(ctx, goals as never) as unknown as T[];
 }
 
-function readBack(ctx: AppContext, table: RecordTable, id: string) {
+/** A record as its writer gets it back: as a read of it gives it, with a goal's progress and a duty's names. */
+function readBack(ctx: AppContext, table: RecordTable, id: string, viewerId: string) {
   const row = getRecord(ctx, table, id)!;
-  return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : row;
+  return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : table === 'duties' ? withDutyNames(ctx, viewerId, [row])[0] as typeof row : row;
 }
 
 export function getRecord(ctx: AppContext, table: RecordTable, id: string, { includeDeleted = false } = {}) {
@@ -227,7 +235,7 @@ function assertReplaceableByOther(ctx: AppContext, row: RecordRow, unitId: strin
  * Whether putting a record from one unit into another may take it out of a Unit Instance (ADR-0008). A record in no unit
  * may have left one to get there, unless the service holds only one.
  */
-function mayLeaveInstance(ctx: AppContext, from: string | null, to: string | null): to is string {
+export function mayLeaveInstance(ctx: AppContext, from: string | null, to: string | null): to is string {
   if (!to || to === from) return false;
   if (from) return !sameInstance(ctx, from, to);
   return (ctx.db.prepare('SELECT COUNT(*) AS n FROM organizations').get() as { n: number }).n > 1;
@@ -238,7 +246,7 @@ function mayLeaveInstance(ctx: AppContext, from: string | null, to: string | nul
  * for a project, the work filed under it. None of that leaves the instance it was written in, even with its owner.
  * Each is judged by the unit it was added in; one added where there was no unit, by whether its author serves there.
  */
-function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
+export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
   const servesThere = (userId: string) => scopeFor(ctx, { id: userId }).unitIds.some((u) => sameInstance(ctx, u, unitId));
   const crosses = (added: { who: string; unit_id: string | null }) => (added.unit_id ? !sameInstance(ctx, added.unit_id, unitId) : !servesThere(added.who));
   const added = ctx.db.prepare(`SELECT author_id AS who, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND author_id <> ? AND deleted_at IS NULL
@@ -258,6 +266,16 @@ function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: Re
 }
 
 /**
+ * Whether the caller may put their record, or one they re-place, in this unit with this visibility: by the table's share
+ * permission, and one's own duty only in a unit one serves in (ADR-0023 §4), so create, edit and an import's undo agree.
+ */
+function placeable(scope: Scope, table: RecordTable, visibility: string, unitId: string | null): boolean {
+  if (table === 'duties') return canPlaceOwnDuty(scope, unitId);
+  return canPlace(scope, visibility, unitId, TABLES[table].shareFlag, Boolean(TABLES[table].personal));
+}
+const placementRefused = (table: RecordTable) => forbidden(table === 'duties' ? 'Record your own duty in a unit you serve in.' : 'You cannot place a record in that unit.');
+
+/**
  * Whether its owner may put a record back where it was, its assignee with it (an import's undo, ADR-0019): the checks an
  * edit that re-places it takes, so an undo never carries what others added in one Unit Instance into another, nor puts a
  * record where its owner may not place it now. Throws the refusal the edit would.
@@ -269,7 +287,7 @@ export function assertRestorable(ctx: AppContext, scope: Scope, user: SessionUse
     if (mayLeaveInstance(ctx, row.unit_id, back.unitId)) assertCarriesNothingAcross(ctx, table, row, back.unitId);
     if (back.visibility === 'unit' && !back.unitId) throw badRequest('Choose a unit before sharing this record.');
     if (back.unitId && back.unitId !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(back.unitId)) throw badRequest('No such unit.');
-    if (!canPlace(scope, back.visibility, back.unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+    if (!placeable(scope, table, back.visibility, back.unitId)) throw placementRefused(table);
     const project = (row.project_id as string | null | undefined) ?? null;
     checkProjectLink(ctx, scope, user.id, table, project, project, back.unitId, true);
   }
@@ -324,10 +342,10 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   let ownerId = user.id;
   let counselorId: string | null = null;
   let onBehalf = false;
-  if ((table === 'counselings' || table === 'awards') && data.user_id && data.user_id !== user.id) {
+  if ((table === 'counselings' || table === 'awards' || table === 'duties') && data.user_id && data.user_id !== user.id) {
     const subject = String(data.user_id);
     const units = detailUnitsFor(ctx, scope, subject).filter((u) => can(scope, PERMISSIONS.COUNSEL, u));
-    if (!units.length) throw forbidden(table === 'awards' ? 'You cannot recommend an award for that Marine.' : 'You cannot record a counseling for that Marine.');
+    if (!units.length) throw forbidden(table === 'awards' ? 'You cannot recommend an award for that Marine.' : table === 'duties' ? 'You cannot record duty for that Marine.' : 'You cannot record a counseling for that Marine.');
     ownerId = subject;
     onBehalf = true;
     if (table === 'counselings') counselorId = user.id;
@@ -336,11 +354,13 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   }
   delete data.user_id;
 
-  const visibility = (data.visibility as string) || 'private';
+  // Duty is stood for a unit: it is shared with it, never a private note (ADR-0023).
+  const visibility = table === 'duties' ? 'unit' : (data.visibility as string) || 'private';
   const unitId = (data.unit_id as string | null | undefined) ?? scope.homeUnitId ?? null;
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
+  if (table === 'duties' && !unitId) throw badRequest('Choose the unit this duty was stood for.', { fieldErrors: { unit_id: 'Required.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
-  if (!onBehalf && !canPlace(scope, visibility, unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (!onBehalf && !placeable(scope, table, visibility, unitId)) throw placementRefused(table);
   if (table === 'goals' && data.measure_scope === 'unit') unitMeasureAllowed(scope, unitId);
   if (spec.assignee && visibility !== 'unit' && data.assignee_id && data.assignee_id !== user.id) data.assignee_id = null;
   if (spec.assignee) {
@@ -348,6 +368,8 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
   checkProjectLink(ctx, scope, user.id, table, (data.project_id as string | null | undefined) ?? null, null, unitId, false);
+  const derived = table === 'duties' ? dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true }) : null;
+  if (derived) data.conditions = derived.conditions;
 
   const id = newId();
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
@@ -357,6 +379,12 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
   if (table === 'activities') { cols.push('fingerprint'); vals.push(opts.fingerprint && isDrawnFromWork(opts.fingerprint) ? opts.fingerprint : activityFingerprint(ownerId, data as never)); }
   if (table === 'activities' && data.kind_confirmed) { cols.push('kind_confirmed_at'); vals.push(now()); }
+  // A duty keeps who submitted it and when, and what the server worked out; it starts as submitted, for review (Task 18).
+  if (derived) {
+    cols.push('recorded_by', 'submitted_at', 'approval_status');
+    vals.push(user.id, now(), 'pending');
+    for (const [k, v] of Object.entries(derived)) if (k !== 'conditions') { cols.push(k); vals.push(v); }
+  }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
     cols.push(f);
@@ -369,7 +397,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     throw error;
   }
   if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : undefined, ip });
-  if (opts.importId) return readBack(ctx, table, id);
+  if (opts.importId) return readBack(ctx, table, id, user.id);
   if (table === 'goals') {
     record(ctx, 'goal.created', {
       typed: Boolean(data.metric_id),
@@ -386,13 +414,17 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'awards' && onBehalf) {
     notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: `/career/awards?open=${id}`, dedupeKey: `award:${id}` });
   }
+  if (table === 'duties' && onBehalf && !opts.review) {
+    const type = ctx.db.prepare('SELECT name FROM duty_types WHERE id = ?').get(data.duty_type_id) as { name: string } | undefined;
+    notify(ctx, ownerId, { kind: 'duty', title: 'Duty recorded for you', message: `${user.first_name} ${user.last_name} recorded ${type?.name ?? 'duty'} on ${String(data.date)} for you.`, actionUrl: `/record/duty?open=${id}`, dedupeKey: `duty:${id}` });
+  }
   if (table === 'counselings' && counselorId) {
     notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}` });
   }
   if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned` });
   }
-  return readBack(ctx, table, id);
+  return readBack(ctx, table, id, user.id);
 }
 
 export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, body: unknown, reqKey: object, ip?: string) {
@@ -400,6 +432,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const row = getRecord(ctx, table, id);
   if (!row) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
+  if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'edit');
   const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
   if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
@@ -420,7 +453,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (mayLeaveInstance(ctx, row.unit_id, finalUnit)) assertCarriesNothingAcross(ctx, table, row, finalUnit);
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
-  if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (scopeChanged && !placeable(scope, table, finalVisibility, finalUnit)) throw placementRefused(table);
   if (table === 'goals' && (data.measure_scope ?? row.measure_scope) === 'unit' && ['measure_scope', 'unit_id', 'filters', 'metric_id'].some((k) => data[k] !== undefined)) unitMeasureAllowed(scope, finalUnit);
   if (spec.assignee && finalVisibility !== 'unit') { const who = (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null); if (who && who !== user.id) data.assignee_id = null; }
   if (spec.assignee && (data.assignee_id !== undefined || scopeChanged)) {
@@ -429,10 +462,20 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   }
   const keptProject = (row as Record<string, unknown>).project_id as string | null | undefined ?? null;
   checkProjectLink(ctx, scope, user.id, table, data.project_id === undefined ? keptProject : ((data.project_id as string | null) || null), keptProject, finalUnit, scopeChanged);
+  // A duty is worked out again, and scored under the version in force on its (new) first day, when what it is scored by
+  // changes; otherwise it keeps the score it has (ADR-0023).
+  const given = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  const derived = table === 'duties' && (rescoresDuty(row as Record<string, unknown>, given) || scopeChanged)
+    ? dutyColumns(ctx, { ...row, ...given, unit_id: finalUnit }, { typeChanged: given.duty_type_id !== undefined && given.duty_type_id !== row.duty_type_id })
+    : null;
+  // Not scored again, its conditions are the ones it has: the same claims, beside the weekend and overnight its times give.
+  if (derived) data.conditions = derived.conditions;
+  else if (table === 'duties') delete data.conditions;
 
   const sets = ['updated_at = ?', 'version = version + 1'];
   const vals: unknown[] = [now()];
   if (scopeChanged) { sets.push('visibility = ?', 'unit_id = ?'); vals.push(finalVisibility, finalUnit); }
+  if (derived) for (const [k, v] of Object.entries(derived)) if (k !== 'conditions') { sets.push(`${k} = ?`); vals.push(v); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
     sets.push(`${f} = ?`);
@@ -461,13 +504,14 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
-  return readBack(ctx, table, id);
+  return readBack(ctx, table, id, user.id);
 }
 
 export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object, ip?: string) {
   const row = getRecord(ctx, table, id);
   if (!row) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
+  if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'delete');
   if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to delete.');
   let detail: string | undefined;
   ctx.db.transaction(() => {
@@ -493,7 +537,7 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   }
   ctx.db.prepare(`UPDATE ${table} SET deleted_at = NULL, updated_at = ? WHERE id = ?`).run(now(), id);
   audit(ctx, { actor_id: user.id, action: 'restore', entity: table, entity_id: id, unit_id: row.unit_id, ip });
-  return readBack(ctx, table, id);
+  return readBack(ctx, table, id, user.id);
 }
 
 export function readableRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {
@@ -630,7 +674,7 @@ const chainHeld = (holds: HoldState, chain: LineageLink[]) =>
  * With no holds given, every open hold counts.
  */
 export function destroyLineage(ctx: AppContext, table: string, ids: string[], holds: HoldState = holdState(ctx)): number {
-  if (!isMovableTable(table)) return 0;
+  if (!isLineageTable(table)) return 0;
   const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE id = ?');
   const keep = ctx.db.prepare('UPDATE record_lineage SET kept_for_hold_at = ? WHERE id = ? AND kept_for_hold_at IS NULL');
   const seen = new Set<string>();
@@ -655,7 +699,7 @@ export function forgetImportSnapshots(ctx: AppContext, table: string, ids: strin
 }
 
 // The field anonymizing writes over first in each movable type (server/services/retention.ts).
-const ANONYMIZED_BY: Record<MovableTable, string> = { activities: 'title', trainings: 'title', awards: 'citation' };
+const ANONYMIZED_BY: Record<LineageTable, string> = { activities: 'title', trainings: 'title', awards: 'citation', duties: 'title' };
 
 /**
  * Lineage let go when nothing holds it any more: what a hold kept once its record was destroyed or anonymized, even if
@@ -663,7 +707,7 @@ const ANONYMIZED_BY: Record<MovableTable, string> = { activities: 'title', train
  * recycle-bin purge.
  */
 export function sweepLineage(ctx: AppContext, holds: HoldState): number {
-  const standing = new Map((Object.keys(ANONYMIZED_BY) as MovableTable[]).map((t) =>
+  const standing = new Map((Object.keys(ANONYMIZED_BY) as LineageTable[]).map((t) =>
     [t as string, ctx.db.prepare(`SELECT 1 FROM ${t} WHERE id = ? AND ${ANONYMIZED_BY[t]} IS NOT ?`)]));
   const stands = (t: string, id: string) => Boolean(standing.get(t)?.get(id, REDACTED));
   const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE id = ?');

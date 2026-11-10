@@ -14,6 +14,7 @@ import { teamWorkload } from './record.ts';
 import { personnelRoster } from './personnelRecords.ts';
 import { listDutyTypes, listTrainingRequirements } from './unitConfig.ts';
 import { listScoringPolicies } from './dutyScoring.ts';
+import { isAnonymizedDuty } from './duties.ts';
 import { stageOf } from './cases.ts';
 import { comparisonWithChanges, overviewOf } from './errorReports.ts';
 import { withGoalProgress } from './records.ts';
@@ -26,6 +27,7 @@ import { PROCEDURES } from '../../shared/procedures.ts';
 import { STAGE_LABEL, type Stage } from '../../shared/caseModel.ts';
 import { AGE_BASIS_LABELS, FLAG_LABELS, NO_OWNER, STANDING_LABELS, type ErrorFigure, type GroupLine } from '../../shared/errorReports.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyStatus } from '../../shared/dutyScoring.ts';
+import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
   REPORT_ROW_LIMIT, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, primaryTable, reportFileName, reportQuerySchema, tableMatrix,
@@ -694,50 +696,155 @@ function buildWorkload(ctx: AppContext, user: SessionUser, scope: Scope, t: Repo
 
 const POLICY_STANDING = { in_force: 'In force', scheduled: 'Scheduled', superseded: 'Superseded', withdrawn: 'Withdrawn' } as const;
 
-function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: ReportQuery): Built {
-  const orgId = orgOfUnit(ctx, t.unitId);
+function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: ReportQuery, period: Period | null): Built {
+  // The duty types and scoring of the Unit Instance the report is in: the reader's own, when it is about themselves.
+  // About themselves, an instance is theirs while they serve in one of its units and it is active, as the duty form
+  // offers it (scopeFor): their primary one, else another they serve in, else none (ADR-0023 §8).
+  const served = new Set(t.subject === 'self'
+    ? (ctx.db.prepare(`SELECT DISTINCT u.org_id FROM unit_members um JOIN units u ON u.id = um.unit_id
+                        WHERE um.user_id = ? AND u.active = 1 AND u.org_id IS NOT NULL
+                          AND COALESCE((SELECT o.status FROM organizations o WHERE o.id = u.org_id), 'active') = 'active'`).all(t.userId) as Array<{ org_id: string }>).map((r) => r.org_id)
+    : []);
+  const primary = t.subject === 'self' ? primaryOrgOf(ctx, t.userId!)?.orgId ?? null : null;
+  const orgId = t.subject === 'self' ? (primary && served.has(primary) ? primary : [...served].sort()[0] ?? null) : orgOfUnit(ctx, t.unitId);
   const asOf = asOfDay(ctx, user, q);
-  const types = orgId ? listDutyTypes(ctx, orgId) : [];
-  const policies = orgId ? listScoringPolicies(ctx, orgId) : [];
-  const current = policyOn(policies, asOf);
-  const typeIds = new Set(types.map((x) => x.id));
+  const scoringOf = (org: string | null) => {
+    const types = org ? listDutyTypes(ctx, org) : [];
+    const policies = org ? listScoringPolicies(ctx, org) : [];
+    return { org, types, policies, current: policyOn(policies, asOf), typeIds: new Set(types.map((x) => x.id)) };
+  };
+  const base = scoringOf(orgId);
+  const { types, current } = base;
+  // Why a version changed and who published it, and the versions withdrawn before they took effect, are the unit's
+  // governance: read with its shared records, not by a Marine about their own duty or a leader about one Marine's, who
+  // see what a version scores, as the duty form does (ADR-0023 §4).
+  const governance = t.subject === 'unit';
   const method = (key: string) => SCORING_METHODS.find((m) => m.key === key)?.label || words(key);
-  const ruleFor = (id: string) => current?.rules.find((r) => r.duty_type_id === id) || null;
+  const ruleFor = (c: typeof current, id: string) => c?.rules.find((r) => r.duty_type_id === id) || null;
   const points = (r: NonNullable<ReturnType<typeof ruleFor>>) => (r.method === 'bands'
     ? (r.bands || []).map((b) => `${b.from_hours} h+: ${b.points}`).join('; ')
     : r.points == null ? null : String(r.points));
-  const sections: ReportSection[] = [
-    {
-      id: 'types', heading: 'Duty the Unit Instance stands', lede: current ? `Scored under version ${current.version}, in force on ${formatDTG(asOf)}.` : `No scoring version is in force on ${formatDTG(asOf)}.`,
-      tables: [table('types', 'Duty types', [
-        { key: 'code', label: 'Code', width: 8 }, { key: 'name', label: 'Duty', width: 22 }, { key: 'description', label: 'Description', width: 28 },
-        { key: 'in_use', label: 'In use', kind: 'flag', width: 6 }, { key: 'method', label: 'Scored', width: 10 }, { key: 'points', label: 'Points', width: 14 },
-      ], types.map((x) => { const r = ruleFor(x.id); return { code: x.code, name: x.name, description: x.description, in_use: x.active ? 1 : 0, method: r ? method(r.method) : 'Not scored', points: r ? points(r) : null }; }), 'The Unit Instance has no duty types.')],
-    },
-  ];
-  if (current) {
-    const combine = SCORING_COMBINE.find((c) => c.key === current.combine)?.label || current.combine;
-    sections.push({
-      id: 'multipliers', heading: 'Conditions that raise the points', lede: `Where more than one applies: ${combine.toLowerCase()}.`,
-      tables: [table('multipliers', 'Multipliers', [{ key: 'condition', label: 'Condition', width: 20 }, { key: 'factor', label: 'Multiplier', kind: 'number', width: 10 }],
-        current.multipliers.map((m) => ({ condition: SCORING_CONDITIONS.find((c) => c.key === m.condition)?.label || words(m.condition), factor: m.factor })), 'No condition raises the points.')],
+  // The duty recorded in the period (ADR-0023): a duty across the period's edge counts in it (ADR-0018). Duty is always a
+  // unit record, so a report about yourself reads all of yours and one about a Marine or a unit reads what is in its units.
+  const own = ownership(t, 'duties');
+  const span = periodClause('duties', 't', period?.from, period?.to);
+  const stood = ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
+                                       t.calculated_points, t.approved_points, t.scoring_version
+                                  FROM duties t WHERE ${own.sql} AND t.deleted_at IS NULL AND ${span.sql}
+                                 ORDER BY t.date DESC, t.start_time DESC LIMIT ${SCAN_LIMIT}`).all(...own.params, ...span.params) as Array<{
+    id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; location: string | null; notes: string | null; date: string; start_time: string; end_date: string; end_time: string; hours: number; days: number;
+    approval_status: DutyStatus; calculated_points: number | null; approved_points: number | null; scoring_version: number | null;
+  }>;
+  const typeNames = new Map((ctx.db.prepare('SELECT id, name FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...new Set(stood.map((d) => d.duty_type_id))])) as Array<{ id: string; name: string }>).map((x) => [x.id, x.name]));
+  // A report about a Marine or a unit is in one Unit Instance. One about yourself may hold duty you stood in another, which
+  // is read against that instance's own types and versions: a version number means nothing outside its instance.
+  const instanceOf = new Map(stood.map((d) => [d.unit_id, orgOfUnit(ctx, d.unit_id)]));
+  const otherOrgs = [...new Set([...instanceOf.values()].filter((o): o is string => Boolean(o) && o !== orgId))];
+  const multi = otherOrgs.length > 0;
+  // Another instance's types and scoring are shown only while the reader serves in it, as the duty form offers them.
+  // Duty stood in one they have left, or one no longer active, keeps its type and the version it was scored under; that
+  // instance's configuration is its members' (ADR-0023 §8). Someone who serves in no instance now is shown none.
+  const shownOrgs = otherOrgs.filter((o) => served.has(o));
+  const leftOrgs = otherOrgs.length - shownOrgs.length;
+  const homeless = t.subject === 'self' && !orgId;
+  const orgRows = multi ? ctx.db.prepare('SELECT id, name, short_name FROM organizations WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([orgId, ...otherOrgs].filter(Boolean))) as Array<{ id: string; name: string; short_name: string | null }> : [];
+  const orgNames = new Map(orgRows.map((o) => [o.id, o.name]));
+  /** A short name for a table title, which a workbook also names its sheet by. */
+  const orgTags = new Map(orgRows.map((o) => [o.id, o.short_name || o.id]));
+  const byMarine = t.subject === 'unit' && t.detail;
+  // A duty a retention schedule anonymized counts in the unit's totals and names nobody, in the list or by Marine.
+  const named = stood.filter((d) => !isAnonymizedDuty(d));
+  const anonymous = stood.length - named.length;
+  const marines = byMarine ? namesOf(ctx, named.map((d) => d.user_id)) : new Map<string, string>();
+  const hoursStood = r2(stood.reduce((n, d) => n + (Number(d.hours) || 0), 0));
+  const calculated = r2(stood.reduce((n, d) => n + (Number(d.calculated_points) || 0), 0));
+  const pending = stood.filter((d) => d.approval_status === 'pending').length;
+  const recorded: ReportSection = {
+    id: 'stood', heading: 'Duty stood in the period',
+    lede: 'Points are what the scoring version in force on the duty’s first day gives. Until a reviewer approves it, duty is submitted, not counted.',
+    tables: [table('stood', 'Duty stood', [
+      ...(byMarine ? [{ key: 'marine', label: 'Marine', width: 16 }] : []),
+      ...(multi ? [{ key: 'instance', label: 'Unit Instance', width: 14 }] : []),
+      { key: 'type', label: 'Duty', width: 16 }, { key: 'title', label: 'Title', width: 18 },
+      { key: 'start', label: 'Began', kind: 'date', width: 9 }, { key: 'end', label: 'Ended', kind: 'date', width: 9 },
+      { key: 'hours', label: 'Hours', kind: 'hours', width: 7 }, { key: 'points', label: 'Calculated points', kind: 'number', width: 8 },
+      { key: 'version', label: 'Version', kind: 'number', width: 6 }, { key: 'status', label: 'Status', width: 9 },
+    ] as ReportColumn[], stood.map((d) => ({
+      marine: isAnonymizedDuty(d) ? null : marines.get(d.user_id) || null, ...(multi ? { instance: orgNames.get(instanceOf.get(d.unit_id) ?? '') ?? null } : {}), type: typeNames.get(d.duty_type_id) || null, title: d.title, start: d.date, end: d.end_date,
+      hours: Number(d.hours), points: d.calculated_points, version: d.scoring_version, status: DUTY_STATUS_LABELS[d.approval_status] || words(d.approval_status),
+    })), 'No duty is recorded in the period.')],
+  };
+  const tallies: ReportSection[] = [];
+  // A duty a retention schedule anonymized is in no Marine's tally, so a period of nothing else has none to show: the
+  // note says why the totals hold more than the tally.
+  if (byMarine && named.length) {
+    const per = new Map<string, { count: number; hours: number; points: number }>();
+    for (const d of named) { const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0 }; p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0; per.set(d.user_id, p); }
+    tallies.push({
+      id: 'by_marine', heading: 'By Marine',
+      tables: [table('by_marine', 'Duty by Marine', [
+        { key: 'marine', label: 'Marine', width: 20 }, { key: 'count', label: 'Duties', kind: 'number', width: 7 },
+        { key: 'hours', label: 'Hours', kind: 'hours', width: 8 }, { key: 'points', label: 'Calculated points', kind: 'number', width: 9 },
+      ], [...per.entries()].map(([id, p]) => ({ marine: marines.get(id) || null, count: p.count, hours: r2(p.hours), points: r2(p.points) }))
+        .sort((a, b) => Number(b.points) - Number(a.points) || String(a.marine).localeCompare(String(b.marine))), 'No duty is recorded in the period.')],
     });
   }
-  sections.push({
-    id: 'versions', heading: 'Every scoring version',
-    tables: [table('versions', 'Scoring versions', [
-      { key: 'version', label: 'Version', kind: 'number', width: 7 }, { key: 'from', label: 'Takes effect', kind: 'date', width: 10 }, { key: 'status', label: 'Standing', width: 11 },
-      { key: 'scored', label: 'Duty types scored', kind: 'number', width: 9 }, { key: 'note', label: 'Why it changed', width: 30 }, { key: 'by', label: 'Published by', width: 14 },
-    ], policies.map((p) => ({ version: p.version, from: p.effective_from, status: POLICY_STANDING[policyStatus(policies, p, asOf)], scored: p.rules.filter((r) => typeIds.has(r.duty_type_id)).length, note: p.note, by: p.created_by_name || null })), 'No scoring version has been published.')],
-  });
+  // Each Unit Instance's duty types and scoring, the report's own first; another's is named, in its headings and its
+  // tables' titles (a workbook's sheets carry no headings), with ids of its own.
+  const scoringSections = (sc: ReturnType<typeof scoringOf>, first: boolean): ReportSection[] => {
+    const id = (k: string) => (first ? k : `${k}_${sc.org}`);
+    const named = multi ? ` (${orgNames.get(sc.org ?? '') ?? sc.org})` : '';
+    const tag = first ? '' : ` (${orgTags.get(sc.org ?? '') ?? sc.org})`;
+    const out: ReportSection[] = [{
+      id: id('types'), heading: `Duty the Unit Instance stands${named}`, lede: sc.current ? `Scored under version ${sc.current.version}, in force on ${formatDTG(asOf)}.` : `No scoring version is in force on ${formatDTG(asOf)}.`,
+      tables: [table(id('types'), `Duty types${tag}`, [
+        { key: 'code', label: 'Code', width: 8 }, { key: 'name', label: 'Duty', width: 22 }, { key: 'description', label: 'Description', width: 28 },
+        { key: 'in_use', label: 'In use', kind: 'flag', width: 6 }, { key: 'method', label: 'Scored', width: 10 }, { key: 'points', label: 'Points', width: 14 },
+      ], sc.types.map((x) => { const r = ruleFor(sc.current, x.id); return { code: x.code, name: x.name, description: x.description, in_use: x.active ? 1 : 0, method: r ? method(r.method) : 'Not scored', points: r ? points(r) : null }; }), 'The Unit Instance has no duty types.')],
+    }];
+    if (sc.current) {
+      const combine = SCORING_COMBINE.find((c) => c.key === sc.current!.combine)?.label || sc.current.combine;
+      out.push({
+        id: id('multipliers'), heading: `Conditions that raise the points${named}`, lede: `Where more than one applies: ${combine.toLowerCase()}.`,
+        tables: [table(id('multipliers'), `Multipliers${tag}`, [{ key: 'condition', label: 'Condition', width: 20 }, { key: 'factor', label: 'Multiplier', kind: 'number', width: 10 }],
+          sc.current.multipliers.map((m) => ({ condition: SCORING_CONDITIONS.find((c) => c.key === m.condition)?.label || words(m.condition), factor: m.factor })), 'No condition raises the points.')],
+      });
+    }
+    out.push({
+      id: id('versions'), heading: `${governance ? 'Every scoring version' : 'Scoring versions'}${named}`,
+      tables: [table(id('versions'), `Scoring versions${tag}`, [
+        { key: 'version', label: 'Version', kind: 'number', width: 7 }, { key: 'from', label: 'Takes effect', kind: 'date', width: 10 }, { key: 'status', label: 'Standing', width: 11 },
+        { key: 'scored', label: 'Duty types scored', kind: 'number', width: 9 },
+        ...(governance ? [{ key: 'note', label: 'Why it changed', width: 30 }, { key: 'by', label: 'Published by', width: 14 }] : []),
+      ] as ReportColumn[], sc.policies.filter((p) => governance || !p.withdrawn_at).map((p) => ({
+        version: p.version, from: p.effective_from, status: POLICY_STANDING[policyStatus(sc.policies, p, asOf)], scored: p.rules.filter((r) => sc.typeIds.has(r.duty_type_id)).length,
+        ...(governance ? { note: p.note, by: p.created_by_name || null } : {}),
+      })), 'No scoring version has been published.')],
+    });
+    return out;
+  };
+  const sections: ReportSection[] = [recorded, ...tallies, ...(homeless ? [] : scoringSections(base, true)), ...shownOrgs.flatMap((o) => scoringSections(scoringOf(o), false))];
   return {
     summary: [
-      { label: 'Duty types in use', value: types.filter((x) => x.active).length, kind: 'number' }, { label: 'Scored', value: current ? current.rules.length : 0, kind: 'number' },
+      { label: 'Duty stood', value: stood.length, kind: 'number' }, { label: 'Hours', value: hoursStood, kind: 'hours' },
+      { label: 'Calculated points', value: calculated, kind: 'number' }, { label: 'Awaiting review', value: pending, kind: 'number' },
+      { label: 'Duty types in use', value: homeless ? null : types.filter((x) => x.active).length, kind: 'number' }, { label: 'Scored', value: homeless ? null : current ? current.rules.length : 0, kind: 'number' },
       { label: 'Version in force', value: current ? current.version : null, kind: 'number' }, { label: 'Since', value: current?.effective_from ?? null, kind: 'date' },
     ],
-    sections, primary: 'types',
-    notes: ['The Unit Instance sets its duty types and scoring; the unit and the units beneath it share them.', 'Duty records come with the duty roster. Until then this report shows what is stood and how it is scored, not who stood it.'],
-    filters: [{ label: 'Standing on', value: formatDTG(asOf) }],
+    sections, primary: 'stood',
+    notes: [
+      ...(t.subject === 'self' ? ['Drawn from your own duty records.'] : [sourceNote(ctx, t)]), SPAN_NOTE,
+      'Each duty keeps the scoring version it was scored under: a later version never changes its points.',
+      'The Unit Instance sets its duty types and scoring; the unit and the units beneath it share them.',
+      ...(multi ? ['Each duty is scored, and its versions numbered, by the Unit Instance it was stood in.'] : []),
+      ...(shownOrgs.length ? ['Some of this duty was stood in another Unit Instance you serve in: its duty types and scoring follow your own instance’s.'] : []),
+      ...(leftOrgs ? ['Duty stood in a Unit Instance you no longer serve in keeps its type and the version it was scored under; that instance’s duty types and scoring are for its members.'] : []),
+      ...(multi && !homeless ? ['The duty types in use, Scored, Version in force and Since are your own instance’s.'] : []),
+      ...(homeless ? ['You serve in no Unit Instance now, so no instance’s duty types or scoring are shown.'] : []),
+      ...(t.subject === 'unit' && !t.detail ? [NO_DETAIL] : []),
+      ...(byMarine && anonymous ? [`${anonymous === 1 ? 'One duty' : `${anonymous} duties`} a retention schedule anonymized ${anonymous === 1 ? 'counts' : 'count'} in the totals and ${anonymous === 1 ? 'names' : 'name'} nobody.`] : []),
+    ],
+    filters: [{ label: 'Scoring standing on', value: formatDTG(asOf) }],
   };
 }
 
@@ -1162,7 +1269,7 @@ export function buildReportDocument(ctx: AppContext, user: SessionUser, scope: S
       case 'leadership': return buildLeadership(ctx, user, t, dated());
       case 'personnel': return buildPersonnel(ctx, user, scope, t, q);
       case 'workload': return buildWorkload(ctx, user, scope, t, dated());
-      case 'duty': return buildDuty(ctx, user, t, q);
+      case 'duty': return buildDuty(ctx, user, t, q, period);
       case 'financial': return buildFinancial(ctx, user, t, q, dated());
       case 'errors': return buildErrors(ctx, user, t, q);
       case 'comparison': return buildComparisonReport(ctx, scope, t, q);

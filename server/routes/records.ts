@@ -17,6 +17,7 @@ import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services
 import { newId, now } from '../lib/ids.ts';
 import { buildRecordExport } from '../services/personalExport.ts';
 import { importedFrom } from '../services/recordImport.ts';
+import { withDutyNames, isAnonymizedDuty } from '../services/duties.ts';
 import { statSync } from 'node:fs';
 
 export const recordsRouter = Router();
@@ -68,10 +69,13 @@ recordsRouter.post('/activities/import', wrap((req, res) => {
 recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
-  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
+  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw
+    : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
-  // A record an import brought in says so, and by whose word (ADR-0019).
-  const imported = importedFrom(req.ctx, table, row.id, req.user.id);
+  // A record an import brought in says so, and by whose word (ADR-0019); a duty a retention schedule anonymized says it
+  // was imported, and names nobody (ADR-0023 §8).
+  const origin = importedFrom(req.ctx, table, row.id, req.user.id);
+  const imported = origin && table === 'duties' && isAnonymizedDuty(row as Record<string, unknown>) ? { ...origin, author: null } : origin;
   res.json(imported ? { ...row, imported } : row);
 }));
 
@@ -135,7 +139,7 @@ recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   res.json(getRecord(req.ctx, 'counselings', row.id));
 }));
 
-const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
+const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals', 'duties']);
 const attachmentBody = (req: express.Request, res: express.Response, next: express.NextFunction) =>
   express.raw({ type: () => true, limit: req.ctx.config.attachments.maxBytes })(req, res, next);
 

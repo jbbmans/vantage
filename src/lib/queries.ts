@@ -11,7 +11,9 @@ import type { MetricTotal } from '../../shared/metricEngine.ts';
 import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { RecordRows } from '../../shared/types';
-import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
+import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
+import { mayCorrectDuty, type DutyCandidatesResponse, type DutyOptionsResponse } from '../../shared/duty';
+import { IMPORT_TABLES, type ImportTable } from '../../shared/recordTransfer';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,8 +108,11 @@ export const useGoals = () => useRecords('goals');
 export const useTrainings = () => useRecords('trainings');
 export const useAwards = () => useRecords('awards');
 export const useCounselings = () => useRecords('counselings');
+export const useDuties = () => useRecords('duties');
+export const useDutyOptions = (forId?: string | null, enabled = true) => useQuery<DutyOptionsResponse>({ queryKey: ['duty-options', forId || null], queryFn: () => api.dutyOptions(forId), staleTime: 60_000, enabled });
+export const useDutyCandidates = (enabled = true) => useQuery<DutyCandidatesResponse>({ queryKey: ['duty-candidates'], queryFn: api.dutyCandidates, staleTime: 30_000, enabled });
 
-export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
+export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'duty' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
 
 const FIGURES: ReadonlyArray<readonly unknown[]> = [
   ['report'], ['delta'], ['analysis'], ['dashboard'], ['metrics'], ['metric-contributors'],
@@ -115,10 +120,11 @@ const FIGURES: ReadonlyArray<readonly unknown[]> = [
 ];
 
 const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
-  activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates']],
+  activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates'], ['duty-candidates']],
   training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
   award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
   counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
+  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['record-timeline'], ['member'], ['personnel']],
   goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
@@ -140,11 +146,20 @@ export function invalidateDomains(qc: QueryClient, ...domains: Domain[]) {
 }
 
 const STORE_DOMAIN: Record<Store, Domain> = {
-  activities: 'activity', trainings: 'training', awards: 'award', counselings: 'counseling', goals: 'goal', tasks: 'task', projects: 'project',
+  activities: 'activity', trainings: 'training', awards: 'award', counselings: 'counseling', goals: 'goal', tasks: 'task', projects: 'project', duties: 'duty',
 };
 
 export function invalidateRecords(qc: QueryClient, store: Store) {
   invalidateDomains(qc, STORE_DOMAIN[store]);
+}
+
+const IMPORT_DOMAIN: Record<ImportTable, Domain> = { ...STORE_DOMAIN, career_steps: 'career' };
+
+/** After an import, or its undo: everything an import can add or change, so a kind it gains is never left stale. */
+export function invalidateImported(qc: QueryClient) {
+  invalidateDomains(qc, ...IMPORT_TABLES.map((t) => IMPORT_DOMAIN[t]));
+  qc.invalidateQueries({ queryKey: keys.me });
+  qc.invalidateQueries({ queryKey: ['record-imports'] });
 }
 
 export function useCreateRecord(store: Store) {
@@ -165,27 +180,28 @@ export function useRestoreRecord(store: Store) {
 }
 
 // Moving an entry between record types (ADR-0015): both ends, and the entry's history, change.
-const invalidateMove = (qc: QueryClient, from: MovableTable, id: string, to: MovableTable) => {
+const invalidateMove = (qc: QueryClient, from: LineageTable, id: string, to: LineageTable) => {
   // The entry it was is gone: drop it rather than ask for it again.
   qc.removeQueries({ queryKey: keys.record(from, id) });
   qc.removeQueries({ queryKey: ['record-lineage', from, id] });
   invalidateDomains(qc, STORE_DOMAIN[from], STORE_DOMAIN[to]);
   qc.invalidateQueries({ queryKey: ['record-lineage'] });
   qc.invalidateQueries({ queryKey: ['move-candidates'] });
+  qc.invalidateQueries({ queryKey: ['duty-candidates'] });
 };
 export function useMoveRecord(store: MovableTable) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...body }: { id: string; to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) => api.moveRecord(store, id, body), onSuccess: (r, v) => invalidateMove(qc, store, v.id, r.table) });
+  return useMutation({ mutationFn: ({ id, ...body }: { id: string; to: LineageTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) => api.moveRecord(store, id, body), onSuccess: (r, v) => invalidateMove(qc, store, v.id, r.table) });
 }
-export function useUndoMove(store: MovableTable) {
+export function useUndoMove(store: LineageTable) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => api.undoMove(store, id), onSuccess: (r, id) => invalidateMove(qc, store, id, r.table) });
 }
 export function useKeepAsActivity() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (id: string) => api.keepAsActivity(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['move-candidates'] }) });
+  return useMutation({ mutationFn: (id: string) => api.keepAsActivity(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['move-candidates'] }); qc.invalidateQueries({ queryKey: ['duty-candidates'] }); } });
 }
-export const useRecordLineage = (store: MovableTable, id: string | null, enabled = true) =>
+export const useRecordLineage = (store: LineageTable, id: string | null, enabled = true) =>
   useQuery<LineageResponse>({ queryKey: ['record-lineage', store, id], queryFn: () => api.recordLineage(store, id!), enabled: Boolean(id) && enabled });
 export const useMoveCandidates = (enabled = true) => useQuery<MoveCandidatesResponse>({ queryKey: ['move-candidates'], queryFn: api.moveCandidates, staleTime: 30_000, enabled });
 export const useRecordTimeline = (params: Record<string, string | undefined> = {}) => useQuery<TimelineResponse>({ queryKey: ['record-timeline', params], queryFn: () => api.recordTimeline(params), placeholderData: keepPreviousData });
@@ -246,6 +262,9 @@ export function can(identity: Identity | undefined, flag: number, unitId?: strin
   if (!identity || !unitId) return false;
   return Boolean((identity.permissions[unitId] || 0) & (flag | PERMISSIONS.ADMINISTRATOR));
 }
+/** Whether the reader may correct this duty, as the server decides (ADR-0023 §4): the same rule on every page. */
+export const canCorrectDuty = (identity: Identity | undefined, r: Parameters<typeof mayCorrectDuty>[0]) =>
+  mayCorrectDuty(r, identity?.user.id, (p, u) => can(identity, p, u), (u) => Boolean(identity?.memberships?.some((m) => m.unit_id === u)));
 export const unitsWith = (identity: Identity | undefined, flag: number) => identity ? Object.keys(identity.permissions).filter((id) => can(identity, flag, id)) : [];
 
 export function unitName(identity: Identity | undefined, unitId?: string | null, org?: { units?: Array<{ id: string; name: string; short_name: string | null }> }) {

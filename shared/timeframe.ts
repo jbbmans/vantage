@@ -38,6 +38,8 @@ export const TIMEFRAMES = {
   awards: { start: 'period_start', end: 'date', times: false, ongoing: false, open: true, inPeriod: 'end', labels: { start: 'Period start', end: 'Period end / award date' }, subject: 'The period an award recognizes' },
   goals: { start: 'period_start', end: 'period_end', times: false, ongoing: false, open: true, inPeriod: 'overlap', labels: { start: 'Period start', end: 'Period end' }, subject: 'A goal' },
   projects: { start: 'start_date', end: 'target_date', times: false, ongoing: false, open: true, inPeriod: 'overlap', labels: { start: 'Start date', end: 'Target date' }, subject: 'A project' },
+  // A duty runs from a start day and time to an end day and time, both required (ADR-0023): it is recorded once stood.
+  duties: { start: 'date', end: 'end_date', times: true, ongoing: false, open: false, inPeriod: 'overlap', labels: { start: 'Start date', end: 'End date' }, subject: 'A duty' },
   // A Marine's assignment to a unit and a functional responsibility (ADR-0017).
   unit_members: { start: 'assignment_start', end: 'assignment_end', times: false, ongoing: false, open: true, inPeriod: 'overlap', labels: { start: 'Assignment start', end: 'Assignment end' }, subject: 'The assignment' },
   personnel_responsibilities: { start: 'starts_on', end: 'ends_on', times: false, ongoing: false, open: true, inPeriod: 'overlap', labels: { start: 'From', end: 'Until' }, subject: 'A responsibility' },

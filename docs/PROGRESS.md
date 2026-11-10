@@ -1,6 +1,67 @@
 # Progress
 
-_Updated 2026-11-02_
+_Updated 2026-11-09_
+
+## What changed (2026-11-09: duty records)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Duty is a record of its own ([ADR-0023](engineering/ADR/0023-duty-records.md), migration 031).
+
+- **Records → Duty** (`/record/duty`). A Marine records each duty they stood: the unit, one of its Unit Instance's
+  duty types, an optional title and location, the start and end day and time, the conditions only they can say
+  (holiday, short notice, extended, consecutive), and notes. Before anything is sent the form shows what Vantage will
+  record: hours, duty days, overnight, more than a day, weekend, and the points under the version of its first day.
+  Files, comments, lineage, a record download, import and export work as they do for every record.
+- **Worked out and scored by the server.** Length, conditions, scoring version, calculated points and how they were
+  worked out are the server's, never the request's or a file's. A duty is scored once, under the version in force on
+  its first day, and keeps it; it is scored again only when its days, times, type, claimed conditions or unit
+  change. With no version in force it has no points and says so, and a configuration file cannot load versions that
+  would reach back over it.
+- **Submitted for review.** Every duty starts submitted (pending). Approving, returning, rejecting and approved points
+  are Task 18's; the review columns are in place, held together by CHECKs, and an approved or rejected duty is refused
+  any change, delete, move or undo.
+- **Recorded for a Marine.** A leader who counsels a Marine records duty for them from the Marine's page (Record duty,
+  and a Duty tab). The Marine is told, sees who recorded it, and cannot change it; the leader and a records manager
+  can.
+- **Always shared with its unit, inside its Unit Instance.** Duty has no private form. One's own duty goes in a unit
+  one serves in. Triggers keep a duty, its type and its scoring version in one Unit Instance; the form offers only
+  the caller's own instance's types; a move carries nobody else's comments or files into another instance.
+- **Activities that were duty.** Records → Duty lists the person's activities that read like duty they stood (DNCO,
+  SAF, fire watch, working party…, not building a roster). Record as duty opens the form filled from the activity and
+  moves it, with its files, comments and lineage, and Undo puts it back. Keep as activity stops the suggestion.
+  Nothing moves on its own (John's Task 9 decision).
+- **Where it shows.** The timeline has a Duty source; the personnel record counts duty records (no longer Operations
+  activities); the Duty report lists the duty stood in the period with hours, points, version and status, and by
+  Marine where the reader may see that; the retention clock starts at its end day and anonymizing keeps its type,
+  times, length and score; every column is in the privacy inventory. A Duty sheet or CSV imports as duty, its type
+  matched by code or name in the importer's own instance.
+- **Fixed on the way:** a sheet with an Hours column no longer reads as both training and duty and falls back to
+  Activities (export-only columns never count when a sheet is routed by its headers).
+- **Found in review and fixed:** a form save of a weekend or overnight duty no longer scores it again; own duty in a
+  unit only inherited Counsel reaches is refused; an activity in no unit no longer carries others' comments into
+  another instance's duty; the Duty report about oneself or a Marine leaves out why a version changed and who
+  published it; an import refreshes the Duty page; a duty row with a retired type is corrected at its Duty Type; the
+  form keeps the unit read-only for anyone but its Marine; Edit shows only where a save can succeed; an emptied view
+  of the Duty page falls back to one's own duty. A second check of those fixes found five more, also fixed: an
+  import's undo keeps one's own duty in a unit one serves in; a sheet updating a duty compares its conditions as
+  claims, reports a retired type at its Duty Type, and finds the type in the instance it moves to; and the Duty report
+  about oneself gives each Unit Instance's own scoring. A third check found four gaps in those, also fixed: a sheet
+  row naming a unit one does not serve in never searches that instance's types; the report shows only the scoring of
+  instances one serves in now, and none to someone who serves in none; and another instance's workbook sheets name
+  it. An automated review then found four more, also fixed: a list holding an anonymized duty named its Marine when a
+  later duty of theirs was on the same list, and so did the unit's Duty report and its by-Marine tally, and an export
+  named its recorder and reviewer; and conditions cleared on an import's review blocked the row. A fourth check found
+  two more, also fixed: a row for a duty in an instance one has left still searched that instance's types, and a
+  suspended instance counted as one served in. A fifth found two more, also fixed: a correction on the review that
+  still did not read was dropped, so the row read as unchanged or gave the schema's words, where it now names the bad
+  value at its field; and a unit report whose duty in the period was all anonymized showed an empty tally saying no
+  duty was stood, where it now shows none. A sixth found one more, also fixed: an imported copy of a duty a leader
+  recorded still named that leader as its source once anonymized.
+- **Tests:** `tests/server/dutyRecords.test.ts` (21), a migration 031 test, `tests/browser/46-duty.spec.ts` (2), and
+  the record architecture, import and information architecture tests updated for duty's own store.
+- **Left to other Tasks:** approvals, approved points, overrides and duty permissions (18); duty swaps and
+  availability; a duty dataset in the Custom report; demo duty.
 
 ## What changed (2026-11-02: the automatic case diagnoser)
 

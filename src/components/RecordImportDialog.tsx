@@ -5,7 +5,7 @@ import { FileUp, AlertTriangle, CheckCircle2, Undo2, Info } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Badge, Field, Input, Select, Segmented, Switch, type Tone } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
-import { invalidateDomains, keys } from '@/lib/queries';
+import { invalidateImported } from '@/lib/queries';
 import { placeName } from '@/config/nav';
 import * as api from '@/lib/api';
 import { cn, humanize } from '@/lib/utils';
@@ -27,7 +27,7 @@ const OUTCOME: Record<RowOutcome, { label: string; tone: Tone }> = {
 const SOURCE: Record<ImportReview['source'], string> = { vantage_json: 'Vantage export (JSON)', vantage_zip: 'Vantage export (ZIP)', csv: 'Spreadsheet (CSV)', xlsx: 'Workbook (Excel)' };
 const ATTENTION: RowOutcome[] = ['problem', 'duplicate', 'update'];
 const SHOWN = 100;
-const label = (t: ImportTable | 'duty') => (t === 'duty' ? 'Duty' : TABLE_LABELS[t].many);
+const label = (t: ImportTable) => TABLE_LABELS[t].many;
 const one = (t: ImportTable) => TABLE_LABELS[t].one;
 const counted = (n: number, t: ImportTable) => `${n} ${n === 1 ? one(t) : TABLE_LABELS[t].many.toLowerCase()}`;
 
@@ -53,7 +53,7 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
   const done = review && review.status !== 'staged';
   useEffect(() => { if (done) { const t = window.setTimeout(() => resultHeading.current?.focus(), 0); return () => window.clearTimeout(t); } }, [done]);
 
-  const refresh = () => { invalidateDomains(qc, 'activity', 'training', 'award', 'counseling', 'goal', 'task', 'project', 'career'); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: ['record-imports'] }); };
+  const refresh = () => invalidateImported(qc);
 
   // Only the review of the latest choice is shown, and Import waits for it: an earlier answer arriving late is dropped.
   const latest = useRef(0);
@@ -102,9 +102,9 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
 
   const groups = useMemo(() => {
     const rows = (review?.rows ?? []).filter((r) => filter === 'all' || ATTENTION.includes(r.outcome) || r.suggestion);
-    const by = new Map<ImportTable | 'duty', ImportReviewRow[]>();
+    const by = new Map<ImportTable, ImportReviewRow[]>();
     for (const r of rows) by.set(r.as, [...(by.get(r.as) ?? []), r]);
-    return [...by.entries()].sort(([a], [b]) => (a === 'duty' ? 99 : IMPORT_TABLES.indexOf(a)) - (b === 'duty' ? 99 : IMPORT_TABLES.indexOf(b)));
+    return [...by.entries()].sort(([a], [b]) => IMPORT_TABLES.indexOf(a) - IMPORT_TABLES.indexOf(b));
   }, [review, filter]);
   const writes = review ? review.counts.new + review.counts.update : 0;
   const profileWrites = review?.profile?.changes.filter((c) => c.action === 'fill' || c.action === 'replace').length ?? 0;
@@ -160,8 +160,8 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
                     <li key={s.name} className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="min-w-0 flex-1 truncate font-medium text-ink">{s.name}</span><span className="fig text-xs text-ink-3">{s.rows} {s.rows === 1 ? 'row' : 'rows'}</span>
-                        <Select aria-label={`Read ${s.name} as`} className="h-8 w-56 text-xs" value={table} onValueChange={(v) => replan({ ...plan, sheets: { ...plan.sheets, [s.name]: v === 'record_type' ? {} : { ...plan.sheets?.[s.name], table: v as ImportTable | 'skip' | 'duty' | 'profile', mapping: undefined } } })}
-                          options={[...(typed ? [{ value: 'record_type', label: 'Each row by its Record Type' }] : []), ...IMPORT_TABLES.map((t) => ({ value: t, label: label(t) })), { value: 'profile', label: 'Profile and readiness' }, { value: 'duty', label: 'Duty (listed, not imported)' }, { value: 'skip', label: 'Leave this sheet out' }]} />
+                        <Select aria-label={`Read ${s.name} as`} className="h-8 w-56 text-xs" value={table} onValueChange={(v) => replan({ ...plan, sheets: { ...plan.sheets, [s.name]: v === 'record_type' ? {} : { ...plan.sheets?.[s.name], table: v as ImportTable | 'skip' | 'profile', mapping: undefined } } })}
+                          options={[...(typed ? [{ value: 'record_type', label: 'Each row by its Record Type' }] : []), ...IMPORT_TABLES.map((t) => ({ value: t, label: label(t) })), { value: 'profile', label: 'Profile and readiness' }, { value: 'skip', label: 'Leave this sheet out' }]} />
                         {isImportTable(table) && <Button size="xs" variant="ghost" aria-expanded={mappingOpen === s.name} onClick={() => setMappingOpen(mappingOpen === s.name ? null : s.name)}>Columns</Button>}
                       </div>
                       {mappingOpen === s.name && isImportTable(table) && <ColumnMapping sheet={s} table={table} onChange={(mapping) => replan({ ...plan, sheets: { ...plan.sheets, [s.name]: { ...plan.sheets?.[s.name], table, mapping } } })} />}
@@ -214,7 +214,7 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
   );
 }
 
-function RowGroup({ table, rows, openRow, setOpenRow, choose, disabled }: { table: ImportTable | 'duty'; rows: ImportReviewRow[]; openRow: string | null; setOpenRow: (r: string | null) => void; choose: (ref: string, c: { include?: boolean; as?: ImportTable; fix?: Record<string, unknown> }) => void; disabled: boolean }) {
+function RowGroup({ table, rows, openRow, setOpenRow, choose, disabled }: { table: ImportTable; rows: ImportReviewRow[]; openRow: string | null; setOpenRow: (r: string | null) => void; choose: (ref: string, c: { include?: boolean; as?: ImportTable; fix?: Record<string, unknown> }) => void; disabled: boolean }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, SHOWN);
   const id = `ri-group-${table}`;
@@ -224,14 +224,14 @@ function RowGroup({ table, rows, openRow, setOpenRow, choose, disabled }: { tabl
       <ul className="divide-y divide-line rounded-md border border-line">
         {shown.map((r) => {
           const expanded = openRow === r.ref;
-          const canChoose = r.as !== 'duty' && (r.outcome !== 'present' && r.outcome !== 'unchanged');
+          const canChoose = r.outcome !== 'present' && r.outcome !== 'unchanged';
           return (
             <li key={r.ref} className="px-3 py-2 text-sm">
               <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
                 <input type="checkbox" className="mt-1" checked={r.include} disabled={!r.toggle || disabled} onChange={(e) => choose(r.ref, { include: e.target.checked })} aria-label={`Import ${r.title || 'this row'}`} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-ink">{r.title || <span className="text-ink-3">Untitled</span>}</p>
-                  <p className="text-xs text-ink-3">{[r.date, r.source, r.as !== r.from ? `read as ${r.from === 'duty' ? 'duty' : one(r.from)}` : '', r.placement === 'private' ? 'comes in private' : '', r.author ? `by ${r.author}` : ''].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-ink-3">{[r.date, r.source, r.as !== r.from ? `read as ${one(r.from)}` : '', r.placement === 'private' ? 'comes in private' : '', r.author ? `by ${r.author}` : ''].filter(Boolean).join(' · ')}</p>
                   {r.reason && <p className={cn('mt-0.5 text-xs', r.outcome === 'problem' ? 'text-bad' : 'text-ink-2')}>{r.reason}</p>}
                   {r.duplicateOf && <p className="mt-0.5 text-xs text-ink-3">Yours: {r.duplicateOf.title}</p>}
                   {r.suggestion && r.as === 'activities' && (
@@ -253,11 +253,10 @@ function RowGroup({ table, rows, openRow, setOpenRow, choose, disabled }: { tabl
 
 /** What a row is and what it says: the type it goes in as, and the fields the review could not read. */
 function RowEditor({ row, disabled, onApply }: { row: ImportReviewRow; disabled: boolean; onApply: (c: { as?: ImportTable; fix?: Record<string, unknown> }) => void }) {
-  const as = row.as === 'duty' ? 'activities' : row.as;
-  const [target, setTarget] = useState<ImportTable>(as);
+  const [target, setTarget] = useState<ImportTable>(row.as);
   const wrong = Object.keys(row.fieldErrors ?? {}).filter((k) => k !== 'record_type');
   const columns = RECORD_COLUMNS[target].filter((c) => wrong.includes(c.key));
-  const [fix, setFix] = useState<Record<string, string>>(() => Object.fromEntries(columns.map((c) => [c.key, row.fields[c.key] == null ? '' : String(row.fields[c.key])])));
+  const [fix, setFix] = useState<Record<string, string>>(() => Object.fromEntries(columns.map((c) => [c.key, row.fields[c.key] == null ? '' : Array.isArray(row.fields[c.key]) ? (row.fields[c.key] as unknown[]).join('; ') : String(row.fields[c.key])])));
   const apply = () => {
     const values = Object.fromEntries(columns.map((c) => [c.key, valueOf(c, fix[c.key] ?? '')]));
     // A row whose Record Type Vantage did not know is read as what the person says, even what it was first taken for.
@@ -269,7 +268,7 @@ function RowEditor({ row, disabled, onApply }: { row: ImportReviewRow; disabled:
       {columns.map((c) => (
         <Field key={c.key} label={c.header} error={row.fieldErrors?.[c.key]}>
           {c.kind === 'enum' ? <Select value={fix[c.key] || ''} onValueChange={(v) => setFix((f) => ({ ...f, [c.key]: v }))} options={(c.values ?? []).map((v) => ({ value: v, label: humanize(v) }))} />
-            : <Input type={c.kind === 'date' ? 'date' : c.kind === 'number' ? 'number' : 'text'} value={fix[c.key] ?? ''} onChange={(e) => setFix((f) => ({ ...f, [c.key]: e.target.value }))} />}
+            : <Input type={c.kind === 'date' ? 'date' : c.kind === 'time' ? 'time' : c.kind === 'number' ? 'number' : 'text'} value={fix[c.key] ?? ''} onChange={(e) => setFix((f) => ({ ...f, [c.key]: e.target.value }))} />}
         </Field>
       ))}
       <div className="flex justify-end"><Button size="sm" variant="primary" disabled={disabled} onClick={apply}>Apply</Button></div>

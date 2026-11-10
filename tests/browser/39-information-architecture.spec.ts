@@ -49,12 +49,12 @@ test('a new Marine finds out what Vantage is and where everything lives, from To
   await expect(page.getByRole('heading', { name: 'Training', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'New training' }).first()).toBeVisible();
 
-  // Duty, until it has records of its own, is an activity filed under Operations; the link opens them, filtered.
+  // Duty has a record and a page of its own (ADR-0023); the link opens it.
   await page.goto('/help');
-  await answer(page, 'Where is duty?').getByRole('link', { name: 'Records → Activities' }).click();
-  await expect(page).toHaveURL(/\/record\/activities\?category=Operations$/);
-  await expect(page.getByRole('button', { name: /^Filters/ })).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('combobox', { name: 'Category' })).toHaveText('Operations');
+  await answer(page, 'Where is duty?').getByRole('link', { name: 'Records → Duty' }).click();
+  await expect(page).toHaveURL(/\/record\/duty$/);
+  await expect(page.getByRole('heading', { name: 'Duty', level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Record duty' }).first()).toBeVisible();
 
   // Each import link opens its import, not only its page.
   const imports: Array<[string, string]> = [['Records → Activities', 'Import activities from CSV'], ['Work → Queue', 'Import work from a spreadsheet']];
@@ -256,6 +256,6 @@ test('on a phone, Help and Activities fit the screen and pass axe, and the drawe
   await page.getByRole('button', { name: 'Open menu' }).click();
   const drawer = page.locator('nav[aria-label="Primary"]:visible');
   const top = (await drawer.getByRole('link').allInnerTexts()).map((l) => l.trim());
-  expect(top.filter((l) => !['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Drafts', 'Contributions'].includes(l)))
+  expect(top.filter((l) => !['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Duty', 'Drafts', 'Contributions'].includes(l)))
     .toEqual(['Today', 'Work', 'Records', 'Training & Development', 'Reports & Analytics', 'Help', 'Settings']);
 });

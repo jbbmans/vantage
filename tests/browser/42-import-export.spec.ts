@@ -5,7 +5,7 @@ import { writeWorkbook } from '../../server/lib/workbook.ts';
 
 /**
  * Import, export and download (Task 13, ADR-0019). A workbook comes in through a review that says what each row is and
- * where it goes: awards as awards, courses as training, duty listed and never made an Activity. A row that only reads
+ * where it goes: awards as awards, courses as training, duty as duty and never an Activity. A row that only reads
  * like an award is offered as one and goes in as one only when its owner says so. A row that cannot be read is fixed on
  * the review. The import can be undone. A person exports the categories they choose, and downloads one record from its
  * page. Each Marine here is new, so what they see is only what the test gave them.
@@ -44,9 +44,10 @@ test('a workbook comes in through its review: each record keeps its type, a fix 
   // What each sheet is, and each row under the record type it goes in as.
   await expect(dialog.getByRole('heading', { name: 'What each sheet holds' })).toBeVisible();
   await expect(dialog.getByRole('combobox', { name: 'Read Awards as' })).toHaveText('Awards');
-  await expect(dialog.getByRole('combobox', { name: 'Read Duty as' })).toHaveText('Duty (listed, not imported)');
+  await expect(dialog.getByRole('combobox', { name: 'Read Duty as' })).toHaveText('Duty');
   for (const group of ['Awards', 'Training', 'Activities', 'Duty']) await expect(dialog.getByRole('heading', { name: new RegExp(`^${group}`), level: 4 })).toBeVisible();
-  await expect(dialog.getByText(/never turned into Activities/).first()).toBeVisible();
+  // Duty is read as duty (ADR-0023): with no unit and no times it needs a fix before it can go in, and it never becomes an Activity.
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'Officer of the Day' }).getByText('Needs a fix')).toBeVisible();
   expect(await axe(page), 'the review').toEqual([]);
 
   // The course's date cannot be read: fixed on the review. That shows its title is too long; fixing that keeps the date.

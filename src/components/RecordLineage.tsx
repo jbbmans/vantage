@@ -4,7 +4,7 @@ import { useToast } from '@/components/ui/toast';
 import { useRecordLineage, useUndoMove } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDate } from '../../shared/metrics';
-import { MOVABLE_LABELS, type LineageMove, type MovableTable } from '../../shared/recordKinds';
+import { LINEAGE_LABELS, type LineageMove, type LineageTable } from '../../shared/recordKinds';
 import type { MovedEntry } from '@/components/MoveRecordDialog';
 import { cn } from '@/lib/utils';
 
@@ -14,7 +14,7 @@ const SHOWN = 5;
  * Where an entry came from: each move between record types that led to it, newest first, and Undo for the move that
  * brought it here (ADR-0015). Nothing shows for an entry that never moved. Why it moved is its owner's alone.
  */
-export default function RecordLineage({ store, id, onUndone, className }: { store: MovableTable; id: string; onUndone?: (restored: MovedEntry) => void; className?: string }) {
+export default function RecordLineage({ store, id, onUndone, className }: { store: LineageTable; id: string; onUndone?: (restored: MovedEntry) => void; className?: string }) {
   const toast = useToast();
   const { data } = useRecordLineage(store, id);
   const undo = useUndoMove(store);
@@ -22,14 +22,14 @@ export default function RecordLineage({ store, id, onUndone, className }: { stor
 
   const line = (m: LineageMove) => {
     const here = m.to_table === store && m.to_id === id;
-    const from = MOVABLE_LABELS[m.from_table].place; const to = MOVABLE_LABELS[m.to_table].place;
+    const from = LINEAGE_LABELS[m.from_table].place; const to = LINEAGE_LABELS[m.to_table].place;
     if (m.method === 'undo') return here ? `Moved back here from ${from}` : `Moved back from ${from} to ${to}`;
     return here ? `Moved here from ${from}` : `Moved from ${from} to ${to}`;
   };
   const undoMove = async () => {
     try {
       const back = await undo.mutateAsync(id);
-      toast.success(`Move undone. It is back in ${MOVABLE_LABELS[back.table].place}.`);
+      toast.success(`Move undone. It is back in ${LINEAGE_LABELS[back.table].place}.`);
       onUndone?.({ table: back.table, id: back.id });
     } catch (e) { toast.error(api.errorText(e)); }
   };
@@ -44,7 +44,7 @@ export default function RecordLineage({ store, id, onUndone, className }: { stor
         ))}
         {older > 0 && <li className="text-xs text-ink-3">{older} earlier {older === 1 ? 'move' : 'moves'}.</li>}
       </ul>
-      {data.undo && <Button size="sm" onClick={undoMove} loading={undo.isPending} title={`Puts it back in ${MOVABLE_LABELS[data.undo.from_table].place}, as it was`}><Undo2 className="h-3.5 w-3.5" />Undo move</Button>}
+      {data.undo && <Button size="sm" onClick={undoMove} loading={undo.isPending} title={`Puts it back in ${LINEAGE_LABELS[data.undo.from_table].place}, as it was`}><Undo2 className="h-3.5 w-3.5" />Undo move</Button>}
     </section>
   );
 }

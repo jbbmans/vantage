@@ -45,7 +45,7 @@ export const RECORD_KINDS: readonly RecordKind[] = [
   { key: 'award', label: 'Award', store: { table: 'awards', rows: "type 'personal_award' or 'unit_award'" }, writtenBy: 'The person, or a leader who recommends them (recorded_by)', correctedBy: 'Whoever recorded it: the person for their own; for a recommendation, its recorder while they hold Counsel members, and a unit leader with Edit others’ records. Never its subject (ADR-0015)', systemOfRecord: 'iAPS and MOL', timeline: true, activity: false },
   { key: 'recognition', label: 'Recognition', store: { table: 'awards', rows: "type 'meritorious_mast', 'certificate', 'loa', 'coin' or 'other'" }, writtenBy: 'The person, or a leader who recommends them (recorded_by)', correctedBy: 'As for an award', systemOfRecord: null, timeline: true, activity: false },
   { key: 'counseling', label: 'Counseling', store: { table: 'counselings' }, writtenBy: 'The counselor (counselor_id), or the person for their own notes', correctedBy: 'The counselor until it is acknowledged; never its subject (ADR-0013)', systemOfRecord: 'The signed counseling the command keeps', timeline: true, activity: false },
-  { key: 'duty', label: 'Duty', store: null, plannedIn: 'Task 17', writtenBy: 'Recorded against the Unit Instance’s duty types', correctedBy: 'Decided in Task 18', systemOfRecord: null, timeline: true, activity: false },
+  { key: 'duty', label: 'Duty', store: { table: 'duties', rows: 'one of its Unit Instance’s duty_types, scored under the duty_scoring_policies version in force on its first day (ADR-0023)' }, writtenBy: 'The person, or a leader with Counsel members who records it for them (recorded_by)', correctedBy: 'Whoever recorded it, and a unit leader with Edit others’ records, while it waits for review; never once it is approved or rejected (Task 18). Never its subject when a leader recorded it', systemOfRecord: 'The unit’s duty roster', timeline: true, activity: false },
   { key: 'duty_type', label: 'Duty Type', store: { table: 'duty_types' }, writtenBy: 'Unit Managers (ADR-0012)', correctedBy: 'Unit Managers', systemOfRecord: null, timeline: false, activity: false },
   { key: 'duty_scoring_policy', label: 'Duty Scoring Policy', store: { table: 'duty_scoring_policies' }, writtenBy: 'Unit Managers, as versions with effective dates (ADR-0012)', correctedBy: 'Nobody: a new version replaces it from its date', systemOfRecord: null, timeline: false, activity: false },
   { key: 'goal', label: 'Goal', store: { table: 'goals' }, writtenBy: 'The person, or a leader who assigns it', correctedBy: 'Its owner; its assignee for status and progress', systemOfRecord: null, timeline: true, activity: false },
@@ -74,6 +74,15 @@ export const MOVABLE_LABELS: Record<MovableTable, { one: string; place: string }
   awards: { one: 'award', place: 'Awards' },
   trainings: { one: 'training', place: 'Training' },
 };
+
+/**
+ * The record types a move history names: the movable ones, and duty (ADR-0023). An activity that was a duty its owner
+ * stood moves to Duty with the type and times only they can give, and back by undoing the move; duty moves nowhere else.
+ */
+export const LINEAGE_TABLES = [...MOVABLE_TABLES, 'duties'] as const;
+export type LineageTable = (typeof LINEAGE_TABLES)[number];
+export const isLineageTable = (t: string): t is LineageTable => (LINEAGE_TABLES as readonly string[]).includes(t);
+export const LINEAGE_LABELS: Record<LineageTable, { one: string; place: string }> = { ...MOVABLE_LABELS, duties: { one: 'duty', place: 'Duty' } };
 
 /**
  * Activities drawn from a financial case carry its key in their fingerprint (server/services/work.ts and record.ts):
@@ -221,7 +230,7 @@ export function movedFields(from: MovableTable, row: Record<string, unknown>, to
 
 /** GET /api/record/timeline: one entry of the person's own records, read from its own table (server/services/timeline.ts). */
 export interface TimelineItem {
-  kind: string; table: 'activities' | 'trainings' | 'awards' | 'counselings' | 'goals'; id: string; date: string;
+  kind: string; table: 'activities' | 'trainings' | 'awards' | 'counselings' | 'goals' | 'duties'; id: string; date: string;
   /** The last day of an activity or course that ran longer than a day, and whether it is still going (ADR-0018). */
   end_date: string | null; ongoing: boolean; title: string;
   detail: string | null; status: string | null; from_work: boolean; href: string;
@@ -234,7 +243,7 @@ export interface MoveCandidatesResponse { candidates: MoveCandidate[]; total: nu
 
 /** GET /api/records/:table/:id/lineage. `before` and `reason` reach the entry's owner only. */
 export interface LineageMove {
-  id: string; from_table: MovableTable; from_id: string; to_table: MovableTable; to_id: string; method: 'move' | 'undo'; at: string; by_owner: boolean;
+  id: string; from_table: LineageTable; from_id: string; to_table: LineageTable; to_id: string; method: 'move' | 'undo'; at: string; by_owner: boolean;
   reason?: string | null; before?: Record<string, unknown> | null;
 }
-export interface LineageResponse { moves: LineageMove[]; undo: { from_table: MovableTable } | null }
+export interface LineageResponse { moves: LineageMove[]; undo: { from_table: LineageTable } | null }

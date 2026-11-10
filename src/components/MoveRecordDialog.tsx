@@ -6,14 +6,19 @@ import { useToast } from '@/components/ui/toast';
 import { useMetrics, useMoveRecord, useUndoMove } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { AWARD_NAMES, AWARD_STATUS, AWARD_TYPES, TRAINING_STATUS, TRAINING_TYPES, categoryNames } from '../../shared/constants';
-import { MOVABLE_LABELS, MOVABLE_TABLES, kindText, movedFields, recordKindOf, type MovableTable } from '../../shared/recordKinds';
+import { LINEAGE_LABELS, MOVABLE_LABELS, MOVABLE_TABLES, kindText, movedFields, recordKindOf, type LineageTable, type MovableTable } from '../../shared/recordKinds';
 import { cn, humanize } from '@/lib/utils';
 
-export interface MovedEntry { table: MovableTable; id: string }
+export interface MovedEntry { table: LineageTable; id: string }
 
-/** Where an entry lives once it has moved: an activity has its own page; an award opens on Records → Awards, a course on Training & Development → Training. */
-export const entryHref = (table: MovableTable, id: string) =>
-  table === 'activities' ? `/records/${encodeURIComponent(id)}` : `/career/${table === 'awards' ? 'awards' : 'training'}?open=${encodeURIComponent(id)}`;
+/**
+ * Where an entry lives once it has moved: an activity has its own page; an award opens on Records → Awards, duty on
+ * Records → Duty, a course on Training & Development → Training.
+ */
+export const entryHref = (table: LineageTable, id: string) =>
+  table === 'activities' ? `/records/${encodeURIComponent(id)}`
+    : table === 'duties' ? `/record/duty?open=${encodeURIComponent(id)}`
+      : `/career/${table === 'awards' ? 'awards' : 'training'}?open=${encodeURIComponent(id)}`;
 
 const KINDS: Record<MovableTable, { label: string; hint: string; icon: typeof AwardIcon }> = {
   activities: { label: 'An activity', hint: 'Work you did. It counts in your reports and bullets.', icon: PenLine },
@@ -96,10 +101,11 @@ function MoveForm({ store, row, suggested, open, onOpenChange, onMoved, onUndone
     setSaving(true); setProblem(null); setErrors({});
     try {
       const moved = await move.mutateAsync({ id: row.id, to, fields, reason: reason.trim() || null, version: row.version });
-      toast.success(`Moved to ${MOVABLE_LABELS[moved.table].place}.`, {
+      // This dialog moves between activities, awards and training; a move to Duty is the Duty page's (ADR-0023).
+      toast.success(`Moved to ${LINEAGE_LABELS[moved.table].place}.`, {
         label: 'Undo',
-        onClick: () => undo[moved.table].mutateAsync(moved.id)
-          .then((back) => { toast.success(`Move undone. It is back in ${MOVABLE_LABELS[back.table].place}.`); onUndone?.({ table: back.table, id: back.id }); })
+        onClick: () => undo[moved.table as MovableTable].mutateAsync(moved.id)
+          .then((back) => { toast.success(`Move undone. It is back in ${LINEAGE_LABELS[back.table].place}.`); onUndone?.({ table: back.table, id: back.id }); })
           .catch((e) => toast.error(api.errorText(e))),
       });
       onOpenChange(false);

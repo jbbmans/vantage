@@ -38,12 +38,13 @@ export interface LegalHold {
 
 /**
  * The date that starts the retention clock for each kind of record. An activity or course is kept from the day it
- * ended, and one still going on is never due (ADR-0018); an award from its award date, the end of what it recognizes.
+ * ended, and one still going on is never due (ADR-0018); an award from its award date, the end of what it recognizes;
+ * a duty from the day it ended (ADR-0023).
  */
 const ENDED = '(CASE WHEN ongoing = 1 THEN NULL ELSE COALESCE(end_date, date) END)';
 const CLOCK: Record<string, string> = {
   activities: ENDED, trainings: ENDED, awards: 'date', counselings: 'date',
-  goals: 'period_end', tasks: 'updated_at', projects: 'updated_at',
+  goals: 'period_end', tasks: 'updated_at', projects: 'updated_at', duties: 'end_date',
 };
 
 export { REDACTED };
@@ -56,6 +57,8 @@ const IDENTIFYING: Record<string, string[]> = {
   goals: ['title', 'description'],
   tasks: ['title', 'notes'],
   projects: ['name', 'description'],
+  // Its type, times, length and score stay: what the unit's duty totals are counted from (ADR-0023).
+  duties: ['title', 'location', 'notes', 'review_reason'],
 };
 
 function identifyingColumns(ctx: AppContext, table: RecordTable): string[] {

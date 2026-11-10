@@ -421,7 +421,9 @@ test('026 gives activities and training an end, times and ongoing, keeps what wa
     assert.deepEqual(counted.found, { goals: 1 });
     // From here, nothing is written out of order, on any record type; a change that leaves the dates alone still is.
     const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_timeframe_%'").all() as Array<{ name: string }>).map((t) => t.name);
-    assert.equal(triggers.length, 14, triggers.join(', '));
+    // 031 adds duty to the same rule (ADR-0023).
+    assert.equal(triggers.length, 16, triggers.join(', '));
+    assert.ok(triggers.includes('duties_timeframe_written') && triggers.includes('duties_timeframe_changed'));
     db.prepare("UPDATE goals SET title = 'PFT 275' WHERE id = 'g1'").run();
     assert.throws(() => db.prepare("UPDATE goals SET period_end = '2026-07-31' WHERE id = 'g1'").run(), /timeframe: a record in goals/);
     db.prepare("UPDATE goals SET period_end = '2026-12-31' WHERE id = 'g1'").run();
@@ -478,6 +480,59 @@ test('030 adds guidance on file for the case diagnoser, empty, kept in one Unit 
     // A second boot changes nothing.
     db = openDatabase(path);
     assert.deepEqual(trail(), triggers);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+  } finally { cleanup(); }
+});
+
+test('031 adds duty records, empty, widens the move history to name duty with every row kept in order, and keeps duty in one Unit Instance', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(30, (db) => {
+    // The database as it was before 031: no duty records, and a move history that names three record types.
+    db.exec('DROP TABLE duties');
+    const lineage = /CREATE TABLE IF NOT EXISTS record_lineage \([\s\S]*?\n\);/.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'))![0];
+    db.exec('DROP TABLE record_lineage');
+    db.exec(lineage.replaceAll(", 'duties')", ')'));
+    assert.ok(!(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'record_lineage'").get() as { sql: string }).sql.includes('duties'));
+    for (const index of ['CREATE INDEX idx_record_lineage_to ON record_lineage(to_table, to_id, at)', 'CREATE INDEX idx_record_lineage_from ON record_lineage(from_table, from_id)']) db.exec(index);
+    // Two Unit Instances, each with its top unit; an organization and its top unit name each other.
+    db.pragma('foreign_keys = OFF');
+    const org = db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, '{}', ?, ?)");
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, NULL, ?, ?)');
+    for (const id of ['G8', 'G1']) { org.run(id, id, id, id, at, at); unit.run(id, id, id, id, at); }
+    db.pragma('foreign_keys = ON');
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'x', 'Sam', 'Marine', ?, ?)").run(at, at);
+    const move = db.prepare("INSERT INTO record_lineage (rowid, id, user_id, unit_id, from_table, from_id, to_table, to_id, snapshot, method, moved_by, at) VALUES (?, ?, 'u1', 'G8', ?, ?, ?, ?, '{}', ?, 'u1', ?)");
+    move.run(7, 'l1', 'activities', 'a1', 'awards', 'w1', 'move', at);
+    move.run(3, 'l2', 'awards', 'w1', 'activities', 'a1', 'undo', at);
+    db.prepare("INSERT INTO duty_types (id, org_id, code, name, active, created_at, updated_at) VALUES ('t8', 'G8', 'DNCO', 'Duty NCO', 1, ?, ?), ('t1', 'G1', 'DNCO', 'Duty NCO', 1, ?, ?)").run(at, at, at, at);
+  });
+  try {
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 31 && m.name === '031_duty_records'));
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM duties').get() as { n: number }).n, 0, 'nothing moves to duty on an upgrade (John, 2026-10-17)');
+    const lineageSql = () => (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'record_lineage'").get() as { sql: string }).sql;
+    assert.match(lineageSql(), /'duties'/);
+    assert.deepEqual(db.prepare('SELECT rowid AS r, id, from_table, to_table, method FROM record_lineage ORDER BY rowid').all().map((r) => ({ ...(r as object) })),
+      [{ r: 3, id: 'l2', from_table: 'awards', to_table: 'activities', method: 'undo' }, { r: 7, id: 'l1', from_table: 'activities', to_table: 'awards', method: 'move' }], 'every row, with its order');
+    const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'record_lineage' AND name LIKE 'idx_%' ORDER BY name").all() as Array<{ name: string }>).map((i) => i.name);
+    assert.deepEqual(indexes, ['idx_record_lineage_from', 'idx_record_lineage_to', 'idx_record_lineage_user']);
+    db.prepare("INSERT INTO record_lineage (id, user_id, unit_id, from_table, from_id, to_table, to_id, snapshot, method, moved_by, at) VALUES ('l3', 'u1', 'G8', 'activities', 'a2', 'duties', 'd1', '{}', 'move', 'u1', ?)").run(at);
+    assert.throws(() => db.prepare("INSERT INTO record_lineage (id, user_id, from_table, from_id, to_table, to_id, snapshot, method, moved_by, at) VALUES ('l4', 'u1', 'activities', 'a3', 'tasks', 't9', '{}', 'move', 'u1', ?)").run(at), /CHECK constraint/);
+
+    const triggers = () => (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND (tbl_name = 'duties' OR name LIKE 'duty_types_duties%') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    const found = triggers();
+    for (const name of ['duties_same_org_insert', 'duties_same_org_update', 'duty_types_duties_same_org', 'duties_timeframe_written', 'duties_timeframe_changed']) assert.ok(found.includes(name), name);
+    const duty = db.prepare("INSERT INTO duties (id, user_id, unit_id, duty_type_id, date, start_time, end_date, end_time, hours, days, submitted_at, created_at, updated_at) VALUES (?, 'u1', 'G8', ?, '2026-09-01', '08:00', ?, '16:00', 8, 1, ?, ?, ?)");
+    duty.run('d1', 't8', '2026-09-01', at, at, at);
+    assert.throws(() => duty.run('d2', 't1', '2026-09-01', at, at, at), /cross_instance/, 'a G-1 type on G-8 duty');
+    assert.throws(() => duty.run('d3', 't8', '2026-08-31', at, at, at), /timeframe:/, 'it ends after it begins');
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    db.close();
+    // A second boot changes nothing.
+    db = openDatabase(path);
+    assert.deepEqual(triggers(), found);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM record_lineage').get() as { n: number }).n, 3);
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
     db.close();
   } finally { cleanup(); }

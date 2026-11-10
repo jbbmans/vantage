@@ -4,7 +4,7 @@ import { badRequest } from '../lib/errors.ts';
 import { OPEN_END } from '../../shared/timeframe.ts';
 
 /**
- * A person's timeline: their activities, training, awards, counselings and achieved goals, newest first (ADR-0015).
+ * A person's timeline: their activities, training, awards, counselings, duty and achieved goals, newest first (ADR-0015).
  * Read from each kind's own table every time it is asked for and never stored, so it can never disagree with the
  * records it shows, and an Activity never has to stand in for one of them to appear here. Only the person's own
  * records: what a leader may read of someone else's stays on that person's own pages.
@@ -34,6 +34,10 @@ const SOURCES = {
                        CASE WHEN counselor_id IS NULL OR counselor_id = user_id THEN NULL WHEN acknowledged_at IS NULL THEN 'unacknowledged' ELSE 'acknowledged' END AS status,
                        created_at, 0 AS from_work
                   FROM counselings WHERE user_id = @me AND deleted_at IS NULL`,
+  // Duty always has both ends (ADR-0023); its title is its type when it has none of its own, and its detail the type.
+  duties: `SELECT 'duty' AS kind, 'duties' AS source, d.id, substr(d.date, 1, 10) AS day, substr(d.end_date, 1, 10) AS last_day, d.end_date, 0 AS ongoing,
+                  COALESCE(NULLIF(d.title, ''), t.name, 'Duty') AS title, t.name AS detail, d.approval_status AS status, d.created_at, 0 AS from_work
+             FROM duties d LEFT JOIN duty_types t ON t.id = d.duty_type_id WHERE d.user_id = @me AND d.deleted_at IS NULL`,
   goals: `SELECT 'goal' AS kind, 'goals' AS source, id, ${single('COALESCE(completed_at, period_end, updated_at)')}, title, category AS detail, status, created_at, 0 AS from_work
             FROM goals WHERE (user_id = @me OR assignee_id = @me) AND status = 'achieved' AND deleted_at IS NULL`,
 } as const;
@@ -43,6 +47,7 @@ const HREF: Record<keyof typeof SOURCES, (id: string) => string> = {
   trainings: (id) => `/career/training?open=${encodeURIComponent(id)}`,
   awards: (id) => `/career/awards?open=${encodeURIComponent(id)}`,
   counselings: (id) => `/career/counseling?open=${encodeURIComponent(id)}`,
+  duties: (id) => `/record/duty?open=${encodeURIComponent(id)}`,
   goals: () => '/goals',
 };
 

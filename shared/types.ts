@@ -1,6 +1,7 @@
 import type { Visibility } from './constants.ts';
 import type { ProgressResult } from './metricEngine.ts';
 import type { PermissionKey, RoleTemplate } from './permissions.ts';
+import type { DutyScoringBasis } from './duty.ts';
 
 export interface Rank { id: string; grade: string; abbr: string; name: string; tier: string; sort: number }
 
@@ -82,6 +83,25 @@ export interface Award extends BaseRecord {
   recorder_name?: string;
 }
 
+/** A duty a Marine stood (Task 17, ADR-0023): its length and score are worked out by the server, never entered. */
+export interface Duty extends BaseRecord {
+  duty_type_id: string; title: string | null; location: string | null;
+  date: string; start_time: string; end_date: string; end_time: string;
+  hours: number; days: number; overnight: number; multi_day: number;
+  conditions: string[]; notes: string | null;
+  recorded_by: string | null; submitted_at: string;
+  approval_status: 'pending' | 'approved' | 'returned' | 'rejected';
+  reviewed_by: string | null; reviewed_at: string | null; review_reason: string | null; approved_points: number | null;
+  scoring_policy_id: string | null; scoring_version: number | null; calculated_points: number | null;
+  scoring_basis: DutyScoringBasis | null;
+  duty_type_name: string | null; duty_type_code: string | null; duty_type_active: boolean | null;
+  /** Sent when the reader is not the Marine. */
+  subject_name?: string;
+  /** Set when someone other than the Marine recorded it. */
+  recorder_name?: string;
+  reviewer_name?: string;
+}
+
 export interface Counseling extends BaseRecord {
   date: string | null; type: string; counselor_id: string | null; counselor_name: string | null;
   summary: string; strengths: string | null; improvements: string | null; goals_set: string | null;
@@ -107,7 +127,7 @@ export type DateRange = { start: Date; end: Date; label?: string };
 
 /** A row of each record store, as GET /api/records/:store returns it. */
 export interface RecordRows {
-  activities: Activity; projects: Project; tasks: Task; goals: Goal; trainings: Training; awards: Award; counselings: Counseling;
+  activities: Activity; projects: Project; tasks: Task; goals: Goal; trainings: Training; awards: Award; counselings: Counseling; duties: Duty;
 }
 
 /** GET /api/me/org: the ranks, the units in view and the roles in the reader's own units. */
@@ -218,7 +238,7 @@ export interface PersonnelRecordResponse {
   instances: PersonnelInstance[];
   /** For the Marine, those who manage them and those who open their records. */
   history: { periods: MembershipPeriod[]; events: PersonnelEvent[] } | null;
-  /** How many of each record the reader may open; only with record access. Duty counts Operations activities until Task 17. */
+  /** How many of each record the reader may open; only with record access. Duty counts duty records (ADR-0023). */
   records: { trainings: number; education: number; awards: number; counselings: number; duty: number; activities: number; goals: number; tasks: number } | null;
 }
 
@@ -270,5 +290,5 @@ export interface MemberDetailResponse {
   detailUnits: string[];
   canCounsel: string[];
   canManageMembers: string[];
-  activities: Activity[]; trainings: Training[]; awards: Award[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];
+  activities: Activity[]; trainings: Training[]; awards: Award[]; duties: Duty[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];
 }
