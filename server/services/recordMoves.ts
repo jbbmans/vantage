@@ -35,10 +35,13 @@ const linkedToWork = (ctx: AppContext, id: string) =>
 
 const holdsFor = (ctx: AppContext, row: Row) => holdState(ctx, orgOfUnit(ctx, row.unit_id) ?? undefined);
 
+/** Duty somebody has reviewed has a review history hanging on it (ADR-0024), whatever its status is now. */
+const hasReviewHistory = (ctx: AppContext, id: string) => Boolean(ctx.db.prepare('SELECT 1 FROM duty_reviews WHERE duty_id = ? LIMIT 1').get(id));
+
 /**
  * Why this entry may not move to another record type, or null. Only its owner moves an entry, and only one that is
  * theirs alone: not one drawn from a financial case, not one frozen when a membership ended, not one a legal hold covers,
- * and not an award a leader recorded for them.
+ * not an award or duty a leader recorded for them, and not duty anybody has reviewed.
  */
 export function moveProblem(ctx: AppContext, userId: string, table: LineageTable, row: Row, holds: HoldState = holdsFor(ctx, row)): MoveProblem | null {
   if (row.user_id !== userId) return { code: 'owner_only', message: 'Only the Marine an entry belongs to can move it to another record type.' };
@@ -50,6 +53,8 @@ export function moveProblem(ctx: AppContext, userId: string, table: LineageTable
   if (table === 'awards' && recordedByOther(row)) return { code: 'recorded_by_other', message: 'A leader recorded this award for you, so it stays an award. Ask them if it needs correcting.' };
   if (table === 'duties' && recordedByOther(row)) return { code: 'recorded_by_other', message: 'A leader recorded this duty for you, so it stays duty. Ask them if it needs correcting.' };
   if (table === 'duties' && isDecidedDuty(row.approval_status)) return { code: 'duty_decided', message: 'This duty has been reviewed, so it stays as it was decided.' };
+  // Returned, or reopened for another look, it is still duty a reviewer acted on: undoing the move would take that with it.
+  if (table === 'duties' && hasReviewHistory(ctx, row.id)) return { code: 'duty_reviewed', message: 'This duty has been reviewed, so it stays in Duty with its review history.' };
   if (holds.instance || holds.types.has(table) || holds.users.has(row.user_id)) return { code: 'legal_hold', message: 'A legal hold covers this entry, so it stays where it is until the hold is released.' };
   return null;
 }

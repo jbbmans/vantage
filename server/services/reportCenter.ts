@@ -28,6 +28,7 @@ import { STAGE_LABEL, type Stage } from '../../shared/caseModel.ts';
 import { AGE_BASIS_LABELS, FLAG_LABELS, NO_OWNER, STANDING_LABELS, type ErrorFigure, type GroupLine } from '../../shared/errorReports.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyStatus } from '../../shared/dutyScoring.ts';
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty.ts';
+import { countedPoints, isOverridden } from '../../shared/dutyReview.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
   REPORT_ROW_LIMIT, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, primaryTable, reportFileName, reportQuerySchema, tableMatrix,
@@ -729,11 +730,11 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   const own = ownership(t, 'duties');
   const span = periodClause('duties', 't', period?.from, period?.to);
   const stood = ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
-                                       t.calculated_points, t.approved_points, t.scoring_version
+                                       t.calculated_points, t.approved_points, t.points_overridden_at, t.scoring_version
                                   FROM duties t WHERE ${own.sql} AND t.deleted_at IS NULL AND ${span.sql}
                                  ORDER BY t.date DESC, t.start_time DESC LIMIT ${SCAN_LIMIT}`).all(...own.params, ...span.params) as Array<{
     id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; location: string | null; notes: string | null; date: string; start_time: string; end_date: string; end_time: string; hours: number; days: number;
-    approval_status: DutyStatus; calculated_points: number | null; approved_points: number | null; scoring_version: number | null;
+    approval_status: DutyStatus; calculated_points: number | null; approved_points: number | null; points_overridden_at: string | null; scoring_version: number | null;
   }>;
   const typeNames = new Map((ctx.db.prepare('SELECT id, name FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...new Set(stood.map((d) => d.duty_type_id))])) as Array<{ id: string; name: string }>).map((x) => [x.id, x.name]));
   // A report about a Marine or a unit is in one Unit Instance. One about yourself may hold duty you stood in another, which
@@ -759,34 +760,47 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   const hoursStood = r2(stood.reduce((n, d) => n + (Number(d.hours) || 0), 0));
   const calculated = r2(stood.reduce((n, d) => n + (Number(d.calculated_points) || 0), 0));
   const pending = stood.filter((d) => d.approval_status === 'pending').length;
+  // What counts (ADR-0024): approved duty, at its approved points. Calculated points are what the scoring gave every duty
+  // in the period, approved or not; the two are never added together.
+  const approvedDuty = stood.filter((d) => d.approval_status === 'approved');
+  const approved = r2(approvedDuty.reduce((n, d) => n + countedPoints(d), 0));
+  const overridden = approvedDuty.filter((d) => isOverridden(d)).length;
   const recorded: ReportSection = {
     id: 'stood', heading: 'Duty stood in the period',
-    lede: 'Points are what the scoring version in force on the duty’s first day gives. Until a reviewer approves it, duty is submitted, not counted.',
+    lede: 'Calculated points are what the scoring version in force on the duty’s first day gives. Duty counts once a reviewer approves it, at its approved points; until then it is submitted, not counted.',
     tables: [table('stood', 'Duty stood', [
       ...(byMarine ? [{ key: 'marine', label: 'Marine', width: 16 }] : []),
       ...(multi ? [{ key: 'instance', label: 'Unit Instance', width: 14 }] : []),
       { key: 'type', label: 'Duty', width: 16 }, { key: 'title', label: 'Title', width: 18 },
       { key: 'start', label: 'Began', kind: 'date', width: 9 }, { key: 'end', label: 'Ended', kind: 'date', width: 9 },
       { key: 'hours', label: 'Hours', kind: 'hours', width: 7 }, { key: 'points', label: 'Calculated points', kind: 'number', width: 8 },
+      { key: 'approved', label: 'Approved points', kind: 'number', width: 8 }, { key: 'override', label: 'Override', kind: 'flag', width: 6 },
       { key: 'version', label: 'Version', kind: 'number', width: 6 }, { key: 'status', label: 'Status', width: 9 },
     ] as ReportColumn[], stood.map((d) => ({
       marine: isAnonymizedDuty(d) ? null : marines.get(d.user_id) || null, ...(multi ? { instance: orgNames.get(instanceOf.get(d.unit_id) ?? '') ?? null } : {}), type: typeNames.get(d.duty_type_id) || null, title: d.title, start: d.date, end: d.end_date,
-      hours: Number(d.hours), points: d.calculated_points, version: d.scoring_version, status: DUTY_STATUS_LABELS[d.approval_status] || words(d.approval_status),
+      hours: Number(d.hours), points: d.calculated_points, approved: d.approval_status === 'approved' ? d.approved_points : null, override: isOverridden(d) ? 1 : 0,
+      version: d.scoring_version, status: DUTY_STATUS_LABELS[d.approval_status] || words(d.approval_status),
     })), 'No duty is recorded in the period.')],
   };
   const tallies: ReportSection[] = [];
   // A duty a retention schedule anonymized is in no Marine's tally, so a period of nothing else has none to show: the
   // note says why the totals hold more than the tally.
   if (byMarine && named.length) {
-    const per = new Map<string, { count: number; hours: number; points: number }>();
-    for (const d of named) { const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0 }; p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0; per.set(d.user_id, p); }
+    const per = new Map<string, { count: number; hours: number; points: number; approved: number; counted: number }>();
+    for (const d of named) {
+      const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0, approved: 0, counted: 0 };
+      p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0;
+      if (d.approval_status === 'approved') { p.approved += 1; p.counted += countedPoints(d); }
+      per.set(d.user_id, p);
+    }
     tallies.push({
       id: 'by_marine', heading: 'By Marine',
       tables: [table('by_marine', 'Duty by Marine', [
         { key: 'marine', label: 'Marine', width: 20 }, { key: 'count', label: 'Duties', kind: 'number', width: 7 },
         { key: 'hours', label: 'Hours', kind: 'hours', width: 8 }, { key: 'points', label: 'Calculated points', kind: 'number', width: 9 },
-      ], [...per.entries()].map(([id, p]) => ({ marine: marines.get(id) || null, count: p.count, hours: r2(p.hours), points: r2(p.points) }))
-        .sort((a, b) => Number(b.points) - Number(a.points) || String(a.marine).localeCompare(String(b.marine))), 'No duty is recorded in the period.')],
+        { key: 'approved', label: 'Approved', kind: 'number', width: 8 }, { key: 'counted', label: 'Approved points', kind: 'number', width: 9 },
+      ], [...per.entries()].map(([id, p]) => ({ marine: marines.get(id) || null, count: p.count, hours: r2(p.hours), points: r2(p.points), approved: p.approved, counted: r2(p.counted) }))
+        .sort((a, b) => Number(b.counted) - Number(a.counted) || Number(b.points) - Number(a.points) || String(a.marine).localeCompare(String(b.marine))), 'No duty is recorded in the period.')],
     });
   }
   // Each Unit Instance's duty types and scoring, the report's own first; another's is named, in its headings and its
@@ -827,6 +841,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   return {
     summary: [
       { label: 'Duty stood', value: stood.length, kind: 'number' }, { label: 'Hours', value: hoursStood, kind: 'hours' },
+      { label: 'Approved', value: approvedDuty.length, kind: 'number' }, { label: 'Approved points', value: approved, kind: 'number' },
       { label: 'Calculated points', value: calculated, kind: 'number' }, { label: 'Awaiting review', value: pending, kind: 'number' },
       { label: 'Duty types in use', value: homeless ? null : types.filter((x) => x.active).length, kind: 'number' }, { label: 'Scored', value: homeless ? null : current ? current.rules.length : 0, kind: 'number' },
       { label: 'Version in force', value: current ? current.version : null, kind: 'number' }, { label: 'Since', value: current?.effective_from ?? null, kind: 'date' },
@@ -834,7 +849,9 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
     sections, primary: 'stood',
     notes: [
       ...(t.subject === 'self' ? ['Drawn from your own duty records.'] : [sourceNote(ctx, t)]), SPAN_NOTE,
-      'Each duty keeps the scoring version it was scored under: a later version never changes its points.',
+      'Only approved duty counts, at its approved points. Calculated points are what the scoring gave every duty here, approved or not.',
+      ...(overridden ? [`${overridden === 1 ? 'One approved duty has' : `${overridden} approved duties have`} points someone with the authority set apart from the calculated ones, each with a reason kept on the duty.`] : []),
+      'Each duty keeps the scoring version it was scored under: a later version never changes its points, calculated or approved.',
       'The Unit Instance sets its duty types and scoring; the unit and the units beneath it share them.',
       ...(multi ? ['Each duty is scored, and its versions numbered, by the Unit Instance it was stood in.'] : []),
       ...(shownOrgs.length ? ['Some of this duty was stood in another Unit Instance you serve in: its duty types and scoring follow your own instance’s.'] : []),

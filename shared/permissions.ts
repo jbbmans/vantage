@@ -17,6 +17,9 @@ export const PERMISSIONS = {
   RESOLVE_WORK: 1 << 15,
   REASSIGN_WORK: 1 << 16,
   VIEW_SUPPORT: 1 << 17,
+  REVIEW_DUTY: 1 << 18,
+  OVERRIDE_DUTY_POINTS: 1 << 19,
+  APPROVE_OWN_DUTY: 1 << 20,
 } as const;
 export type PermissionKey = keyof typeof PERMISSIONS;
 
@@ -28,31 +31,44 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
   { key: 'CREATE_SHARED_WORK', label: 'Post tasks and projects', hint: 'Assign tasking and projects to members of the unit.', group: 'Work' },
   { key: 'CREATE_SHARED_GOALS', label: 'Post goals', hint: 'Set targets the whole unit can see and track against.', group: 'Work' },
   { key: 'MANAGE_RECORDS', label: 'Edit others’ records', hint: 'Correct a Marine’s shared entry. Cannot touch private entries.', group: 'Work' },
-  { key: 'COUNSEL', label: 'Counsel members', hint: 'Record counselings and award recommendations for members of the unit.', group: 'Work' },
+  { key: 'COUNSEL', label: 'Counsel members', hint: 'Record counselings, award recommendations and duty for members of the unit.', group: 'Work' },
   { key: 'EXPORT_DATA', label: 'Export unit data', hint: 'Download unit records, dashboards, and command briefs.', group: 'Work' },
   { key: 'CLAIM_WORK', label: 'Claim work', hint: 'Take a case off the queue to signal you are working it. Does not let you change its figures.', group: 'Work' },
   { key: 'EDIT_WORK', label: 'Edit work detail', hint: 'Change a case’s own fields. Values that came off an imported sheet stay read-only for everyone.', group: 'Work' },
   { key: 'RESOLVE_WORK', label: 'Resolve work', hint: 'Close a case out, or reopen one that was closed too early.', group: 'Work' },
   { key: 'REASSIGN_WORK', label: 'Reassign work', hint: 'Move a case to somebody else, or release a claim somebody is sitting on.', group: 'Work' },
+  // Duty (ADR-0024). Reviewing reads nothing by itself: a reviewer also needs View shared records in the unit.
+  { key: 'REVIEW_DUTY', label: 'Review duty', hint: 'Approve, return or reject duty Marines stood for the unit, and reopen a decision. Works with View shared records, which lets the reviewer read it. Never your own duty.', group: 'Duty' },
+  { key: 'OVERRIDE_DUTY_POINTS', label: 'Override duty points', hint: 'Approve duty with points other than the scoring gives, or change approved points, each time with a written reason that is kept. Never your own duty.', group: 'Duty' },
+  { key: 'APPROVE_OWN_DUTY', label: 'Approve own duty', hint: 'Approve duty you stood yourself, at the points the scoring gives, with no second reviewer. It counts only when a role names it: leading a unit or holding full unit authority does not include it, and nobody grants it to themselves.', group: 'Duty', dangerous: true },
   { key: 'VIEW_SUPPORT', label: 'Work the support queue', hint: 'Read and answer help requests, including sign-in trouble. Never shows the contents of anyone’s email.', group: 'Running the unit' },
   { key: 'MANAGE_MEMBERS', label: 'Manage members', hint: 'Invite Marines, enroll existing accounts, and move them between units.', group: 'Running the unit' },
   { key: 'MANAGE_ROLES', label: 'Manage roles', hint: 'Create roles and assign them. Only roles below your own.', group: 'Running the unit' },
   { key: 'MANAGE_UNITS', label: 'Manage units', hint: 'Rename this unit and create or archive the units beneath it.', group: 'Running the unit' },
   // The key is stored and exported, so it keeps its name (ADR-0010). It is a unit permission, not the Unit Manager or
   // Vantage Administrator role.
-  { key: 'ADMINISTRATOR', label: 'Full unit authority', hint: 'Every permission in this unit and the units beneath it, as its Unit Leader holds. A unit permission: it is not a Unit Manager or Vantage Administrator role, and confers nothing in the units above.', group: 'Running the unit', dangerous: true },
+  { key: 'ADMINISTRATOR', label: 'Full unit authority', hint: 'Every permission in this unit and the units beneath it, as its Unit Leader holds, except approving your own duty, which a role must name. A unit permission: it is not a Unit Manager or Vantage Administrator role, and confers nothing in the units above.', group: 'Running the unit', dangerous: true },
 ];
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((a, b) => a | b, 0);
-export const has = (bits: number, flag: number) => Boolean(bits & PERMISSIONS.ADMINISTRATOR) || Boolean(bits & flag);
+/**
+ * Permissions that count only when a role the person holds names them (ADR-0024 §2; John, "role only"): leading a unit
+ * and full unit authority do not include them, and nobody grants one to themselves. Approving your own duty is the one
+ * there is: the specification asks for explicit self-approval authority.
+ */
+export const NAMED_ONLY_BITS = PERMISSIONS.APPROVE_OWN_DUTY;
+/** What a Unit Leader holds by leading, and what full unit authority carries: every permission but those. */
+export const FULL_UNIT_AUTHORITY = ALL_PERMISSIONS & ~NAMED_ONLY_BITS;
+/** Do these bits carry the permission? Full unit authority carries every one except those a role must name. */
+export const has = (bits: number, flag: number) => Boolean(bits & flag) || (Boolean(bits & PERMISSIONS.ADMINISTRATOR) && !(flag & NAMED_ONLY_BITS));
 export const listPermissions = (bits: number): PermissionKey[] => PERMISSION_LIST.filter((p) => bits & PERMISSIONS[p.key]).map((p) => p.key);
 export const fromKeys = (keys: PermissionKey[] = []) => keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
 const MARINE_BITS = fromKeys(['VIEW_UNIT', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL', 'EDIT_WORK']);
-const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA', 'REASSIGN_WORK']);
-const SNCOIC_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_SUPPORT']);
+const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA', 'REASSIGN_WORK', 'REVIEW_DUTY']);
+const SNCOIC_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_SUPPORT', 'OVERRIDE_DUTY_POINTS']);
 const OWNER_BITS = PERMISSIONS.ADMINISTRATOR;
 
 export interface RoleTemplate { key: string; name: string; color: string; position: number; is_default: boolean; owner?: boolean; permissions: number; description: string }

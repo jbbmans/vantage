@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -347,6 +347,12 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   // Widening a role you hold is giving it to yourself.
   const holds = Boolean(ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(req.user.id, role.id));
   if (holds && !isUnitOwner(ctx, req.user.id, role.unit_id)) guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
+  // Approving your own duty is never yours to add to a role you hold, the Unit Leader's included, nor to carry into the
+  // units beneath by raising such a role off position 0, where it starts to reach them (ADR-0024 §2).
+  if (holds) {
+    guardSelfNamed(req.user, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
+    if (role.position === 0 && def.position > 0) guardSelfNamed(req.user, def.permissions, req.user.id, `Raising ${role.name}, which you hold, so that it reaches the units beneath`);
+  }
   // So is widening one that an account you created or invited holds, before it has signed in as its own (ADR-0013).
   const widened = def.permissions & ~role.permissions & RECORD_READING_BITS;
   if (widened && !isUnitOwner(ctx, req.user.id, role.unit_id)) {
@@ -481,7 +487,7 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const ph = units.map(() => '?').join(',');
   const unitClause = isSelf ? '' : `AND visibility = 'unit' AND unit_id IN (${ph})`;
   const scoped = <T,>(table: 'activities' | 'trainings' | 'awards' | 'duties') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC${table === 'duties' ? ', start_time DESC' : ''} LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
-  const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties')) as unknown as Duty[];
+  const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties'), scope) as unknown as Duty[];
   const counselings = isSelf
     ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id) as Counseling[]
     : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units) as Counseling[];

@@ -111,6 +111,23 @@ export const useCounselings = () => useRecords('counselings');
 export const useDuties = () => useRecords('duties');
 export const useDutyOptions = (forId?: string | null, enabled = true) => useQuery<DutyOptionsResponse>({ queryKey: ['duty-options', forId || null], queryFn: () => api.dutyOptions(forId), staleTime: 60_000, enabled });
 export const useDutyCandidates = (enabled = true) => useQuery<DutyCandidatesResponse>({ queryKey: ['duty-candidates'], queryFn: api.dutyCandidates, staleTime: 30_000, enabled });
+/** Duty waiting for the reader's decision (ADR-0024), and whether they review duty at all. */
+export const useDutyReviewQueue = (enabled = true) => useQuery({ queryKey: ['duty-review-queue'], queryFn: api.dutyReviewQueue, enabled });
+export const useDutyReviews = (id: string | null, enabled = true) => useQuery({ queryKey: ['duty-reviews', id], queryFn: () => api.dutyReviews(id!), enabled: Boolean(id) && enabled });
+/** One decision on one duty. Whatever the answer, the duty's lists are read again: a refusal usually means it changed. */
+export function useReviewDuty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & api.DutyReviewBody) => api.reviewDuty(id, body),
+    // The duty as decided replaces the one the lists hold, and leaves the queue once it no longer waits, before they are read again.
+    onSuccess: (saved) => {
+      qc.setQueriesData<Array<RecordRows['duties']>>({ queryKey: ['records', 'duties'] }, (rows) => (Array.isArray(rows) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows));
+      qc.setQueryData<Awaited<ReturnType<typeof api.dutyReviewQueue>>>(['duty-review-queue'], (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
+        ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1) } : q));
+    },
+    onSettled: () => { invalidateDomains(qc, 'duty'); qc.invalidateQueries({ queryKey: ['notifications'] }); },
+  });
+}
 
 export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'duty' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
 
@@ -124,7 +141,7 @@ const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
   training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
   award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
   counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
-  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['record-timeline'], ['member'], ['personnel']],
+  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
   goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],

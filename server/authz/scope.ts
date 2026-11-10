@@ -1,5 +1,5 @@
 import type { AppContext } from '../context.ts';
-import { PERMISSIONS, ALL_PERMISSIONS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, orgStructureBits, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
+import { PERMISSIONS, FULL_UNIT_AUTHORITY, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, orgStructureBits, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
 import { now } from '../lib/ids.ts';
 import { forbidden } from '../lib/errors.ts';
 
@@ -123,11 +123,13 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | g.permissions;
     source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits: g.permissions, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
   }
+  // Leading a unit is every permission in it but the ones a role must name (approving one's own duty, ADR-0024 §2; John,
+  // "role only"): those stay as the leader's roles give them, here and in the units beneath.
   for (const id of owned) {
-    permissions[id] = ALL_PERMISSIONS;
+    permissions[id] = (permissions[id] || 0) | FULL_UNIT_AUTHORITY;
     positions[id] = Math.max(positions[id] || 0, 100);
-    authority[id] = ALL_PERMISSIONS;
-    source(id, { kind: 'owner', unitId: id, bits: ALL_PERMISSIONS });
+    authority[id] = (authority[id] || 0) | FULL_UNIT_AUTHORITY;
+    source(id, { kind: 'owner', unitId: id, bits: FULL_UNIT_AUTHORITY });
   }
 
   // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
@@ -216,6 +218,9 @@ export const can = (scope: Scope, flag: number, unitId: string | null | undefine
 export const positionIn = (scope: Scope, unitId: string | null | undefined) => (unitId ? scope.positions[unitId] || 0 : 0);
 export const isMember = (scope: Scope, unitId: string | null | undefined) => Boolean(unitId) && scope.unitIds.includes(unitId!);
 export const unitsWith = (scope: Scope, flag: number) => Object.entries(scope.permissions).filter(([, bits]) => has(bits, flag)).map(([id]) => id);
+/** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
+export const chainBits = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
 
 /**
  * A Unit Instance role confers authority only while its holder belongs to a unit of that Unit Instance (ADR-0010): it is

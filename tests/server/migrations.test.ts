@@ -537,3 +537,112 @@ test('031 adds duty records, empty, widens the move history to name duty with ev
     db.close();
   } finally { cleanup(); }
 });
+
+test('032 gives duty its override columns and review history, hands the standard SNCO and SNCOIC roles the review permissions they could already use, and changes no duty', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const WAS = { snco: 0, sncoic: 0 };
+  const { path, cleanup } = atVersion(31, (db) => {
+    // The database as it was before 032: duty with no override columns, no review history and no index for the queue.
+    db.exec('DROP TABLE duty_reviews');
+    db.exec('DROP INDEX idx_duties_review');
+    for (const column of ['points_overridden_at', 'points_overridden_by', 'points_override_reason']) db.exec(`ALTER TABLE duties DROP COLUMN ${column}`);
+    assert.ok(!(db.prepare('PRAGMA table_info(duties)').all() as Array<{ name: string }>).some((c) => c.name.startsWith('points_over')));
+    db.pragma('foreign_keys = OFF');
+    const org = db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, '{}', ?, ?)");
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, NULL, ?, ?)');
+    for (const id of ['G8', 'G1']) { org.run(id, id, id, id, at, at); unit.run(id, id, id, id, at); }
+    db.pragma('foreign_keys = ON');
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'x', 'Sam', 'Marine', ?, ?), ('u2', 'u2', 'x', 'Lee', 'Reviewer', ?, ?)").run(at, at, at, at);
+    // The standard roles as Vantage seeded them before 032, and what units have made of them since.
+    const P = PERMISSIONS;
+    const fire = P.VIEW_UNIT | P.VIEW_RECORDS | P.VIEW_MEMBER_DETAIL | P.COUNSEL | P.EDIT_WORK;
+    WAS.snco = fire | P.MANAGE_RECORDS | P.VIEW_AUDIT | P.EXPORT_DATA | P.REASSIGN_WORK;
+    WAS.sncoic = WAS.snco | P.MANAGE_MEMBERS | P.MANAGE_ROLES | P.MANAGE_UNITS;
+    const role = db.prepare('INSERT INTO roles (id, unit_id, key, name, permissions, position, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    role.run('g8-marine', 'G8', 'marine', 'Marine', P.VIEW_UNIT, 0, 1, at);
+    role.run('g8-ftl', 'G8', 'fire-team-leader', 'Fire Team Leader', fire, 30, 1, at);
+    role.run('g8-snco', 'G8', 'snco', 'SNCO', WAS.snco, 40, 1, at);
+    role.run('g8-sncoic', 'G8', 'sncoic', 'SNCOIC', WAS.sncoic, 60, 1, at);
+    role.run('g8-leader', 'G8', 'unit-leader', 'Unit Leader', P.ADMINISTRATOR, 100, 1, at);
+    // G-1 cut its standard roles back: its SNCO no longer counsels, and its SNCOIC no longer corrects others' records.
+    role.run('g1-snco', 'G1', 'snco', 'SNCO', WAS.snco & ~P.COUNSEL, 40, 1, at);
+    role.run('g1-sncoic', 'G1', 'sncoic', 'SNCOIC', WAS.sncoic & ~P.MANAGE_RECORDS, 60, 1, at);
+    // A role a unit made itself, with everything an SNCO has: it is the unit's to change.
+    role.run('g8-own', 'G8', null, 'Admin Chief', WAS.sncoic, 50, 0, at);
+    role.run('g8-own-keyed', 'G8', 'snco', 'A copy somebody named snco', WAS.snco, 45, 0, at);
+    db.prepare("INSERT INTO duty_types (id, org_id, code, name, active, created_at, updated_at) VALUES ('t8', 'G8', 'DNCO', 'Duty NCO', 1, ?, ?)").run(at, at);
+    db.prepare("INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES ('p8', 'G8', 1, '2026-01-01', '{}', 'First', 'u2', ?)").run(at);
+    const duty = db.prepare(`INSERT INTO duties (id, user_id, unit_id, duty_type_id, date, start_time, end_date, end_time, hours, days, submitted_at, approval_status, reviewed_by, reviewed_at, review_reason, approved_points,
+      scoring_policy_id, scoring_version, calculated_points, version, created_at, updated_at) VALUES (?, 'u1', 'G8', 't8', ?, '08:00', ?, '16:00', 8, 1, ?, ?, ?, ?, ?, ?, 'p8', 1, 3, ?, ?, ?)`);
+    duty.run('d-wait', '2026-09-01', '2026-09-01', at, 'pending', null, null, null, null, 1, at, at);
+    // Decided by hand before there was a review: it stays exactly as it was.
+    duty.run('d-ok', '2026-09-02', '2026-09-02', at, 'approved', 'u2', at, null, 7, 4, at, at);
+    duty.run('d-no', '2026-09-03', '2026-09-03', at, 'rejected', 'u2', at, 'Not on the roster.', null, 2, at, at);
+  });
+  try {
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 32 && m.name === '032_duty_review'));
+    const columns = (db.prepare('PRAGMA table_info(duties)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns.slice(-3), ['points_override_reason', 'points_overridden_by', 'points_overridden_at'], 'added last, in the order a new database has them');
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    assert.deepEqual(columns, (fresh.prepare('PRAGMA table_info(duties)').all() as Array<{ name: string }>).map((c) => c.name), 'an upgraded database and a new one have the same duty columns in the same order');
+    fresh.close();
+    assert.ok((db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_duties_review'").get()));
+
+    // No duty is changed: not its status, its points, the version it was scored under, or its edit version.
+    const duties = db.prepare('SELECT id, approval_status, approved_points, calculated_points, scoring_version, scoring_policy_id, reviewed_by, review_reason, version, points_override_reason, points_overridden_by, points_overridden_at FROM duties ORDER BY id').all().map((r) => ({ ...(r as object) }));
+    const untouched = { calculated_points: 3, scoring_version: 1, scoring_policy_id: 'p8', points_override_reason: null, points_overridden_by: null, points_overridden_at: null };
+    assert.deepEqual(duties, [
+      { id: 'd-no', approval_status: 'rejected', approved_points: null, reviewed_by: 'u2', review_reason: 'Not on the roster.', version: 2, ...untouched },
+      { id: 'd-ok', approval_status: 'approved', approved_points: 7, reviewed_by: 'u2', review_reason: null, version: 4, ...untouched },
+      { id: 'd-wait', approval_status: 'pending', approved_points: null, reviewed_by: null, review_reason: null, version: 1, ...untouched },
+    ].map((d) => Object.fromEntries(Object.keys(duties[0]).map((k) => [k, (d as Record<string, unknown>)[k]]))));
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM duty_reviews').get() as { n: number }).n, 0, 'no history is made up for what was decided before');
+
+    // The standard roles: what the template now gives them, and only where the role could already do that work.
+    const bits = (id: string) => (db.prepare('SELECT permissions FROM roles WHERE id = ?').get(id) as { permissions: number }).permissions;
+    const P = PERMISSIONS;
+    assert.equal(bits('g8-snco'), WAS.snco | P.REVIEW_DUTY, 'the SNCO reviews duty');
+    assert.equal(bits('g8-sncoic'), WAS.sncoic | P.REVIEW_DUTY | P.OVERRIDE_DUTY_POINTS, 'the SNCOIC reviews it and may set its points');
+    assert.equal(bits('g1-snco'), WAS.snco & ~P.COUNSEL, 'an SNCO role cut back from counseling gains nothing');
+    assert.equal(bits('g1-sncoic'), (WAS.sncoic & ~P.MANAGE_RECORDS) | P.REVIEW_DUTY, 'an SNCOIC role that no longer corrects records reviews, and does not override');
+    assert.equal(bits('g8-own'), WAS.sncoic, 'a role the unit made is the unit’s to change');
+    assert.equal(bits('g8-own-keyed'), WAS.snco, 'whatever it is called');
+    assert.equal(bits('g8-marine'), P.VIEW_UNIT);
+    assert.equal(bits('g8-ftl') & (P.REVIEW_DUTY | P.OVERRIDE_DUTY_POINTS), 0, 'a fire team leader does not review');
+    assert.equal(bits('g8-leader'), P.ADMINISTRATOR);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM roles WHERE permissions & ? != 0').get(P.APPROVE_OWN_DUTY) as { n: number }).n, 0, 'no role is given approval of one’s own duty');
+
+    // The check a new database has is on the upgraded one: an override is whole, and only on approved duty.
+    const now = '2026-11-02T00:00:00.000Z';
+    assert.throws(() => db.prepare("UPDATE duties SET points_overridden_at = ? WHERE id = 'd-ok'").run(now), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE duties SET points_overridden_at = ?, points_overridden_by = 'u2', points_override_reason = 'x' WHERE id = 'd-wait'").run(now), /CHECK constraint/);
+    db.prepare("UPDATE duties SET approved_points = 5, points_overridden_at = ?, points_overridden_by = 'u2', points_override_reason = 'Short notice.' WHERE id = 'd-ok'").run(now);
+
+    // The review history, kept as written and inside its duty's Unit Instance.
+    const triggers = () => (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND (tbl_name = 'duty_reviews' OR name = 'duties_reviews_same_org') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    const found = triggers();
+    assert.deepEqual(found, ['duties_reviews_same_org', 'duty_reviews_reason_kept', 'duty_reviews_recorded', 'duty_reviews_same_org_insert']);
+    const line = db.prepare("INSERT INTO duty_reviews (id, duty_id, unit_id, actor_id, event, from_status, to_status, reason, calculated_points, approved_points, scoring_version, override, by_owner, created_at) VALUES (?, 'd-ok', ?, 'u2', 'points_changed', 'approved', 'approved', 'Short notice.', 3, 5, 1, 1, 0, ?)");
+    line.run('v1', 'G8', now);
+    assert.throws(() => line.run('v2', 'G1', now), /cross_instance/, 'a review in another Unit Instance than its duty');
+    assert.throws(() => db.prepare("UPDATE duty_reviews SET approved_points = 9 WHERE id = 'v1'").run(), /kept as it was written/);
+    assert.throws(() => db.prepare("UPDATE duties SET unit_id = 'G1' WHERE id = 'd-ok'").run(), /cross_instance/, 'reviewed duty stays in its Unit Instance');
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    // A unit that takes the permission out of its SNCO role afterwards is not handed it again: the migration runs once.
+    db.prepare("UPDATE roles SET permissions = permissions & ? WHERE id = 'g8-snco'").run(~P.REVIEW_DUTY);
+    db.close();
+
+    db = openDatabase(path);
+    assert.equal(bits('g8-snco'), WAS.snco, 'a second boot does not hand it back');
+    assert.equal(bits('g8-sncoic'), WAS.sncoic | P.REVIEW_DUTY | P.OVERRIDE_DUTY_POINTS);
+    assert.deepEqual(triggers(), found);
+    assert.deepEqual((db.prepare('PRAGMA table_info(duties)').all() as Array<{ name: string }>).map((c) => c.name), columns);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM duty_reviews').get() as { n: number }).n, 1);
+    assert.equal((db.prepare("SELECT approved_points FROM duties WHERE id = 'd-ok'").get() as { approved_points: number }).approved_points, 5);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+  } finally { cleanup(); }
+});

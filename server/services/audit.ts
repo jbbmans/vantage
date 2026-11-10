@@ -78,6 +78,25 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
   });
 }
 
+/**
+ * A list of records that holds somebody else's is a read of theirs: one entry for each Marine and unit on it, and no more
+ * than one every five minutes for the same reader, record type, Marine and unit, so a page that refreshes does not fill
+ * the trail.
+ */
+export function auditListedRecords(ctx: AppContext, actorId: string, table: string, rows: ReadonlyArray<Record<string, unknown>>, ip?: string | null) {
+  const foreign = new Map<string, { subject: string; unit: string | null; count: number }>();
+  for (const r of rows) {
+    if (r.user_id === actorId) continue;
+    const key = `${r.user_id}|${r.unit_id || ''}`;
+    const entry = foreign.get(key) || { subject: String(r.user_id), unit: (r.unit_id as string | null) || null, count: 0 };
+    entry.count += 1; foreign.set(key, entry);
+  }
+  if (!foreign.size) return;
+  const recent = ctx.db.prepare(`SELECT 1 FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND entity = ? AND subject_id = ? AND unit_id IS ? AND at > ? LIMIT 1`);
+  const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+  for (const e of foreign.values()) if (!recent.get(actorId, table, e.subject, e.unit, cutoff)) audit(ctx, { actor_id: actorId, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip });
+}
+
 export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number; reason?: string } {
   const { db, chainKey } = ctx;
   const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Array<Record<string, unknown>>;

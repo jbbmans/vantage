@@ -390,10 +390,50 @@ const MIGRATIONS: Migration[] = [
       timeframeTriggers(db);
     },
   },
+  {
+    id: 32,
+    name: '032_duty_review',
+    // Duty is reviewed (Task 18, ADR-0024). A duty gains who set its approved points apart from the calculated ones, when
+    // and why; a database that had the duties table before these columns gets them here, with the check schema.sql gives a
+    // new one. Its review history (duty_reviews) comes from schema.sql, which is safe to replay, and the boundary keeps a
+    // review in its duty's Unit Instance. The standard SNCO and SNCOIC roles of every unit gain the review permissions the
+    // role template now gives them, so duty already waiting has reviewers: a role a unit made itself is left as it is, one
+    // it cut back gains nothing it was cut back from, and no role gains the permission to approve one's own duty. No row
+    // is removed or reshaped, and no duty's status, points or scoring version is touched: nothing is recalculated.
+    run: (db) => {
+      const have = columnsOf(db, 'duties');
+      if (!have.has('points_override_reason')) db.exec('ALTER TABLE duties ADD COLUMN points_override_reason TEXT');
+      if (!have.has('points_overridden_by')) db.exec('ALTER TABLE duties ADD COLUMN points_overridden_by TEXT REFERENCES users(id)');
+      if (!have.has('points_overridden_at')) db.exec(`ALTER TABLE duties ADD COLUMN points_overridden_at TEXT CHECK ((points_overridden_at IS NULL) = (points_overridden_by IS NULL) AND (points_overridden_at IS NULL) = (points_override_reason IS NULL) AND (points_overridden_at IS NULL OR approval_status = 'approved'))`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_duties_review ON duties(unit_id, approval_status, submitted_at)');
+      grantDutyReviewToStandardRoles(db);
+      instanceBoundaryTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
 export const MIGRATION_CATALOG: ReadonlyArray<{ id: number; name: string }> = MIGRATIONS.map(({ id, name }) => ({ id, name }));
+
+/**
+ * The standard SNCO and SNCOIC roles gain what the role template gives them from migration 032 on (ADR-0024 §2): Review
+ * duty for both, Override duty points for the SNCOIC as well. Only the roles Vantage seeded (is_system, by key) and only
+ * bits added: a role a unit defined is left as it is, and one a unit takes the permission out of afterwards is not
+ * touched again, because this runs once. As migration 007 hands a permission only to a role that could already do the
+ * work, a standard role its unit has cut back gains nothing it was cut back from: reviewing takes a role that still reads
+ * shared records and counsels members, and overriding one that still corrects others' records too. The bits are written
+ * out, as 007's are, so a later change to the template does not change what this migration did. An archive from before
+ * 032 gets the same when it is imported (importInstance).
+ */
+export function grantDutyReviewToStandardRoles(db: Db) {
+  const VIEW_RECORDS = 1 << 1, MANAGE_RECORDS = 1 << 3, COUNSEL = 1 << 11;
+  const REVIEW_DUTY = 1 << 18, OVERRIDE_DUTY_POINTS = 1 << 19;
+  const add = db.prepare('UPDATE roles SET permissions = permissions | ? WHERE is_system = 1 AND key = ? AND permissions & ? = ?');
+  const leads = VIEW_RECORDS | COUNSEL;
+  add.run(REVIEW_DUTY, 'snco', leads, leads);
+  add.run(REVIEW_DUTY, 'sncoic', leads, leads);
+  add.run(OVERRIDE_DUTY_POINTS, 'sncoic', leads | MANAGE_RECORDS, leads | MANAGE_RECORDS);
+}
 
 /** What `migration_audited_through` holds for a database created by this start whose creation is not audited yet. */
 export const NEW_DATABASE = 'new';
@@ -663,6 +703,16 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.org_id IS NOT OLD.org_id AND EXISTS (SELECT 1 FROM duties d WHERE d.duty_type_id = NEW.id AND ${orgOf('d.unit_id')} <> NEW.org_id)
       ${refuse('duty in another Unit Instance is recorded against this duty type')}`);
   }
+  // A duty's review history stays in its duty's Unit Instance (ADR-0024): a review is written in the unit its duty
+  // stands in, and a duty that has been reviewed does not leave the Unit Instance that reviewed it.
+  if (columnsOf(db, 'duty_reviews').has('duty_id')) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS duty_reviews_same_org_insert BEFORE INSERT ON duty_reviews FOR EACH ROW
+      WHEN ${orgOf('NEW.unit_id')} IS NOT ${orgOf('(SELECT unit_id FROM duties WHERE id = NEW.duty_id)')}
+      ${refuse('a duty review belongs to the Unit Instance of its duty')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS duties_reviews_same_org BEFORE UPDATE OF unit_id ON duties FOR EACH ROW
+      WHEN NEW.unit_id IS NOT OLD.unit_id AND ${orgOf('NEW.unit_id')} IS NOT ${orgOf('OLD.unit_id')} AND EXISTS (SELECT 1 FROM duty_reviews r WHERE r.duty_id = NEW.id)
+      ${refuse('this duty has been reviewed in its Unit Instance')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -710,6 +760,9 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     ...(columnsOf(db, 'duties').has('duty_type_id') ? {
       duties: `SELECT COUNT(*) AS n FROM duties d LEFT JOIN duty_types t ON t.id = d.duty_type_id LEFT JOIN duty_scoring_policies p ON p.id = d.scoring_policy_id
         WHERE ${orgOf('d.unit_id')} <> t.org_id OR ${orgOf('d.unit_id')} <> p.org_id`,
+    } : {}),
+    ...(columnsOf(db, 'duty_reviews').has('duty_id') ? {
+      duty_reviews: `SELECT COUNT(*) AS n FROM duty_reviews r JOIN duties d ON d.id = r.duty_id WHERE ${orgOf('r.unit_id')} IS NOT ${orgOf('d.unit_id')}`,
     } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL

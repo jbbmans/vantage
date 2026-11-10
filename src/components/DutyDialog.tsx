@@ -13,6 +13,7 @@ import {
 } from '../../shared/duty';
 import type { ScoringCondition } from '../../shared/dutyScoring';
 import { formatNumber } from '../../shared/metrics';
+import { isOverridden } from '../../shared/dutyReview';
 import type { Duty } from '../../shared/types';
 import { formatStamp, todayIso } from '@/lib/utils';
 
@@ -59,6 +60,8 @@ function draftOf(mode: DutyMode, today: string): Draft {
 }
 
 const TITLES: Record<DutyMode['kind'], string> = { new: 'Record duty', edit: 'Change duty', move: 'Record this activity as duty' };
+/** A returned duty goes back for review when its correction is saved (ADR-0024). */
+const isReturned = (mode: DutyMode) => mode.kind === 'edit' && mode.row.approval_status === 'returned';
 
 export default function DutyDialog({ mode, open, onOpenChange, onSaved }: { mode: DutyMode | null; open: boolean; onOpenChange: (o: boolean) => void; onSaved?: (saved: { id: string }) => void }) {
   if (!mode) return null;
@@ -71,6 +74,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
   const uid = useId();
   const toast = useToast();
   const qc = useQueryClient();
+  const returned = isReturned(mode);
   // Another Marine's duty is recorded with what the reader may record for them; one's own with one's own units.
   const subject = mode.kind === 'new' ? mode.forUser?.id ?? null : mode.kind === 'edit' && mode.row.subject_name ? mode.row.user_id : null;
   const options = useDutyOptions(subject, open);
@@ -137,7 +141,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
       let saved: { id: string };
       if (mode.kind === 'edit') {
         saved = await api.updateRecord('duties', mode.row.id, { ...fields, version: mode.row.version }) as { id: string };
-        toast.success('Duty updated.');
+        toast.success(returned ? 'Corrected and sent back for review.' : 'Duty updated.');
       } else if (mode.kind === 'move') {
         const moved = await api.moveRecord('activities', mode.activity.id, { to: 'duties', fields, reason: reason.trim() || null, version: mode.activity.version });
         saved = { id: moved.id };
@@ -162,12 +166,19 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
   const ran = facts ? [formatHours(facts.hours), `${facts.days} duty ${facts.days === 1 ? 'day' : 'days'}`, facts.overnight ? 'overnight' : '', facts.multi_day ? 'more than a day' : '', facts.weekend ? 'on a weekend' : ''].filter(Boolean).join(' · ') : null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={TITLES[mode.kind]} size="lg"
+    <Dialog open={open} onOpenChange={onOpenChange} title={returned ? 'Correct this duty' : TITLES[mode.kind]} size="lg"
       description={mode.kind === 'new' && mode.forUser ? <>For {mode.forUser.name}. They are told, and they cannot change it: you or a records manager can.</>
         : mode.kind === 'move' ? <>“{mode.activity.title}” moves from Activities to Duty with its files and comments. Give what an activity does not hold: the duty type and its times.</>
-          : 'Duty is recorded once it has been stood, and waits for a reviewer before it counts.'}
-      footer={<><Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button><Button variant="primary" onClick={save} loading={saving} disabled={options.isLoading}>{mode.kind === 'edit' ? 'Save changes' : mode.kind === 'move' ? 'Move to Duty' : 'Record duty'}</Button></>}>
+          : returned ? 'A reviewer returned it. Saving your correction sends it back for review.'
+            : 'Duty is recorded once it has been stood, and waits for a reviewer before it counts.'}
+      footer={<><Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button><Button variant="primary" onClick={save} loading={saving} disabled={options.isLoading}>{returned ? 'Save and send back' : mode.kind === 'edit' ? 'Save changes' : mode.kind === 'move' ? 'Move to Duty' : 'Record duty'}</Button></>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
+        {mode.kind === 'edit' && returned && mode.row.review_reason && (
+          <section aria-labelledby={`${uid}-returned`} className="rounded-md border border-warn/30 bg-warn/5 px-3 py-2 text-sm">
+            <h3 id={`${uid}-returned`} className="eyebrow mb-1">Returned for correction{mode.row.reviewer_name ? ` by ${mode.row.reviewer_name}` : ''}</h3>
+            <p className="whitespace-pre-wrap text-ink">{mode.row.review_reason}</p>
+          </section>
+        )}
         {options.isError && !fixedPlace && <p role="alert" className="rounded-md border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-ink-2">{api.errorText(options.error)}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {fixedUnit ? <Field label="Unit" hint={notTheirs && unit ? 'only its Marine moves it' : undefined}><Input value={unit?.name ?? 'As recorded'} disabled /></Field> : (
@@ -208,7 +219,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
           {ran ? <p className="fig text-ink">{ran}</p> : <p className="text-ink-3">Give its start and end to see how long it ran.</p>}
           {conditions.length > 0 && <p className="mt-1 flex flex-wrap gap-1">{conditions.map((c) => <Badge key={c}>{CONDITION_LABELS[c]}</Badge>)}</p>}
           {score && <p className="mt-1 text-ink-2" aria-live="polite">{describeScore(score.points, score.basis)}{score.basis.rule ? `: ${score.basis.rule}` : ''}{score.basis.applied.length ? `, × ${score.basis.factor} for ${score.basis.applied.map((c) => CONDITION_LABELS[c].toLowerCase()).join(' and ')}` : ''}.</p>}
-          <p className="mt-1 text-xs text-ink-3">Submitted, not yet counted: a reviewer approves, returns or rejects it.</p>
+          <p className="mt-1 text-xs text-ink-3">{returned ? 'Sent back for review when you save: a reviewer approves, returns or rejects it.' : 'Submitted, not yet counted: a reviewer approves, returns or rejects it.'}</p>
         </section>
         {problem && <p role="alert" className="rounded-md border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{problem}</p>}
         <button type="submit" className="hidden" aria-hidden />
@@ -221,6 +232,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
 export function DutyDetail({ row: r, me }: { row: Duty; me?: string }) {
   const basis = r.scoring_basis;
   const conditions = (r.conditions || []) as ScoringCondition[];
+  const overridden = isOverridden(r);
   return (
     <div className="space-y-3">
       <DescriptionList items={[
@@ -231,16 +243,19 @@ export function DutyDetail({ row: r, me }: { row: Duty; me?: string }) {
         ['Length', `${formatHours(r.hours)} · ${r.days} duty ${r.days === 1 ? 'day' : 'days'}${r.overnight ? ' · overnight' : ''}${r.multi_day ? ' · more than a day' : ''}`],
         ['Conditions', conditions.length ? conditions.map((c) => CONDITION_LABELS[c] || c).join(', ') : 'None'],
         ['Calculated points', <span>{describeScore(r.calculated_points, basis)}{basis?.rule ? <span className="block text-xs text-ink-3">{basis.rule}{basis.applied?.length ? `, × ${basis.factor} for ${basis.applied.map((c) => (CONDITION_LABELS[c] || c).toLowerCase()).join(' and ')}` : ''}; the version in force on <DateText value={basis.day} /></span> : null}</span>],
-        ['Approved points', r.approved_points != null ? formatNumber(r.approved_points) : null],
+        ['Approved points', r.approval_status !== 'approved' ? null : <span>{r.approved_points == null ? 'None: it had no score to approve' : formatNumber(r.approved_points)}{overridden ? <span className="block text-xs text-ink-3">set apart from the calculated points by {r.points_overridden_by === me ? 'you' : r.overrider_name || 'someone with that authority'}{r.points_overridden_at ? `, ${formatStamp(r.points_overridden_at)}` : ''}</span> : r.approved_points != null ? <span className="block text-xs text-ink-3">as calculated</span> : null}</span>],
+        ['Why the points differ', overridden && r.points_override_reason ? <span className="whitespace-pre-wrap">{r.points_override_reason}</span> : null],
         ['Recorded by', r.recorded_by && r.recorded_by !== r.user_id ? (r.recorded_by === me ? 'You' : r.recorder_name || 'A leader') : null],
         ['Submitted', r.submitted_at ? formatStamp(r.submitted_at) : null],
-        ['Reviewed by', r.reviewer_name || null],
+        ['Reviewed by', r.reviewed_by && r.reviewed_by === me ? 'You' : r.reviewer_name || null],
         ['Reviewed', r.reviewed_at ? formatStamp(r.reviewed_at) : null],
         [r.approval_status === 'returned' ? 'Why it was returned' : 'Why it was rejected', r.review_reason ? <span className="whitespace-pre-wrap">{r.review_reason}</span> : null],
         ['Notes', r.notes ? <span className="whitespace-pre-wrap">{r.notes}</span> : null],
       ]} />
       {r.user_id === me && r.recorded_by && r.recorded_by !== r.user_id && <p className="text-xs text-ink-3">{r.recorder_name || 'A leader'} recorded this duty for you, so only they or a records manager can change it. Ask them if something needs correcting.</p>}
-      {isDecidedDuty(r.approval_status) && <p className="text-xs text-ink-3">Its reviewer decided it, so it stays as it was decided.</p>}
+      {r.approval_status === 'pending' && <p className="text-xs text-ink-3">Waiting for review. It counts once a reviewer approves it.</p>}
+      {r.approval_status === 'returned' && <p className="text-xs text-ink-3">Returned for correction. It goes back for review when its correction is saved.</p>}
+      {isDecidedDuty(r.approval_status) && <p className="text-xs text-ink-3">Its reviewer decided it, so it stays as it was decided unless a reviewer reopens it.</p>}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, Personne
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
+import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type {
@@ -503,6 +504,11 @@ export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/mov
 // Duty (ADR-0023): what the form records it with, for oneself or a Marine one may record it for, and the activities that read like duty.
 export const dutyOptions = (forId?: string | null) => api.get<DutyOptionsResponse>(`/record/duty/options${forId ? `?for=${encodeURIComponent(forId)}` : ''}`);
 export const dutyCandidates = () => api.get<DutyCandidatesResponse>('/record/duty/candidates');
+// Reviewing duty (ADR-0024): one decision on one duty as the reader saw it, its review history, and the duty waiting for the reader's decision.
+export interface DutyReviewBody { action: DutyReviewAction; version: number; reason?: string | null; points?: number | string | null }
+export const reviewDuty = (id: string, body: DutyReviewBody) => api.post<RecordRows['duties']>(`/records/duties/${encodeURIComponent(id)}/review`, body);
+export const dutyReviews = (id: string) => api.get<{ reviews: DutyReviewEntry[] }>(`/records/duties/${encodeURIComponent(id)}/reviews`);
+export const dutyReviewQueue = () => api.get<DutyReviewQueueResponse<RecordRows['duties']>>('/record/duty/review-queue');
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);

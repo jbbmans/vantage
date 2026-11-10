@@ -22,6 +22,8 @@ import WhyList from '@/components/WhyList';
 import { PersonnelPanel } from '@/components/PersonnelRecord';
 import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
 import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/DutyDialog';
+import { ApprovedPoints, DutyReviewActions, DutyReviewHistory } from '@/components/DutyReview';
+import { hasReviewOptions } from '../../shared/dutyReview';
 import { DUTY_STATUS_LABELS, formatHours } from '../../shared/duty';
 import type { Duty } from '../../shared/types';
 
@@ -69,6 +71,9 @@ export default function MemberDetail() {
   // Their records, when this reader may open them; otherwise the Personnel tab alone.
   const records = record.canOpenRecords && !error ? data ?? null : null;
   const shownTab = records || tab === 'personnel' ? tab : 'personnel';
+  // The open duty as the page holds it now; a decision just made is ahead of a page still being read again.
+  const dutyListed = dutyView ? records?.duties.find((r) => r.id === dutyView.id) : undefined;
+  const dutyViewed = dutyView ? (dutyListed && dutyListed.version >= dutyView.version ? dutyListed : dutyView) : null;
   const canEditProfile = record.canEditProfile;
   const sourced = new Set(record.sourced);
   const reload = () => { personnel.refetch(); if (records) refetch(); qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); };
@@ -148,8 +153,8 @@ export default function MemberDetail() {
       )}
 
       {tab === 'duty' && (records.duties.length === 0 ? <div className="card"><EmptyState icon={Timer} title="No duty shared with your units" description="Duty this Marine stood for a unit you lead shows here, with its hours, its points and where it stands with its reviewers." action={canCounsel ? <Button variant="primary" onClick={() => setDuty({ kind: 'new', forUser: { id, name: fullName(person) } })}>Record duty</Button> : undefined} /></div> : (
-        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-28 text-right">Points</th><th className="w-28">Status</th><th className="w-28"></th></>}>
-          {records.duties.map((r) => <tr key={r.id}><td className="text-xs"><TimeframeText table="duties" row={r} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setDutyView(r)}>{r.title || r.duty_type_name || 'Duty'}</button><span className="block text-xs text-ink-3">{[r.title ? r.duty_type_name : null, r.recorded_by && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === identity?.user.id ? 'you' : r.recorder_name || 'a leader'}` : null].filter(Boolean).join(' · ')}</span></td><td className="fig text-right text-xs">{formatHours(r.hours)}</td><td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}</td><td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td><td className="text-right">{canCorrectDuty(identity, r) && <Button size="xs" variant="ghost" onClick={() => setDuty({ kind: 'edit', row: r })}>Edit</Button>}</td></tr>)}
+        <div className="card" style={{ overflow: 'hidden' }}><Table minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-28"></th></>}>
+          {records.duties.map((r) => <tr key={r.id}><td className="text-xs"><TimeframeText table="duties" row={r} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setDutyView(r)}>{r.title || r.duty_type_name || 'Duty'}</button><span className="block text-xs text-ink-3">{[r.title ? r.duty_type_name : null, r.recorded_by && r.recorded_by !== r.user_id ? `recorded by ${r.recorded_by === identity?.user.id ? 'you' : r.recorder_name || 'a leader'}` : null].filter(Boolean).join(' · ')}</span></td><td className="fig text-right text-xs">{formatHours(r.hours)}</td><td className="fig text-right text-xs">{r.calculated_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.calculated_points)}</td><td className="fig text-right text-xs"><ApprovedPoints row={r} /></td><td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td><td className="text-right">{hasReviewOptions(r.review) && <Button size="xs" variant="soft" onClick={() => setDutyView(r)}>Review</Button>}{canCorrectDuty(identity, r) && <Button size="xs" variant="ghost" onClick={() => setDuty({ kind: 'edit', row: r })}>Edit</Button>}</td></tr>)}
         </Table></div>
       ))}
 
@@ -165,8 +170,15 @@ export default function MemberDetail() {
       <RecordDialog store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : `New counseling for ${person.last_name}`} noun="Counseling" size="lg" validate={(d: any) => (!d.summary.trim() ? 'A summary is required.' : null)} onSaved={() => refetch()} fields={(d: any, set, errors) => <CounselingFields d={d} set={set} errors={errors} leader />} />
       <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) setAward(null); }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg" validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />
       <DutyDialog mode={duty} open={Boolean(duty)} onOpenChange={(o) => { if (!o) setDuty(null); }} onSaved={() => { refetch(); setTab('duty'); }} />
-      <Dialog open={Boolean(dutyView)} onOpenChange={(o) => { if (!o) setDutyView(null); }} title={dutyView ? dutyView.title || dutyView.duty_type_name || 'Duty' : ''} size="lg">
-        {dutyView && <DutyDetail row={dutyView} me={identity?.user.id} />}
+      <Dialog open={Boolean(dutyViewed)} onOpenChange={(o) => { if (!o) setDutyView(null); }} title={dutyViewed ? dutyViewed.title || dutyViewed.duty_type_name || 'Duty' : ''} size="lg">
+        {dutyViewed && hasReviewOptions(dutyViewed.review) && (
+          <section aria-label="Your decision" className="mb-3 rounded-md border border-line bg-surface-2 px-3 py-2.5">
+            <h3 className="eyebrow mb-1.5">Your decision</h3>
+            <DutyReviewActions row={dutyViewed} me={identity?.user.id} onDone={(saved) => { setDutyView(saved); refetch(); }} onCorrect={canCorrectDuty(identity, dutyViewed) ? () => { const r = dutyViewed; setDutyView(null); setDuty({ kind: 'edit', row: r }); } : undefined} />
+          </section>
+        )}
+        {dutyViewed && <DutyDetail row={dutyViewed} me={identity?.user.id} />}
+        {dutyViewed && <DutyReviewHistory id={dutyViewed.id} className="mt-4" />}
       </Dialog>
       <Dialog open={Boolean(profile)} onOpenChange={(o) => { if (!o) setProfile(null); }} title={`Edit ${person.last_name}'s profile`} description="Rank changes notify the Marine. Email and password stay theirs." size="sm" footer={<><Button variant="ghost" onClick={() => setProfile(null)}>Cancel</Button><Button variant="primary" onClick={saveProfile}>Save</Button></>}>
         {profile && <div className="grid grid-cols-2 gap-3"><Field label="First name"><Input value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} /></Field><Field label="Last name"><Input value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} /></Field><Field label="Rank"><Select value={profile.rank_id || '__none'} onValueChange={(v) => setProfile({ ...profile, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'None' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field><Field label="MOS"><Input value={profile.mos} onChange={(e) => setProfile({ ...profile, mos: e.target.value })} /></Field><Field label="EAS"><Input type="date" value={profile.eas} onChange={(e) => setProfile({ ...profile, eas: e.target.value })} /></Field><Field label="Middle initial"><Input value={profile.middle_initial} onChange={(e) => setProfile({ ...profile, middle_initial: e.target.value })} maxLength={4} /></Field></div>}

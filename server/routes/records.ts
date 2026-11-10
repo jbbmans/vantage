@@ -7,7 +7,7 @@ import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
-import { audit } from '../services/audit.ts';
+import { audit, auditListedRecords } from '../services/audit.ts';
 import { scanUpload } from '../services/scanner.ts';
 import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
@@ -18,6 +18,7 @@ import { newId, now } from '../lib/ids.ts';
 import { buildRecordExport } from '../services/personalExport.ts';
 import { importedFrom } from '../services/recordImport.ts';
 import { withDutyNames, isAnonymizedDuty } from '../services/duties.ts';
+import { dutyReviewHistory, reviewDuty } from '../services/dutyReview.ts';
 import { statSync } from 'node:fs';
 
 export const recordsRouter = Router();
@@ -36,18 +37,7 @@ recordsRouter.get('/:table', wrap((req, res) => {
     unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
   });
-  const foreign = new Map<string, { subject: string; unit: string | null; count: number }>();
-  for (const r of rows) {
-    if (r.user_id === req.user.id) continue;
-    const key = `${r.user_id}|${r.unit_id || ''}`;
-    const entry = foreign.get(key) || { subject: String(r.user_id), unit: (r.unit_id as string | null) || null, count: 0 };
-    entry.count += 1; foreign.set(key, entry);
-  }
-  if (foreign.size) {
-    const recent = req.ctx.db.prepare(`SELECT 1 FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND entity = ? AND subject_id = ? AND unit_id IS ? AND at > ? LIMIT 1`);
-    const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
-    for (const e of foreign.values()) if (!recent.get(req.user.id, table, e.subject, e.unit, cutoff)) audit(req.ctx, { actor_id: req.user.id, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip: clientIp(req) });
-  }
+  auditListedRecords(req.ctx, req.user.id, table, rows, clientIp(req));
   res.json(rows);
 }));
 
@@ -70,7 +60,7 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw
-    : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
+    : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   // A record an import brought in says so, and by whose word (ADR-0019); a duty a retention schedule anonymized says it
   // was imported, and names nobody (ADR-0023 §8).
@@ -129,6 +119,10 @@ recordsRouter.get('/:table/:id/lineage', wrap((req, res) => {
 }));
 
 recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsActivity(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
+
+// A duty's review (ADR-0024): a decision on it, or sending it back for one, and the history of both.
+recordsRouter.post('/duties/:id/review', wrap((req, res) => res.json(reviewDuty(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.get('/duties/:id/reviews', wrap((req, res) => res.json(dutyReviewHistory(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
 
 recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   const row = getRecord(req.ctx, 'counselings', String(req.params.id));

@@ -112,6 +112,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   // Their entries' moves between record types, with what each said before (ADR-0015).
   const lineage = db.prepare('SELECT * FROM record_lineage WHERE user_id = ? ORDER BY at').all(userId) as Row[];
 
+  // What reviewers decided about the duty they stood, and why (ADR-0024).
+  const dutyReviews = dutyReviewHistory(ctx, records.duties ?? [], userId);
+
   const counts = Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length]));
   const full = {
     format: PERSONAL_FORMAT, version: VERSION, exported_at: now(), instance: { display_name: ctx.runtime.displayName, organization: ctx.runtime.organizationName, metrics: ctx.runtime.metrics },
@@ -122,7 +125,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
-    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage,
+    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
     counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
   };
@@ -137,7 +140,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
  * The export cut down to the categories chosen: each record type's rows in them, the attachments on those rows, and the
  * other datasets only when chosen. It says what it holds in `sections`, so an import knows what a missing dataset means.
  */
-function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
+function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; duty_reviews: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
   const records: Record<string, Row[]> = {};
   for (const [table, rows] of Object.entries(full.records)) {
     const chosen = sel.tables.get(table as ImportTable);
@@ -156,6 +159,8 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
     ...(sel.personnel ? { personnel: full.personnel } : {}),
     ...(career ? { career } : {}),
     records, attachments,
+    // A duty's review history goes where the duty goes (ADR-0024).
+    ...(records.duties ? { duty_reviews: full.duty_reviews.filter((v) => kept.has(`duties:${String(v.duty_id)}`)) } : {}),
   };
   out.counts = { ...Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length])), attachments: attachments.length, ...(career ? { career_steps: career.steps.length } : {}) };
   return out as T;
@@ -228,6 +233,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     entries.push({ name: 'drafts.csv', data: rowsToCsv(archive.drafts.map(flat)) });
     entries.push({ name: 'record-moves.csv', data: rowsToCsv(archive.record_moves.map(flat)) });
   }
+  if ('duty_reviews' in archive && (archive.duty_reviews as Row[]).length) entries.push({ name: 'duty-reviews.csv', data: rowsToCsv((archive.duty_reviews as Row[]).map(flat)) });
   for (const f of _files) entries.push({ name: attachmentPath(f), data: f.content as Buffer, modified: new Date(String(f.created_at)) });
   return { buffer: buildZip(entries), filename: `vantage-${safeName(owner)}-${stamp}${'sections' in archive ? '-selected' : ''}.zip`, counts: archive.counts };
 }
@@ -248,6 +254,20 @@ function withDutyLabels(ctx: AppContext, r: Row, ownerId: string) {
   if (isAnonymizedDuty(r)) return;
   if (r.recorded_by && r.recorded_by !== ownerId) r.recorder_label = personLabel(ctx, r.recorded_by);
   if (r.reviewed_by) r.reviewer_label = personLabel(ctx, r.reviewed_by);
+  if (r.points_overridden_by) r.overrider_label = personLabel(ctx, r.points_overridden_by);
+}
+
+/**
+ * The review history of the duty a person stood (ADR-0024): each decision on it, by whom (by name, never id; "me" for
+ * their own), when and why. Nobody is named on a duty a retention schedule anonymized.
+ */
+function dutyReviewHistory(ctx: AppContext, duties: Row[], userId: string): Row[] {
+  const own = duties.filter((d) => d.user_id === userId);
+  if (!own.length) return [];
+  const anonymized = new Set(own.filter((d) => isAnonymizedDuty(d)).map((d) => String(d.id)));
+  const rows = ctx.db.prepare(`SELECT id, duty_id, actor_id, event, from_status, to_status, reason, calculated_points, approved_points, scoring_version, override, created_at
+                               FROM duty_reviews WHERE duty_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid`).all(JSON.stringify(own.map((d) => String(d.id)))) as Row[];
+  return rows.map(({ actor_id, ...r }) => ({ ...r, actor: actor_id === userId ? 'me' : anonymized.has(String(r.duty_id)) ? null : personLabel(ctx, actor_id) }));
 }
 
 /**

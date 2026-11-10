@@ -57,7 +57,9 @@ const IDENTIFYING: Record<string, string[]> = {
   goals: ['title', 'description'],
   tasks: ['title', 'notes'],
   projects: ['name', 'description'],
-  // Its type, times, length and score stay: what the unit's duty totals are counted from (ADR-0023).
+  // Its type, times, length and score stay: what the unit's duty totals are counted from (ADR-0023). The reason its points
+  // were set apart and the reasons in its review history go too, where the duty is anonymized below (ADR-0024): not listed
+  // here, because a duty with no override has none to redact and this list is also what says a row is already done.
   duties: ['title', 'location', 'notes', 'review_reason'],
 };
 
@@ -200,6 +202,13 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
           // so does what it said before an import changed it, which an undo would otherwise write back (ADR-0019).
           destroyLineage(ctx, table, ids, holds);
           forgetImportSnapshots(ctx, table, ids);
+          // A duty's reviewers' words go with its own (ADR-0024): the reason its points were set apart, and every reason
+          // in its review history. Who decided, when, and the points stay, as its score does.
+          if (table === 'duties') {
+            const list = JSON.stringify(ids);
+            ctx.db.prepare('UPDATE duties SET points_override_reason = ? WHERE points_override_reason IS NOT NULL AND id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
+            ctx.db.prepare('UPDATE duty_reviews SET reason = ? WHERE reason IS NOT NULL AND duty_id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
+          }
         }
       })();
     }

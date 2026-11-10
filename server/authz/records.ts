@@ -1,6 +1,8 @@
 import type { AppContext } from '../context.ts';
-import { PERMISSIONS, can, isMember, assertSameInstance, type Scope } from './scope.ts';
+import { PERMISSIONS, can, chainBits, isMember, assertSameInstance, type Scope } from './scope.ts';
+import { has } from '../../shared/permissions.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
+import type { DutyReviewAuthority } from '../../shared/dutyReview.ts';
 
 export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null; approval_status?: string | null }
 
@@ -46,6 +48,31 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.visibility !== 'unit' || !row.unit_id) return false;
   return can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id);
 }
+
+/**
+ * What the caller holds over one duty's review (ADR-0024 §2), from their authority in the unit it stands in. Reviewing
+ * and overriding read nothing by themselves: each works with View shared records there, so nobody decides a duty they
+ * could not open. All of it is held through the chain of command (a unit role there or above it, or leading the unit),
+ * never completed by Vantage access, which only reads, or by Unit Instance authority, which runs structure. Approving
+ * one's own duty is held only through a role that names it: leading the unit and full unit authority do not carry it
+ * (shared/permissions.ts). What follows from these for a duty as it stands is one rule, dutyReviewOptions.
+ */
+export function dutyReviewAuthority(scope: Scope, userId: string, row: RecordRow): DutyReviewAuthority {
+  const bits = row.unit_id ? chainBits(scope, row.unit_id) : 0;
+  const reads = has(bits, PERMISSIONS.VIEW_RECORDS);
+  return {
+    review: reads && has(bits, PERMISSIONS.REVIEW_DUTY),
+    override: reads && has(bits, PERMISSIONS.OVERRIDE_DUTY_POINTS),
+    ownApproval: has(bits, PERMISSIONS.APPROVE_OWN_DUTY),
+    correct: canEdit(scope, userId, row),
+  };
+}
+
+/** The units where the caller reviews duty: Review duty and View shared records, both through the chain of command. */
+export const dutyReviewUnits = (scope: Scope): string[] => Object.keys(scope.sources).filter((unitId) => {
+  const bits = chainBits(scope, unitId);
+  return has(bits, PERMISSIONS.VIEW_RECORDS) && has(bits, PERMISSIONS.REVIEW_DUTY);
+});
 
 export const ASSIGNEE_FIELDS: Record<string, readonly string[]> = { tasks: ['status', 'notes'], goals: ['status', 'current_value'] };
 export function isAssignee(scope: Scope, userId: string, row: RecordRow): boolean {

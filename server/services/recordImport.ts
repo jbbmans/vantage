@@ -19,6 +19,7 @@ import { withPersonnelNote } from './personnelRecords.ts';
 import { audit } from './audit.ts';
 import { attachmentPath } from './personalExport.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem, DATA_EXPORT_FORMATS } from '../../shared/dataTransfer.ts';
+import { DUTY_REVIEW_COLUMNS } from '../../shared/dutyReview.ts';
 import { parseDelimited, MAX_IMPORT_COLUMNS } from '../../shared/csv.ts';
 import { prefsSchema, profileSchema, readinessSchema, type RecordTable } from '../../shared/schemas.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
@@ -60,7 +61,9 @@ const NEVER_FROM_FILE = ['id', 'user_id', 'assignee_id', 'counselor_id', 'record
  * that gave it, its length and when it was submitted. The server works them out again under the importer's own Unit
  * Instance, and the duty comes in submitted for review.
  */
-const DUTY_FROM_SERVER = ['approval_status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_points', 'calculated_points', 'scoring_version', 'scoring_policy_id', 'scoring_basis', 'submitted_at', 'hours', 'days', 'overnight', 'multi_day'];
+const DUTY_FROM_SERVER = [...DUTY_REVIEW_COLUMNS, 'calculated_points', 'scoring_version', 'scoring_policy_id', 'scoring_basis', 'hours', 'days', 'overnight', 'multi_day'];
+/** A duty's review is never put back from a snapshot (ADR-0024): an undo restores what the duty says, not where it stands. */
+const DUTY_REVIEW_STATE = new Set<string>(DUTY_REVIEW_COLUMNS);
 
 // ——— The plan: what the person chose ———
 
@@ -230,6 +233,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   counted('audit_trail', 'Audit trail', doc.audit_trail, 'The trail is the service’s record of what happened; it is never written from a file.');
   counted('drafts', 'Drafts from financial cases', doc.drafts, 'Drafts belong to the cases they were worded from.');
   counted('record_moves', 'Record moves', doc.record_moves, 'Imported records start their own history here.');
+  counted('duty_reviews', 'Duty review history', doc.duty_reviews, 'A file never approves duty: imported duty comes in submitted for review, and the decisions made on it before stay in the export.');
 
   const attachments: AttachmentIn[] = [];
   for (const a of (Array.isArray(doc.attachments) ? doc.attachments : []) as Row[]) {
@@ -765,7 +769,8 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
     // (its fingerprint; an assignment a record made private lets go). The undo writes these back as they are.
     const after = stored();
     const before: Row = {};
-    for (const [k, v] of Object.entries(was)) if (k !== 'version' && k !== 'updated_at' && after[k] !== v) before[k] = v;
+    // A returned duty the file corrects went back for review with the correction: that is not the undo's to take back.
+    for (const [k, v] of Object.entries(was)) if (k !== 'version' && k !== 'updated_at' && after[k] !== v && !(table === 'duties' && DUTY_REVIEW_STATE.has(k))) before[k] = v;
     // Two rows of one file updating one record are one change to undo: what it said before the first, as of the last.
     const earlier = state.origins.find((o) => o.action === 'updated' && o.table === table && o.id === String(current.id));
     if (earlier) {

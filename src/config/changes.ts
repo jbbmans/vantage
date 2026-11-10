@@ -7,6 +7,19 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-10',
+    title: 'Duty is reviewed, and counts at its approved points',
+    items: [
+      'A reviewer approves, returns or rejects each duty. Returning or rejecting says why, and you read the reason on the duty.',
+      'A returned duty goes back for review when you save your correction. Open it from Records → Duty and choose Correct it.',
+      'Every duty shows two figures: calculated points, from your Unit Instance’s scoring, and approved points, which are what count. Nothing counts until it is approved.',
+      'Reviewers find the duty waiting for them under To review on the Duty page, the longest-waiting first. SNCOs and SNCOICs review duty by default; a Unit Manager or unit leader can give Review duty to any role.',
+      'Approved points apart from the calculated ones take the Override duty points permission and a written reason. The duty shows who set them and why.',
+      'Nobody decides their own duty by reviewing it. Approving your own takes a role that names Approve own duty, which someone else has to grant; no standard role has it, and leading a unit does not include it.',
+      'A decision can be reopened by a reviewer, with a reason. Every decision stays in the duty’s review history, and a new scoring version never changes points already calculated or approved.',
+    ],
+  },
+  {
     date: '2026-11-09',
     title: 'Duty has a record of its own',
     items: [

@@ -1312,8 +1312,9 @@ BEGIN SELECT RAISE(ABORT, 'duty scoring versions take effect in order: a new ver
 -- it was stood under (weekend and overnight worked out, the rest claimed by whoever recorded it). It is scored under the
 -- version in force on its first day, kept with it (scoring_policy_id, scoring_version, calculated_points and how they
 -- were reached, scoring_basis), so a later version never rescores it. recorded_by is whoever submitted it: the Marine,
--- or a leader recording it for them. The review columns are Task 18's: a duty is recorded as pending, and the checks
--- below keep a decision whole once there is one. The unit, type and version are one Unit Instance's (instanceBoundaryTriggers).
+-- or a leader recording it for them. A duty is recorded as pending and counts once a reviewer approves it (Task 18,
+-- ADR-0024): the review columns hold the decision in force, the checks below keep it whole, and duty_reviews holds every
+-- decision there has been. The unit, type and version are one Unit Instance's (instanceBoundaryTriggers).
 CREATE TABLE IF NOT EXISTS duties (
   id                TEXT PRIMARY KEY,
   user_id           TEXT NOT NULL REFERENCES users(id),
@@ -1348,6 +1349,12 @@ CREATE TABLE IF NOT EXISTS duties (
   deleted_at        TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
+  -- Approved points set apart from the calculated ones (Task 18, ADR-0024): why, by whom and when. Whole or absent, and
+  -- only on an approved duty. Last in the table, where migration 032 adds the three to a database that had the table
+  -- before them, with the same check.
+  points_override_reason TEXT,
+  points_overridden_by   TEXT REFERENCES users(id),
+  points_overridden_at   TEXT CHECK ((points_overridden_at IS NULL) = (points_overridden_by IS NULL) AND (points_overridden_at IS NULL) = (points_override_reason IS NULL) AND (points_overridden_at IS NULL OR approval_status = 'approved')),
   -- A decision names who made it and when; points are approved only on an approved duty; a return or rejection says why.
   CHECK (approval_status = 'pending' OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)),
   CHECK (approved_points IS NULL OR approval_status = 'approved'),
@@ -1359,6 +1366,43 @@ CREATE INDEX IF NOT EXISTS idx_duties_user ON duties(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_duties_unit ON duties(unit_id, visibility, date);
 CREATE INDEX IF NOT EXISTS idx_duties_type ON duties(duty_type_id);
 CREATE INDEX IF NOT EXISTS idx_duties_recorder ON duties(recorded_by);
+CREATE INDEX IF NOT EXISTS idx_duties_review ON duties(unit_id, approval_status, submitted_at);
+
+-- A duty's review history (Task 18, ADR-0024): each decision, each change to its approved points and each time it went
+-- back for review, with who did it, when, why, and the points as they stood: what the scoring gave and what counted
+-- after. Written with the change it records and kept as written; only its reason is ever changed, to the retention
+-- notice when a schedule anonymizes the duty. It goes when its duty is destroyed.
+CREATE TABLE IF NOT EXISTS duty_reviews (
+  id                TEXT PRIMARY KEY,
+  duty_id           TEXT NOT NULL REFERENCES duties(id) ON DELETE CASCADE,
+  -- The unit the duty stood in when this happened.
+  unit_id           TEXT NOT NULL REFERENCES units(id),
+  actor_id          TEXT NOT NULL REFERENCES users(id),
+  event             TEXT NOT NULL CHECK (event IN ('approved', 'returned', 'rejected', 'resubmitted', 'reopened', 'points_changed')),
+  from_status       TEXT NOT NULL CHECK (from_status IN ('pending', 'approved', 'returned', 'rejected')),
+  to_status         TEXT NOT NULL CHECK (to_status IN ('pending', 'approved', 'returned', 'rejected')),
+  reason            TEXT,
+  calculated_points REAL,
+  approved_points   REAL CHECK (approved_points IS NULL OR approved_points >= 0),
+  scoring_version   INTEGER,
+  -- Its approved points were set apart from the calculated ones here.
+  override          INTEGER NOT NULL DEFAULT 0 CHECK (override IN (0, 1)),
+  -- Its own Marine did it: a self-approval, or sending it back for review.
+  by_owner          INTEGER NOT NULL DEFAULT 0 CHECK (by_owner IN (0, 1)),
+  created_at        TEXT NOT NULL,
+  -- A return, a rejection, a reopening and a change of points say why, and so does an override at approval.
+  CHECK (event NOT IN ('returned', 'rejected', 'reopened', 'points_changed') OR reason IS NOT NULL),
+  CHECK (override = 0 OR reason IS NOT NULL),
+  -- Points count only on an approved duty, and an override is points.
+  CHECK (approved_points IS NULL OR to_status = 'approved'),
+  CHECK (override = 0 OR approved_points IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_duty_reviews_duty ON duty_reviews(duty_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_duty_reviews_actor ON duty_reviews(actor_id);
+CREATE TRIGGER IF NOT EXISTS duty_reviews_recorded BEFORE UPDATE OF id, duty_id, unit_id, actor_id, event, from_status, to_status, calculated_points, approved_points, scoring_version, override, by_owner, created_at ON duty_reviews FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a duty review is kept as it was written'); END;
+CREATE TRIGGER IF NOT EXISTS duty_reviews_reason_kept BEFORE UPDATE OF reason ON duty_reviews FOR EACH ROW WHEN NEW.reason IS NOT '[redacted under retention schedule]'
+BEGIN SELECT RAISE(ABORT, 'a duty review is kept as it was written'); END;
 
 -- Vantage support changing how somebody signs in when that account holds authority: one staff member asks, with a
 -- reason, and another approves before the change is made (ADR-0013). A request is used once, by the staff member who
