@@ -40,7 +40,7 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
   // Duty (ADR-0024). Reviewing reads nothing by itself: a reviewer also needs View shared records in the unit.
   { key: 'REVIEW_DUTY', label: 'Review duty', hint: 'Approve, return or reject duty Marines stood for the unit, and reopen a decision. Works with View shared records, which lets the reviewer read it. Never your own duty.', group: 'Duty' },
   { key: 'OVERRIDE_DUTY_POINTS', label: 'Override duty points', hint: 'Approve duty with points other than the scoring gives, or change approved points, each time with a written reason that is kept. Never your own duty.', group: 'Duty' },
-  { key: 'APPROVE_OWN_DUTY', label: 'Approve own duty', hint: 'Approve duty you stood yourself, at the points the scoring gives, with no second reviewer. It counts only when a role names it: leading a unit or holding full unit authority does not include it, and nobody grants it to themselves.', group: 'Duty', dangerous: true },
+  { key: 'APPROVE_OWN_DUTY', label: 'Approve own duty', hint: 'Approve duty you stood yourself, at the points the scoring gives, with no second reviewer. A role names it when the role is made, and it counts only for a Marine someone else granted that role: leading a unit or holding full unit authority does not include it, and nobody gives it to themselves.', group: 'Duty', dangerous: true },
   { key: 'VIEW_SUPPORT', label: 'Work the support queue', hint: 'Read and answer help requests, including sign-in trouble. Never shows the contents of anyone’s email.', group: 'Running the unit' },
   { key: 'MANAGE_MEMBERS', label: 'Manage members', hint: 'Invite Marines, enroll existing accounts, and move them between units.', group: 'Running the unit' },
   { key: 'MANAGE_ROLES', label: 'Manage roles', hint: 'Create roles and assign them. Only roles below your own.', group: 'Running the unit' },
@@ -53,10 +53,17 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((a, b) => a | b, 0);
 /**
  * Permissions that count only when a role the person holds names them (ADR-0024 §2; John, "role only"): leading a unit
- * and full unit authority do not include them, and nobody grants one to themselves. Approving your own duty is the one
- * there is: the specification asks for explicit self-approval authority.
+ * and full unit authority do not include them, and nobody grants one to themselves. A role names one when it is made,
+ * never afterwards, and it counts for a holder only when someone else granted them the role. Approving your own duty is
+ * the one there is: the specification asks for explicit self-approval authority.
  */
 export const NAMED_ONLY_BITS = PERMISSIONS.APPROVE_OWN_DUTY;
+/**
+ * Can this permission no longer be given to a role with these saved permissions? A role names such a permission when it
+ * is made: one that exists never gains it, so a role people already hold, or may be handed by a join code, an invitation
+ * or by joining the unit, does not become one. `saved` is null for a role being made.
+ */
+export const namedTooLate = (flag: number, saved: number | null | undefined) => saved != null && Boolean(flag & NAMED_ONLY_BITS) && !(saved & flag);
 /** What a Unit Leader holds by leading, and what full unit authority carries: every permission but those. */
 export const FULL_UNIT_AUTHORITY = ALL_PERMISSIONS & ~NAMED_ONLY_BITS;
 /** Do these bits carry the permission? Full unit authority carries every one except those a role must name. */

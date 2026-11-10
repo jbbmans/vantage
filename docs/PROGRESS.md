@@ -29,6 +29,8 @@ Duty is reviewed, and counts only once approved, at its approved points
   calculated points, takes a role that names Approve own duty. No standard role does, not even Unit Leader; full unit
   authority does not include it; and nobody gives it to themselves by any path (a role granted to oneself, a
   permission added to a role one holds, a role raised to reach the units beneath, one's own join code or invitation).
+  A role names it when the role is made and never afterwards, and it counts only from a role someone else granted,
+  never the default or Unit Leader role.
 - **No review ever rescores.** Approval copies the stored score. A scoring version published later changes nothing
   already recorded, calculated or approved, and the upgrade changes no duty.
 - **Every decision is kept.** `duty_reviews` holds each decision, change of points and resubmission with who, when,
@@ -43,6 +45,11 @@ Duty is reviewed, and counts only once approved, at its approved points
   back. Exports carry approved points beside calculated ones, and one's own copy carries the review history by name. A
   reviewed duty does not leave its Unit Instance and cannot be moved back to an activity. Anonymizing a duty redacts
   every reason and closes it to review; destroying it destroys its history.
+- **Found in review and fixed, each with a test that fails without the fix.** A leader above a unit who was not a
+  member of it could add Approve own duty to its default role and then join by their own join code; closed by the two
+  rules above. The retention notice typed as a duty's words closed that duty to review; it is now refused. The history
+  line of a correction held the score from before the correction. An approved duty with a reviewer's note was labelled
+  as rejected. Enter pressed twice in a decision's dialog sent it twice.
 
 ## What changed (2026-11-09: duty records)
 

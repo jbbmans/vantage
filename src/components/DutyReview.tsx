@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Check, CornerUpLeft, History, RotateCcw, Send, SlidersHorizontal, X } from 'lucide-react';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, Textarea } from '@/components/ui/primitives';
@@ -117,13 +117,18 @@ function AskDialog({ ask, row, onClose, onDone }: { ask: Ask; row: Duty; onClose
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
 
+  // One decision per answer: Enter in a field submits the form again while the first request is still out, and the
+  // second would come back as a duty that changed under its reviewer.
+  const sending = useRef(false);
   const submit = async () => {
+    if (sending.current) return;
     const found: Record<string, string> = {};
     if (!reason.trim()) found.reason = 'Required.';
     if (spec.withPoints && value.trim() === '') found.points = 'Required.';
     else if (spec.withPoints && overridePoints(value) == null) found.points = `A number from 0 to ${DUTY_REVIEW_LIMITS.points.toLocaleString('en-US')}.`;
     if (Object.keys(found).length) { setErrors(found); setProblem(null); return; }
     setErrors({}); setProblem(null);
+    sending.current = true;
     try {
       const saved = await decide.mutateAsync({ id: row.id, action: spec.action, version: row.version, reason: reason.trim(), ...(spec.withPoints ? { points: overridePoints(value) } : {}) });
       toast.success(spec.done);
@@ -134,6 +139,8 @@ function AskDialog({ ask, row, onClose, onDone }: { ask: Ask; row: Duty; onClose
       if (current) { toast.error(api.errorText(e)); onClose(); onDone?.(current); return; }
       setErrors((e instanceof api.ApiError && e.fieldErrors) || {});
       setProblem(e instanceof Error ? e.message : 'Request failed.');
+    } finally {
+      sending.current = false;
     }
   };
 

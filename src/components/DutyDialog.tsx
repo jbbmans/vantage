@@ -249,7 +249,7 @@ export function DutyDetail({ row: r, me }: { row: Duty; me?: string }) {
         ['Submitted', r.submitted_at ? formatStamp(r.submitted_at) : null],
         ['Reviewed by', r.reviewed_by && r.reviewed_by === me ? 'You' : r.reviewer_name || null],
         ['Reviewed', r.reviewed_at ? formatStamp(r.reviewed_at) : null],
-        [r.approval_status === 'returned' ? 'Why it was returned' : 'Why it was rejected', r.review_reason ? <span className="whitespace-pre-wrap">{r.review_reason}</span> : null],
+        [r.approval_status === 'returned' ? 'Why it was returned' : r.approval_status === 'rejected' ? 'Why it was rejected' : 'Reviewer’s note', r.review_reason ? <span className="whitespace-pre-wrap">{r.review_reason}</span> : null],
         ['Notes', r.notes ? <span className="whitespace-pre-wrap">{r.notes}</span> : null],
       ]} />
       {r.user_id === me && r.recorded_by && r.recorded_by !== r.user_id && <p className="text-xs text-ink-3">{r.recorder_name || 'A leader'} recorded this duty for you, so only they or a records manager can change it. Ask them if something needs correcting.</p>}

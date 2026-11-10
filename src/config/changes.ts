@@ -15,7 +15,7 @@ export const CHANGES: Change[] = [
       'Every duty shows two figures: calculated points, from your Unit Instance’s scoring, and approved points, which are what count. Nothing counts until it is approved.',
       'Reviewers find the duty waiting for them under To review on the Duty page, the longest-waiting first. SNCOs and SNCOICs review duty by default; a Unit Manager or unit leader can give Review duty to any role.',
       'Approved points apart from the calculated ones take the Override duty points permission and a written reason. The duty shows who set them and why.',
-      'Nobody decides their own duty by reviewing it. Approving your own takes a role that names Approve own duty, which someone else has to grant; no standard role has it, and leading a unit does not include it.',
+      'Nobody decides their own duty by reviewing it. Approving your own takes a role that names Approve own duty, which someone else has to grant; no standard role has it, and leading a unit does not include it. A role names it when the role is made: it cannot be added to a role that already exists.',
       'A decision can be reopened by a reviewer, with a reason. Every decision stays in the duty’s review history, and a new scoring version never changes points already calculated or approved.',
     ],
   },

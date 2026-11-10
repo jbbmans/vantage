@@ -15,7 +15,7 @@ import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
-import { listPermissions, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Duty, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
@@ -352,6 +352,13 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   if (holds) {
     guardSelfNamed(req.user, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
     if (role.position === 0 && def.position > 0) guardSelfNamed(req.user, def.permissions, req.user.id, `Raising ${role.name}, which you hold, so that it reaches the units beneath`);
+  }
+  // Nor anybody's to add to a role that exists. A role names it when it is made, so whoever holds the role, or is handed
+  // it later by a join code, an invitation, a move or by joining the unit, was given it as it stood: nobody who can edit
+  // a role turns one they may yet be handed into approving their own duty, and no standard role ever names it. A role
+  // can lose it, and does not get it back.
+  if (def.permissions & ~role.permissions & NAMED_ONLY_BITS) {
+    throw forbidden('Approve own duty is named when a role is made, never added to one that exists. Make a new role that names it; someone else grants it to each Marine who needs it.', 'named_when_made');
   }
   // So is widening one that an account you created or invited holds, before it has signed in as its own (ADR-0013).
   const widened = def.permissions & ~role.permissions & RECORD_READING_BITS;

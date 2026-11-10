@@ -90,6 +90,17 @@ const parsedBasis = (v: unknown) => { try { return typeof v === 'string' ? JSON.
 export const isAnonymizedDuty = (r: { title?: unknown; notes?: unknown; location?: unknown }) => r.notes === REDACTED || r.title === REDACTED || r.location === REDACTED;
 
 /**
+ * Only a retention schedule leaves that marker in a duty's words. A duty that carries it names nobody and is closed to
+ * review (ADR-0024 §7), so one saved with it by hand, a form's or a file's, would wait unseen by every reviewer: the
+ * words a person gives a duty are never the marker. `data` is what a save sets.
+ */
+export function assertDutyWords(data: Row): void {
+  const fieldErrors: Record<string, string> = {};
+  for (const field of ['title', 'location', 'notes']) if (typeof data[field] === 'string' && (data[field] as string).trim() === REDACTED) fieldErrors[field] = 'Say this another way.';
+  if (Object.keys(fieldErrors).length) throw badRequest('That wording is what Vantage leaves in place of a duty’s words when a retention schedule clears them. Say it another way.', { fieldErrors });
+}
+
+/**
  * What the reader may do to a duty's review, as it stands (ADR-0024 §3): the one rule the review route enforces and
  * every read sends with the duty, so a page offers the decisions the server will take. A duty a retention schedule
  * anonymized is closed: its words are gone, and it stays as it was decided.

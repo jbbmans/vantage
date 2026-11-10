@@ -191,7 +191,8 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   ones, and any other figure is an **override** (Override duty points, with a reason, at approval or afterwards). No
   review scores a duty again. Nobody decides their own duty; approving one's own, at its calculated points, takes a
   role that names **Approve own duty**, which no standard role and no full unit authority holds and nobody grants
-  themselves. Every decision, change of points and resubmission is a row of `duty_reviews`, never rewritten, in its
+  themselves: a role names it when the role is made, and it counts only for a Marine someone else granted that role.
+  Every decision, change of points and resubmission is a row of `duty_reviews`, never rewritten, in its
   duty's Unit Instance, and gone only with its duty.
 - **A move** between activities, awards and training, or from an activity to duty, is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and

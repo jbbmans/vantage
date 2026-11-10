@@ -117,12 +117,15 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   it is frozen, takes Approve own duty, a named-only permission: no standard role carries it, a unit's leader and
   full unit authority do not include it (`FULL_UNIT_AUTHORITY`, `has()`), and nobody gives it to themselves by a role
   granted to oneself, a permission added to a role one holds, a role raised to reach the units beneath, or one's own
-  join code or invitation (`self_grant`). A decision carries the duty's version and is refused if the duty changed
+  join code or invitation (`self_grant`). A role names it when the role is made and never afterwards
+  (`named_when_made`), so nobody edits a role they may yet be handed into approving their own duty; and it counts only
+  from a role someone else granted (`grantedByAnother`, read in `scopeFor`), never the unit's default or Unit Leader
+  role, so a grant row written by any other path confers nothing. A decision carries the duty's version and is refused if the duty changed
   (`stale`). No review scores a duty again. Each decision is written with its `duty_reviews` row and its audit entry
   in one transaction; the history is never rewritten (triggers), stays in its duty's Unit Instance, and a reviewed
   duty does not leave that instance or move back to an activity. Reasons are kept on the duty and its history, never
   in the audit trail or a notification, so a retention schedule can clear them; an anonymized duty is closed to
-  review. A file never brings a review in, and an import's undo never restores one.
+  review, and nobody may type the retention notice as a duty's words to close their own. A file never brings a review in, and an import's undo never restores one.
 - **Exports are audited and minimal.** The roster CSV carries names, ranks, units, billets and roles, never
   EDIPI, email or records (`organization_roster_exported`); a username made from a card, which is the
   EDIPI, is left blank, and the instance's audit pages, search and export leave it out too. The audit export is filtered, refused above

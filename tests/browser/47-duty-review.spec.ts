@@ -47,7 +47,7 @@ async function stand(page: Page, code: string, title: string, offset: number) {
   expect(res.ok(), await res.text()).toBeTruthy();
   const body = await res.json();
   expect(body.calculated_points, 'scored under the version in force').toBe(3);
-  return body as { id: string };
+  return body as { id: string; version: number };
 }
 
 test('a reviewer approves, returns and rejects duty waiting for review; the Marine corrects what was returned; points apart from the calculated ones take a reason', async ({ page, browser }) => {
@@ -139,13 +139,13 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await mineB.getByRole('button', { name: 'View' }).click();
   const returned = page.getByRole('dialog', { name: B });
   await expect(returned).toContainText('Give the time you were relieved, not the scheduled end.');
-  await expect(returned.getByRole('region', { name: 'Review history' })).toContainText('Returned for correction by Cpl Boletz');
+  await expect(returned.getByRole('region', { name: 'Review history' })).toContainText(/Returned for correction by (\S+ )?Boletz/);
   const itsReview = returned.getByRole('region', { name: 'Its review' });
   await expect(itsReview.getByRole('button', { name: 'Send back as it is' })).toBeVisible();
   expect(await axe(page), 'a returned duty').toEqual([]);
   await itsReview.getByRole('button', { name: 'Correct it' }).click();
   const correcting = page.getByRole('dialog', { name: 'Correct this duty' });
-  await expect(correcting.getByRole('region', { name: /Returned for correction by Cpl Boletz/ })).toContainText('Give the time you were relieved');
+  await expect(correcting.getByRole('region', { name: /Returned for correction by (\S+ )?Boletz/ })).toContainText('Give the time you were relieved');
   await correcting.getByLabel('End time').fill('1700');
   expect(await axe(page), 'the correction form').toEqual([]);
   await correcting.getByRole('button', { name: 'Save and send back' }).click();
@@ -194,7 +194,7 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await expect(approvedB).toContainText('override');
   await approvedB.getByRole('button', { name: 'View' }).click();
   const final = page.getByRole('dialog', { name: B });
-  await expect(final).toContainText('set apart from the calculated points by Cpl Boletz');
+  await expect(final).toContainText(/set apart from the calculated points by (\S+ )?Boletz/);
   await expect(final).toContainText('One hour of it was on the roster.');
   await expect(final).toContainText('stays as it was decided unless a reviewer reopens it');
   await expect(final.getByRole('button', { name: /Edit|Correct|Approve|Reopen|Change points/ })).toHaveCount(0);
@@ -216,6 +216,18 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await expect(lead.page.getByRole('row').filter({ hasText: `Later ${tag}` })).toContainText('Approved');
   expect(await axe(lead.page), 'the Marine’s duty tab').toEqual([]);
   expect(extra.id).toBeTruthy();
+
+  // An approval that carries a note shows it as the reviewer's note, never as a reason it was rejected.
+  const noted = await stand(page, 'DNCO', `Noted ${tag}`, 8);
+  const note = await lead.page.request.post(`/api/records/duties/${noted.id}/review`, { headers: H, data: { action: 'approve', reason: 'Relieved on time.', version: noted.version } });
+  expect(note.ok(), await note.text()).toBeTruthy();
+  await page.goto('/record/duty');
+  await page.getByRole('row').filter({ hasText: `Noted ${tag}` }).getByRole('button', { name: 'View' }).click();
+  const notedView = page.getByRole('dialog', { name: `Noted ${tag}` });
+  await expect(notedView).toContainText('Reviewer’s note');
+  await expect(notedView).toContainText('Relieved on time.');
+  await expect(notedView).not.toContainText('Why it was rejected');
+  await closeDialogs(page);
 
   // A phone: the queue and a decision fit.
   await stand(page, 'SAF', `Phone ${tag}`, 7);
@@ -258,9 +270,22 @@ test('nobody decides their own duty by reviewing; a role that names Approve own 
   const editor = lead.page.getByRole('dialog', { name: 'New role' });
   const dutyGroup = editor.getByRole('group', { name: 'Duty' });
   for (const name of [/^Review duty/, /^Override duty points/, /^Approve own duty/]) await expect(dutyGroup.getByRole('checkbox', { name })).toBeVisible();
-  await expect(dutyGroup).toContainText('nobody grants it to themselves');
+  await expect(dutyGroup).toContainText('nobody gives it to themselves');
+  await expect(dutyGroup.getByRole('checkbox', { name: /^Approve own duty/ })).toBeEnabled();
   expect(await axe(lead.page), 'the role editor').toEqual([]);
   await closeDialogs(lead.page);
+  // A role names it when it is made. One that exists never gains it, a standard role included: the box is closed there.
+  await lead.page.getByRole('article').filter({ has: lead.page.getByRole('heading', { name: 'SNCO', exact: true }) }).getByRole('button', { name: 'Edit' }).click();
+  const existing = lead.page.getByRole('dialog', { name: 'Edit SNCO' }).getByRole('group', { name: 'Duty' });
+  await expect(existing.getByRole('checkbox', { name: /^Approve own duty/ })).toBeDisabled();
+  await expect(existing.getByRole('checkbox', { name: /^Review duty/ })).toBeEnabled();
+  await expect(existing).toContainText('Not for a role that exists. Make a new role that names it.');
+  expect(await axe(lead.page), 'the role editor on a role that exists').toEqual([]);
+  await closeDialogs(lead.page);
+  const snco = (await (await lead.page.request.get('/api/org/roles')).json()).roles.find((r: { id: string }) => r.id === 'G8:snco') as { permissions: number };
+  const late = await lead.page.request.put('/api/org/roles/G8:snco', { headers: H, data: { permissions: snco.permissions | APPROVE_OWN_DUTY } });
+  expect(late.status()).toBe(403);
+  expect((await late.json()).code).toBe('named_when_made');
 
   // The Unit Leader defines a role that names it, and cannot take it; another Marine can be given it.
   const role = await lead.page.request.post('/api/org/roles', { headers: H, data: { unit_id: 'G8', name: `Duty self-approval ${tag}`, position: 0, permissions: VIEW_UNIT | APPROVE_OWN_DUTY } });

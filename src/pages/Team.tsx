@@ -13,7 +13,7 @@ import { DateText, Table, useParam } from '@/components/common';
 import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
-import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
+import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDate, formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays } from '@/lib/utils';
@@ -426,6 +426,8 @@ function Roles({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string) 
   };
   const togglePerm = (bit: number) => setEditing((e: any) => ({ ...e, permissions: e.permissions & bit ? e.permissions & ~bit : e.permissions | bit }));
   const groups = [...new Set(PERMISSION_LIST.map((p) => p.group))];
+  // What the role being edited names now, as saved: a permission a role must name is settled when the role is made.
+  const saved = editing?.id ? roles.find((r) => r.id === editing.id)?.permissions ?? null : null;
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Roles in <strong className="text-ink">{unitLabel(unitId)}</strong>. Permissions apply in this unit and the units beneath it, never above it. You can only manage roles below your own position ({myPosition}).</p><Button variant="primary" onClick={() => setEditing({ name: '', description: '', color: '#6b7a8f', position: Math.max(0, myPosition - 10), permissions: ROLE_TEMPLATE[1].permissions })}><Shield className="h-4 w-4" />New role</Button></div>
@@ -447,7 +449,7 @@ function Roles({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string) 
             <div className="grid grid-cols-[1fr_auto_auto] gap-3"><Field label="Name" required><Input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} disabled={editing.key === 'unit-leader' || editing.is_default} /></Field><Field label="Position" hint="0-99"><Input type="number" min={0} max={99} className="w-20" value={editing.position} onChange={(e) => setEditing({ ...editing, position: e.target.value })} /></Field><Field label="Color"><input type="color" className="h-9 w-12 cursor-pointer rounded-md border border-line bg-surface" value={editing.color || '#6b7a8f'} onChange={(e) => setEditing({ ...editing, color: e.target.value })} aria-label="Role color" /></Field></div>
             <Field label="Description"><Textarea rows={2} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
             <div className="flex flex-wrap gap-1.5"><span className="text-xs text-ink-3">Start from:</span>{ROLE_TEMPLATE.filter((t) => !t.owner).map((t) => <button key={t.key} type="button" className="rounded-full border border-line px-2 py-0.5 text-2xs hover:border-line-strong" onClick={() => setEditing({ ...editing, permissions: t.permissions })}>{t.name}</button>)}</div>
-            {groups.map((g) => <fieldset key={g}><legend className="eyebrow mb-1.5">{g}</legend><div className="space-y-1">{PERMISSION_LIST.filter((p) => p.group === g).map((p) => <label key={p.key} className={cn('flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2', p.dangerous && 'border border-bad/30')}><input type="checkbox" className="mt-1" checked={Boolean(editing.permissions & PERMISSIONS[p.key])} onChange={() => togglePerm(PERMISSIONS[p.key])} /><span><span className="block text-sm font-medium text-ink">{p.label}</span><span className="block text-xs text-ink-3">{p.hint}</span></span></label>)}</div></fieldset>)}
+            {groups.map((g) => <fieldset key={g}><legend className="eyebrow mb-1.5">{g}</legend><div className="space-y-1">{PERMISSION_LIST.filter((p) => p.group === g).map((p) => { const late = namedTooLate(PERMISSIONS[p.key], saved); return <label key={p.key} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5', late ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-2', p.dangerous && 'border border-bad/30')}><input type="checkbox" className="mt-1" checked={Boolean(editing.permissions & PERMISSIONS[p.key])} disabled={late} onChange={() => togglePerm(PERMISSIONS[p.key])} /><span><span className="block text-sm font-medium text-ink">{p.label}</span><span className="block text-xs text-ink-3">{p.hint}</span>{late && <span className="block text-xs text-ink-2">Not for a role that exists. Make a new role that names it.</span>}</span></label>; })}</div></fieldset>)}
           </div>
         )}
       </Dialog>

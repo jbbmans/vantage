@@ -9,7 +9,7 @@ import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
 import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/timeframe.ts';
 import { periodClause } from './timeframes.ts';
-import { assertDutyOpen, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
+import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
@@ -374,6 +374,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
   checkProjectLink(ctx, scope, user.id, table, (data.project_id as string | null | undefined) ?? null, null, unitId, false);
+  if (table === 'duties') assertDutyWords(data);
   const derived = table === 'duties' ? dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true }) : null;
   if (derived) data.conditions = derived.conditions;
 
@@ -471,6 +472,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // A duty is worked out again, and scored under the version in force on its (new) first day, when what it is scored by
   // changes; otherwise it keeps the score it has (ADR-0023).
   const given = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  if (table === 'duties') assertDutyWords(given);
   const derived = table === 'duties' && (rescoresDuty(row as Record<string, unknown>, given) || scopeChanged)
     ? dutyColumns(ctx, { ...row, ...given, unit_id: finalUnit }, { typeChanged: given.duty_type_id !== undefined && given.duty_type_id !== row.duty_type_id })
     : null;

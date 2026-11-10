@@ -12,7 +12,7 @@ import * as api from '@/lib/api';
 import { cn, formatStamp, humanize, isoDay } from '@/lib/utils';
 import { endOfDay, personName, type OrgMember, type OrgSummary, type OrgUnit } from '@/lib/tenancy';
 import { ECHELONS } from '../../shared/constants';
-import { PERMISSIONS, PERMISSION_LIST, RECORD_READING_BITS, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
+import { PERMISSIONS, PERMISSION_LIST, RECORD_READING_BITS, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
 import { TEAM_ECHELONS, type Billet, type DutyType, type TrainingRequirement, type UnitSettings } from '../../shared/unitConfig';
 import { formatDate, type PeriodKey } from '../../shared/metrics';
 import type { ErrorReportType } from '../../shared/errorReports';
@@ -362,12 +362,16 @@ export function UnitRoles({ org }: { org: OrgSummary }) {
             <Field label="Description"><Textarea rows={2} maxLength={300} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
             <div className="flex flex-wrap gap-1.5"><span className="text-xs text-ink-3">Start from:</span>{ROLE_TEMPLATE.filter((t) => !t.owner).map((t) => <button key={t.key} type="button" className="rounded-full border border-line px-2 py-0.5 text-2xs hover:border-line-strong" onClick={() => setEditing({ ...editing, permissions: t.permissions })}>{t.name}</button>)}</div>
             {groups.map((g) => (
-              <fieldset key={g}><legend className="eyebrow mb-1.5">{g}</legend><div className="space-y-1">{PERMISSION_LIST.filter((p) => p.group === g).map((p) => (
-                <label key={p.key} className={cn('flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2', p.dangerous && 'border border-bad/30')}>
-                  <input type="checkbox" className="mt-1" checked={Boolean(editing.permissions & PERMISSIONS[p.key])} onChange={() => toggle(PERMISSIONS[p.key])} />
-                  <span><span className="block text-sm font-medium text-ink">{p.label}{PERMISSIONS[p.key] & RECORD_READING_BITS ? <span className="ml-1 text-2xs font-normal text-warn">reads records</span> : null}</span><span className="block text-xs text-ink-3">{p.hint}</span></span>
-                </label>
-              ))}</div></fieldset>
+              <fieldset key={g}><legend className="eyebrow mb-1.5">{g}</legend><div className="space-y-1">{PERMISSION_LIST.filter((p) => p.group === g).map((p) => {
+                // What the role names now, as saved: a permission a role must name is settled when the role is made.
+                const late = namedTooLate(PERMISSIONS[p.key], editing.id ? data.roles.find((r) => r.id === editing.id)?.permissions ?? null : null);
+                return (
+                  <label key={p.key} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5', late ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-2', p.dangerous && 'border border-bad/30')}>
+                    <input type="checkbox" className="mt-1" checked={Boolean(editing.permissions & PERMISSIONS[p.key])} disabled={late} onChange={() => toggle(PERMISSIONS[p.key])} />
+                    <span><span className="block text-sm font-medium text-ink">{p.label}{PERMISSIONS[p.key] & RECORD_READING_BITS ? <span className="ml-1 text-2xs font-normal text-warn">reads records</span> : null}</span><span className="block text-xs text-ink-3">{p.hint}</span>{late && <span className="block text-xs text-ink-2">Not for a role that exists. Make a new role that names it.</span>}</span>
+                  </label>
+                );
+              })}</div></fieldset>
             ))}
           </div>
         )}

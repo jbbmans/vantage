@@ -10,7 +10,7 @@ import { orgOfUnit, sameInstance, scopeFor } from '../authz/scope.ts';
 import { assertFileableProject, canPlace, canPlaceOwnDuty, recordedByOther, type RecordRow } from '../authz/records.ts';
 import { TABLES, activityFingerprint, assertCarriesNothingAcross, checkTimeframe, getRecord, mayLeaveInstance, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
-import { dutyColumns, dutyCandidates } from './duties.ts';
+import { assertDutyWords, dutyColumns, dutyCandidates } from './duties.ts';
 import { audit } from './audit.ts';
 import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
@@ -316,6 +316,7 @@ function moveToDuty(ctx: AppContext, user: SessionUser, id: string, input: z.inf
   if (mayLeaveInstance(ctx, (row.unit_id as string | null) ?? null, unitId)) assertCarriesNothingAcross(ctx, 'activities', row as unknown as RecordRow, unitId);
   const data = parse(RECORD_SCHEMAS.duties as never, { ...dutyFromActivity(row), ...corrections }) as Record<string, unknown>;
   checkTimeframe('duties', data);
+  assertDutyWords(data);
   const derived = dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true });
   const at = now();
   const toId = newId();

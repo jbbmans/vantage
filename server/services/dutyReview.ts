@@ -217,8 +217,12 @@ export function reviewDuty(ctx: AppContext, user: SessionUser, id: string, body:
  */
 export const RESUBMIT_SETS = ["approval_status = 'pending'", 'reviewed_by = NULL', 'reviewed_at = NULL', 'review_reason = NULL', 'submitted_at = ?'] as const;
 export function resubmittedByCorrection(ctx: AppContext, user: SessionUser, before: Row & RecordRow, unitId: string, at: string, ip?: string) {
+  // `before` is the duty as it was returned: its reviewer, who is told, is no longer on the row. Its score is read back
+  // from the row the correction just wrote, because a correction to its times, type, conditions or unit scores it again
+  // (ADR-0023 §3) and the line of history says what it waits at now.
   const row = before as DutyRow;
-  recordDutyReview(ctx, { duty: row, unitId, actorId: user.id, event: 'resubmitted', from: 'returned', to: 'pending', at });
+  const scored = dutyRow(ctx, String(row.id)) ?? row;
+  recordDutyReview(ctx, { duty: { id: row.id, user_id: row.user_id, calculated_points: scored.calculated_points, scoring_version: scored.scoring_version }, unitId, actorId: user.id, event: 'resubmitted', from: 'returned', to: 'pending', at });
   audit(ctx, { actor_id: user.id, action: 'duty_resubmitted', entity: 'duties', entity_id: row.id, subject_id: row.user_id === user.id ? null : row.user_id, unit_id: unitId, detail: 'after a return; corrected', ip });
   return () => tell(ctx, user, row, 'resubmitted', { version: Number(row.version) });
 }

@@ -86,10 +86,21 @@ what it did, and an instance archive from before 032 gets the same when it is im
   it reaches the units beneath, or by one's own join code or invitation (`guardSelfReach`). This holds for a Unit Leader
   and a Unit Manager as for anyone;
 - someone without full authority over the unit cannot put it in a role or hand such a role out unless they hold it
-  (the existing delegation rule, code `delegation`).
+  (the existing delegation rule, code `delegation`);
+- **a role names it when the role is made, never afterwards** (`PUT /api/org/roles/:id`, 403 `named_when_made`). The
+  guards above ask who holds a role today. They could not see someone who edits a role now and is handed it later: a
+  leader above a unit, not a member of it, could add the permission to its default role and then join by their own
+  join code. So no existing role gains it, the standard roles included, whoever asks. A role can lose it and does not
+  get it back; a unit that wants it makes a new role, and both role editors say so and keep the box closed;
+- **it counts only from a role someone else granted** (`grantedByAnother` in `server/authz/scope.ts`, read by
+  `scopeFor`). Whatever a role's row says, the permission is dropped at read time unless the holder's `member_roles`
+  row records a grantor who is not the holder, and the role is neither the unit's default role nor its Unit Leader
+  role (which are handed out by joining and by leading, not by a grant). This is the last line: a row written by a
+  path nobody thought of confers nothing.
 
-So the only way to hold it is for someone else, with authority over the unit's roles, to grant a role that names it,
-and that grant is in the audit trail with who gave it.
+So the only way to hold it is for someone else, with authority over the unit's roles, to grant a role that was made
+naming it, and that grant is in the audit trail with who gave it. One effect to know: a role put back by the roster
+feed's restore carries no grantor, so a restored Marine's self-approval lapses until someone grants the role again.
 
 ### 3. One rule for who may do what
 
@@ -118,8 +129,8 @@ names Review duty without View shared records reviews nothing: nobody decides wh
 - **Submit.** Recording a duty submits it (`pending`, `submitted_at`), as ADR-0023 wrote it.
 - **Approve.** `approved`, with `reviewed_by`, `reviewed_at` and `approved_points`.
 - **Return**, with a reason. `returned`. Its Marine (or whoever recorded it for them, or a records manager) corrects it;
-  saving the correction sets it `pending` again in the same update, with a fresh `submitted_at`. It can also be sent
-  back as it is (`resubmit`). A duty frozen because its Marine left the unit cannot be returned, since nobody could
+  saving the correction sets it `pending` again in the same update, with a fresh `submitted_at`, and its history line
+  holds the score the correction gave it. It can also be sent back as it is (`resubmit`). A duty frozen because its Marine left the unit cannot be returned, since nobody could
   correct it: it is approved or rejected.
 - **Reject**, with a reason. `rejected`. It counts for nothing and stays as decided.
 - **Reopen**, with a reason. A reviewer takes back an approval, a rejection or a return; the duty waits again and any
@@ -187,7 +198,10 @@ approved. Migration 032 changes no duty's status, points or version.
   archive carries `duty_reviews` after `duties`.
 - **Retention.** Anonymizing a duty redacts the reason its points were set apart and every reason in its history, with
   its other words; who decided, when and the points stay, as its score does, and nobody is named on a read of it. An
-  anonymized duty is closed to review (`duty_anonymized`). Destroying a duty destroys its history.
+  anonymized duty is closed to review (`duty_anonymized`). A duty is known to be anonymized by the notice left in place
+  of its words, so nobody may type that notice as a duty's title, location or notes (`assertDutyWords`, 400, on
+  create, edit, import and a move from an activity): otherwise a Marine could close their own duty to review.
+  Destroying a duty destroys its history.
 
 ### 8. Where it shows
 
@@ -199,11 +213,16 @@ approved. Migration 032 changes no duty's status, points or version.
 - **A Marine's page**: the same decisions and history on the Duty tab.
 - **Duty report**: Approved points and an Override column, approved counts and points in the summary, and the by-Marine
   tally ranked by what counts.
-- **Role editors** (Personnel → Roles, and the console): the three permissions under Duty.
+- **Role editors** (Personnel → Roles, and the console): the three permissions under Duty. Approve own duty can be
+  ticked on a new role only; on a role that exists and lacks it the box is closed, with why.
 
 ## Decided, and defaults John can change
 
 - Self-approval is by named role only (John, 2026-11-10).
+- A default John can change: an existing role never gains Approve own duty, so a unit makes a new role for it and
+  someone else grants that role to each Marine. Allowing it on an existing role would reopen the path described in §2
+  unless every later way of being handed that role is checked as well.
+- A default John can change: self-approval restored by the roster feed lapses until the role is granted again.
 - One permission covers approve, return, reject and reopen. Splitting them would need a second decision from John.
 - SNCO and SNCOIC review by default; the SNCOIC may override. A unit can move either permission to any role.
 - Reviewers are not notified of each submission; the queue and its count on the Duty page show what waits.

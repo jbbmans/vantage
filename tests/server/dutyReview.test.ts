@@ -7,7 +7,7 @@ import { dutyReviewAuthority, dutyReviewUnits } from '../../server/authz/records
 import { scopeFor, type Scope } from '../../server/authz/scope.ts';
 import { guardSelfNamed, guardSelfReach } from '../../server/services/org.ts';
 import { instanceBoundaryViolations } from '../../server/db/index.ts';
-import { exportInstance } from '../../server/services/exports.ts';
+import { exportInstance, importInstance } from '../../server/services/exports.ts';
 import { saveSchedule, runDisposition } from '../../server/services/retention.ts';
 import { REDACTED } from '../../shared/constants.ts';
 import type { SessionUser } from '../../server/context.ts';
@@ -359,6 +359,44 @@ test('returned with a reason, a duty is corrected and goes back for review by it
 // ---------------------------------------------------------------------------------------------------------------------
 // Who may decide
 
+test('a correction that scores a returned duty again sends it back at its new score, and its history says so', async () => {
+  const d = await recorded(reyes.token, { title: 'Recorded on the wrong day' });
+  assert.equal(d.calculated_points, 3);
+  const returned = await decide(nguyen.token, d.id, 'return', { reason: 'It was the Saturday.' });
+  // 9 May 2026 is a Saturday: version 1 gives a weekend duty half as much again.
+  const fixed = await put(reyes.token, `/api/records/duties/${d.id}`, { date: '2026-05-09', end_date: '2026-05-09', version: returned.version });
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+  assert.deepEqual([fixed.body.approval_status, fixed.body.calculated_points, fixed.body.scoring_version, fixed.body.approved_points], ['pending', 4.5, 1, null]);
+  assert.deepEqual(historyOf(d.id).map((h) => [h.event, h.calculated_points, h.scoring_version]), [['returned', 3, 1], ['resubmitted', 4.5, 1]], 'the line says what it waits at now');
+  // The reviewer whose return it answers is told, though the corrected duty no longer names them.
+  assert.ok(notesFor(nguyen.id, d.id).some((n) => /sent back for review/i.test(n.title)), JSON.stringify(notesFor(nguyen.id, d.id).map((n) => n.title)));
+  const approved = await decide(nguyen.token, d.id, 'approve');
+  assert.deepEqual([approved.approved_points, approved.calculated_points], [4.5, 4.5]);
+});
+
+test('a duty’s words are never the marker a retention schedule leaves, so nobody closes their own duty to review by typing it', async () => {
+  for (const field of ['title', 'location', 'notes']) {
+    const res = await post(reyes.token, '/api/records/duties', duty({ [field]: REDACTED }));
+    assert.equal(res.status, 400, `${field}: ${JSON.stringify(res.body)}`);
+    assert.deepEqual(Object.keys(res.body.fieldErrors), [field]);
+  }
+  const d = await recorded(reyes.token, { title: 'Words of its own', notes: 'As stood.' });
+  const edited = await put(reyes.token, `/api/records/duties/${d.id}`, { notes: ` ${REDACTED} `, version: d.version });
+  assert.equal(edited.status, 400, JSON.stringify(edited.body));
+  assert.equal(edited.body.fieldErrors.notes, 'Say this another way.');
+  assert.equal(rowOf('duties', d.id)!.notes, 'As stood.');
+  // So it stays where its reviewers see it and can decide it.
+  const queue = await get(nguyen.token, '/api/record/duty/review-queue');
+  assert.ok(queue.body.items.some((i: Record<string, any>) => i.id === d.id));
+  assert.equal((await decide(nguyen.token, d.id, 'approve')).approval_status, 'approved');
+  // An activity moved to Duty brings its own words, and the same holds for them.
+  const activity = await post(reyes.token, '/api/records/activities', { title: REDACTED, date: '2026-05-13', category: 'Operations', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(activity.status, 201, JSON.stringify(activity.body));
+  const moved = await post(reyes.token, `/api/records/activities/${activity.body.id}/move`, { to: 'duties', fields: { duty_type_id: T.dnco, start_time: '0800', end_time: '1600' } });
+  assert.equal(moved.status, 400, JSON.stringify(moved.body));
+  assert.equal(moved.body.fieldErrors.title, 'Say this another way.');
+});
+
 test('only a reviewer of its unit decides a duty: not a reader, not a Marine who cannot open it, not another Unit Instance, and never by a field of the request', async () => {
   const d = await recorded(reyes.token, { title: 'Guarded' });
   const body = { action: 'approve', version: d.version };
@@ -507,6 +545,100 @@ test('approving your own duty takes a role that names it, which someone else gra
   okafor.token = await login('rvokafor');
   const after_ = await recorded(okafor.token, { title: 'After the role was removed' });
   assert.equal((await review(okafor.token, after_.id, { action: 'approve', version: after_.version })).body.code, 'duty_own_review');
+});
+
+test('a role names approving your own duty when it is made, never afterwards, and it counts only from a role someone else granted', async () => {
+  const BIT = PERMISSIONS.APPROVE_OWN_DUTY;
+  const permissionsOf = (id: string) => (rowOf('roles', id)!.permissions as number);
+  const mayApproveOwn = async (token: string, id: string) => (await get(token, `/api/records/duties/${id}`)).body.review.approve as boolean;
+
+  // Found in review (2026-11-10): a leader above a unit, who is not in it and so holds none of its roles, put the
+  // permission in its default role and then joined with a join code of their own, which hands out that role.
+  // The SNCOIC makes the cell and leads it; G-8's leader has full authority over it from above.
+  const cell = await post(top.token, '/api/org/units', { name: 'Self-approval Cell', code: 'G8SA', parent_id: 'G8' });
+  assert.equal(cell.status, 201, JSON.stringify(cell.body));
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = 'G8SA'").get(op.id), undefined, 'the leader above is not a member of the cell');
+  const marine = rowOf('roles', 'G8SA:marine')!;
+  assert.equal(marine.is_default, 1);
+  const widened = await put(op.token, '/api/org/roles/G8SA:marine', { permissions: marine.permissions | BIT });
+  assert.equal(widened.status, 403, JSON.stringify(widened.body));
+  assert.equal(widened.body.code, 'named_when_made');
+  assert.match(widened.body.error, /named when a role is made/);
+  assert.equal(permissionsOf('G8SA:marine'), marine.permissions);
+
+  // No role that exists gains it, whoever asks and whether or not they hold it: not a standard role, not one a unit made.
+  for (const id of ['G8SA:snco', 'G8SA:sncoic', 'G8:snco']) {
+    const was = permissionsOf(id);
+    const res = await put(op.token, `/api/org/roles/${encodeURIComponent(id)}`, { permissions: was | BIT });
+    assert.equal(res.status, 403, `${id}: ${JSON.stringify(res.body)}`);
+    assert.equal(res.body.code, 'named_when_made', id);
+    assert.equal(permissionsOf(id), was, id);
+  }
+  // The Unit Leader role is not edited at all.
+  const leaders = permissionsOf('G8SA:unit-leader');
+  assert.notEqual((await put(op.token, '/api/org/roles/G8SA:unit-leader', { permissions: leaders | BIT })).status, 200);
+  assert.equal(permissionsOf('G8SA:unit-leader'), leaders);
+  const plain = await role('Duty clerk', PERMISSIONS.VIEW_UNIT, 0);
+  const later = await put(op.token, `/api/org/roles/${encodeURIComponent(plain.id)}`, { permissions: plain.permissions | BIT });
+  assert.equal(later.status, 403, JSON.stringify(later.body));
+  assert.equal(later.body.code, 'named_when_made');
+  // Made with it, a role keeps it through other edits, can lose it, and does not get it back.
+  const made = await role('Standing duty officer', PERMISSIONS.VIEW_UNIT | BIT, 0);
+  assert.equal((await put(op.token, `/api/org/roles/${encodeURIComponent(made.id)}`, { name: 'Standing duty officer (S-3)' })).status, 200);
+  assert.equal(permissionsOf(made.id) & BIT, BIT);
+  assert.equal((await put(op.token, `/api/org/roles/${encodeURIComponent(made.id)}`, { permissions: PERMISSIONS.VIEW_UNIT })).status, 200);
+  assert.equal((await put(op.token, `/api/org/roles/${encodeURIComponent(made.id)}`, { permissions: PERMISSIONS.VIEW_UNIT | BIT })).body.code, 'named_when_made');
+  assert.equal(permissionsOf(made.id) & BIT, 0);
+
+  // Were the permission in a default role all the same (a database from elsewhere, a hand edit), it would count for
+  // nobody: the default role comes with membership, not from a grant. The leader joins with their own code and stands duty.
+  const force = (id: string, on: boolean) => app.ctx.db.prepare(`UPDATE roles SET permissions = permissions ${on ? '|' : '& ~'} ? WHERE id = ?`).run(BIT, id);
+  force('G8SA:marine', true);
+  const code = await post(op.token, '/api/org/units/G8SA/join-codes', {});
+  assert.equal(code.status, 201, JSON.stringify(code.body));
+  assert.equal((await post(op.token, `/api/org/join-codes/${encodeURIComponent(code.body.code)}/join`)).status, 200);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'G8SA:marine'").get(op.id), 'the leader now holds the cell’s default role');
+  const own = await recorded(op.token, { unit_id: 'G8SA', title: 'Stood in the cell' });
+  assert.equal(await mayApproveOwn(op.token, own.id), false);
+  const tried = await review(op.token, own.id, { action: 'approve', version: own.version });
+  assert.equal(tried.status, 403, JSON.stringify(tried.body));
+  assert.equal(tried.body.code, 'duty_own_review');
+  assert.equal(rowOf('duties', own.id)!.approval_status, 'pending');
+  // Not when someone else is named as having seated them either: a default role is nobody's decision about one person.
+  app.ctx.db.prepare("UPDATE member_roles SET granted_by = ? WHERE user_id = ? AND role_id = 'G8SA:marine'").run(top.id, op.id);
+  assert.equal(await mayApproveOwn(op.token, own.id), false);
+  force('G8SA:marine', false);
+  // Nor in the Unit Leader role, which comes with leading the unit.
+  const leaderRole = app.ctx.db.prepare("SELECT granted_by FROM member_roles WHERE user_id = ? AND role_id = 'G8:unit-leader'").get(op.id) as { granted_by: string | null } | undefined;
+  assert.ok(leaderRole, 'the Unit Leader holds the Unit Leader role');
+  force('G8:unit-leader', true);
+  app.ctx.db.prepare("UPDATE member_roles SET granted_by = ? WHERE user_id = ? AND role_id = 'G8:unit-leader'").run(top.id, op.id);
+  const inG8 = await recorded(op.token, { title: 'The Unit Leader’s, with the Unit Leader role forced' });
+  assert.equal(await mayApproveOwn(op.token, inG8.id), false);
+  assert.equal((await review(op.token, inG8.id, { action: 'approve', version: inG8.version })).body.code, 'duty_own_review');
+  force('G8:unit-leader', false);
+  app.ctx.db.prepare("UPDATE member_roles SET granted_by = ? WHERE user_id = ? AND role_id = 'G8:unit-leader'").run(leaderRole!.granted_by, op.id);
+
+  // A role that names it counts for its holder only when someone else granted it: a row that names nobody, or its own
+  // holder, confers nothing, whatever wrote it.
+  const named = await role('Duty officer of the day', PERMISSIONS.VIEW_UNIT | BIT, 0);
+  const mine = await recorded(reyes.token, { title: 'Stood by a Marine with a role nobody granted' });
+  const seat = app.ctx.db.prepare('INSERT INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)');
+  const regrant = app.ctx.db.prepare('UPDATE member_roles SET granted_by = ? WHERE user_id = ? AND role_id = ?');
+  seat.run(reyes.id, named.id, 'G8', null, new Date().toISOString());
+  assert.equal(await mayApproveOwn(reyes.token, mine.id), false, 'granted by nobody');
+  assert.equal((await review(reyes.token, mine.id, { action: 'approve', version: mine.version })).body.code, 'duty_own_review');
+  regrant.run(reyes.id, reyes.id, named.id);
+  assert.equal(await mayApproveOwn(reyes.token, mine.id), false, 'granted by themselves');
+  assert.equal((await review(reyes.token, mine.id, { action: 'approve', version: mine.version })).body.code, 'duty_own_review');
+  regrant.run(op.id, reyes.id, named.id);
+  assert.equal(await mayApproveOwn(reyes.token, mine.id), true, 'granted by someone else');
+  // What the role names besides is theirs however they came by it: only the named permission waits on the grant.
+  regrant.run(null, reyes.id, named.id);
+  assert.ok(has(scopeFor(app.ctx, { id: reyes.id }).permissions.G8, PERMISSIONS.VIEW_UNIT));
+  assert.equal(scopeFor(app.ctx, { id: reyes.id }).permissions.G8 & BIT, 0);
+  app.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(reyes.id, named.id);
+  assert.equal(rowOf('duties', mine.id)!.approval_status, 'pending');
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -733,6 +865,29 @@ test('frozen when its Marine left the unit, a duty is approved or rejected by it
   // Reopened, it is still not one to return: its reviewers decide it.
   const reopened = await decide(top.token, b.id, 'reopen', { reason: 'Decide it again.' });
   assert.deepEqual([reopened.review.return, reopened.review.approve, reopened.review.reject], [false, true, true]);
+
+  // A Marine who keeps the authority above the unit they left still does not approve the duty frozen there. The role is
+  // made to reach the units beneath G-8, someone else grants it, and the Marine stands duty in a cell and then leaves it.
+  const reaching = await role('Duty officer, every section', PERMISSIONS.VIEW_UNIT | PERMISSIONS.APPROVE_OWN_DUTY, 5);
+  const mover = await app.register('rvmover', { rank_id: 'Cpl', last_name: 'Ito' });
+  await enroll(app, op.token, 'G8', mover.id);
+  assert.equal((await post(op.token, `/api/org/team/${mover.id}/roles`, { role_id: reaching.id, unit_id: 'G8' })).status, 200);
+  assert.equal((await post(op.token, '/api/org/units', { name: 'Frozen Duty Cell', code: 'G8FZ', parent_id: 'G8' })).status, 201);
+  await enroll(app, op.token, 'G8FZ', mover.id);
+  mover.token = await login('rvmover');
+  const inCell = await recorded(mover.token, { unit_id: 'G8FZ', title: 'Stood in a cell since left' });
+  assert.equal((await get(mover.token, `/api/records/duties/${inCell.id}`)).body.review.approve, true, 'theirs to approve while they serve there');
+  assert.equal((await del(op.token, `/api/org/units/G8FZ/members/${mover.id}`)).status, 200);
+  mover.token = await login('rvmover');
+  const left = rowOf('duties', inCell.id)!;
+  assert.ok(left.frozen_at, 'frozen when they left the cell');
+  assert.ok(scopeFor(app.ctx, { id: mover.id }).sources.G8FZ?.some((x) => x.bits & PERMISSIONS.APPROVE_OWN_DUTY), 'the role still reaches the cell from G-8');
+  assert.equal((await get(mover.token, `/api/records/duties/${inCell.id}`)).body.review.approve, false);
+  const stillTheirs = await review(mover.token, inCell.id, { action: 'approve', version: left.version });
+  assert.equal(stillTheirs.status, 403, JSON.stringify(stillTheirs.body));
+  assert.equal(stillTheirs.body.code, 'duty_frozen');
+  assert.equal(rowOf('duties', inCell.id)!.approval_status, 'pending');
+  assert.equal((await decide(nguyen.token, inCell.id, 'approve')).approval_status, 'approved', 'a reviewer above the cell decides it');
 });
 
 test('a reviewed duty keeps its history where it is: no undo of the move that made it, no other Unit Instance, and an import’s undo never puts a review back', async () => {
@@ -758,6 +913,21 @@ test('a reviewed duty keeps its history where it is: no undo of the move that ma
   // Its Unit Instance: the database refuses to take a reviewed duty across, whatever asks.
   assert.throws(() => app.ctx.db.prepare("UPDATE duties SET unit_id = 'G1', duty_type_id = ?, scoring_policy_id = ?, scoring_version = 1 WHERE id = ?").run(T.g1, V.g1, id), /cross_instance/);
   assert.equal(rowOf('duties', id)!.unit_id, 'G8');
+  // And the save refuses first, for a Marine who serves in both: a duty nobody has reviewed may be recorded again in the
+  // other instance by moving it, a reviewed one stays where its history is.
+  const both = await app.register('rvboth', { rank_id: 'Cpl', last_name: 'Vance' });
+  await enroll(app, op.token, 'G8', both.id);
+  await enroll(app, g1lead.token, 'G1', both.id);
+  both.token = await login('rvboth');
+  const here = await recorded(both.token, { title: 'Stood for G-8, then asked to move' });
+  const sentBack = await decide(nguyen.token, here.id, 'return', { reason: 'Which instance was this for?' });
+  const across = await put(both.token, `/api/records/duties/${here.id}`, { unit_id: 'G1', duty_type_id: T.g1, version: sentBack.version });
+  assert.equal(across.status, 403, JSON.stringify(across.body));
+  assert.equal(across.body.code, 'cross_instance');
+  assert.match(across.body.error, /has been reviewed in its Unit Instance/);
+  const stays = rowOf('duties', here.id)!;
+  assert.deepEqual([stays.unit_id, stays.duty_type_id, stays.approval_status, stays.version], ['G8', T.dnco, 'returned', sentBack.version]);
+  assert.deepEqual(historyOf(here.id).map((h) => [h.event, h.unit_id]), [['returned', 'G8']]);
 
   // A file that corrects a returned duty sends it back for review; undoing the import puts back what the duty said, and
   // leaves its review where it stands.
@@ -779,13 +949,15 @@ test('a reviewed duty keeps its history where it is: no undo of the move that ma
   let now_ = rowOf('duties', d.id)!;
   assert.deepEqual([now_.notes, now_.approval_status, now_.approved_points, now_.reviewed_by], ['Relieved by Cpl Okafor.', 'pending', null, null], 'corrected, and sent back: never approved by a file');
   assert.deepEqual(historyOf(d.id).map((h) => h.event), ['returned', 'resubmitted']);
+  const held = now_;
   const undone = await post(reyes.token, `/api/me/imports/${staged.body.id}/undo`);
   assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 400));
   now_ = rowOf('duties', d.id)!;
   assert.equal(now_.notes, 'As first recorded.', 'what it said is put back');
   assert.deepEqual([now_.approval_status, now_.reviewed_by, now_.review_reason], ['pending', null, null], 'its review is not: it waits, as its history says');
   assert.deepEqual(historyOf(d.id).map((h) => h.event), ['returned', 'resubmitted']);
-  for (const column of DUTY_REVIEW_COLUMNS) assert.ok(column in now_, column);
+  // Every column of its review is as the undo found it, not as the file's import first saw it (returned, by its reviewer).
+  for (const column of DUTY_REVIEW_COLUMNS) assert.deepEqual(now_[column], held[column], column);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -861,6 +1033,53 @@ test('the Duty report and every export tell approved points from calculated poin
   const instance = exportInstance(app.ctx);
   assert.equal(instance.tables.duty_reviews.length, (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM duty_reviews').get() as { n: number }).n);
   assert.ok(Object.keys(instance.tables).indexOf('duty_reviews') > Object.keys(instance.tables).indexOf('duties'));
+});
+
+test('an instance archive carries the review history whole, and one from before 032 gives its standard roles the review permissions', async () => {
+  type Archive = Parameters<typeof importInstance>[1] & { tables: Record<string, Array<Record<string, any>>> };
+  const archive = JSON.parse(JSON.stringify(exportInstance(app.ctx))) as Archive;
+  const history = app.ctx.db.prepare('SELECT * FROM duty_reviews ORDER BY id').all() as Array<Record<string, any>>;
+  assert.ok(history.length >= 10, 'earlier tests left decisions behind');
+  const decided = app.ctx.db.prepare("SELECT id, approval_status, approved_points, calculated_points, reviewed_by, points_override_reason FROM duties WHERE approval_status <> 'pending' ORDER BY id").all();
+  const R = PERMISSIONS.REVIEW_DUTY, O = PERMISSIONS.OVERRIDE_DUTY_POINTS;
+  // A unit that took Review duty out of its SNCO role keeps it out: an archive of this build is loaded as it was kept.
+  for (const r of archive.tables.roles) if (r.id === 'G8:snco') r.permissions &= ~R;
+  const rolesOf = (t: TestApp) => Object.fromEntries((t.ctx.db.prepare("SELECT id, permissions FROM roles WHERE id IN ('G8:snco', 'G8:sncoic', 'G8:fire-team-leader', 'G8:marine', 'G8:unit-leader')").all() as Array<{ id: string; permissions: number }>).map((r) => [r.id, r.permissions]));
+
+  const fresh = await startApp();
+  try {
+    const freshOp = await fresh.setupOperator();
+    importInstance(fresh.ctx, archive, freshOp.id);
+    assert.deepEqual(fresh.ctx.db.prepare('SELECT * FROM duty_reviews ORDER BY id').all(), history, 'every line, as it was');
+    assert.deepEqual(fresh.ctx.db.prepare("SELECT id, approval_status, approved_points, calculated_points, reviewed_by, points_override_reason FROM duties WHERE approval_status <> 'pending' ORDER BY id").all(), decided);
+    const roles = rolesOf(fresh);
+    assert.equal(roles['G8:snco'] & R, 0, 'not handed back');
+    assert.equal(roles['G8:sncoic'] & (R | O), R | O);
+    assert.deepEqual(instanceBoundaryViolations(fresh.ctx.db), {});
+    // The history is kept as written on the new host too.
+    assert.throws(() => fresh.ctx.db.prepare("UPDATE duty_reviews SET to_status = 'approved' WHERE id = ?").run(history[0].id), /a duty review is kept as it was written/);
+  } finally { await fresh.close(); }
+
+  // An archive written before 032: no review history, no override columns, roles from before duty was reviewed.
+  const legacy = structuredClone(archive);
+  delete legacy.tables.duty_reviews;
+  legacy.tables.duties = legacy.tables.duties.map(({ points_override_reason: _a, points_overridden_by: _b, points_overridden_at: _c, ...rest }) => rest);
+  for (const r of legacy.tables.roles) r.permissions &= ~(R | O | PERMISSIONS.APPROVE_OWN_DUTY);
+  const cutBack = legacy.tables.roles.find((r) => r.id === 'G1:snco');
+  if (cutBack) cutBack.permissions = Number(cutBack.permissions) & ~PERMISSIONS.VIEW_RECORDS;
+  const older = await startApp();
+  try {
+    const olderOp = await older.setupOperator();
+    importInstance(older.ctx, legacy, olderOp.id);
+    const roles = rolesOf(older);
+    assert.equal(roles['G8:snco'] & (R | O), R, 'the SNCO reviews');
+    assert.equal(roles['G8:sncoic'] & (R | O), R | O, 'the SNCOIC reviews and overrides');
+    for (const id of ['G8:fire-team-leader', 'G8:marine', 'G8:unit-leader']) assert.equal(roles[id] & (R | O), 0, id);
+    if (cutBack) assert.equal((older.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'G1:snco'").get() as { permissions: number }).permissions & R, 0, 'a role cut back from reading shared records gains nothing');
+    assert.equal((older.ctx.db.prepare('SELECT COUNT(*) AS n FROM roles WHERE permissions & ?').get(PERMISSIONS.APPROVE_OWN_DUTY) as { n: number }).n, 0, 'and no role approves its own duty');
+    assert.equal((older.ctx.db.prepare('SELECT COUNT(*) AS n FROM duty_reviews').get() as { n: number }).n, 0);
+    assert.equal((older.ctx.db.prepare('SELECT COUNT(*) AS n FROM duties').get() as { n: number }).n, legacy.tables.duties.length);
+  } finally { await older.close(); }
 });
 
 test('retention: an anonymized duty keeps its decision and its points, loses its reasons, names nobody, and is closed to review; destroyed, its history goes with it', async () => {
