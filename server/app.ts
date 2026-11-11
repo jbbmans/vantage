@@ -355,7 +355,9 @@ export function createApp(ctx: AppContext) {
   });
 
   const json = express.json({ limit: '4mb' });
-  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$|me\/imports$)/;
+  // Paths whose body is a file, taken in by the route itself once it has decided who is asking. A file sent to a record
+  // (ADR-0025) is one of them whatever type it is declared as, so a body declared as JSON is not read here first.
+  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$|me\/imports$|records\/[^/]+\/[^/]+\/attachments\/?$)/i;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 

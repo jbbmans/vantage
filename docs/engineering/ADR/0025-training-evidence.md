@@ -81,10 +81,15 @@ No new permission. The record decides (`server/authz/records.ts`):
   and description) only while that person can still open the record. Whoever keeps the record can rewrite those words,
   so they are not handed to someone the record is now closed to.
 - **Decided before the body is read.** A middleware runs the upload's authorization and reads its type and description
-  before `express.raw` takes the body. The handler decides again once it has the file, and a third time after the
-  awaited malware scan. That last decision reads the caller's roles and memberships afresh, not as the request first
-  found them, and nothing is awaited between it and the insert. So a file never lands on an entry that moved, was
-  deleted, was frozen or filled up meanwhile, or that the caller lost the right to add to while the scanner had it.
+  before `express.raw` takes the body, whatever the file is declared to be: the upload path is kept out of the
+  application's JSON reader (`RAW_BODY_PATHS` in `server/app.ts`), so a body declared as JSON is not read first. The
+  handler decides again once it has the file, and a third time after the awaited malware scan.
+- **Decided again after the scan.** The session that sent the file must still stand (`sessionStands`): a caller who
+  signed out, was reset or was deactivated while the scanner had the file is answered 401. Then the caller's roles and
+  memberships are read afresh, not as the request first found them (403). Nothing is awaited between those decisions
+  and the insert. So a file never lands on an entry that moved, was deleted, was frozen or filled up meanwhile, or that
+  the caller lost the right to add to while the scanner had it. A saved message (`.eml`, the correspondence import) is
+  now placed by the same two rules: it used to be placed by the memberships read before its scan.
 - Withholding attachments from a Unit Instance stops new files only. What is there stays readable, correctable and
   removable.
 - The type and description of an upload travel as headers beside the filename (`x-vantage-evidence-kind`,
@@ -123,10 +128,22 @@ API's `Cache-Control: no-store`.
 | `delete_attachment` | `attachment <id>` | the Marine, when someone else removes it |
 | `upload_rejected` | `rejected by the malware scanner: <what it found>` | the Marine, when someone else tried |
 
-The trail never holds a filename or a description: both can name a person, and the trail is append-only. That covers
-the rejected upload too. Whoever sent the file is told which file in the response; the trail records what the scanner
-found (`MalwareRejected.finding`). An import's rejections (ADR-0019) are recorded the same way, without the name of the
-archive or of the file inside it.
+An attachment's entries never hold a filename or a description: both can name a person, and the trail is append-only.
+That covers the rejected upload too. Whoever sent the file is told which file in the response; the trail records what
+the scanner found (`MalwareRejected.finding`).
+
+`upload_rejected` is written the same way wherever a scanned file is refused outright:
+
+| Where | Detail | Entity |
+|---|---|---|
+| A record's file | `rejected by the malware scanner: <finding>` | the record |
+| An import's file (ADR-0019) | `import file rejected by the malware scanner: <finding>` | `record_imports`, no id (nothing was staged) |
+| A file inside an import's archive | `attached file <n> of <m> in an import rejected by the malware scanner: <finding>` | `record_imports`, the import's id |
+| A saved message | `saved message rejected by the malware scanner: <finding>` (new: it was not recorded before) | `thread_messages`, no id |
+
+Only `upload_rejected` leaves names out. An import's other entries (`record_import_staged`, `record_import_committed`
+and the rest) still name the archive, as ADR-0019 has them, and a rejected workbook in work intake is still kept as a
+refused entry under its name (`upload_source`, `server/services/intake.ts`); neither is changed here.
 
 ### 6. Exports, imports, moves, retention
 
@@ -144,8 +161,13 @@ archive or of the file inside it.
   already anonymized, whatever their clock says now: every run before this Task left their files, a file can be added
   to an anonymized record afterwards, and anonymizing a task or a project restarts its clock (`updated_at`). The files
   are chosen before the records are rewritten, and the preview counts the same files (`files` on its line). The run's
-  history line and its `disposition_run` audit entry state the count. Run disposition is offered on a fresh preview
-  when files are the only work left, and not again on the result of a run.
+  history line and its `disposition_run` audit entry state the count, and the console's Disposition history shows it
+  under the record type. Run disposition is offered on a fresh preview when files are the only work left, and not
+  again on the result of a run; a second press on its confirmation sends nothing.
+- **What counts as already anonymized:** a record whose every identifying field holds the retention marker, the same
+  test a run already used to skip it. Someone who may edit a record could type the marker into each of those fields,
+  and the next run would then remove that record's files. Whoever may edit a record may remove its files anyway, so
+  this gives nobody anything they did not have; it is recorded here so the inference is not taken for more than it is.
 - **Retention holds:** holds win as they do for records. A held Marine's records and their files, a held record type's
   and everything under an instance-wide hold are untouched. Two more kinds of file are kept, as the recycle-bin purge
   and `destroyLineage` already keep them: a file a held person added to anyone's record, and the files of an entry
@@ -181,7 +203,9 @@ change it.
 - Anonymizing a record removes its files, including files still on records anonymized before this Task, at the next
   anonymize run a Unit Manager applies. The preview shows the count first. Files a hold keeps stay until it is
   released.
-- A rejected upload's audit entry says what the scanner found and not the file's name, on a record and in an import.
+- A rejected upload's audit entry says what the scanner found and not the file's name, on a record, in an import and
+  for a saved message.
+- A file whose sender's session ended while it was being scanned is not kept (401), whoever they were.
 
 ## Alternatives considered
 
@@ -218,7 +242,9 @@ change it.
   browser could not state but whose name and content agree. Files that were accepted are now refused: text holding
   control characters.
 - One new audit action, `update_attachment`; existing attachment actions gain a detail. `upload_rejected` no longer
-  holds the rejected file's name, on a record or in an import.
+  holds the rejected file's name, on a record or in an import, and is now also written for a rejected saved message.
+- Two changes reach beyond attachments, both in the saved-message import (`POST /api/correspondence/messages/import`):
+  it needs a session that still stands after its scan, and it is placed by the sender's memberships as they are then.
 - The first anonymize run applied after this change also deletes the files left on records that earlier runs
   anonymized. Nothing runs by itself: disposition runs only when a Unit Manager applies it, and the preview states the
   number of files first. A disposition line gains an optional `files` count; `disposition_run` is now also written for

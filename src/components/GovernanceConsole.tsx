@@ -169,7 +169,10 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
     try { await withSudo(() => api.orgSaveSchedule(orgId, schedule)); toast.success('Schedule saved.'); setDraft(null); setPreview(null); refresh(); }
     catch (e) { toast.error(api.errorText(e)); }
   };
+  /** What a run's history line says about attached files (ADR-0025): "2 attached files removed", or nothing. */
+  const filesNote = (detail?: string | null) => detail?.split('; ').find((part) => /^[\d,]+ attached files? (removed|to remove)$/.test(part)) ?? null;
   const run = async (apply: boolean) => {
+    if (busy) return;
     setBusy(true);
     try {
       const res = await withSudo(() => api.orgRunDisposition(orgId, apply));
@@ -270,7 +273,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
               {history.map((r: any) => (
                 <tr key={r.id}>
                   <td className="text-xs"><DateText value={r.at} /></td>
-                  <td>{humanize(r.record_type)}</td>
+                  <td>{humanize(r.record_type)}{filesNote(r.detail) && <span className="block text-xs text-ink-3">{filesNote(r.detail)}</span>}</td>
                   <td className="text-xs">{humanize(r.disposition)}</td>
                   <td className="fig text-right">{r.eligible.toLocaleString()}</td>
                   <td className="fig text-right">{r.acted.toLocaleString()}</td>
@@ -328,7 +331,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
         open={confirmRun} onOpenChange={setConfirmRun} danger
         title="Run disposition now?"
         body={`This acts on ${pendingCount.toLocaleString()} records${pendingFiles ? `, removes ${pendingFiles.toLocaleString()} attached ${pendingFiles === 1 ? 'file' : 'files'}` : ''} and cannot be undone.`}
-        confirmLabel="Run disposition" onConfirm={() => run(true)}
+        confirmLabel="Run disposition" onConfirm={() => run(true)} loading={busy}
       />
     </div>
   );

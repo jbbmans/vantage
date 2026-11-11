@@ -1,13 +1,14 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest } from '../lib/errors.ts';
+import { badRequest, unauthorized } from '../lib/errors.ts';
+import { sessionStands } from '../auth/sessions.ts';
 import { infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { audit } from '../services/audit.ts';
-import { scanUpload } from '../services/scanner.ts';
+import { MalwareRejected, scanUpload } from '../services/scanner.ts';
 import {
   listContacts, saveContact, listThreads, createThread, threadDetail, setThreadState,
   addMessage, importEml, linkThreadMany, unlinkThread, threadsForItem, assertPlacement, THREAD_STATES,
@@ -155,14 +156,22 @@ const emlBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.intake.maxBytes })(req, res, next);
 
 correspondenceRouter.post('/messages/import', emlBody, wrap(async (req, res) => {
-  const scope = scopeFor(req.ctx, req.user, req);
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!buffer.length) throw badRequest('That file is empty.');
   // A data import never takes an infrastructure backup (ADR-0014).
   const backup = infrastructureFileProblem(buffer);
   if (backup) throw badRequest(backup, { code: 'infrastructure_file' });
   // A saved message carries its attachments with it, so it is scanned before anything is read out of it.
-  await scanUpload(req.ctx.config.intake, buffer, 'message.eml');
+  try { await scanUpload(req.ctx.config.intake, buffer, 'message.eml'); }
+  catch (e) {
+    if (e instanceof MalwareRejected) audit(req.ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: 'thread_messages', detail: `saved message rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip: clientIp(req) });
+    throw e;
+  }
+  // The scan awaits. The session that sent the message must still stand, and where the message may go is decided on
+  // the sender's memberships and roles as they are now, read afresh, with nothing awaited between that and the write
+  // (as an attachment's upload is, ADR-0025).
+  if (!sessionStands(req.ctx, req.sessionId)) throw unauthorized();
+  const scope = scopeFor(req.ctx, req.user);
   const result = importEml(req.ctx, req.user, scope, buffer, {
     threadId: req.get('x-thread-id') || null,
     unitId: req.get('x-unit-id') || null,

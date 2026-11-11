@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import express from 'express';
 import { wrap, clientIp, parse } from '../lib/http.ts';
-import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
+import { sessionStands } from '../auth/sessions.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
@@ -219,12 +220,15 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
     throw e;
   }
   // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015), been deleted, been decided or
-  // frozen, or taken its last file, and the caller may have lost the role or the membership that let them add to it.
-  // Everything is decided again here, the caller's authority read afresh, with nothing awaited between it and the
-  // insert, so the file never lands on an entry that is gone or that the caller may no longer add to.
+  // frozen, or taken its last file, and the caller may have signed out, been reset or deactivated, or lost the role or
+  // the membership that let them add to it. Everything is decided again here, with nothing awaited between it and
+  // the insert, so the file never lands on an entry that is gone or that the caller may no longer add to.
+  // First, the session that sent the file must still stand, as it must for any request.
+  if (!sessionStands(ctx, req.sessionId)) throw unauthorized();
   if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
     throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
   }
+  // Then the caller's authority, read afresh.
   const current = uploadTarget(req, true).row;
   if (liveCount(req, table, current.id) >= limit) throw full();
   const id = newId();

@@ -300,6 +300,18 @@ test('evidence is exactly as reachable as its training: its owner, the unit’s 
   // Refused before the file is read: a caller who may not add one is not made to wait for a large body to be taken in.
   const big = await attach(outsider.token, 'trainings', shared, { kind: 'other', body: Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(6 * 1024 * 1024, 0x20), Buffer.from('\n%%EOF\n')]) });
   assert.equal(big.status, 403);
+  // Whatever the file is declared to be, and however the path is spelled: a body declared as JSON is not taken in by
+  // the JSON reader first (which would answer 413 for its own limit, or 400 for what it could not parse).
+  for (const path of [`/api/records/trainings/${shared}/attachments`, `/api/records/trainings/${shared}/attachments/`, `/API/Records/trainings/${shared}/Attachments`]) {
+    for (const raw of [Buffer.alloc(6 * 1024 * 1024, 0x20), Buffer.from('{"not": "json')]) {
+      const declared = await app.call('POST', path, { token: outsider.token, raw, headers: { 'content-type': 'application/json', 'x-vantage-filename': 'notes.json', 'x-vantage-evidence-kind': 'other' } });
+      assert.equal(declared.status, 403, `${path}: ${JSON.stringify(declared.body)}`);
+    }
+  }
+  // And from someone who may add a file, such a body is weighed as a file like any other: it is not one Vantage keeps.
+  const asJson = await app.call('POST', `/api/records/trainings/${shared}/attachments`, { token: diaz.token, raw: Buffer.from('{"a": 1}'), headers: { 'content-type': 'application/json', 'x-vantage-filename': 'notes.json', 'x-vantage-evidence-kind': 'other' } });
+  assert.equal(asJson.status, 400, JSON.stringify(asJson.body));
+  assert.match(asJson.body.error, /file type is not allowed/);
 
   // A file is reached only through the record it hangs on: its id under another record, or another record type, is nothing.
   for (const [table, record] of [['trainings', mine], ['awards', shared], ['activities', shared]] as const) {
@@ -831,37 +843,100 @@ test('the trail says what the scanner found in a rejected file and never the fil
     const staged = await on.call('POST', '/api/me/imports', { token: marine.token, raw: tampered, headers: { 'content-type': 'application/zip', 'x-filename': 'Diaz Ana export.zip' } });
     assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 400));
 
+    // A saved message is scanned too, and its rejection is recorded the same way.
+    const mail = await on.call('POST', '/api/correspondence/messages/import', { token: marine.token, raw: EICAR, headers: { 'content-type': 'message/rfc822', 'x-unit-id': 'G8', 'x-visibility': 'unit' } });
+    assert.equal(mail.status, 422, JSON.stringify(mail.body));
+
     const all = entries('upload_rejected', on);
     assert.deepEqual(all.map((e) => e.detail), [
       'rejected by the malware scanner: Win.Test.EICAR_HDB-1',
       'import file rejected by the malware scanner: Win.Test.EICAR_HDB-1',
-      'a file attached in an import rejected by the malware scanner: Win.Test.EICAR_HDB-1',
+      'attached file 1 of 1 in an import rejected by the malware scanner: Win.Test.EICAR_HDB-1',
+      'saved message rejected by the malware scanner: Win.Test.EICAR_HDB-1',
     ]);
     for (const e of all) assert.doesNotMatch(String(e.detail), /Diaz|Ana|notes|records|export|\.txt|\.csv|\.zip|6789/);
+    // The file left out of an import points at that import; the import that was refused whole was never kept.
+    assert.deepEqual(all.map((e) => [e.entity, e.entity_id]), [['trainings', id], ['record_imports', null], ['record_imports', staged.body.id], ['thread_messages', null]]);
   } finally { await unit.close(); }
 });
 
-test('a role taken away while the scanner holds a file leaves nothing stored', async () => {
+const savedMessage = (n: number) => Buffer.from(`From: Vendor <vendor@example.com>\r\nTo: g8@example.mil\r\nSubject: Invoice ${n}\r\nMessage-ID: <m${n}@example.com>\r\nDate: Mon, 02 Nov 2026 10:00:00 +0000\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nPlease see the invoice.\r\n`);
+
+test('a role taken away, or an account closed, while the scanner holds a file leaves nothing stored', async () => {
   const unit = await scannedUnit();
   try {
-    const { on, clamd, lead, snco, id } = unit;
+    const { on, clamd, lead, marine, snco, id } = unit;
     const onRecord = () => (on.ctx.db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE record_table = 'trainings' AND record_id = ?").get(id) as { n: number }).n;
 
     // Nothing changes while the file is scanned: it is kept.
     const kept = await attach(snco.token, 'trainings', id, { kind: 'roster', name: 'roster.pdf', on });
     assert.equal(kept.status, 201, JSON.stringify(kept.body));
 
-    // The scanner has the next file when the unit's leader takes the SNCO role away. The answer comes back clean.
-    const gate = clamd.gate();
-    const sending = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'second-roster.pdf', on });
-    await gate.seen;
+    // The scanner has the next file when the SNCO role is gone, by whatever path leaves their session standing. The
+    // answer comes back clean, and their authority, read again, no longer covers the record.
     const role = on.ctx.db.prepare("SELECT mr.role_id FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? AND r.key = 'snco'").get(snco.id) as { role_id: string };
+    const grants = on.ctx.db.prepare('SELECT * FROM member_roles WHERE user_id = ? AND role_id = ?').all(snco.id, role.role_id) as Array<Record<string, unknown>>;
+    const quiet = clamd.gate();
+    const unnoticed = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'second-roster.pdf', on });
+    await quiet.seen;
+    on.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(snco.id, role.role_id);
+    quiet.release();
+    const uncovered = await unnoticed;
+    assert.equal(uncovered.status, 403, JSON.stringify(uncovered.body));
+    assert.equal(onRecord(), 1, 'the second file never landed');
+    for (const g of grants) on.ctx.db.prepare(`INSERT INTO member_roles (${Object.keys(g).join(', ')}) VALUES (${Object.keys(g).map(() => '?').join(', ')})`).run(...Object.values(g) as never[]);
+    assert.equal((await attach(snco.token, 'trainings', id, { kind: 'roster', name: 'second-roster.pdf', on })).status, 201, 'the role back, the file is kept');
+
+    // The unit's leader takes the role away while the scanner has the next file: that ends the SNCO's sessions, and a
+    // session that has ended stores nothing.
+    const gate = clamd.gate();
+    const sending = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'third-roster.pdf', on });
+    await gate.seen;
     const removed = await on.call('DELETE', `/api/org/team/${snco.id}/roles/${role.role_id}`, { token: lead.token });
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
     gate.release();
     const refused = await sending;
-    assert.equal(refused.status, 403, JSON.stringify(refused.body));
-    assert.equal(onRecord(), 1, 'the second file never landed');
-    assert.equal(entries('upload_attachment', on).length, 1);
+    assert.equal(refused.status, 401, JSON.stringify(refused.body));
+    assert.equal(onRecord(), 2, 'the third file never landed');
+    assert.equal(entries('upload_attachment', on).length, 2);
+
+    // A saved message is placed by the same two rules. The sender is no longer in the unit when the scanner answers,
+    // their session still standing: where the message may go is decided on their memberships as they are then.
+    const send = (token: string, n: number) => on.call('POST', '/api/correspondence/messages/import', { token, raw: savedMessage(n), headers: { 'content-type': 'message/rfc822', 'x-unit-id': 'G8', 'x-visibility': 'unit' } });
+    const threads = () => (on.ctx.db.prepare('SELECT COUNT(*) AS n FROM threads').get() as { n: number }).n;
+    assert.equal((await send(marine.token, 1)).status, 201);
+    assert.equal(threads(), 1);
+    const membership = on.ctx.db.prepare("SELECT * FROM unit_members WHERE user_id = ? AND unit_id = 'G8'").get(marine.id) as Record<string, unknown>;
+    const mailGate = clamd.gate();
+    const mailing = send(marine.token, 2);
+    await mailGate.seen;
+    on.ctx.db.prepare("DELETE FROM unit_members WHERE user_id = ? AND unit_id = 'G8'").run(marine.id);
+    mailGate.release();
+    const unplaced = await mailing;
+    assert.equal(unplaced.status, 403, JSON.stringify(unplaced.body));
+    assert.equal(threads(), 1, 'the second message was not filed in the unit');
+    on.ctx.db.prepare(`INSERT INTO unit_members (${Object.keys(membership).join(', ')}) VALUES (${Object.keys(membership).map(() => '?').join(', ')})`).run(...Object.values(membership) as never[]);
+    // The unit's leader removes the sender while the scanner has the next message: their sessions end with the
+    // membership, and nothing is filed for a session that has ended.
+    const outGate = clamd.gate();
+    const leaving = send(marine.token, 3);
+    await outGate.seen;
+    assert.equal((await on.call('DELETE', `/api/org/units/G8/members/${marine.id}`, { token: lead.token })).status, 200);
+    outGate.release();
+    assert.equal((await leaving).status, 401);
+    assert.equal(threads(), 1, 'nothing is filed for a session that has ended');
+
+    // The training is still the Marine's own, so their authority over it stands. Their account is closed while the
+    // scanner has their file: the session that sent it has ended, and the file is not kept.
+    const mine = await training((await on.login('diaz')).body.token, { title: 'Own course' }, on);
+    const token = (await on.login('diaz')).body.token as string;
+    const ownGate = clamd.gate();
+    const own = attach(token, 'trainings', mine, { kind: 'certificate', name: 'own.pdf', on });
+    await ownGate.seen;
+    const closed = await on.call('POST', `/api/platform/accounts/${marine.id}/deactivate`, { token: lead.token, body: { reason: 'left the service' } });
+    assert.equal(closed.status, 200, JSON.stringify(closed.body));
+    ownGate.release();
+    assert.equal((await own).status, 401);
+    assert.equal((on.ctx.db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE record_table = 'trainings' AND record_id = ?").get(mine) as { n: number }).n, 0);
   } finally { await unit.close(); }
 });

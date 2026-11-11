@@ -110,8 +110,9 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **A file is exactly as reachable as the record it hangs on** (ADR-0025). Listing and downloading a record's files
   takes `canRead` on the record; adding one, correcting what it is or its description, and removing one take `canEdit`
   as well. There is no permission for files alone, a file's id under another record or record type is not found, and
-  an upload's authorization is decided before its body is read and again after the malware scan, with the caller's
-  roles and memberships read afresh, so a role removed while the scanner holds the file leaves nothing stored. A
+  an upload's authorization is decided before its body is read, whatever type the body is declared as, and again
+  after the malware scan: the session that sent it must still stand, and the caller's roles and memberships are read
+  afresh, so a sign-out, a deactivation or a role removed while the scanner holds the file leaves nothing stored. A
   training's files are its evidence: each says what it is (certificate, transcript, completion or qualification
   document, roster) and the trail records adding, correcting, removing and anyone else's opening of one by the file's
   id, never by its name or description. A file the scanner rejects is recorded by what the scanner found, not by its
@@ -397,7 +398,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
   or a project restarts it); the preview counts them, and the run's history and its `disposition_run` audit entry state
   the count. A legal hold keeps them as it keeps the records, and also keeps the files a held person added to anyone's
   record and the files of an entry whose history a hold keeps, until it is released.
-- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected file is never stored, and its audit entry (`upload_rejected`) says what the scanner found, never the file's name. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
+- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected attachment, record import or saved message is never stored, and its audit entry (`upload_rejected`) says what the scanner found, never the file's name; a file inside an import's archive is told apart by its position and the import's id. A rejected workbook is kept only as a refused entry in work intake under its name and is never opened. A saved message is filed, and a file attached, only if the sender's session still stands when the scan ends, by their memberships and roles as they are then. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
 - A workbook is charged against its size limit by what it really expands to, not by the sizes it declares.
 - A person's import of their own records (ADR-0019) takes up to `VANTAGE_RECORD_IMPORT_MAX_BYTES` (50 MB), 5,000 spreadsheet rows or 20,000 records of a Vantage file, scans the file and each file inside a Vantage ZIP on its own, holds one file per person for at most `VANTAGE_RECORD_IMPORT_STAGED_HOURS` (24), and refuses infrastructure backups and other Vantage files by their format. It writes only the importer's account: ids in a file never name a record here, and a record the importer may not place in a unit comes in private. Its undo puts a record back only where an edit could place it now, so nothing others added to it in another Unit Instance since is carried back across.
 

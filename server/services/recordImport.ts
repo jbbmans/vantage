@@ -990,25 +990,26 @@ export async function stageImport(ctx: AppContext, user: SessionUser, input: { b
   // eslint-disable-next-line no-control-regex
   const filename = input.filename.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200) || 'import';
   const found = detect(buffer);
-  // The trail holds what the scanner found, never the name of the archive or of a file in it (ADR-0025).
-  const rejected = (detail: string) => audit(ctx, { actor_id: user.id, action: 'upload_rejected', entity: 'record_imports', detail: detail.slice(0, 300), ip });
+  // This entry holds what the scanner found, never the name of the archive or of a file in it (ADR-0025). A file inside
+  // a ZIP is told apart by its place in the archive, and the entry points at the import it was left out of.
+  const id = newId();
+  const rejected = (detail: string, importId: string | null = null) => audit(ctx, { actor_id: user.id, action: 'upload_rejected', entity: 'record_imports', entity_id: importId, detail: detail.slice(0, 300), ip });
   // The file as a whole is scanned as any upload is; a rejected file is never kept.
   try { await scanUpload(ctx.config.intake, buffer, filename); }
   catch (e) { if (e instanceof MalwareRejected) rejected(`import file rejected by the malware scanner: ${e.finding}`); throw e; }
   // Each file a ZIP carries is scanned on its own, as an attachment upload is; one that fails stays out, the rest come in.
   const scanned: Record<string, string> = {};
   if (found.kind === 'vantage_zip' && found.files) {
-    for (const [path, data] of found.files) {
-      if (!path.startsWith('attachments/') || !data.length) continue;
+    const attached = [...found.files].filter(([path, data]) => path.startsWith('attachments/') && data.length);
+    for (const [index, [path, data]] of attached.entries()) {
       try { scanned[path] = (await scanUpload(ctx.config.intake, data, path.slice(12))).verdict === 'clean' ? 'clean' : 'skipped'; }
       catch (e) {
         if (!(e instanceof MalwareRejected)) throw e;
         scanned[path] = 'Refused by the malware scan.';
-        rejected(`a file attached in an import rejected by the malware scanner: ${e.finding}`);
+        rejected(`attached file ${index + 1} of ${attached.length} in an import rejected by the malware scanner: ${e.finding}`, id);
       }
     }
   }
-  const id = newId();
   const at = now();
   ctx.db.transaction(() => {
     ctx.db.prepare("UPDATE record_imports SET status = 'cancelled', content = NULL, review = NULL, updated_at = ? WHERE user_id = ? AND status = 'staged'").run(at, user.id);

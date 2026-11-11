@@ -27,6 +27,12 @@ interface EditDraft { id: string; kind: EvidenceKind | ''; description: string }
 type FieldErrors = { kind?: string; description?: string; file?: string };
 
 /**
+ * A file's actions, and the question that takes their place before a removal. Both take the same room at the row's
+ * right, so the row wraps the same way in both states and Keep lands where Remove was at every width.
+ */
+const ACTIONS = 'ml-auto flex min-w-[min(17rem,100%)] shrink-0 items-center justify-end gap-1';
+
+/**
  * The files on a record. On a training they are its evidence (ADR-0025): each says what it is (a certificate, a
  * transcript, a completion or qualification document, a roster) and, in a line, what it shows, beside its name, its
  * type, who added it and when. Whoever may read the record opens them; whoever may edit it adds, describes and removes
@@ -69,8 +75,15 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   // that sent it and never closes, fills or blames another.
   const working = busy !== null;
 
-  /** After the panel changes under the keyboard, put focus where the person will act next. */
-  const focusOn = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => find()?.focus());
+  /**
+   * After the panel changes under the keyboard, put focus where the person will act next. Only while focus is still in
+   * the panel or went with the control it was on: someone who has moved on to another field keeps their place there.
+   */
+  const focusOn = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => {
+    const active = document.activeElement;
+    const elsewhere = active instanceof HTMLElement && active !== document.body && !root.current?.contains(active) && !active.contains(root.current);
+    if (!elsewhere) find()?.focus();
+  });
   /** When the control the keyboard was on is gone: the Add button, else a file's Remove, else the panel itself. */
   const focusHome = () => focusOn(() => addButton.current ?? root.current?.querySelector<HTMLElement>('[data-remove]') ?? root.current);
   /** A file just added shows at once, and the panel knows at once if it is now full. */
@@ -188,7 +201,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" disabled={working} onClick={closeForm}>Cancel</Button>
-              <Button variant="primary" loading={busy === 'add'} onClick={() => void submit()}>Attach</Button>
+              <Button variant="primary" loading={busy === 'add'} disabled={working} onClick={() => void submit()}>Attach</Button>
             </div>
           </div>
         )}
@@ -218,7 +231,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
                             </div>
                             <div className="mt-3 flex justify-end gap-2">
                               <Button size="sm" variant="ghost" disabled={working} onClick={() => closeEdit(f.id)}>Cancel</Button>
-                              <Button size="sm" variant="primary" loading={busy === f.id} onClick={() => void saveEdit()}>Save details</Button>
+                              <Button size="sm" variant="primary" loading={busy === f.id} disabled={working} onClick={() => void saveEdit()}>Save details</Button>
                             </div>
                           </div>
                         ) : (
@@ -232,13 +245,13 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
                               <p className="mt-1 text-2xs text-ink-3">{facts.filter(Boolean).join(' · ')}</p>
                             </div>
                             {canEdit && (confirming ? (
-                              <div className="ml-auto flex shrink-0 items-center gap-1" role="group" aria-label={`Remove ${f.original_name}?`}>
+                              <div className={ACTIONS} role="group" aria-label={`Remove ${f.original_name}?`}>
                                 <span className="text-xs text-ink-2">Remove this file?</span>
-                                <Button size="xs" variant="danger" loading={busy === f.id} aria-label={`Yes, remove ${f.original_name}`} onClick={() => void remove(f)}>Yes, remove</Button>
+                                <Button size="xs" variant="danger" loading={busy === f.id} disabled={working} aria-label={`Yes, remove ${f.original_name}`} onClick={() => void remove(f)}>Yes, remove</Button>
                                 <Button size="xs" variant="ghost" className="min-w-16" data-keep disabled={working} aria-label={`Keep ${f.original_name}`} onClick={() => keep(f.id)}>Keep</Button>
                               </div>
                             ) : (
-                              <div className="ml-auto flex shrink-0 items-center gap-1">
+                              <div className={ACTIONS}>
                                 <Button size="xs" variant="ghost" data-edit={f.id} disabled={working} aria-label={`Edit details of ${f.original_name}`} onClick={() => startEdit(f)}>Edit details</Button>
                                 <Button size="xs" variant="ghost" className="min-w-16" data-remove={f.id} disabled={working} aria-label={`Remove ${f.original_name}`} onClick={() => askRemove(f.id)}>Remove</Button>
                               </div>
