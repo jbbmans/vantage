@@ -6,6 +6,7 @@ import {
 import { passwordProblem } from './password.ts';
 import { parseTime, TIME_HINT } from './timeframe.ts';
 import { SCORING_CONDITIONS } from './dutyScoring.ts';
+import { cleanDescription, isEvidenceKind, type EvidenceKind } from './attachments.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -146,6 +147,26 @@ export const trainingSchema = z.object({
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),
+});
+
+/**
+ * What may be said about a file on a record (ADR-0025): what it is evidence of, and a line on what it shows. A key left
+ * out is left as it is; null, or an empty description, clears it. Which record types take an evidence type is the
+ * route's to decide (takesEvidenceKind), since this reads only the body.
+ */
+export const attachmentDetailsSchema = z.object({
+  kind: z.unknown().optional().transform((v, ctx): EvidenceKind | null | undefined => {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return null;
+    if (!isEvidenceKind(v)) { ctx.addIssue({ code: 'custom', message: 'Choose what this file is.' }); return z.NEVER; }
+    return v;
+  }),
+  description: z.unknown().optional().transform((v, ctx): string | null | undefined => {
+    if (v === undefined) return undefined;
+    const cleaned = cleanDescription(v);
+    if (!cleaned.ok) { ctx.addIssue({ code: 'custom', message: cleaned.error }); return z.NEVER; }
+    return cleaned.value;
+  }),
 });
 
 export const awardSchema = z.object({

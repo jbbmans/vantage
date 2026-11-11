@@ -410,6 +410,21 @@ const MIGRATIONS: Migration[] = [
       instanceBoundaryTriggers(db);
     },
   },
+  {
+    id: 33,
+    name: '033_attachment_evidence',
+    // Training evidence (Task 19, ADR-0025). A file gains what it is evidence of (a certificate, a transcript, a
+    // completion or qualification document, a roster) and a line on what it shows. A database that had the attachments
+    // table before these columns gets them here, with the checks schema.sql gives a new one. Both are empty on every
+    // file already attached: nothing is guessed from a filename, no row is removed or reshaped, and no file's content,
+    // hash, uploader, unit or date is touched. The check on the type is not tied to the record type, because a file
+    // follows an entry that moves to another record type and comes back with it (ADR-0015).
+    run: (db) => {
+      const have = columnsOf(db, 'attachments');
+      if (!have.has('kind')) db.exec(`ALTER TABLE attachments ADD COLUMN kind TEXT CHECK (kind IS NULL OR kind IN ('certificate', 'transcript', 'completion', 'qualification', 'roster', 'other'))`);
+      if (!have.has('description')) db.exec('ALTER TABLE attachments ADD COLUMN description TEXT CHECK (description IS NULL OR length(description) <= 500)');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

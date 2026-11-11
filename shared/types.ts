@@ -70,6 +70,8 @@ export interface GoalProgress extends ProgressResult {
 export interface Training extends BaseRecord, Timeframed {
   date: string | null; title: string; type: string | null; hours: number | null; provider: string | null;
   status: string; notes: string | null;
+  /** How many files of evidence it holds (ADR-0025), on a list the reader could open them from. */
+  evidence_count?: number;
 }
 
 export interface Award extends BaseRecord {
