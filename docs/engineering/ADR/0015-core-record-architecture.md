@@ -300,7 +300,8 @@ or training, and moves the ones that really are. Each move keeps its lineage and
 - **Financial error snapshots (Task 15).** No store yet. The registry lists it as planned, off the timeline.
 - **Semantic import and export (Task 13).** Importing awards, training and the other kinds into their own records is
   Task 13's. Until then the activities import counts what reads as belonging elsewhere and changes nothing.
-- **Navigation and naming (Task 10)**, and **training evidence (Task 19)**.
+- **Navigation and naming (Task 10)**, and **training evidence (Task 19; done in
+  [ADR-0025](0025-training-evidence.md))**.
 
 ## Consequences
 

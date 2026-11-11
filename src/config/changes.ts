@@ -7,6 +7,18 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-11',
+    title: 'Training holds its evidence',
+    items: [
+      'Open a training from Training & Development → Training and choose Add evidence: the certificate, the transcript, the completion or qualification document, or the roster. Say what the file is, and add a line on what it shows if you like.',
+      'Each file shows its type, its name, who added it and when. Whoever may edit the training corrects what a file is or its description; the file itself is removed and added again, never changed.',
+      'Whoever can open a training can open its evidence, and nobody else. A leader who reads your unit’s shared records opens a shared training from your page; opening someone else’s evidence is logged.',
+      'The training list shows how many files each training holds, so one without evidence stands out.',
+      'Evidence keeps its type and description in your downloads, comes back with them when you import, and follows an entry you move to Training.',
+      'A file must be a PDF, JPEG, PNG, TXT or CSV within the size limit, and Vantage checks that its contents match. Removing one asks you to confirm.',
+    ],
+  },
+  {
     date: '2026-11-10',
     title: 'Duty is reviewed, and counts at its approved points',
     items: [

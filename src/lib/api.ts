@@ -4,6 +4,7 @@ import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, Personne
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
+import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../../shared/attachments';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
@@ -153,8 +154,16 @@ export const deleteRecord = (store: Store, id: string) => api.del(`/records/${st
 export const restoreRecord = (store: Store, id: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/restore`);
 export const importActivities = (rows: unknown[]) => api.post('/records/activities/import', { rows });
 export const acknowledgeCounseling = (id: string) => api.post(`/records/counselings/${encodeURIComponent(id)}/acknowledge`);
-export const attachments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/attachments`);
-export const uploadAttachment = (store: Store, id: string, file: File) => request('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
+export const attachments = (store: Store, id: string) => api.get<AttachmentsResponse>(`/records/${store}/${encodeURIComponent(id)}/attachments`);
+/** What a file is and what it shows travel beside its name, as headers: the body is the file itself (ADR-0025). */
+export const uploadAttachment = (store: Store, id: string, file: File, details: AttachmentDetails = {}) => request<AttachmentRow>('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, {
+  headers: {
+    'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name),
+    ...(details.kind ? { 'x-vantage-evidence-kind': details.kind } : {}),
+    ...(details.description ? { 'x-vantage-description': encodeURIComponent(details.description) } : {}),
+  },
+});
+export const updateAttachment = (store: Store, id: string, attachmentId: string, details: AttachmentDetails) => api.put<AttachmentRow>(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, details);
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
 

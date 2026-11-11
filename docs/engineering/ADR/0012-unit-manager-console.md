@@ -244,7 +244,8 @@ It shows configuration only: no secret, no host name and nothing about another U
     the specification's Task 17 and stay open);
   - approvals, point overrides, fairness, and reports on points (Task 18; approvals, overrides and approved points
     in the Duty report are done in [ADR-0024](0024-duty-review-permissions-scoring.md));
-  - training compliance (Task 19);
+  - training evidence (Task 19; done in [ADR-0025](0025-training-evidence.md): a training's files say what they
+    are). Compliance against training requirements is not in the specification's Task 19 and stays open;
   - per-unit settings below the instance: each setting is the whole instance's;
   - scoring versions in the configuration file (section 10);
   - FM procedures, which stay code reviewed against their references (ADR-0005); the console sets only

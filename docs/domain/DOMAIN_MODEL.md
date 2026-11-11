@@ -184,6 +184,12 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   and an approved or rejected duty is never changed, deleted or moved. A leader who counsels a Marine may record it
   for them (`recorded_by`); the Marine is told and cannot change it. A duty, its type and its scoring version stay in
   one Unit Instance (triggers).
+- **Training evidence** (ADR-0025): a training holds its evidence as files. Each file says what it is
+  (**certificate**, **transcript**, **completion document**, **qualification document**, **roster** or other) and, in
+  one line, what it shows, beside its name, format, size, who added it and when. Whoever may read the training opens its
+  evidence; whoever may edit it adds a file, corrects what a file is or its description, and removes one. The file
+  itself never changes. Files on the other record types have a description and no evidence type. A file keeps both
+  through an export, an import, a move to another record type and its undo.
 - **Duty review** (ADR-0024): a reviewer in the duty's unit (Review duty with View shared records, held through the
   chain of command) **approves** it, **returns** it for correction with a reason, or **rejects** it with a reason; a
   correction sends a returned duty back, and a decision is **reopened** with a reason. A duty counts only once

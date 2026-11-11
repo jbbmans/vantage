@@ -187,7 +187,9 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
   const holdableTypes: string[] = data.data.holdableTypes || retainableTypes;
   const byType = new Map(schedules.map((s: any) => [s.record_type, s]));
   const pendingCount: number = (preview?.lines || []).reduce((n: number, l: any) => n + (l.disposition === 'review' ? 0 : l.eligible), 0);
-  const wouldAct = Boolean(preview) && !preview.blocked && pendingCount > 0;
+  // Files left on records an earlier run anonymized are work for a run too, with no record left to count (ADR-0025).
+  const pendingFiles: number = (preview?.lines || []).reduce((n: number, l: { files?: number }) => n + (l.files || 0), 0);
+  const wouldAct = Boolean(preview) && !preview.blocked && (pendingCount > 0 || pendingFiles > 0);
 
   return (
     <div className="space-y-4">
@@ -229,7 +231,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
               <Table minWidth={620} head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
                 {preview.lines.map((l: any) => (
                   <tr key={l.record_type}>
-                    <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}</td>
+                    <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}{l.files ? <span className="block text-xs text-ink-3">{l.files.toLocaleString()} attached {l.files === 1 ? 'file' : 'files'} {preview.applied ? 'removed' : 'would be removed'}</span> : null}</td>
                     <td className="text-xs">{humanize(l.disposition)}</td>
                     <td className="fig text-xs">{l.cutoff}</td>
                     <td className="fig text-right">{l.eligible.toLocaleString()}</td>
@@ -324,7 +326,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
       <ConfirmDialog
         open={confirmRun} onOpenChange={setConfirmRun} danger
         title="Run disposition now?"
-        body={`This acts on ${pendingCount.toLocaleString()} records and cannot be undone.`}
+        body={`This acts on ${pendingCount.toLocaleString()} records${pendingFiles ? `, removes ${pendingFiles.toLocaleString()} attached ${pendingFiles === 1 ? 'file' : 'files'}` : ''} and cannot be undone.`}
         confirmLabel="Run disposition" onConfirm={() => run(true)}
       />
     </div>

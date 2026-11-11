@@ -8,9 +8,10 @@ import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, CategoryDot, DescriptionList, Table, useParam } from '@/components/common';
-import { CounselingFields, AwardFields, emptyCounseling, emptyAward } from '@/pages/Career';
+import { CounselingFields, AwardFields, emptyCounseling, emptyAward, evidenceCount } from '@/pages/Career';
+import { Attachments } from '@/components/Attachments';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
-import { canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
+import { can, canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
@@ -25,7 +26,9 @@ import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/D
 import { ApprovedPoints, DutyReviewActions, DutyReviewHistory } from '@/components/DutyReview';
 import { hasReviewOptions } from '../../shared/dutyReview';
 import { DUTY_STATUS_LABELS, formatHours } from '../../shared/duty';
-import type { Duty } from '../../shared/types';
+import type { Duty, Training } from '../../shared/types';
+import { PERMISSIONS } from '../../shared/permissions';
+import { formatTimeframe } from '../../shared/timeframe';
 
 export default function MemberDetail() {
   const cfg = useMetrics();
@@ -47,6 +50,7 @@ export default function MemberDetail() {
   const [award, setAward] = useState<any>(null);
   const [duty, setDuty] = useState<DutyMode | null>(null);
   const [dutyView, setDutyView] = useState<Duty | null>(null);
+  const [trainingView, setTrainingView] = useState<Training | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [prep, setPrep] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const myTrack = useTrack();
@@ -74,6 +78,8 @@ export default function MemberDetail() {
   // The open duty as the page holds it now; a decision just made is ahead of a page still being read again.
   const dutyListed = dutyView ? records?.duties.find((r) => r.id === dutyView.id) : undefined;
   const dutyViewed = dutyView ? (dutyListed && dutyListed.version >= dutyView.version ? dutyListed : dutyView) : null;
+  // The training as the page now lists it, so it closes on its own once it is no longer shared here.
+  const trainingViewed = trainingView ? records?.trainings.find((t) => t.id === trainingView.id) ?? null : null;
   const canEditProfile = record.canEditProfile;
   const sourced = new Set(record.sourced);
   const reload = () => { personnel.refetch(); if (records) refetch(); qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); };
@@ -148,7 +154,7 @@ export default function MemberDetail() {
       {tab === 'career' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Awards" padded={false}>{!records.awards.length ? <EmptyState title="No shared awards" /> : <ul>{records.awards.map((a) => <li key={a.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{a.name}</span><span className="block text-xs text-ink-3"><TimeframeText table="awards" row={a} /> · {humanize(a.type)}</span></span><StatusBadge value={a.status} /></li>)}</ul>}</Panel>
-          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{t.title}</span><span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="fig text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
+          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span className="min-w-0"><button type="button" className="block text-left font-medium text-ink hover:underline" onClick={() => setTrainingView(t)}>{t.title}</button><span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="shrink-0 text-right text-xs text-ink-3"><span className="fig block">{t.hours ? `${t.hours} h` : ''}</span>{t.evidence_count != null && <span className="block">Evidence: {evidenceCount(t.evidence_count)}</span>}</span></li>)}</ul>}</Panel>
         </div>
       )}
 
@@ -179,6 +185,11 @@ export default function MemberDetail() {
         )}
         {dutyViewed && <DutyDetail row={dutyViewed} me={identity?.user.id} />}
         {dutyViewed && <DutyReviewHistory id={dutyViewed.id} className="mt-4" />}
+      </Dialog>
+      {/* A shared training, with the evidence it holds (ADR-0025): opened by whoever reads the unit's shared records. */}
+      <Dialog open={Boolean(trainingViewed)} onOpenChange={(o) => { if (!o) setTrainingView(null); }} title={trainingViewed?.title ?? ''} description={trainingViewed ? formatTimeframe('trainings', trainingViewed, { pattern: 'd MMMM yyyy' }) || undefined : undefined} size="lg">
+        {trainingViewed && <DescriptionList items={[['Status', <StatusBadge value={trainingViewed.status} />], ['Type', trainingViewed.type === 'pme' ? 'PME' : humanize(trainingViewed.type)], ['Hours', trainingViewed.hours != null ? formatNumber(trainingViewed.hours) : null], ['Provider', trainingViewed.provider], ['Notes', trainingViewed.notes ? <span className="whitespace-pre-wrap">{trainingViewed.notes}</span> : null]]} />}
+        {trainingViewed && <div className="mt-4"><Attachments table="trainings" id={trainingViewed.id} canEdit={!trainingViewed.frozen_at && (trainingViewed.user_id === identity?.user.id || can(identity, PERMISSIONS.MANAGE_RECORDS, trainingViewed.unit_id))} /></div>}
       </Dialog>
       <Dialog open={Boolean(profile)} onOpenChange={(o) => { if (!o) setProfile(null); }} title={`Edit ${person.last_name}'s profile`} description="Rank changes notify the Marine. Email and password stay theirs." size="sm" footer={<><Button variant="ghost" onClick={() => setProfile(null)}>Cancel</Button><Button variant="primary" onClick={saveProfile}>Save</Button></>}>
         {profile && <div className="grid grid-cols-2 gap-3"><Field label="First name"><Input value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} /></Field><Field label="Last name"><Input value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} /></Field><Field label="Rank"><Select value={profile.rank_id || '__none'} onValueChange={(v) => setProfile({ ...profile, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'None' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field><Field label="MOS"><Input value={profile.mos} onChange={(e) => setProfile({ ...profile, mos: e.target.value })} /></Field><Field label="EAS"><Input type="date" value={profile.eas} onChange={(e) => setProfile({ ...profile, eas: e.target.value })} /></Field><Field label="Middle initial"><Input value={profile.middle_initial} onChange={(e) => setProfile({ ...profile, middle_initial: e.target.value })} maxLength={4} /></Field></div>}

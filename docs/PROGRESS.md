@@ -1,6 +1,45 @@
 # Progress
 
-_Updated 2026-11-10_
+_Updated 2026-11-11_
+
+## What changed (2026-11-11: training evidence)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+A training holds its evidence as files that say what they are
+([ADR-0025](engineering/ADR/0025-training-evidence.md), migration 033).
+
+- **A file says what it is.** On a training, each file is a certificate, a transcript, a completion document, a
+  qualification document, a roster or other evidence, and carries one line on what it shows. Adding one asks for its
+  type. Files on the other record types take a description and no type. Nothing already attached is given a type by the
+  upgrade: it shows as "Type not set" until whoever may edit the training sets it.
+- **What is tracked and shown:** filename, format, size, evidence type, description, who added it (rank and name) and
+  when. The type and description are corrected in place; the file itself never changes.
+- **As reachable as its training, and no further.** Listing and opening take the right to read the training; adding,
+  correcting and removing take the right to edit it. There is no permission for files alone, a file's id under another
+  record is not found, and who may add a file is decided before its body is read and again after the malware scan.
+  Withholding attachments from a Unit Instance (John's "Per instance") still stops new files only.
+- **Validation on the server:** size and count limits; the type must be allowed, the filename's extension must agree
+  and the content must prove it. PDF 2.0 is accepted; a CSV that a machine with a spreadsheet program sends under that
+  program's type is accepted as the CSV it is; text holding control characters is refused; a filename loses hidden and
+  direction-override characters and keeps its extension when shortened. Downloads are always downloads, with
+  `nosniff` and a sandboxed content policy.
+- **Audit:** adding, correcting (`update_attachment`, new), removing and anyone else's opening of a file are recorded
+  by the file's id, with the Marine as subject; never the filename or description.
+- **Exports and imports:** the personal export, `attachments.csv` and the single-record export carry type, description
+  and who added a file by name. An import brings type and description back where they are valid; the importer is the
+  uploader. A file keeps both when its entry moves to another record type and back.
+- **Retention:** anonymizing a record now deletes its files, which would otherwise still name the Marine. That
+  includes files left on records an earlier run anonymized: the next anonymize run a Unit Manager applies removes
+  them, the preview counts them first, and the run's history and audit entry state the count. Holds still win.
+- **In the app:** the training dialog's panel is Evidence, with Add evidence, Edit details and a confirmed Remove; the
+  training list has an Evidence column; a leader opens a Marine's shared training, and its evidence, from the Marine's
+  page. The other record types keep the Files panel and gain who added each file, when, and the confirmation.
+- **Defaults John can change** are listed in ADR-0025: whoever can open a training can open its evidence; whoever may
+  edit it changes its evidence; file types stay PDF, JPEG, PNG, TXT and CSV; evidence types are training's only; the
+  importer becomes the uploader; anonymizing removes files.
+- **Not done:** Office formats; a separate permission to view evidence; descriptions on the activity page's own
+  attachment panel; training requirements and compliance reporting.
 
 ## What changed (2026-11-10: duty review, permissions and approved points)
 

@@ -42,6 +42,10 @@ approved points kept apart from the points its scoring version calculated. `duty
 Nobody decides their own duty unless a role someone else gave them names Approve own duty. See
 [ADR-0024](engineering/ADR/0024-duty-review-permissions-scoring.md).
 
+A training holds its evidence as files in `attachments`: each says what it is (`kind`) and what it shows
+(`description`), is validated by content on the server, and is exactly as reachable as the training it hangs on. See
+[ADR-0025](engineering/ADR/0025-training-evidence.md).
+
 ## Correspondence
 
 A thread carries three separate dates, not one: `response_at` when somebody replied, `ksd_at` when the
