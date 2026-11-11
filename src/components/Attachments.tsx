@@ -65,9 +65,16 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   const full = Boolean(files) && rows.length >= (files?.maxPerRecord ?? Infinity);
   const adding = canEdit && on && Boolean(files) && !withheld && !full;
   const noun = evidence ? 'evidence' : 'files';
+  // One request at a time. While one is in flight nothing else here is offered, so what comes back is about the form
+  // that sent it and never closes, fills or blames another.
+  const working = busy !== null;
 
   /** After the panel changes under the keyboard, put focus where the person will act next. */
   const focusOn = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => find()?.focus());
+  /** When the control the keyboard was on is gone: the Add button, else a file's Remove, else the panel itself. */
+  const focusHome = () => focusOn(() => addButton.current ?? root.current?.querySelector<HTMLElement>('[data-remove]') ?? root.current);
+  /** A file just added shows at once, and the panel knows at once if it is now full. */
+  const listed = (added: AttachmentRow) => qc.setQueryData<AttachmentsResponse>(['attachments', table, id], (d) => (d && !d.attachments.some((a) => a.id === added.id) ? { ...d, attachments: [added, ...d.attachments] } : d));
   const changed = () => {
     void qc.invalidateQueries({ queryKey: ['attachments', table, id] });
     // The lists that count a training's evidence.
@@ -79,9 +86,9 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   // Any other record type: choose a file and it is attached.
   const quickAdd = async (file: File) => {
     const refused = tooLarge(file);
-    if (refused) { toast.error(refused); if (quickInput.current) quickInput.current.value = ''; return; }
+    if (refused || working) { if (refused) toast.error(refused); if (quickInput.current) quickInput.current.value = ''; return; }
     setBusy('add');
-    try { await api.uploadAttachment(table, id, file); toast.success(`Attached ${file.name}.`); changed(); }
+    try { listed(await api.uploadAttachment(table, id, file)); toast.success(`Attached ${file.name}.`); changed(); focusHome(); }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(null); if (quickInput.current) quickInput.current.value = ''; }
   };
@@ -90,7 +97,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   const openForm = () => { setDraft({ kind: '', description: '', file: null }); setErrors({}); focusOn(() => root.current?.querySelector<HTMLElement>('[data-add-form] button, [data-add-form] input')); };
   const closeForm = () => { setDraft(null); setErrors({}); focusOn(() => addButton.current); };
   const submit = async () => {
-    if (!draft) return;
+    if (!draft || working) return;
     const found: FieldErrors = {};
     if (!draft.kind) found.kind = 'Choose what this file is.';
     if (!draft.file) found.file = 'Choose a file.';
@@ -99,10 +106,12 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
     if (Object.keys(found).length || !draft.file || !draft.kind) return;
     setBusy('add');
     try {
-      await api.uploadAttachment(table, id, draft.file, { kind: draft.kind, description: draft.description.trim() || null });
+      listed(await api.uploadAttachment(table, id, draft.file, { kind: draft.kind, description: draft.description.trim() || null }));
       toast.success(`Attached ${draft.file.name}.`);
       changed();
-      closeForm();
+      setDraft(null); setErrors({});
+      // The Add button, unless that file filled the record.
+      focusHome();
     } catch (e) { setErrors(fromServer(e, 'file')); }
     finally { setBusy(null); }
   };
@@ -110,7 +119,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   const startEdit = (f: AttachmentRow) => { setRemoving(null); setEditErrors({}); setEditing({ id: f.id, kind: f.kind ?? '', description: f.description ?? '' }); focusOn(() => root.current?.querySelector<HTMLElement>('[data-edit-form] button, [data-edit-form] input')); };
   const closeEdit = (fileId: string) => { setEditing(null); setEditErrors({}); focusOn(() => root.current?.querySelector<HTMLElement>(`[data-edit="${CSS.escape(fileId)}"]`)); };
   const saveEdit = async () => {
-    if (!editing) return;
+    if (!editing || working) return;
     // A type is sent only once one is chosen: a file that arrived without one keeps its description correctable.
     const details: AttachmentDetails = { description: editing.description.trim() || null, ...(evidence && editing.kind ? { kind: editing.kind } : {}) };
     setBusy(editing.id);
@@ -123,10 +132,12 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
     finally { setBusy(null); }
   };
 
-  // Removing asks first. Keep takes the place Remove had and takes focus, so a second click or a stray Enter keeps the file.
+  // Removing asks first. Keep takes the place Remove had, at every width, and takes focus: a second click or tap, or a
+  // stray Enter, keeps the file. (Both buttons are one width and their group stays at the row's right edge.)
   const askRemove = (fileId: string) => { setEditing(null); setRemoving(fileId); focusOn(() => root.current?.querySelector<HTMLElement>('[data-keep]')); };
   const keep = (fileId: string) => { setRemoving(null); focusOn(() => root.current?.querySelector<HTMLElement>(`[data-remove="${CSS.escape(fileId)}"]`)); };
   const remove = async (f: AttachmentRow) => {
+    if (working) return;
     setBusy(f.id);
     try {
       await api.deleteAttachment(table, id, f.id);
@@ -134,7 +145,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
       setRemoving(null);
       qc.setQueryData<AttachmentsResponse>(['attachments', table, id], (d) => (d ? { ...d, attachments: d.attachments.filter((a) => a.id !== f.id) } : d));
       changed();
-      focusOn(() => addButton.current);
+      focusHome();
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(null); }
   };
@@ -152,11 +163,11 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
       subtitle={subtitle}
       action={adding && !draft
         ? evidence
-          ? <Button ref={addButton} size="sm" onClick={openForm}><Paperclip className="h-3.5 w-3.5" />Add evidence</Button>
-          : <Button ref={addButton} size="sm" loading={busy === 'add'} onClick={() => quickInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button>
+          ? <Button ref={addButton} size="sm" disabled={working} onClick={openForm}><Paperclip className="h-3.5 w-3.5" />Add evidence</Button>
+          : <Button ref={addButton} size="sm" loading={busy === 'add'} disabled={working} onClick={() => quickInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button>
         : undefined}
     >
-      <div ref={root}>
+      <div ref={root} role="group" aria-label={evidence ? 'Evidence' : 'Files'} tabIndex={-1}>
         {!evidence && <input ref={quickInput} type="file" className="sr-only" aria-hidden="true" tabIndex={-1} accept={acceptFor(allowed) || undefined}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void quickAdd(f); }} />}
 
@@ -176,7 +187,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
               </Field>
             </div>
             <div className="mt-3 flex justify-end gap-2">
-              <Button variant="ghost" onClick={closeForm}>Cancel</Button>
+              <Button variant="ghost" disabled={working} onClick={closeForm}>Cancel</Button>
               <Button variant="primary" loading={busy === 'add'} onClick={() => void submit()}>Attach</Button>
             </div>
           </div>
@@ -206,7 +217,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
                               </Field>
                             </div>
                             <div className="mt-3 flex justify-end gap-2">
-                              <Button size="sm" variant="ghost" onClick={() => closeEdit(f.id)}>Cancel</Button>
+                              <Button size="sm" variant="ghost" disabled={working} onClick={() => closeEdit(f.id)}>Cancel</Button>
                               <Button size="sm" variant="primary" loading={busy === f.id} onClick={() => void saveEdit()}>Save details</Button>
                             </div>
                           </div>
@@ -221,15 +232,15 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
                               <p className="mt-1 text-2xs text-ink-3">{facts.filter(Boolean).join(' · ')}</p>
                             </div>
                             {canEdit && (confirming ? (
-                              <div className="flex shrink-0 items-center gap-1" role="group" aria-label={`Remove ${f.original_name}?`}>
+                              <div className="ml-auto flex shrink-0 items-center gap-1" role="group" aria-label={`Remove ${f.original_name}?`}>
                                 <span className="text-xs text-ink-2">Remove this file?</span>
                                 <Button size="xs" variant="danger" loading={busy === f.id} aria-label={`Yes, remove ${f.original_name}`} onClick={() => void remove(f)}>Yes, remove</Button>
-                                <Button size="xs" variant="ghost" data-keep aria-label={`Keep ${f.original_name}`} onClick={() => keep(f.id)}>Keep</Button>
+                                <Button size="xs" variant="ghost" className="min-w-16" data-keep disabled={working} aria-label={`Keep ${f.original_name}`} onClick={() => keep(f.id)}>Keep</Button>
                               </div>
                             ) : (
-                              <div className="flex shrink-0 items-center gap-1">
-                                <Button size="xs" variant="ghost" data-edit={f.id} aria-label={`Edit details of ${f.original_name}`} onClick={() => startEdit(f)}>Edit details</Button>
-                                <Button size="xs" variant="ghost" data-remove={f.id} aria-label={`Remove ${f.original_name}`} onClick={() => askRemove(f.id)}>Remove</Button>
+                              <div className="ml-auto flex shrink-0 items-center gap-1">
+                                <Button size="xs" variant="ghost" data-edit={f.id} disabled={working} aria-label={`Edit details of ${f.original_name}`} onClick={() => startEdit(f)}>Edit details</Button>
+                                <Button size="xs" variant="ghost" className="min-w-16" data-remove={f.id} disabled={working} aria-label={`Remove ${f.original_name}`} onClick={() => askRemove(f.id)}>Remove</Button>
                               </div>
                             ))}
                           </div>

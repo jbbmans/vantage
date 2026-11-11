@@ -6,11 +6,11 @@ import { requireAuth } from '../auth/middleware.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
-import { inspectAttachment, attachmentDisposition, attachmentContentType } from '../services/attachments.ts';
+import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
 import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
 import { attachmentDetailsSchema } from '../../shared/schemas.ts';
 import { audit, auditListedRecords } from '../services/audit.ts';
-import { scanUpload } from '../services/scanner.ts';
+import { MalwareRejected, scanUpload } from '../services/scanner.ts';
 import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
@@ -141,21 +141,22 @@ recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
 const attachmentBody = (req: express.Request, res: express.Response, next: express.NextFunction) =>
   express.raw({ type: () => true, limit: req.ctx.config.attachments.maxBytes })(req, res, next);
 
-function attachableRecord(req: express.Request, needEdit = false) {
+function attachableRecord(req: express.Request, needEdit = false, again = false) {
   const table = tableParam(req);
   if (!isAttachable(table)) throw notFound('That record type does not take attachments.');
   const row = getRecord(req.ctx, table, String(req.params.id));
   if (!row) throw notFound('No such record.');
-  const scope = scopeFor(req.ctx, req.user, req);
+  // `again`: the caller's roles and memberships as they are now, not as this request first read them.
+  const scope = again ? scopeFor(req.ctx, req.user) : scopeFor(req.ctx, req.user, req);
   if (!canRead(scope, req.user.id, row)) throw forbidden('You cannot read attachments for that record.');
   if (needEdit && !canEdit(scope, req.user.id, row)) throw forbidden('That record is not yours to update.');
   return { table, row };
 }
 
 /** A record that may take a new file now: attachments on for the service, the record editable, its Unit Instance not withheld (ADR-0014). */
-function uploadTarget(req: express.Request) {
+function uploadTarget(req: express.Request, again = false) {
   if (!req.ctx.runtime.attachmentsEnabled) throw notFound('Attachments are not enabled.');
-  const { table, row } = attachableRecord(req, true);
+  const { table, row } = attachableRecord(req, true, again);
   if (!featureOn(req.ctx, 'attachments', row.unit_id, row.user_id)) throw forbidden('Vantage has turned file attachments off for this Unit Instance. Files already attached stay readable.', 'feature_withheld');
   return { table, row };
 }
@@ -207,22 +208,24 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
   const limit = ctx.config.attachments.maxPerRecord;
   const full = () => conflict(`A record can hold at most ${limit} attachments.`, 'attachment_limit');
   if (liveCount(req, table, row.id) >= limit) throw full();
-  const inspected = inspectAttachment({ body: req.body, filename: req.get('x-vantage-filename'), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
+  const inspected = inspectAttachment({ body: req.body, filename: filenameFromHeader(req.get('x-vantage-filename')), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
   if (!inspected.ok) throw badRequest(inspected.error);
   try { if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size + inspected.size >= ctx.config.limits.maxDatabaseBytes) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity'); } catch (e) { if (e instanceof HttpError) throw e; }
   // Evidence is scanned like any other upload: a rejected file is never stored.
   try { await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename); }
   catch (e) {
-    if ((e as HttpError).code === 'malware_rejected') audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: (e as Error).message.slice(0, 300), ip: clientIp(req) });
+    // The trail holds what the scanner found, never the file's name.
+    if (e instanceof MalwareRejected) audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip: clientIp(req) });
     throw e;
   }
   // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015), been deleted, been decided or
-  // frozen, or taken its last file. Everything is decided again here with nothing awaited between it and the insert, so
-  // the file never lands on an entry that is gone or that the caller may no longer add to.
+  // frozen, or taken its last file, and the caller may have lost the role or the membership that let them add to it.
+  // Everything is decided again here, the caller's authority read afresh, with nothing awaited between it and the
+  // insert, so the file never lands on an entry that is gone or that the caller may no longer add to.
   if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
     throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
   }
-  const current = uploadTarget(req).row;
+  const current = uploadTarget(req, true).row;
   if (liveCount(req, table, current.id) >= limit) throw full();
   const id = newId();
   try {

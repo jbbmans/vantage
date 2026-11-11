@@ -37,13 +37,21 @@ function clipName(name: string, max: number = ATTACHMENT_LIMITS.filename): strin
 /**
  * A filename as it is kept and shown: its last path segment, without control characters, half a surrogate pair, or the
  * invisible and direction-reversing characters that make a name read as another; path and shell punctuation becomes a
- * hyphen.
+ * hyphen. The name is taken as written: a percent sign in it is a percent sign (see filenameFromHeader).
  */
 export function cleanFilename(value: unknown): string {
-  let decoded = String(value || '');
-  try { decoded = decodeURIComponent(decoded); } catch {}
-  const name = stripHidden(basename(decoded).replace(/\p{Cs}/gu, '')).replace(/\p{Cc}/gu, '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  const name = stripHidden(basename(String(value || '')).replace(/\p{Cs}/gu, '')).replace(/\p{Cc}/gu, '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
   return clipName(name);
+}
+
+/**
+ * A filename as an upload sends it: percent-encoded once, because a header holds only ASCII. Decoded here and nowhere
+ * else, so a stored name is never decoded a second time on its way out or through an import. One that does not decode
+ * is taken as written.
+ */
+export function filenameFromHeader(value: unknown): string {
+  const raw = String(value || '');
+  try { return decodeURIComponent(raw); } catch { return raw; }
 }
 
 function validUtf8(body: Buffer): string | null {
@@ -51,9 +59,9 @@ function validUtf8(body: Buffer): string | null {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(body); } catch { return null; }
 }
 
-/** Plain text holds no control characters beyond a tab, a line break and a page break. */
+/** Plain text holds no control characters, C0 or C1, beyond a tab, a line break and a page break. */
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0001-\u0008\u000B\u000E-\u001F\u007F]/;
+const CONTROL = /[\u0001-\u0008\u000B\u000E-\u001F\u007F-\u009F]/;
 
 export function inspectAttachment({ body, filename, contentType, allowedTypes, maxBytes }: { body: unknown; filename: unknown; contentType: unknown; allowedTypes: string[]; maxBytes: number }):
   { ok: true; filename: string; mime: string; size: number; sha256: string } | { ok: false; error: string } {

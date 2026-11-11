@@ -698,6 +698,20 @@ const chainHeld = (holds: HoldState, chain: LineageLink[]) =>
   holds.instance || chain.some((l) => holds.users.has(l.user_id) || holds.types.has(l.from_table) || holds.types.has(l.to_table));
 
 /**
+ * Of these records, the ones whose lineage a legal hold keeps (destroyLineage below). What such an entry carries, its
+ * files among it, stays with the lineage that is kept (ADR-0025).
+ */
+export function lineageHeld(ctx: AppContext, table: string, ids: string[], holds: HoldState): Set<string> {
+  const held = new Set<string>();
+  if (!isLineageTable(table)) return held;
+  for (const id of ids) {
+    const chain = lineageChain(ctx, table, id, new Set());
+    if (chain.length && chainHeld(holds, chain)) held.add(id);
+  }
+  return held;
+}
+
+/**
  * The lineage of records being destroyed goes with them (ADR-0015): every move that led to one, each holding the entry
  * as it was before. The whole chain is that record's. A chain a legal hold covers stays, since it holds what the entry
  * said as a record of a held type, but only as evidence: it is marked kept for the hold, so nobody reads it back or

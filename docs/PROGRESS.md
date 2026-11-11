@@ -17,21 +17,27 @@ A training holds its evidence as files that say what they are
   when. The type and description are corrected in place; the file itself never changes.
 - **As reachable as its training, and no further.** Listing and opening take the right to read the training; adding,
   correcting and removing take the right to edit it. There is no permission for files alone, a file's id under another
-  record is not found, and who may add a file is decided before its body is read and again after the malware scan.
+  record is not found, and who may add a file is decided before its body is read and again after the malware scan,
+  with the caller's roles read afresh: a role removed while the scanner has the file leaves nothing stored.
   Withholding attachments from a Unit Instance (John's "Per instance") still stops new files only.
 - **Validation on the server:** size and count limits; the type must be allowed, the filename's extension must agree
   and the content must prove it. PDF 2.0 is accepted; a CSV that a machine with a spreadsheet program sends under that
-  program's type is accepted as the CSV it is; text holding control characters is refused; a filename loses hidden and
-  direction-override characters and keeps its extension when shortened. Downloads are always downloads, with
-  `nosniff` and a sandboxed content policy.
+  program's type is accepted as the CSV it is; text holding control characters (C0 or C1) is refused; a filename loses
+  hidden and direction-override characters, keeps its extension when shortened, and is decoded once, so a name with a
+  literal `%20` keeps it. Downloads are always downloads, with `nosniff` and a sandboxed content policy.
 - **Audit:** adding, correcting (`update_attachment`, new), removing and anyone else's opening of a file are recorded
-  by the file's id, with the Marine as subject; never the filename or description.
+  by the file's id, with the Marine as subject; never the filename or description. A file the malware scanner rejects
+  is recorded by what the scanner found, not by its name, on a record and in an import.
 - **Exports and imports:** the personal export, `attachments.csv` and the single-record export carry type, description
   and who added a file by name. An import brings type and description back where they are valid; the importer is the
-  uploader. A file keeps both when its entry moves to another record type and back.
+  uploader. A file keeps both when its entry moves to another record type and back. A person's export still carries
+  every file they added; for one on somebody else's record it says what the file is only while they can open that
+  record.
 - **Retention:** anonymizing a record now deletes its files, which would otherwise still name the Marine. That
-  includes files left on records an earlier run anonymized: the next anonymize run a Unit Manager applies removes
-  them, the preview counts them first, and the run's history and audit entry state the count. Holds still win.
+  includes files left on records an earlier run anonymized, and files on tasks and projects, whose clock anonymizing
+  restarts: the next anonymize run a Unit Manager applies removes them, the preview counts them first, and the run's
+  history and audit entry state the count. Holds still win: a held Marine's records and files, the files a held person
+  added to anyone's record, and the files of an entry whose history a hold keeps all stay until the hold is released.
 - **In the app:** the training dialog's panel is Evidence, with Add evidence, Edit details and a confirmed Remove; the
   training list has an Evidence column; a leader opens a Marine's shared training, and its evidence, from the Marine's
   page. The other record types keep the Files panel and gain who added each file, when, and the confirmation.
@@ -39,7 +45,8 @@ A training holds its evidence as files that say what they are
   edit it changes its evidence; file types stay PDF, JPEG, PNG, TXT and CSV; evidence types are training's only; the
   importer becomes the uploader; anonymizing removes files.
 - **Not done:** Office formats; a separate permission to view evidence; descriptions on the activity page's own
-  attachment panel; training requirements and compliance reporting.
+  attachment panel; training requirements and compliance reporting. The destroy disposition is unchanged and removes
+  every file with its record, a held uploader's included.
 
 ## What changed (2026-11-10: duty review, permissions and approved points)
 

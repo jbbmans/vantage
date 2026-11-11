@@ -1,5 +1,7 @@
 import type { AppContext } from '../context.ts';
-import { RECORD_TABLE_NAMES, hydrate, withGoalProgress } from './records.ts';
+import { RECORD_TABLE_NAMES, getRecord, hydrate, withGoalProgress } from './records.ts';
+import { scopeFor } from '../authz/scope.ts';
+import { canRead } from '../authz/records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { listPasskeys } from '../auth/passkeys.ts';
 import { listPermissions } from '../../shared/permissions.ts';
@@ -91,6 +93,16 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   // Who added a file somebody else added, by name: the id is this instance's, and an import makes the importer the
   // uploader (ADR-0019), so the name is what says who it first came from.
   for (const a of attachmentRows) { a.uploader_label = a.uploaded_by !== userId ? personLabel(ctx, a.uploaded_by) : null; a.file = attachmentPath(a); }
+  // What is said about a file belongs to the record it hangs on, and whoever keeps that record may have rewritten it
+  // since. For a file the Marine added to somebody else's record, the export says what it is only while the Marine can
+  // still open that record (ADR-0025). The file they supplied, and its name, stay theirs to take.
+  const scope = scopeFor(ctx, { id: userId });
+  const opens = (a: Row) => {
+    if (recordIds.get(String(a.record_table))?.has(String(a.record_id))) return true;
+    const host = (RECORD_TABLE_NAMES as readonly string[]).includes(String(a.record_table)) ? getRecord(ctx, a.record_table as RecordTable, String(a.record_id)) : undefined;
+    return Boolean(host && canRead(scope, userId, host));
+  };
+  for (const a of attachmentRows) if (!opens(a)) { a.kind = null; a.description = null; }
 
   const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
 

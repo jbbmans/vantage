@@ -76,14 +76,21 @@ No new permission. The record decides (`server/authz/records.ts`):
 | Remove | `canRead` and `canEdit` |
 
 - A file is reached only through the record it hangs on. Its id under another record or another record type is 404.
+- One export differs, as it did before this Task (ADR-0019): a person's own export carries every file they added,
+  wherever it hangs, because they supplied it. For a file on somebody else's record it says what the file is (its type
+  and description) only while that person can still open the record. Whoever keeps the record can rewrite those words,
+  so they are not handed to someone the record is now closed to.
 - **Decided before the body is read.** A middleware runs the upload's authorization and reads its type and description
   before `express.raw` takes the body. The handler decides again once it has the file, and a third time after the
-  awaited malware scan with nothing awaited between that decision and the insert, so a file never lands on an entry
-  that moved, was deleted, was frozen or filled up meanwhile.
+  awaited malware scan. That last decision reads the caller's roles and memberships afresh, not as the request first
+  found them, and nothing is awaited between it and the insert. So a file never lands on an entry that moved, was
+  deleted, was frozen or filled up meanwhile, or that the caller lost the right to add to while the scanner had it.
 - Withholding attachments from a Unit Instance stops new files only. What is there stays readable, correctable and
   removable.
 - The type and description of an upload travel as headers beside the filename (`x-vantage-evidence-kind`,
-  `x-vantage-description`, the description percent-encoded), because the body is the file.
+  `x-vantage-description`, the description percent-encoded), because the body is the file. The filename header is
+  percent-decoded once, where the header is read (`filenameFromHeader`). A stored name is never decoded again, so a
+  name that holds a literal `%20` keeps it on download and through an import.
 
 ### 4. Validation
 
@@ -91,8 +98,8 @@ No new permission. The record decides (`server/authz/records.ts`):
 
 - Size against the configured limit; the count per record against its limit.
 - The type must be one the service allows, the filename's extension must be that type's, and the content must prove it:
-  a signature for PDF (1.0 to 1.7 and 2.0), PNG and JPEG; valid UTF-8 with no control characters other than tab, line
-  feed, carriage return and form feed for TXT and CSV.
+  a signature for PDF (1.0 to 1.7 and 2.0), PNG and JPEG; valid UTF-8 with no control characters, C0 or C1, other than
+  tab, line feed, carriage return and form feed for TXT and CSV.
 - The type a browser states is a claim. Where it states none (empty, or `application/octet-stream`), or states a
   spreadsheet program's type for a `.csv`, the type is read from the filename and then proven the same way. A stated,
   allowed type must still agree with the filename.
@@ -114,14 +121,18 @@ API's `Cache-Control: no-store`.
 | `download_attachment` | `attachment <id>` (logged when the reader is not the record's owner) | the Marine |
 | `update_attachment` (new) | `attachment <id>; changed kind, description[; <from> to <to>]` | the Marine, when someone else corrects it |
 | `delete_attachment` | `attachment <id>` | the Marine, when someone else removes it |
-| `upload_rejected` | the scanner's reason | the Marine, when someone else tried |
+| `upload_rejected` | `rejected by the malware scanner: <what it found>` | the Marine, when someone else tried |
 
-The trail never holds a filename or a description: both can name a person, and the trail is append-only.
+The trail never holds a filename or a description: both can name a person, and the trail is append-only. That covers
+the rejected upload too. Whoever sent the file is told which file in the response; the trail records what the scanner
+found (`MalwareRejected.finding`). An import's rejections (ADR-0019) are recorded the same way, without the name of the
+archive or of the file inside it.
 
 ### 6. Exports, imports, moves, retention
 
 - **Personal export and `attachments.csv`:** each file carries `kind`, `description` and, for a file someone else
-  added, `uploader_label` (a name, never this instance's id).
+  added, `uploader_label` (a name, never this instance's id). A file the person added to somebody else's record
+  carries `kind` and `description` only while they can still open that record (section 3).
 - **Single-record export:** each file carries `kind`, `description` and `uploader_label`.
 - **Import:** a known evidence type is kept only where the target record type takes one; a description is kept only if
   `cleanDescription` accepts it; anything else comes in empty and the file still comes in. The importer is the uploader
@@ -129,12 +140,17 @@ The trail never holds a filename or a description: both can name a person, and t
 - **Moves:** a file keeps its type and description when its entry moves and when the move is undone.
 - **Instance archive:** row-generic, so the two columns travel with no change.
 - **Retention:** an anonymized record holds no files. A certificate names its Marine in its name and on its face, so
-  leaving it would undo the anonymizing. An anonymize run deletes the files of every record past the cutoff that the
-  schedule covers and no hold excludes: the records it anonymizes, and records an earlier run already anonymized (every
-  run before this Task left their files, and a file can be added to an anonymized record afterwards). The preview
-  counts those files (`files` on its line), the run's history line and its `disposition_run` audit entry state the
-  count, and Run disposition is offered when files are the only work left. Holds win as they do for records: a held
-  Marine's files, a held record type's and everything under an instance-wide hold are untouched.
+  leaving it would undo the anonymizing. An anonymize run deletes the files of the records it anonymizes and of records
+  already anonymized, whatever their clock says now: every run before this Task left their files, a file can be added
+  to an anonymized record afterwards, and anonymizing a task or a project restarts its clock (`updated_at`). The files
+  are chosen before the records are rewritten, and the preview counts the same files (`files` on its line). The run's
+  history line and its `disposition_run` audit entry state the count. Run disposition is offered on a fresh preview
+  when files are the only work left, and not again on the result of a run.
+- **Retention holds:** holds win as they do for records. A held Marine's records and their files, a held record type's
+  and everything under an instance-wide hold are untouched. Two more kinds of file are kept, as the recycle-bin purge
+  and `destroyLineage` already keep them: a file a held person added to anyone's record, and the files of an entry
+  whose history a hold keeps (an entry that has been of a held record type, `lineageHeld`). They go at the first run
+  after the hold is released.
 
 ### 7. Where it shows
 
@@ -163,7 +179,9 @@ change it.
 - Evidence types apply to training only. Awards and duty keep untyped files.
 - On import the importer becomes the uploader.
 - Anonymizing a record removes its files, including files still on records anonymized before this Task, at the next
-  anonymize run a Unit Manager applies. The preview shows the count first.
+  anonymize run a Unit Manager applies. The preview shows the count first. Files a hold keeps stay until it is
+  released.
+- A rejected upload's audit entry says what the scanner found and not the file's name, on a record and in an import.
 
 ## Alternatives considered
 
@@ -184,6 +202,11 @@ change it.
   routes and does not yet show descriptions.
 - Training requirements, expiry and compliance reporting on whether evidence is present.
 - Restoring a removed file from the page (it is kept 30 days before it is purged, as before).
+- The destroy disposition (`destroyRecords`) is unchanged: it removes a record with every file on it, including a file a
+  held person added to somebody else's record. Only the anonymize path gained that exception here.
+- Correcting or removing a file is not stopped by withholding attachments from a Unit Instance (section 3), and a
+  request with an undecodable `Content-Encoding` or a malformed percent-escape in its path is answered 500 by the
+  application-wide error handler, as on main.
 
 ## Consequences
 
@@ -194,7 +217,8 @@ change it.
 - Files that were refused are now accepted: PDF 2.0, a CSV sent as a spreadsheet type, and a file whose type the
   browser could not state but whose name and content agree. Files that were accepted are now refused: text holding
   control characters.
-- One new audit action, `update_attachment`; existing attachment actions gain a detail.
+- One new audit action, `update_attachment`; existing attachment actions gain a detail. `upload_rejected` no longer
+  holds the rejected file's name, on a record or in an import.
 - The first anonymize run applied after this change also deletes the files left on records that earlier runs
   anonymized. Nothing runs by itself: disposition runs only when a Unit Manager applies it, and the preview states the
   number of files first. A disposition line gains an optional `files` count; `disposition_run` is now also written for

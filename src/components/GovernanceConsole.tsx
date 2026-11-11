@@ -189,7 +189,8 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
   const pendingCount: number = (preview?.lines || []).reduce((n: number, l: any) => n + (l.disposition === 'review' ? 0 : l.eligible), 0);
   // Files left on records an earlier run anonymized are work for a run too, with no record left to count (ADR-0025).
   const pendingFiles: number = (preview?.lines || []).reduce((n: number, l: { files?: number }) => n + (l.files || 0), 0);
-  const wouldAct = Boolean(preview) && !preview.blocked && (pendingCount > 0 || pendingFiles > 0);
+  // A run acts on a preview, never on the result of the run before it: after one, see what is eligible again.
+  const wouldAct = Boolean(preview) && !preview.applied && !preview.blocked && (pendingCount > 0 || pendingFiles > 0);
 
   return (
     <div className="space-y-4">

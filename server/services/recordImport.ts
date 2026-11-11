@@ -13,7 +13,7 @@ import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
 import { cleanDescription, isAttachable, isEvidenceKind, takesEvidenceKind, type EvidenceKind } from '../../shared/attachments.ts';
 import { sameClaims } from './duties.ts';
-import { scanUpload } from './scanner.ts';
+import { MalwareRejected, scanUpload } from './scanner.ts';
 import { featureOn } from './instanceFlags.ts';
 import { sourcedFieldsFor } from './personnel.ts';
 import { withPersonnelNote } from './personnelRecords.ts';
@@ -990,10 +990,11 @@ export async function stageImport(ctx: AppContext, user: SessionUser, input: { b
   // eslint-disable-next-line no-control-regex
   const filename = input.filename.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200) || 'import';
   const found = detect(buffer);
+  // The trail holds what the scanner found, never the name of the archive or of a file in it (ADR-0025).
   const rejected = (detail: string) => audit(ctx, { actor_id: user.id, action: 'upload_rejected', entity: 'record_imports', detail: detail.slice(0, 300), ip });
   // The file as a whole is scanned as any upload is; a rejected file is never kept.
   try { await scanUpload(ctx.config.intake, buffer, filename); }
-  catch (e) { if ((e as HttpError).code === 'malware_rejected') rejected(`${filename}: ${(e as Error).message}`); throw e; }
+  catch (e) { if (e instanceof MalwareRejected) rejected(`import file rejected by the malware scanner: ${e.finding}`); throw e; }
   // Each file a ZIP carries is scanned on its own, as an attachment upload is; one that fails stays out, the rest come in.
   const scanned: Record<string, string> = {};
   if (found.kind === 'vantage_zip' && found.files) {
@@ -1001,9 +1002,9 @@ export async function stageImport(ctx: AppContext, user: SessionUser, input: { b
       if (!path.startsWith('attachments/') || !data.length) continue;
       try { scanned[path] = (await scanUpload(ctx.config.intake, data, path.slice(12))).verdict === 'clean' ? 'clean' : 'skipped'; }
       catch (e) {
-        if ((e as HttpError).code !== 'malware_rejected') throw e;
+        if (!(e instanceof MalwareRejected)) throw e;
         scanned[path] = 'Refused by the malware scan.';
-        rejected(`${filename} › ${path}: ${(e as Error).message}`);
+        rejected(`a file attached in an import rejected by the malware scanner: ${e.finding}`);
       }
     }
   }

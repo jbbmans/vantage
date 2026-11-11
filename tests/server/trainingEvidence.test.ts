@@ -1,12 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { buildZip, readZip } from '../../server/lib/zip.ts';
 import { saveSchedule, runDisposition, placeHold, releaseHold, REDACTED } from '../../server/services/retention.ts';
-import { cleanFilename, inspectAttachment, attachmentDisposition } from '../../server/services/attachments.ts';
+import { cleanFilename, filenameFromHeader, inspectAttachment, attachmentDisposition } from '../../server/services/attachments.ts';
 import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, ATTACHMENT_LIMITS, cleanDescription, takesEvidenceKind } from '../../shared/attachments.ts';
 import { attachmentDetailsSchema } from '../../shared/schemas.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 
 /**
  * Task 19 (ADR-0025): a training holds its evidence as files. Each says what it is and what it shows, beside its name,
@@ -56,6 +58,69 @@ const training = async (token: string, body: Record<string, unknown> = {}, on: T
   return res.body.id as string;
 };
 const files = (token: string, table: string, id: string, on: TestApp = app) => on.call('GET', `/api/records/${table}/${id}/attachments`, { token });
+
+/**
+ * Retention in these tests: ten years, and a record aged past it on purpose. Nothing else this file makes is that old,
+ * whenever the suite runs, so a run acts only on what its test aged.
+ */
+const KEEP_DAYS = 3650;
+const longAgo = () => new Date(Date.now() - (KEEP_DAYS + 450) * 86_400_000).toISOString().slice(0, 10);
+const anonymizeAfterTenYears = (recordType: string, enabled: boolean) => saveSchedule(app.ctx, 'G8', { record_type: recordType, retain_days: KEEP_DAYS, disposition: 'anonymize', enabled, authority: 'Unit SOP' }, op.id);
+const lineOf = (run: ReturnType<typeof runDisposition>, recordType: string) => run.lines.find((l) => l.record_type === recordType)!;
+const lastRun = (recordType: string) => app.ctx.db.prepare("SELECT * FROM disposition_runs WHERE org_id = 'G8' AND record_type = ? ORDER BY rowid DESC LIMIT 1").get(recordType) as Record<string, any>;
+const titleOf = (table: string, id: string, column = 'title') => (app.ctx.db.prepare(`SELECT ${column} AS t FROM ${table} WHERE id = ?`).get(id) as { t: string }).t;
+
+/**
+ * A stand-in for clamd (INSTREAM): finds a file that begins with the EICAR test string, and holds its answer while a
+ * gate is shut. It does not look inside archives, which is why an import scans each file a ZIP carries on its own.
+ */
+async function fakeClamd() {
+  let hold: Promise<void> = Promise.resolve();
+  let arrived = () => {};
+  const server = createServer((socket) => {
+    let data = Buffer.alloc(0);
+    socket.on('error', () => {});
+    socket.on('data', (c) => {
+      data = Buffer.concat([data, c]);
+      if (data.length >= 4 && data.subarray(-4).equals(Buffer.alloc(4))) {
+        // zINSTREAM, a null, the first chunk's four-byte length, then the file.
+        const answer = data.subarray(14).toString('latin1').startsWith(EICAR.toString('latin1')) ? 'stream: Win.Test.EICAR_HDB-1 FOUND\0' : 'stream: OK\0';
+        arrived();
+        void hold.then(() => socket.end(answer));
+      }
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return {
+    address: `tcp://127.0.0.1:${(server.address() as { port: number }).port}`,
+    close: () => server.close(),
+    /** Shuts the gate: no answer leaves until `release`. `seen` resolves once a file has reached the scanner. */
+    gate() {
+      let release!: () => void;
+      hold = new Promise<void>((r) => { release = r; });
+      const seen = new Promise<void>((r) => { arrived = r; });
+      return { seen, release: () => { hold = Promise.resolve(); release(); } };
+    },
+  };
+}
+const EICAR = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
+
+/** A Vantage whose uploads are scanned by the stand-in: a Marine with a shared training, and an SNCO who may add to it. */
+async function scannedUnit() {
+  const clamd = await fakeClamd();
+  const on = await startApp({ VANTAGE_CLAMD: clamd.address });
+  try {
+    const lead = await on.setupOperator();
+    const marine = await on.register('diaz', { last_name: 'Diaz', first_name: 'Ana', rank_id: 'Cpl' });
+    const snco = await on.register('reyes', { last_name: 'Reyes', first_name: 'Sam', rank_id: 'SSgt' });
+    await enroll(on, lead.token, 'G8', marine.id);
+    await enroll(on, lead.token, 'G8', snco.id, 'snco');
+    marine.token = (await on.login('diaz')).body.token;
+    snco.token = (await on.login('reyes')).body.token;
+    const id = await training(marine.token, { visibility: 'unit', unit_id: 'G8' }, on);
+    return { clamd, on, lead, marine, snco, id, close: async () => { await on.close(); clamd.close(); } };
+  } catch (e) { await on.close(); clamd.close(); throw e; }
+}
 
 /** A clean Vantage: the same person signing up again and bringing a personal export in. */
 async function bringIn(zip: Buffer) {
@@ -330,12 +395,17 @@ test('a file’s content, type, size and name are checked on the server, and a d
   assert.equal((await up({ body: Buffer.alloc(0) })).status, 400);
   assert.equal((await up({ body: Buffer.from([0xff, 0xfe, 0x41, 0x00]), name: 'notes.txt', type: 'text/plain' })).status, 400, 'text that is not UTF-8');
   assert.match((await up({ body: Buffer.from('col\u001b[2Jumn'), name: 'notes.txt', type: 'text/plain' })).body.error, /plain text/);
+  // The one-character forms of the same terminal controls (C1) are refused as the escape sequences are.
+  assert.match((await up({ body: Buffer.from('col\u009b2Jumn\u009d0;title\u009c'), name: 'notes.txt', type: 'text/plain' })).body.error, /plain text/);
+  assert.equal((await up({ body: Buffer.from('Name,Rank\r\nDiaz\u0085Ana,Cpl\r\n'), name: 'roster.csv', type: 'text/csv' })).status, 400);
   assert.equal((await files(diaz.token, 'trainings', id)).body.attachments.length, 0);
 
   // PDF 2.0 is a PDF; a CSV from a machine whose spreadsheet program names the type is still a CSV; a file the browser
   // could not name is read by its filename and then proven the same way.
   const two = await up({ body: Buffer.from('%PDF-2.0\n% transcript\n%%EOF\n'), name: 'transcript.pdf' });
   assert.equal(two.status, 201, JSON.stringify(two.body));
+  const accented = await up({ body: Buffer.from('Peña, José\tSgt\r\nNguyễn, Trí\tCpl\n\fpage two — “complete” ✓\n'), name: 'names.txt', type: 'text/plain' });
+  assert.equal(accented.status, 201, JSON.stringify(accented.body));
   const csv = await up({ body: Buffer.from('\uFEFFName,Rank\r\nDiaz,Cpl\r\n'), name: 'roster.csv', type: 'application/vnd.ms-excel', kind: 'roster' });
   assert.equal(csv.status, 201, JSON.stringify(csv.body));
   assert.equal(csv.body.mime_type, 'text/csv');
@@ -359,11 +429,23 @@ test('a file’s content, type, size and name are checked on the server, and a d
   const emoji = cleanFilename(`${'😀'.repeat(100)}.png`);
   assert.ok(emoji.endsWith('.png') && emoji.length <= ATTACHMENT_LIMITS.filename);
   assert.doesNotThrow(() => encodeURIComponent(emoji), 'never half a character');
+  // A percent sign in a name is a percent sign. The header is decoded once, and a stored name never again: not on its
+  // way out as a download's name, and not on its way in through an import.
+  const literal = await attach(diaz.token, 'trainings', await training(diaz.token), { kind: 'certificate', name: 'Q1%20report%2Ffinal.pdf' });
+  assert.equal(literal.status, 201, JSON.stringify(literal.body));
+  assert.equal(literal.body.original_name, 'Q1%20report%2Ffinal.pdf');
+  const sent = await app.call('GET', `/api/records/trainings/${literal.body.record_id}/attachments/${literal.body.id}`, { token: diaz.token, binary: true });
+  assert.equal(sent.headers.get('content-disposition'), `attachment; filename="Q1%20report%2Ffinal.pdf"; filename*=UTF-8''Q1%2520report%252Ffinal.pdf`);
+  assert.equal(cleanFilename('Certificate%20of%20Completion%2F2026.pdf'), 'Certificate%20of%20Completion%2F2026.pdf');
+  assert.equal(filenameFromHeader('Sergeants%20Course%2Froster.pdf'), 'Sergeants Course/roster.pdf');
+  assert.equal(filenameFromHeader('100%.pdf'), '100%.pdf', 'a name that does not decode is taken as written');
   // The name a download carries: quoted for old clients, and encoded as RFC 8187 asks for the rest.
   assert.equal(attachmentDisposition("Diaz's roster (final).pdf"), `attachment; filename="Diaz's roster (final).pdf"; filename*=UTF-8''Diaz%27s%20roster%20%28final%29.pdf`);
   assert.doesNotThrow(() => attachmentDisposition('half\ud83d name.pdf'));
   const inspect = (body: string, filename: string, contentType: string) => inspectAttachment({ body: Buffer.from(body), filename, contentType, allowedTypes: ['application/pdf', 'text/plain'], maxBytes: 64 });
   assert.equal(inspect('x'.repeat(65), 'a.txt', 'text/plain').ok, false, 'over the size limit');
+  const kept = inspect('Completed.', 'Certificate%20of%20Completion.txt', 'text/plain');
+  assert.equal(kept.ok && kept.filename, 'Certificate%20of%20Completion.txt', 'an import checks a stored name without decoding it again');
   assert.equal(inspect('a,b', 'a.csv', 'text/csv').ok, false, 'a type the service does not allow');
   assert.equal(inspect('a,b', 'a.csv', '').ok, false, 'nor by its filename');
 
@@ -485,6 +567,43 @@ test('evidence keeps its type, description and uploader’s name in exports, and
   } finally { await second.clean.close(); }
 });
 
+test('an export says what a file is only while the one exporting can still open its record', async () => {
+  const id = await training(diaz.token, { title: 'Range coach course', visibility: 'unit', unit_id: 'G8' });
+  const roster = await attach(reyes.token, 'trainings', id, { kind: 'roster', description: 'Class roster', name: 'range-roster.pdf' });
+  assert.equal(roster.status, 201, JSON.stringify(roster.body));
+  const exportOf = async (token: string) => {
+    const res = await app.call('GET', '/api/me/export?format=zip', { token, binary: true });
+    assert.equal(res.status, 200);
+    const zip = readZip(res.buffer!);
+    const doc = JSON.parse(zip.get('vantage-export.json')!.toString('utf8'));
+    return { zip, doc, csv: zip.get('attachments.csv')!.toString('utf8'), row: doc.attachments.find((a: any) => a.id === roster.body.id) };
+  };
+
+  // While Reyes reads the unit's shared records, his export has the file he added and says what it is.
+  const reading = await exportOf(reyes.token);
+  assert.deepEqual([reading.row.kind, reading.row.description], ['roster', 'Class roster']);
+
+  // Diaz takes the training back and rewrites what the file is said to be. Reyes can open neither any more.
+  const taken = await put(diaz.token, `/api/records/trainings/${id}`, { title: 'Range coach course', type: 'pme', status: 'completed', date: '2026-05-01', visibility: 'private' });
+  assert.equal(taken.status, 200, JSON.stringify(taken.body));
+  const words = 'A note Diaz wrote once the training was private';
+  assert.equal((await put(diaz.token, `/api/records/trainings/${id}/attachments/${roster.body.id}`, { kind: 'other', description: words })).status, 200);
+  assert.equal((await files(reyes.token, 'trainings', id)).status, 403);
+  assert.equal((await get(reyes.token, `/api/records/trainings/${id}/attachments/${roster.body.id}`)).status, 403);
+
+  // The file Reyes supplied, and its name, are still his to take. What is said about it now is not.
+  const shut = await exportOf(reyes.token);
+  assert.ok(shut.row, 'the file he added is in his export');
+  assert.deepEqual([shut.row.original_name, shut.row.kind, shut.row.description], ['range-roster.pdf', null, null]);
+  assert.ok([...shut.zip.keys()].some((k) => k.startsWith('attachments/') && k.endsWith('range-roster.pdf')));
+  assert.doesNotMatch(JSON.stringify(shut.doc), /A note Diaz wrote/);
+  assert.doesNotMatch(shut.csv, /A note Diaz wrote/);
+
+  // Diaz's own export says all of it.
+  const own = await exportOf(diaz.token);
+  assert.deepEqual([own.row.kind, own.row.description, own.row.uploader_label], ['other', words, 'SSgt Reyes, Sam']);
+});
+
 test('a file keeps what is said about it when its entry moves to Training and back', async () => {
   const activity = await post(diaz.token, '/api/records/activities', { title: 'Completed Corporals Course', date: '2026-04-01' });
   const file = await attach(diaz.token, 'activities', activity.body.id, { description: 'Course certificate', name: 'course.pdf' });
@@ -507,13 +626,12 @@ test('a file keeps what is said about it when its entry moves to Training and ba
 });
 
 test('anonymizing a training under a retention schedule removes its evidence, and a dry run removes nothing', async () => {
-  const old = new Date(Date.now() - 900 * 86_400_000).toISOString().slice(0, 10);
-  const aged = await training(diaz.token, { title: 'Old shared course', visibility: 'unit', unit_id: 'G8', date: old });
+  const aged = await training(diaz.token, { title: 'Old shared course', visibility: 'unit', unit_id: 'G8', date: longAgo() });
   const recent = await training(diaz.token, { title: 'Recent shared course', visibility: 'unit', unit_id: 'G8', date: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) });
   const gone = await attach(diaz.token, 'trainings', aged, { kind: 'certificate', description: 'Names the Marine', name: 'Diaz Ana certificate.pdf' });
   const stays = await attach(diaz.token, 'trainings', recent, { kind: 'certificate' });
   assert.equal(gone.status, 201); assert.equal(stays.status, 201);
-  saveSchedule(app.ctx, 'G8', { record_type: 'trainings', retain_days: 365, disposition: 'anonymize', enabled: true, authority: 'Unit SOP' }, op.id);
+  anonymizeAfterTenYears('trainings', true);
   try {
     const preview = runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id });
     assert.ok(stored(gone.body.id), 'a dry run touches nothing');
@@ -526,16 +644,14 @@ test('anonymizing a training under a retention schedule removes its evidence, an
     assert.ok(stored(stays.body.id), 'evidence on a training inside its retention period is kept');
     assert.equal((await files(diaz.token, 'trainings', aged)).body.attachments.length, 0);
   } finally {
-    saveSchedule(app.ctx, 'G8', { record_type: 'trainings', retain_days: 365, disposition: 'anonymize', enabled: false, authority: 'Unit SOP' }, op.id);
+    anonymizeAfterTenYears('trainings', false);
   }
 });
 
 test('a training anonymized by an earlier run loses a file it still holds at the next run; a preview counts it and a hold keeps it', async () => {
-  const old = new Date(Date.now() - 900 * 86_400_000).toISOString().slice(0, 10);
-  const aged = await training(diaz.token, { title: 'Course an earlier run anonymized', visibility: 'unit', unit_id: 'G8', date: old });
-  const trainingsLine = (run: ReturnType<typeof runDisposition>) => run.lines.find((l) => l.record_type === 'trainings')!;
-  const lastRun = () => app.ctx.db.prepare("SELECT * FROM disposition_runs WHERE org_id = 'G8' AND record_type = 'trainings' ORDER BY rowid DESC LIMIT 1").get() as Record<string, any>;
-  saveSchedule(app.ctx, 'G8', { record_type: 'trainings', retain_days: 365, disposition: 'anonymize', enabled: true, authority: 'Unit SOP' }, op.id);
+  const aged = await training(diaz.token, { title: 'Course an earlier run anonymized', visibility: 'unit', unit_id: 'G8', date: longAgo() });
+  const trainingsLine = (run: ReturnType<typeof runDisposition>) => lineOf(run, 'trainings');
+  anonymizeAfterTenYears('trainings', true);
   let hold: { id: string } | null = null;
   try {
     // Anonymized with no file on it. Every run before this release left a record's files in place, and a file can be
@@ -548,7 +664,7 @@ test('a training anonymized by an earlier run loses a file it still holds at the
     // A preview finds no record to anonymize and one file to remove, and removes nothing.
     const preview = trainingsLine(runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id }));
     assert.deepEqual([preview.eligible, preview.acted, preview.files], [0, 0, 1]);
-    assert.match(lastRun().detail, /; 1 attached file to remove$/);
+    assert.match(lastRun('trainings').detail, /; 1 attached file to remove$/);
     assert.ok(stored(late.body.id));
 
     // A hold on the Marine wins over the schedule for their files as it does for their records.
@@ -563,7 +679,7 @@ test('a training anonymized by an earlier run loses a file it still holds at the
     const applied = trainingsLine(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }));
     assert.deepEqual([applied.eligible, applied.acted, applied.files], [0, 0, 1]);
     assert.equal(stored(late.body.id), undefined, 'the file goes, though the record was anonymized before');
-    assert.match(lastRun().detail, /; 1 attached file removed$/);
+    assert.match(lastRun('trainings').detail, /; 1 attached file removed$/);
     assert.equal(entries('disposition_run').length, logged + 1, 'a run that removed only files is on the trail');
     assert.match(entries('disposition_run').at(-1)!.detail, /trainings: anonymize 0, 1 files/);
 
@@ -573,7 +689,96 @@ test('a training anonymized by an earlier run loses a file it still holds at the
     assert.equal(entries('disposition_run').length, logged + 1);
   } finally {
     if (hold) releaseHold(app.ctx, 'G8', hold.id, op.id);
-    saveSchedule(app.ctx, 'G8', { record_type: 'trainings', retain_days: 365, disposition: 'anonymize', enabled: false, authority: 'Unit SOP' }, op.id);
+    anonymizeAfterTenYears('trainings', false);
+  }
+});
+
+test('a task and a project lose their files with their words, though anonymizing them restarts their clock', async () => {
+  // Their retention clock is their last change, and anonymizing is a change: the files are chosen before the words go.
+  const task = await post(nguyen.token, '/api/records/tasks', { title: 'Reconcile the travel claims of Cpl Diaz', visibility: 'unit', unit_id: 'G8' });
+  const project = await post(nguyen.token, '/api/records/projects', { name: 'Audit of Cpl Diaz’s travel', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(task.status, 201, JSON.stringify(task.body)); assert.equal(project.status, 201, JSON.stringify(project.body));
+  const onTask = await attach(nguyen.token, 'tasks', task.body.id, { name: 'Diaz Ana claim.pdf' });
+  const onProject = await attach(nguyen.token, 'projects', project.body.id, { name: 'Diaz Ana audit.pdf' });
+  assert.equal(onTask.status, 201, JSON.stringify(onTask.body)); assert.equal(onProject.status, 201, JSON.stringify(onProject.body));
+  const untouchedSince = `${longAgo()}T00:00:00.000Z`;
+  app.ctx.db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(untouchedSince, task.body.id);
+  app.ctx.db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(untouchedSince, project.body.id);
+  anonymizeAfterTenYears('tasks', true);
+  anonymizeAfterTenYears('projects', true);
+  try {
+    const preview = runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id });
+    assert.deepEqual([lineOf(preview, 'tasks').eligible, lineOf(preview, 'tasks').files], [1, 1]);
+    assert.deepEqual([lineOf(preview, 'projects').eligible, lineOf(preview, 'projects').files], [1, 1]);
+    const applied = runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id });
+    assert.deepEqual([lineOf(applied, 'tasks').acted, lineOf(applied, 'tasks').files], [1, 1], 'what the preview said, the run did');
+    assert.deepEqual([lineOf(applied, 'projects').acted, lineOf(applied, 'projects').files], [1, 1]);
+    assert.equal(titleOf('tasks', task.body.id), REDACTED);
+    assert.equal(titleOf('projects', project.body.id, 'name'), REDACTED);
+    assert.equal(stored(onTask.body.id), undefined, 'the file that names the Marine goes with the task’s words');
+    assert.equal(stored(onProject.body.id), undefined);
+    assert.match(lastRun('tasks').detail, /; 1 attached file removed$/);
+
+    // Anonymized a moment ago, so no longer past the cutoff by its clock: a file it holds still goes at the next run.
+    const late = await attach(nguyen.token, 'tasks', task.body.id, { name: 'Diaz Ana claim, signed.pdf' });
+    assert.equal(late.status, 201, JSON.stringify(late.body));
+    const next = lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id }), 'tasks');
+    assert.deepEqual([next.eligible, next.files], [0, 1]);
+    assert.equal(lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }), 'tasks').files, 1);
+    assert.equal(stored(late.body.id), undefined);
+  } finally {
+    anonymizeAfterTenYears('tasks', false);
+    anonymizeAfterTenYears('projects', false);
+  }
+});
+
+test('a hold keeps the files a held person added to someone else’s record, and the files of an entry whose history it keeps', async () => {
+  // A file somebody under hold added, on a record that is not theirs.
+  const course = await training(diaz.token, { title: 'Course with a leader’s roster', visibility: 'unit', unit_id: 'G8', date: longAgo() });
+  const own = await attach(diaz.token, 'trainings', course, { kind: 'certificate' });
+  const theirs = await attach(reyes.token, 'trainings', course, { kind: 'roster', name: 'roster kept by SSgt Reyes.pdf' });
+  assert.equal(own.status, 201, JSON.stringify(own.body)); assert.equal(theirs.status, 201, JSON.stringify(theirs.body));
+  let hold: { id: string } | null = placeHold(app.ctx, 'G8', { scope: 'user', subject_id: reyes.id, reason: 'Inquiry into what SSgt Reyes filed' }, op.id);
+  anonymizeAfterTenYears('trainings', true);
+  try {
+    const preview = lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id }), 'trainings');
+    assert.equal(preview.files, 1, 'the preview counts only what a run would take');
+    const applied = lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }), 'trainings');
+    assert.equal(applied.files, 1);
+    assert.equal(titleOf('trainings', course), REDACTED, 'the record is Cpl Diaz’s, who is under no hold');
+    assert.equal(stored(own.body.id), undefined);
+    assert.ok(stored(theirs.body.id), 'what a held person added is kept, as the recycle-bin purge keeps it');
+    releaseHold(app.ctx, 'G8', hold.id, op.id);
+    hold = null;
+    assert.equal(lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }), 'trainings').files, 1);
+    assert.equal(stored(theirs.body.id), undefined, 'and goes at the first run after the hold is released');
+  } finally {
+    if (hold) releaseHold(app.ctx, 'G8', hold.id, op.id);
+    anonymizeAfterTenYears('trainings', false);
+  }
+
+  // An entry that was a training, now an activity, with trainings under hold: its lineage is kept, and its file with it.
+  const was = await training(diaz.token, { title: 'Course moved to Activities', visibility: 'unit', unit_id: 'G8', date: longAgo() });
+  const cert = await attach(diaz.token, 'trainings', was, { kind: 'certificate' });
+  assert.equal(cert.status, 201, JSON.stringify(cert.body));
+  const moved = await post(diaz.token, `/api/records/trainings/${was}/move`, { to: 'activities' });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  assert.equal(stored(cert.body.id)!.record_table, 'activities');
+  hold = placeHold(app.ctx, 'G8', { scope: 'record_type', record_type: 'trainings', reason: 'Review of training records' }, op.id);
+  anonymizeAfterTenYears('activities', true);
+  try {
+    const applied = lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }), 'activities');
+    assert.deepEqual([applied.acted, applied.files], [1, undefined]);
+    assert.equal(titleOf('activities', moved.body.id), REDACTED);
+    assert.ok((app.ctx.db.prepare("SELECT kept_for_hold_at FROM record_lineage WHERE to_table = 'activities' AND to_id = ?").get(moved.body.id) as { kept_for_hold_at: string | null }).kept_for_hold_at, 'what it said as a training is kept for the hold');
+    assert.ok(stored(cert.body.id), 'and so is the certificate it carried as one');
+    releaseHold(app.ctx, 'G8', hold.id, op.id);
+    hold = null;
+    assert.equal(lineOf(runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }), 'activities').files, 1);
+    assert.equal(stored(cert.body.id), undefined);
+  } finally {
+    if (hold) releaseHold(app.ctx, 'G8', hold.id, op.id);
+    anonymizeAfterTenYears('activities', false);
   }
 });
 
@@ -585,4 +790,78 @@ test('a leader opening a Marine’s page sees how much evidence each shared trai
   assert.equal(page.status, 200, JSON.stringify(page.body).slice(0, 300));
   assert.equal(page.body.trainings.find((t: any) => t.id === shared).evidence_count, 2);
   assert.ok(page.body.trainings.every((t: any) => t.visibility === 'unit'), 'only what the Marine shared');
+
+  // Someone who keeps the roster and may open a Marine's page, without reading the unit's shared records, sees the
+  // training listed and no count: its files would be refused them, and the page takes the missing count as the word not
+  // to offer them.
+  const role = await post(op.token, '/api/org/roles', { unit_id: 'G8', name: 'Roster keeper', position: 10, permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_MEMBER_DETAIL | PERMISSIONS.MANAGE_MEMBERS });
+  assert.equal(role.status, 201, JSON.stringify(role.body));
+  const clerk = await app.register('clerk');
+  await enroll(app, op.token, 'G8', clerk.id);
+  assert.equal((await post(op.token, `/api/org/team/${clerk.id}/roles`, { role_id: role.body.id, unit_id: 'G8' })).status, 200);
+  clerk.token = await login('clerk');
+  const theirs = await get(clerk.token, `/api/org/team/${diaz.id}`);
+  assert.equal(theirs.status, 200, JSON.stringify(theirs.body).slice(0, 300));
+  const listedForThem = theirs.body.trainings.find((t: any) => t.id === shared);
+  assert.ok(listedForThem, 'the training is on the page');
+  assert.equal('evidence_count' in listedForThem, false);
+  assert.equal((await files(clerk.token, 'trainings', shared)).status, 403);
+});
+
+test('the trail says what the scanner found in a rejected file and never the file’s name, on a record and in an import', async () => {
+  const unit = await scannedUnit();
+  try {
+    const { on, marine, snco, id } = unit;
+    const bad = await attach(snco.token, 'trainings', id, { kind: 'certificate', name: 'Diaz Ana 123-45-6789 certificate.txt', type: 'text/plain', body: EICAR, on });
+    assert.equal(bad.status, 422, JSON.stringify(bad.body));
+    assert.equal(bad.body.code, 'malware_rejected');
+    assert.match(bad.body.error, /^Diaz Ana 123-45-6789 certificate\.txt was rejected by the malware scanner: Win\.Test\.EICAR_HDB-1$/, 'whoever sent it is told which file');
+    const [entry] = entries('upload_rejected', on);
+    assert.equal(entry.detail, 'rejected by the malware scanner: Win.Test.EICAR_HDB-1');
+    assert.deepEqual([entry.entity, entry.entity_id, entry.actor_id, entry.subject_id, entry.unit_id], ['trainings', id, snco.id, marine.id, 'G8']);
+    assert.equal((await files(marine.token, 'trainings', id, on)).body.attachments.length, 0, 'a rejected file is never stored');
+
+    // An import: the file as a whole, then a file inside a Vantage ZIP.
+    const whole = await on.call('POST', '/api/me/imports', { token: marine.token, raw: EICAR, headers: { 'content-type': 'text/csv', 'x-filename': 'Diaz Ana records.csv' } });
+    assert.equal(whole.status, 422, JSON.stringify(whole.body));
+    const note = await attach(marine.token, 'trainings', id, { kind: 'other', name: 'Diaz Ana notes.txt', type: 'text/plain', body: Buffer.from('Completed 1 May.'), on });
+    assert.equal(note.status, 201, JSON.stringify(note.body));
+    const exported = await on.call('GET', '/api/me/export?format=zip', { token: marine.token, binary: true });
+    const tampered = buildZip([...readZip(exported.buffer!)].map(([name, data]) => ({ name, data: name.startsWith('attachments/') ? EICAR : data })));
+    const staged = await on.call('POST', '/api/me/imports', { token: marine.token, raw: tampered, headers: { 'content-type': 'application/zip', 'x-filename': 'Diaz Ana export.zip' } });
+    assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 400));
+
+    const all = entries('upload_rejected', on);
+    assert.deepEqual(all.map((e) => e.detail), [
+      'rejected by the malware scanner: Win.Test.EICAR_HDB-1',
+      'import file rejected by the malware scanner: Win.Test.EICAR_HDB-1',
+      'a file attached in an import rejected by the malware scanner: Win.Test.EICAR_HDB-1',
+    ]);
+    for (const e of all) assert.doesNotMatch(String(e.detail), /Diaz|Ana|notes|records|export|\.txt|\.csv|\.zip|6789/);
+  } finally { await unit.close(); }
+});
+
+test('a role taken away while the scanner holds a file leaves nothing stored', async () => {
+  const unit = await scannedUnit();
+  try {
+    const { on, clamd, lead, snco, id } = unit;
+    const onRecord = () => (on.ctx.db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE record_table = 'trainings' AND record_id = ?").get(id) as { n: number }).n;
+
+    // Nothing changes while the file is scanned: it is kept.
+    const kept = await attach(snco.token, 'trainings', id, { kind: 'roster', name: 'roster.pdf', on });
+    assert.equal(kept.status, 201, JSON.stringify(kept.body));
+
+    // The scanner has the next file when the unit's leader takes the SNCO role away. The answer comes back clean.
+    const gate = clamd.gate();
+    const sending = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'second-roster.pdf', on });
+    await gate.seen;
+    const role = on.ctx.db.prepare("SELECT mr.role_id FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? AND r.key = 'snco'").get(snco.id) as { role_id: string };
+    const removed = await on.call('DELETE', `/api/org/team/${snco.id}/roles/${role.role_id}`, { token: lead.token });
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    gate.release();
+    const refused = await sending;
+    assert.equal(refused.status, 403, JSON.stringify(refused.body));
+    assert.equal(onRecord(), 1, 'the second file never landed');
+    assert.equal(entries('upload_attachment', on).length, 1);
+  } finally { await unit.close(); }
 });

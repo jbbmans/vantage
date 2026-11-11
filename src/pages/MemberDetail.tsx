@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer } from 'lucide-react';
@@ -69,6 +69,9 @@ export default function MemberDetail() {
   const [until, setUntil] = useState('');
   const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && Boolean(data) && tab === 'roles', retry: false });
   const unitLabel = (u: string) => { const x = (org?.units || []).find((y) => y.id === u); return x ? x.short_name || x.name : u; };
+  // A training open here closes once the page has been read again and no longer lists it: un-shared, moved or removed.
+  // A read that failed closes nothing, and nothing reopens by itself.
+  useEffect(() => { if (trainingView && data && !error && !data.trainings.some((t) => t.id === trainingView.id)) setTrainingView(null); }, [data, error, trainingView]);
 
   if (personnel.isPending || (record?.canOpenRecords && isPending)) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
   if (personnel.error || !record || !person) return <div className="page"><div className="card"><EmptyState title="Cannot open this Marine" description={api.errorText(personnel.error)} action={<Button onClick={() => navigate('/team')}>Back to Personnel</Button>} /></div></div>;
@@ -78,8 +81,8 @@ export default function MemberDetail() {
   // The open duty as the page holds it now; a decision just made is ahead of a page still being read again.
   const dutyListed = dutyView ? records?.duties.find((r) => r.id === dutyView.id) : undefined;
   const dutyViewed = dutyView ? (dutyListed && dutyListed.version >= dutyView.version ? dutyListed : dutyView) : null;
-  // The training as the page now lists it, so it closes on its own once it is no longer shared here.
-  const trainingViewed = trainingView ? records?.trainings.find((t) => t.id === trainingView.id) ?? null : null;
+  // The open training as the page lists it now, or as it was opened while the page is being read again.
+  const trainingViewed = trainingView ? records?.trainings.find((t) => t.id === trainingView.id) ?? trainingView : null;
   const canEditProfile = record.canEditProfile;
   const sourced = new Set(record.sourced);
   const reload = () => { personnel.refetch(); if (records) refetch(); qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); };
@@ -154,7 +157,7 @@ export default function MemberDetail() {
       {tab === 'career' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Awards" padded={false}>{!records.awards.length ? <EmptyState title="No shared awards" /> : <ul>{records.awards.map((a) => <li key={a.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{a.name}</span><span className="block text-xs text-ink-3"><TimeframeText table="awards" row={a} /> · {humanize(a.type)}</span></span><StatusBadge value={a.status} /></li>)}</ul>}</Panel>
-          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span className="min-w-0"><button type="button" className="block text-left font-medium text-ink hover:underline" onClick={() => setTrainingView(t)}>{t.title}</button><span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="shrink-0 text-right text-xs text-ink-3"><span className="fig block">{t.hours ? `${t.hours} h` : ''}</span>{t.evidence_count != null && <span className="block">Evidence: {evidenceCount(t.evidence_count)}</span>}</span></li>)}</ul>}</Panel>
+          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span className="min-w-0">{t.evidence_count != null ? <button type="button" className="block text-left font-medium text-ink hover:underline" onClick={() => setTrainingView(t)}>{t.title}</button> : <span className="block text-ink">{t.title}</span>}<span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="shrink-0 text-right text-xs text-ink-3"><span className="fig block">{t.hours ? `${t.hours} h` : ''}</span>{t.evidence_count != null && <span className="block">Evidence: {evidenceCount(t.evidence_count)}</span>}</span></li>)}</ul>}</Panel>
         </div>
       )}
 

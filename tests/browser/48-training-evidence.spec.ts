@@ -13,6 +13,10 @@ test.use({ contextOptions: { reducedMotion: 'reduce' } });
 test.beforeEach(async ({ request }) => { await ensureSetup(request); });
 
 const H = { 'x-vantage-client': '1' };
+// View unit, Open member records and Manage members, without View shared records (shared/permissions.ts).
+const VIEW_UNIT = 1 << 0;
+const VIEW_MEMBER_DETAIL = 1 << 2;
+const MANAGE_MEMBERS = 1 << 6;
 const serious = (violations: Array<{ impact?: string | null; id: string; nodes: unknown[] }>) => violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} (${v.nodes.length})`);
 const axe = async (page: Page) => serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations);
 const toast = (page: Page, text: string | RegExp) => expect(page.getByRole('status').filter({ hasText: text }).first()).toBeVisible();
@@ -131,7 +135,23 @@ test('a Marine adds evidence to a training, says what it is, corrects it, and re
   await noSidewaysScroll(page, 'the evidence form on a phone');
   await form.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog.getByRole('button', { name: 'Add evidence' })).toBeFocused();
+
+  // On a phone as on a desk, Keep takes exactly the place Remove had: a second tap in the same spot keeps the file.
+  const keepCoversRemove = async (where: string) => {
+    const remove = file.getByRole('button', { name: 'Remove corporals-course.pdf', exact: true });
+    const was = (await remove.boundingBox())!;
+    await remove.click();
+    const now = (await file.getByRole('button', { name: 'Keep corporals-course.pdf' }).boundingBox())!;
+    expect(now.x, `${where}: Keep starts no later than Remove did`).toBeLessThanOrEqual(was.x + 1);
+    expect(now.x + now.width, `${where}: Keep ends no sooner than Remove did`).toBeGreaterThanOrEqual(was.x + was.width - 1);
+    expect(Math.abs(now.y - was.y), `${where}: Keep is on the line Remove was on`).toBeLessThanOrEqual(1);
+    await page.mouse.click(was.x + was.width / 2, was.y + was.height / 2);
+    await expect(file.getByRole('group', { name: 'Remove corporals-course.pdf?' })).toHaveCount(0);
+    await expect(file).toBeVisible();
+  };
+  await keepCoversRemove('on a phone');
   await page.setViewportSize({ width: 1280, height: 720 });
+  await keepCoversRemove('on a desk');
 
   // Removing asks first, with the keyboard on Keep; the file goes only on Yes.
   await file.getByRole('button', { name: 'Remove corporals-course.pdf', exact: true }).click();
@@ -146,6 +166,36 @@ test('a Marine adds evidence to a training, says what it is, corrects it, and re
   await toast(page, 'Removed corporals-course.pdf.');
   await expect(file).toHaveCount(0);
   await expect(dialog.getByRole('listitem').filter({ hasText: 'class-roster.csv' })).toBeVisible();
+
+  // One request at a time. Enter pressed twice sends the file once, and while it is on its way nothing else is offered.
+  let sent = 0;
+  await page.route('**/api/records/trainings/*/attachments', async (route) => {
+    if (route.request().method() === 'POST') { sent += 1; await new Promise((r) => setTimeout(r, 700)); }
+    await route.continue();
+  });
+  await dialog.getByRole('button', { name: 'Add evidence' }).click();
+  await choose(page, form, 'Transcript');
+  await form.getByLabel('File', { exact: true }).setInputFiles({ name: 'transcript.pdf', mimeType: 'application/pdf', buffer: pdf('transcript') });
+  await form.getByLabel('Description').focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(form.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Remove class-roster.csv', exact: true })).toBeDisabled();
+  await toast(page, 'Attached transcript.pdf.');
+  await expect(form).toHaveCount(0);
+  expect(sent, 'one file, sent once').toBe(1);
+  await page.unroute('**/api/records/trainings/*/attachments');
+  const transcript = dialog.getByRole('listitem').filter({ hasText: 'transcript.pdf' });
+  await expect(transcript).toContainText('Transcript');
+  await expect(dialog.getByRole('button', { name: 'Add evidence' })).toBeFocused();
+
+  // With the form open there is no Add button to go back to: after a removal the keyboard is on the next file's Remove.
+  await dialog.getByRole('button', { name: 'Add evidence' }).click();
+  await transcript.getByRole('button', { name: 'Remove transcript.pdf', exact: true }).click();
+  await transcript.getByRole('button', { name: 'Yes, remove transcript.pdf' }).click();
+  await toast(page, 'Removed transcript.pdf.');
+  await expect(dialog.getByRole('button', { name: 'Remove class-roster.csv', exact: true })).toBeFocused();
+  await form.getByRole('button', { name: 'Cancel' }).click();
 
   // The list says how much evidence the training holds.
   await closeDialogs(page);
@@ -204,6 +254,28 @@ test('whoever reads a unit’s shared records opens a Marine’s training eviden
   await noSidewaysScroll(readerPage, 'a Marine’s evidence on a phone');
   await reader.close();
 
+  // Someone who keeps the roster and may open a Marine's page, but does not read the unit's shared records, is told the
+  // training exists and is offered nothing to open: the server would refuse its evidence.
+  const roster = await browser.newContext({ reducedMotion: 'reduce' });
+  const rosterPage = await roster.newPage();
+  const rosterName = unique('rost');
+  await registerAs(rosterPage, rosterName);
+  await joinUnit(lead.page.request, rosterPage.request);
+  const rosterMe = await (await rosterPage.request.get('/api/me')).json();
+  const made = await lead.page.request.post('/api/org/roles', { headers: H, data: { unit_id: 'G8', name: `Roster keeper ${tag}`, position: 10, permissions: VIEW_UNIT | VIEW_MEMBER_DETAIL | MANAGE_MEMBERS } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const given = await lead.page.request.post(`/api/org/team/${rosterMe.user?.id ?? rosterMe.id}/roles`, { headers: H, data: { role_id: (await made.json()).id, unit_id: 'G8' } });
+  expect(given.ok(), await given.text()).toBeTruthy();
+  await logout(rosterPage);
+  await loginAs(rosterPage, rosterName);
+  await rosterPage.goto(`/team/${marineId}?tab=career`);
+  const plain = rosterPage.getByRole('listitem').filter({ hasText: `Sergeants Course ${tag}` });
+  await expect(plain).toBeVisible();
+  await expect(plain).not.toContainText('Evidence:');
+  await expect(plain.getByRole('button')).toHaveCount(0);
+  expect((await rosterPage.request.get(`/api/records/trainings/${shared.id}/attachments`)).status()).toBe(403);
+  await roster.close();
+
   // The unit leader may correct shared records: they add to the Marine's training, and correct what a file is said to show.
   await lead.page.goto(`/team/${marineId}?tab=career`);
   await lead.page.getByRole('button', { name: `Sergeants Course ${tag}` }).click();
@@ -229,7 +301,8 @@ test('whoever reads a unit’s shared records opens a Marine’s training eviden
   await page.goto('/career/training');
   await page.getByRole('row').filter({ hasText: `Sergeants Course ${tag}` }).getByRole('button', { name: `Sergeants Course ${tag}` }).click();
   const mine = page.getByRole('dialog', { name: `Sergeants Course ${tag}` });
-  await expect(mine.getByRole('listitem').filter({ hasText: 'graduation-roster.pdf' })).toContainText(/added by \S+ Boletz/);
+  // By rank and name, or by name alone: another spec may have left the seeded leader with no rank.
+  await expect(mine.getByRole('listitem').filter({ hasText: 'graduation-roster.pdf' })).toContainText(/added by (?:\S+ )?Boletz/);
   await expect(mine.getByRole('listitem').filter({ hasText: 'sergeants-course.pdf' })).toContainText('Completion certificate, verified against the roster');
   await lead.context.close();
 });
@@ -256,6 +329,8 @@ test('a retention preview counts the files an anonymize run would remove, and a 
     await confirm.getByRole('button', { name: 'Run disposition' }).click();
     await confirmSudoIfAsked(page);
     await expect(page.getByText('1 attached file removed')).toBeVisible();
+    // A run acts on a preview, never on the result of the run before it.
+    await expect(page.getByRole('button', { name: 'Run disposition' })).toBeDisabled();
   };
   try {
     await page.goto('/operator?tab=retention');

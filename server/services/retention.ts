@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { RECORD_TABLE_NAMES, destroyLineage, destroyRecords, forgetImportSnapshots } from './records.ts';
+import { RECORD_TABLE_NAMES, destroyLineage, destroyRecords, forgetImportSnapshots, lineageHeld } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 import { holdState } from './holds.ts';
@@ -145,7 +145,7 @@ export interface DispositionLine {
   held: number;
   acted: number;
   skipped?: string;
-  /** Under an anonymize schedule: the files on records past the cutoff, which a run removes with the words (ADR-0025). */
+  /** Under an anonymize schedule: the files on the records it anonymizes or has anonymized, which a run removes (ADR-0025). */
   files?: number;
 }
 
@@ -191,12 +191,24 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
       : 0;
 
     // An anonymized record holds no files (ADR-0025): a certificate, a transcript or a roster names the Marine in its
-    // content, its filename and its description. That is every record past the cutoff, not only the ones this run
-    // anonymizes: one anonymized by an earlier run, or given a file since, is done as a record and still has files to go.
+    // content, its filename and its description. So a run takes the files of the records it anonymizes and of the ones
+    // already anonymized: a record an earlier run anonymized, or one given a file since, is done as a record and still
+    // has files to go. Which files is settled here, before any word is written, so a preview and a run agree, and so a
+    // task or a project, whose clock is its last change, does not slip past the cutoff by being anonymized.
     const anonymizes = schedule.disposition === 'anonymize' && columns.length > 0;
-    const filesPast = `record_table = ? AND record_id IN (SELECT id FROM ${table} WHERE ${clock} IS NOT NULL AND ${clock} < ?${owned}${exclusion})`;
-    const filesParams = [table, cutoff, orgUnits, ...heldUsers];
-    let files = anonymizes ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM attachments WHERE ${filesPast}`).get(...filesParams) as { n: number }).n : 0;
+    let fileIds: string[] = [];
+    if (anonymizes) {
+      const anonymized = columns.map((c) => `${c} IS ?`).join(' AND ');
+      const records = `SELECT id FROM ${table} WHERE visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))${exclusion} AND ((${clock} IS NOT NULL AND ${clock} < ?) OR (${anonymized}))`;
+      // A hold on a person keeps the files they added, on anyone's record, as the recycle-bin purge does.
+      const uploader = heldUsers.length ? ` AND a.uploaded_by NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
+      const onFile = ctx.db.prepare(`SELECT a.id, a.record_id FROM attachments a WHERE a.record_table = ? AND a.record_id IN (${records})${uploader}`)
+        .all(table, orgUnits, ...heldUsers, cutoff, ...columns.map(() => REDACTED), ...heldUsers) as Array<{ id: string; record_id: string }>;
+      // A hold over a record type the entry has been keeps its lineage as evidence (destroyLineage). Its files stay with it.
+      const kept = lineageHeld(ctx, table, [...new Set(onFile.map((f) => f.record_id))], holds);
+      fileIds = onFile.filter((f) => !kept.has(f.record_id)).map((f) => f.id);
+    }
+    let files = fileIds.length;
 
     let acted = 0;
     if (!opts.dryRun && (eligible > 0 || files > 0)) {
@@ -221,8 +233,7 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
             ctx.db.prepare('UPDATE duty_reviews SET reason = ? WHERE reason IS NOT NULL AND duty_id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
           }
         }
-        // After the words: every record past the cutoff is anonymized now, so what is deleted is exactly their files.
-        if (anonymizes) files = ctx.db.prepare(`DELETE FROM attachments WHERE ${filesPast}`).run(...filesParams).changes;
+        if (fileIds.length) files = ctx.db.prepare('DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(fileIds)).changes;
       })();
     }
 
