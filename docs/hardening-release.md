@@ -100,6 +100,7 @@ This is a tested engineering candidate, not a statement that the product is perf
 78. Give the private film package explicit version metadata so its CycloneDX bill of materials can be generated.
 79. Preserve extended CodeQL analysis as a retained SARIF artifact, leave repository default setup responsible for alert uploads, and document the explicit advanced-upload switch rather than masking GitHub's conflicting-setup failure.
 80. Run the new bulk-work browser specifications as a focused CI smoke check before the full browser suite, so a new-flow failure is reported promptly.
+81. Invoke the focused browser check through the npm browser-test script so its required production-build prehook runs on a clean CI checkout.
 
 The PDF includes the complete patch, including lockfile changes, and a per-file inventory. These numbered entries explain intent; the patch is the exact minor-edit record.
 

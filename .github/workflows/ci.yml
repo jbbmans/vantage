@@ -93,7 +93,7 @@ jobs:
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - name: Bulk workflow browser smoke
-        run: npx playwright test tests/browser/50-bulk-work.spec.ts
+        run: npm run test:browser -- tests/browser/50-bulk-work.spec.ts
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()
