@@ -11,8 +11,10 @@ const WARN_MS = 2 * 60_000;
  * asks first, two minutes before, and signs out cleanly when the time is up.
  */
 export default function IdleGuard({ onSignOut }: { onSignOut: () => void }) {
-  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(api.sessionExpiresAt);
   const [now, setNow] = useState(() => Date.now());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const onExpiry = (e: Event) => { const at = (e as CustomEvent<number>).detail; if (Number.isFinite(at)) setExpiresAt(at); };
@@ -34,13 +36,20 @@ export default function IdleGuard({ onSignOut }: { onSignOut: () => void }) {
   const left = expiresAt ? expiresAt - now : Infinity;
   const open = left <= WARN_MS && left > 0;
   const seconds = Math.max(0, Math.ceil(left / 1000));
-  const stay = () => { api.me().catch(() => {}); };
+  const stay = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { await api.me(); }
+    catch (e) { setError(api.errorText(e)); }
+    finally { setBusy(false); }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) stay(); }} title="Still there?" size="sm"
       description="Vantage signs you out after a period with no activity, as systems holding personnel records must."
-      footer={<><Button variant="ghost" onClick={onSignOut}>Sign out</Button><Button onClick={stay}>Stay signed in</Button></>}>
-      <p className="text-sm text-ink-2">You will be signed out in <span className="fig font-semibold text-ink">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>. Anything you are typing in Quick Log is kept for this tab.</p>
+      footer={<><Button variant="ghost" onClick={onSignOut}>Sign out</Button><Button loading={busy} onClick={stay}>Stay signed in</Button></>}>
+      <p className="text-sm text-ink-2">You will be signed out in <span className="fig font-semibold text-ink">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>. Unsaved text and temporary Quick Log drafts are cleared when you sign out. Save your work before leaving.</p>
+      {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
     </Dialog>
   );
 }

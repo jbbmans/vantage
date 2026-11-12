@@ -2,11 +2,11 @@
     browser bundle does not carry the validation library it never runs. */
 import { z } from 'zod';
 import { STAGES, WAITING_CATEGORIES, EXTERNAL_EVENTS, FUNDS_CHECK_RESULTS } from './caseModel.ts';
+import { isoDate } from './schemas.ts';
 
 const text = (max: number) => z.string().trim().max(max, `Keep it under ${max} characters.`);
 const required = (max: number, message = 'Required.') => text(max).min(1, message);
 const optional = (max: number) => text(max).nullish().transform((v) => (v ? v : null));
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
 const key = z.string().trim().regex(/^[a-z][a-z0-9_]{0,59}$/, 'Use a short lowercase key.');
 
 const base = {

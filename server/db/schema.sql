@@ -108,6 +108,17 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_kind ON tokens(kind, expires_at);
 
+-- Short-lived, single-use WebAuthn challenges survive a process restart. They are not portable account records.
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+  key_hash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('registration', 'authentication')),
+  challenge TEXT NOT NULL,
+  user_id TEXT REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_passkey_challenges_expiry ON passkey_challenges(expires_at);
+
 CREATE TABLE IF NOT EXISTS units (
   id            TEXT PRIMARY KEY,
   code          TEXT NOT NULL UNIQUE,

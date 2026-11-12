@@ -314,7 +314,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
           <ul className="auth-panel-points">
             <li><ShieldCheck strokeWidth={1.75} aria-hidden /><span><b>Answerable</b>Every case history is sealed, and every change to a record is attributed.</span></li>
             <li><LockKeyhole strokeWidth={1.75} aria-hidden /><span><b>Private by default</b>Your record is yours; leaders see what you share, for their unit only.</span></li>
-            <li><Fingerprint strokeWidth={1.75} aria-hidden /><span><b>Sign in your way</b>Passkeys, authenticator codes and CAC, with sessions you can end.</span></li>
+            <li><Fingerprint strokeWidth={1.75} aria-hidden /><span><b>Sign in your way</b>{status?.cac?.enabled ? 'CAC, passkeys and account security options, with sessions you can end.' : status?.sso?.enabled ? 'Organization sign-in and account security options, with sessions you can end.' : 'Passkeys and authenticator codes, with sessions you can end.'}</span></li>
           </ul>
         </div>
         <p className="auth-panel-foot">Independent software project. Not an official DoD or USMC system of record.</p>

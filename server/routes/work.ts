@@ -23,9 +23,22 @@ import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from
 import { STAGES } from '../../shared/caseModel.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { isoDate } from '../../shared/schemas.ts';
+import { parseBulkWork, previewBulkWork, runBulkWork, bulkHandoffCandidates } from '../services/bulkWork.ts';
+import { BULK_WORK_LIMIT } from '../../shared/bulkWork.ts';
 
 export const workRouter = Router();
 workRouter.use(requireAuth);
+
+workRouter.post('/bulk/preview', wrap((req, res) => {
+  res.json(previewBulkWork(req.ctx, req.user, scopeFor(req.ctx, req.user, req), parseBulkWork(req.body)));
+}));
+workRouter.post('/bulk', wrap((req, res) => {
+  res.json(runBulkWork(req.ctx, req.user, scopeFor(req.ctx, req.user, req), parseBulkWork(req.body), req.get('idempotency-key') || ''));
+}));
+workRouter.post('/bulk/candidates', wrap((req, res) => {
+  const { ids } = parse(z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(BULK_WORK_LIMIT) }), req.body);
+  res.json(bulkHandoffCandidates(req.ctx, req.user, scopeFor(req.ctx, req.user, req), [...new Set(ids)]));
+}));
 
 const uploadBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.intake.maxBytes })(req, res, next);

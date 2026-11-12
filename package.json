@@ -16,6 +16,7 @@
     "build": "vite build && node scripts/prerender.mjs",
     "start": "node server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tests/browser",
+    "typecheck:film": "tsc -p film/tsconfig.json --noEmit",
     "lint": "eslint . && node scripts/any-budget.ts",
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",
@@ -28,6 +29,7 @@
     "backup": "node scripts/backup.ts",
     "restore": "node scripts/restore.ts",
     "operations-report": "node scripts/operations-report.ts",
+    "inventory": "node scripts/source-inventory.ts",
     "icons": "node scripts/icons.mjs",
     "prerender": "node scripts/prerender.mjs"
   },
@@ -45,16 +47,21 @@
     "clsx": "^2.1.1",
     "cookie-parser": "^1.4.7",
     "date-fns": "^4.1.0",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "lucide-react": "^1.39.0",
-    "nodemailer": "^10.0.13",
+    "nodemailer": "^10.5.0",
     "pdfkit": "^0.20.2",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3",
     "tailwind-merge": "^3.6.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.8"
+    }
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

@@ -14,6 +14,8 @@ npm run film -- --capture-only   # capture footage and stills, then stop
 
 `npm --prefix film install` once first. A full run takes about forty minutes on four cores.
 
+With root and film dependencies installed, `npm run typecheck:film` checks the compositions before capture. The capture/score JSON outputs have explicit declarations in `src/assets.d.ts`; those declarations do not create footage, stills or music. Rendering still requires the generated files and real browser/audio tools below. The fresh-instance Node entry point is checked by the repository's server typecheck rather than the browser-oriented composition configuration.
+
 ## What happens
 
 | Step | Tool | What it does |

@@ -56,6 +56,7 @@ export function pruneSessions(ctx: AppContext) {
   const t = now();
   ctx.db.prepare('DELETE FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').run(t, t);
   ctx.db.prepare('DELETE FROM tokens WHERE expires_at < ? OR used_at IS NOT NULL').run(new Date(Date.now() - 86_400_000).toISOString());
+  ctx.db.prepare('DELETE FROM passkey_challenges WHERE expires_at <= ?').run(t);
 }
 
 export function listSessions(ctx: AppContext, userId: string, currentId: string | null) {

@@ -364,14 +364,16 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
 meRouter.post('/email/confirm', wrap((req, res) => {
   const ctx = req.ctx;
   const { token } = parse(z.object({ token: z.string().max(200) }), req.body);
-  // Checked before it is spent: opening the link while signed in as somebody else must not burn it.
-  const pending = peekToken(ctx, 'email_change', token);
-  if (!pending || pending.user_id !== req.user.id || !pending.email) throw badRequest('That confirmation link is invalid or has expired.');
-  // The address may have been taken in the hour the link was live.
-  if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(pending.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
-  consumeToken(ctx, 'email_change', token);
-  ctx.db.prepare('UPDATE users SET email = ?, updated_at = ? WHERE id = ?').run(pending.email, now(), req.user.id);
-  audit(ctx, { actor_id: req.user.id, action: 'email_confirmed', subject_id: req.user.id, ip: clientIp(req) });
-  res.json({ ok: true, email: pending.email });
+  const email = ctx.db.transaction(() => {
+    // Checked before it is spent: opening the link as somebody else must not burn it.
+    const pending = peekToken(ctx, 'email_change', token);
+    if (!pending || pending.user_id !== req.user.id || !pending.email) throw badRequest('That confirmation link is invalid or has expired.');
+    if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(pending.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
+    if (!consumeToken(ctx, 'email_change', token)) throw badRequest('That confirmation link is invalid or has expired.');
+    ctx.db.prepare('UPDATE users SET email = ?, updated_at = ? WHERE id = ?').run(pending.email, now(), req.user.id);
+    audit(ctx, { actor_id: req.user.id, action: 'email_confirmed', subject_id: req.user.id, ip: clientIp(req) });
+    return pending.email;
+  }).immediate();
+  res.json({ ok: true, email });
 }));
 

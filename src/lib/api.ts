@@ -8,6 +8,7 @@ import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../.
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
+import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
@@ -42,10 +43,14 @@ export const isOffline = (err: unknown) => err instanceof ApiError && err.status
 
 /** Set when the person accepts the sign-in notice; sent with each sign-in, and forgotten at sign-out so it is shown again. */
 let consentAccepted = false;
+let sessionExpiry: number | null = null;
+/** The latest server deadline, including a response received before IdleGuard mounted. */
+export const sessionExpiresAt = () => sessionExpiry;
 export const acceptConsent = () => { consentAccepted = true; };
 export const consentWasAccepted = () => consentAccepted;
 
 function markSignedOut() {
+  sessionExpiry = null;
   sessionState = 'none';
   consentAccepted = false;
   clearDrafts();
@@ -65,7 +70,8 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
       headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1', ...(consentAccepted ? { 'x-vantage-consent': '1' } : {}) },
       body: body === undefined ? undefined : body instanceof Blob || body instanceof ArrayBuffer ? (body as BodyInit) : JSON.stringify(body),
     });
-  } catch {
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
     throw new ApiError('Cannot reach the Vantage server. Check your connection.', 0, { code: 'offline' });
   }
   if (res.status === 401) {
@@ -75,10 +81,18 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
     throw new ApiError(payload?.error || 'Your session has expired. Sign in again.', 401, payload || {});
   }
   const expires = res.headers.get('x-session-expires');
-  if (expires) window.dispatchEvent(new CustomEvent('vantage:session-expires', { detail: Date.parse(expires) }));
+  if (expires && Number.isFinite(Date.parse(expires))) {
+    sessionExpiry = Date.parse(expires);
+    window.dispatchEvent(new CustomEvent('vantage:session-expires', { detail: sessionExpiry }));
+  }
   const text = await res.text();
   let payload: any = null;
-  if (text) { try { payload = JSON.parse(text); } catch { payload = null; } }
+  if (text) {
+    try { payload = JSON.parse(text); }
+    catch {
+      if (res.ok) throw new ApiError('The server returned an unreadable response. Refresh to check whether your change was applied before submitting it again.', 502, { code: 'invalid_response' });
+    }
+  }
   if (!res.ok) throw new ApiError(payload?.error || `Request failed (${res.status}).`, res.status, payload || {});
   if (!/^\/auth\/(setup|forgot|reset|invite|passkey)/.test(path) && path !== '/health') sessionState = 'active';
   return payload as T;
@@ -247,10 +261,14 @@ export const uploadSource = (file: File, opts: { unitId: string | null; visibili
 export const inspectSource = (id: string) => api.get(`/work/sources/${encodeURIComponent(id)}`);
 export const previewImport = (plan: unknown) => api.post('/work/imports/preview', plan);
 export const runImport = (plan: unknown, idempotencyKey: string) => request('POST', '/work/imports', plan, { headers: { 'idempotency-key': idempotencyKey } });
-export const listWorkItems = (params: Record<string, string | number | undefined | null>) => api.get(`/work/items?${qs(params)}`);
+export const listWorkItems = (params: Record<string, string | number | undefined | null>, options: { background?: boolean; signal?: AbortSignal } = {}) =>
+  request('GET', `/work/items?${qs(params)}`, undefined, { signal: options.signal, ...(options.background ? { headers: { 'x-vantage-background': '1' } } : {}) });
 export const workItem = (id: string) => api.get<WorkItemDetail>(`/work/items/${encodeURIComponent(id)}`);
 export const claimWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/claim`, { version });
 export const releaseWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/release`, { version });
+export const previewBulkWork = (body: BulkWorkInput) => api.post<BulkWorkResponse>('/work/bulk/preview', body);
+export const runBulkWork = (body: BulkWorkInput, key: string) => request<BulkWorkResponse>('POST', '/work/bulk', body, { headers: { 'idempotency-key': key } });
+export const bulkHandoffCandidates = (ids: string[]) => api.post<HandoffCandidate[]>('/work/bulk/candidates', { ids });
 export const patchWorkItem = (id: string, patch: Record<string, unknown>) => request('PATCH', `/work/items/${encodeURIComponent(id)}`, patch);
 export const createWorkItem = (body: Record<string, unknown>) => api.post('/work/items', body);
 export const recordWorkAction = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
@@ -506,7 +524,8 @@ export const workload = (unitId: string, params: Record<string, string | undefin
 
 export const recordPractice = () => api.get('/record/practice');
 export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
-export const assignedWork = () => api.get<AssignedItem[]>('/record/assigned');
+export const assignedWork = (options: { background?: boolean; signal?: AbortSignal } = {}) =>
+  request<AssignedItem[]>('GET', '/record/assigned', undefined, { signal: options.signal, ...(options.background ? { headers: { 'x-vantage-background': '1' } } : {}) });
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
 export const recordTimeline = (params: Record<string, string | undefined> = {}) => api.get<TimelineResponse>(`/record/timeline?${qs(params)}`);
 export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/move-candidates');
