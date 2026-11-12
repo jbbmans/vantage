@@ -80,6 +80,7 @@ const titleOf = (table: string, id: string, column = 'title') => (app.ctx.db.pre
  */
 async function fakeClamd() {
   let hold: Promise<void> = Promise.resolve();
+  let letGo = () => {};
   let arrived = () => {};
   const server = createServer({ allowHalfOpen: true }, (socket) => {
     let data = Buffer.alloc(0);
@@ -97,11 +98,13 @@ async function fakeClamd() {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
   return {
     address: `tcp://127.0.0.1:${(server.address() as { port: number }).port}`,
-    close: () => server.close(),
+    /** Opens a gate still shut, so a test that fails while a file is held does not wait out the scanner client's timeout. */
+    close: () => { letGo(); server.close(); },
     /** Shuts the gate: no answer leaves until `release`. `seen` resolves once a file has reached the scanner. */
     gate() {
       let release!: () => void;
       hold = new Promise<void>((r) => { release = r; });
+      letGo = release;
       const seen = new Promise<void>((r) => { arrived = r; });
       return { seen, release: () => { hold = Promise.resolve(); release(); } };
     },
@@ -133,7 +136,8 @@ async function scannedUnit() {
     marine.token = (await on.login('diaz')).body.token;
     snco.token = (await on.login('reyes')).body.token;
     const id = await training(marine.token, { visibility: 'unit', unit_id: 'G8' }, on);
-    return { clamd, on, lead, marine, snco, id, close: async () => { await on.close(); clamd.close(); } };
+    // The stand-in first: it answers whatever it still holds, and only then can the application finish its requests.
+    return { clamd, on, lead, marine, snco, id, close: async () => { clamd.close(); await on.close(); } };
   } catch (e) { await on.close(); clamd.close(); throw e; }
 }
 
@@ -206,7 +210,7 @@ test('what may be said about a file: a known type, and one line of plain text', 
   assert.deepEqual(cleanDescription('Signed\u202E copy\u200B'), { ok: true, value: 'Signed copy' });
   assert.deepEqual(cleanDescription('   '), { ok: true, value: null });
   // What is sent may be longer than what is kept, since runs of space come out first. Past eight times the limit it is
-  // refused without being read.
+  // refused before it is cleaned.
   const spaced = (spaces: number) => cleanDescription(`Roster${' '.repeat(spaces)}signed`);
   assert.deepEqual(spaced(ATTACHMENT_LIMITS.description * 8 - 12), { ok: true, value: 'Roster signed' });
   assert.deepEqual(spaced(ATTACHMENT_LIMITS.description * 8 - 11), { ok: false, error: `Too long (limit ${ATTACHMENT_LIMITS.description} characters).` });

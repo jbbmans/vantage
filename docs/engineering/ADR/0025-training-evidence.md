@@ -49,7 +49,7 @@ qualification, roster, other (`shared/attachments.ts`, `EVIDENCE_KINDS`), held t
 is one line of plain text, at most 500 characters, held by a CHECK and cleaned by one function
 (`cleanDescription`) that the upload, the correction and the import all use. Hidden characters and runs of space come
 out before the limit is applied, so what is sent may be longer than what is kept; past eight times the limit it is
-refused without being read, so a description of megabytes costs nothing.
+refused before it is cleaned, so a description of megabytes costs no more than the request that carried it.
 
 - An upload to a training must say what the file is. An upload to any other record type must not: evidence types are
   training's (`takesEvidenceKind`). Every record type's files take a description.
@@ -238,12 +238,18 @@ change it.
   request with an undecodable `Content-Encoding`, a JSON charset the parser does not know, or a malformed percent-escape
   in its path is answered 500 by the application-wide error handler, as on main. The handler should answer each with the
   4xx the framework gave it; that is a change to every route, so it is left for its own change.
-- An import file edited by hand so that something other than text stands where text belongs is answered 500, as on
-  main, and leaves a staged import that answers 500 until it is cancelled or expires: a JSON object that names its own
-  `toString` in an attachment entry or a record field, `career.steps` that is not a list, and a value nested thousands
-  deep. Only the person importing is affected. Reading one such value as blank was tried here and taken out again: the
-  file then reached code that met the same value elsewhere (`attachmentPath`, the duplicate screen, the fix form). The
-  fix belongs where the import reads the file (ADR-0019), as its own change.
+- An import file edited by hand can be answered 500, as on main. Three shapes do it: a JSON object that names its own
+  `toString` in an attachment entry or a record field, `career.steps` that is a number or an object, and a value nested
+  thousands deep. The upload is answered 500 and the import is left staged; its review and any change to its plan
+  answer 500 until it is cancelled or expires. For the first two shapes, and for nesting in a value the import reads
+  as text (a title as nested lists, a file's name), a commit answers 500 too. Nesting in a field that is only carried
+  into the review (`notes`, or a title as nested objects) fails only where the review is saved, so a commit sent
+  straight to the API is answered 200 and brings in the file's other records and files, with that row left out as a
+  problem; that import can be undone. Other wrong types (a number, a list or a plain object as a title) are not a 500:
+  the row is shown as a problem. Only the person importing is affected. Reading one such value as blank was tried here
+  and taken out again: the file then reached code that met the same value elsewhere (`attachmentPath`, the duplicate
+  screen, the fix form). The fix belongs where the import reads the file (ADR-0019), as its own change, and with it a
+  commit should be refused where no review was ever saved.
 
 ## Consequences
 

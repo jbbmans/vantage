@@ -34,8 +34,9 @@ export const takesEvidenceKind = (table: string): boolean => (EVIDENCE_TABLES as
 /** The bounds on what is written about a file: its description's length, and its name's. */
 export const ATTACHMENT_LIMITS = { description: 500, filename: 120 } as const;
 /**
- * The most text a description is read from. Hidden characters and runs of space come out before the limit is applied, so
- * what is sent may be longer than what is kept; past this it is refused unread, so megabytes of it cost nothing.
+ * The most text a description is cleaned from. Hidden characters and runs of space come out before the limit is applied,
+ * so what is sent may be longer than what is kept; past this it is refused before it is cleaned, so megabytes of it cost
+ * no more than the request that carried them.
  */
 const DESCRIPTION_READ_LIMIT = ATTACHMENT_LIMITS.description * 8;
 
