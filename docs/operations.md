@@ -3,6 +3,10 @@
 This is the Vantage team's run book for the central service. Commands do not run Vantage; what a Unit Instance's
 Unit Managers do for themselves is in the Unit Manager console, and is noted where it touches these steps.
 
+The runtime Docker image contains Node and the application, without npm/npx/Yarn/Corepack. Build-time tools remain in the build stage. In a source checkout the `npm run` commands below work as written; inside the runtime container invoke their script directly, for example `node scripts/backup.ts <destination>`, `node scripts/restore.ts REPLACE-DATABASE ...`, and `node scripts/operations-report.ts`. Keep the same required environment variables, authorization and stopped-service restore procedure. The image base is digest-pinned, Debian security updates run during the build, and CI scans the final image; retain/release that resulting image digest.
+
+Repository code scanning uses GitHub default setup for alert uploads. The checked-in extended CodeQL workflow retains SARIF results as an artifact and does not upload by default, avoiding GitHub's rejection of advanced uploads while default setup is enabled. Review the artifact and the Security tab. To switch to advanced uploads, disable default setup in repository settings and set `VANTAGE_CODEQL_UPLOAD=true`; do not interpret a completed analysis job as a finding-free result.
+
 ## Backups
 
 A backup is the whole service as it is stored: every Unit Instance, account, password hash, sealed secret, record

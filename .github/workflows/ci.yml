@@ -28,6 +28,13 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      - name: Inventory the reviewed source tree
+        run: node scripts/source-inventory.ts > "$RUNNER_TEMP/vantage-source-inventory.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-inventory
+          path: ${{ runner.temp }}/vantage-source-inventory.json
+          retention-days: 90
       - run: npm test
 
   supply-chain:
@@ -44,12 +51,22 @@ jobs:
       # A high or critical advisory in anything that ships fails the build; dev tooling is reported, not gating.
       - run: npm audit --omit=dev --audit-level=high
       - run: npm audit --audit-level=critical
+      - name: Film dependencies
+        run: npm --prefix film ci
+      - name: Film composition types
+        run: npm run typecheck:film
+      - name: Audit the film dependency tree
+        run: npm --prefix film audit --audit-level=high
       - name: Software bill of materials (CycloneDX)
         run: npm sbom --sbom-format cyclonedx --omit dev > vantage-sbom.cdx.json
+      - name: Film software bill of materials (CycloneDX)
+        run: npm --prefix film sbom --sbom-format cyclonedx > vantage-film-sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
-          path: vantage-sbom.cdx.json
+          path: |
+            vantage-sbom.cdx.json
+            vantage-film-sbom.cdx.json
           retention-days: 90
 
   browser:
@@ -75,6 +92,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
+      - name: Bulk workflow browser smoke
+        run: npm run test:browser -- tests/browser/50-bulk-work.spec.ts
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()

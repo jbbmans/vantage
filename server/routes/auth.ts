@@ -241,7 +241,9 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!ok && /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean)) {
     const normalized = clean.includes('-') ? clean : `${clean.slice(0, 5)}-${clean.slice(5)}`;
     const rc = ctx.db.prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL').get(row.id, sha256(`recovery:${normalized}`)) as { id: string } | undefined;
-    if (rc) { ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?').run(now(), rc.id); ok = true; audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip }); }
+    if (rc && ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now(), rc.id).changes === 1) {
+      ok = true; audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip });
+    }
   }
   if (!ok) {
     limiters.mfaToken.bump(key);
@@ -251,8 +253,8 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     if (recordFailure(ctx, row.id, { ip, where: 'second_factor' })) { consumeToken(ctx, 'login_mfa', challenge); assertNotLocked(ctx, row.id); }
     throw unauthorized('That code is not valid.', 'bad_code');
   }
+  if (!consumeToken(ctx, 'login_mfa', challenge)) throw unauthorized('The sign-in challenge expired or was already used. Start again.', 'challenge_expired');
   limiters.mfaUser.clear(row.id);
-  consumeToken(ctx, 'login_mfa', challenge);
   return finishSignIn(req, res, row, 'password+totp');
 }));
 

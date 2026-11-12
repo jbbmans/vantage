@@ -1,4 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
+import { createHash } from 'node:crypto';
 import type { Scope } from '../authz/scope.ts';
 import { can, scopeFor, PERMISSIONS } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
@@ -21,6 +22,7 @@ import {
 } from './work.ts';
 import { diagnosisFor } from './caseDiagnosis.ts';
 import { exampleState } from './caseGuidance.ts';
+import { replayedWorkRequest, workRequestKey, type WorkRequest } from './workRequests.ts';
 
 export interface EventRow {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
@@ -182,14 +184,20 @@ const FREE_KINDS = new Set(['question', 'finding', 'note']);
 
 export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, idempotencyKey: string | null) {
   const input = parse(entrySchema, body) as EntryInput;
+  const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
   const scopedKey = idempotencyKey ? `${user.id}:${id}:${idempotencyKey}` : null;
-  if (scopedKey) {
-    const prior = ctx.db.prepare('SELECT * FROM work_events WHERE idempotency_key = ?').get(scopedKey) as EventRow | undefined;
-    if (prior) return { event: prior, replayed: true };
-  }
-
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
+    // A replay still requires current read access: a prior request does not grant access after a transfer or removal.
+    if (scopedKey) {
+      const prior = ctx.db.prepare('SELECT * FROM work_events WHERE idempotency_key = ?').get(scopedKey) as EventRow | undefined;
+      if (prior) {
+        const previous = JSON.parse(prior.body) as { request_fingerprint?: string };
+        // Older events predate fingerprints: preserve their retry contract after checking current access.
+        if (previous.request_fingerprint && previous.request_fingerprint !== fingerprint) throw conflict('That request identifier was already used for a different entry.', 'idempotency_conflict');
+        return { event: prior, replayed: true };
+      }
+    }
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording on it.');
     const stage = stageOf(row);
     if (CLOSED_STAGES.has(stage)) throw conflict('This work is closed. Reopen it before recording more.', 'closed');
@@ -200,6 +208,7 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
     }
     const procedure = pinned.procedure;
     const payload: Record<string, unknown> = { ...input };
+    if (scopedKey) payload.request_fingerprint = fingerprint;
     delete payload.kind; delete payload.supersedes; delete payload.step;
     const step = stepFor(procedure, 'step' in input ? input.step : null);
 
@@ -367,10 +376,11 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
   })();
 }
 
-export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown) {
+export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, request?: WorkRequest) {
   const input = parse(handoffSchema, body);
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
+    if (replayedWorkRequest(ctx, user, id, request, 'handed_off')) return row;
     checkVersion(row, input.version);
     if (CLOSED_STAGES.has(stageOf(row))) throw conflict('This work is closed.');
     const holding = row.claimed_by === user.id;
@@ -387,7 +397,7 @@ export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: st
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(target.id, at, at, id);
-    appendEvent(ctx, { item: row, actorId: user.id, kind: 'handed_off', subjectId: target.id, body: { note: input.note, from: fromHolder } });
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'handed_off', subjectId: target.id, body: { note: input.note, from: fromHolder, ...(request ? { request_fingerprint: request.fingerprint } : {}) }, ...(request ? { idempotencyKey: workRequestKey(user.id, id, request) } : {}) });
     if (stageOf(row) === 'not_started') moveStage(ctx, getItem(ctx, id)!, user.id, 'researching', { reason: null, category: null });
     audit(ctx, { actor_id: user.id, action: 'work_handed_off', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
     notify(ctx, target.id, {
@@ -516,7 +526,7 @@ export function seedBody(field: { key: string; label: string; money?: boolean; a
   return { ...base, value_text: text, display: text };
 }
 
-export function handoffCandidates(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
+export function handoffCandidates(ctx: AppContext, user: SessionUser, scope: Scope, id: string, scopes = new Map<string, Scope>()) {
   const row = load(ctx, user, scope, id);
   if (row.claimed_by !== user.id && !mayReassign(scope, user, row)) throw forbidden('Only the person holding this work, or a leader who can reassign it, can hand it off.');
   if (!row.unit_id) return [];
@@ -525,6 +535,6 @@ export function handoffCandidates(ctx: AppContext, user: SessionUser, scope: Sco
       WHERE um.unit_id = ? AND u.active = 1 AND u.id <> ? ORDER BY r.sort DESC, u.last_name`
   ).all(row.unit_id, row.claimed_by || '') as Array<SessionUser & { rank_abbr: string | null }>;
   return members
-    .filter((m) => { const s = scopeFor(ctx, m); return readable(s, m, row) && mayClaim(s, m, row); })
+    .filter((m) => { const s = scopes.get(m.id) ?? scopeFor(ctx, m); scopes.set(m.id, s); return readable(s, m, row) && mayClaim(s, m, row); })
     .map((m) => ({ id: m.id, name: `${m.first_name} ${m.last_name}`, rank: m.rank_abbr }));
 }

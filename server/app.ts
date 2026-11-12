@@ -280,7 +280,7 @@ export function createApp(ctx: AppContext) {
   // Read once, and tolerate a build in progress: the API serves without the client rather than failing to start.
   let shellHtml: string | null = null;
   try { shellHtml = readFileSync(join(distDir, 'index.html'), 'utf8'); } catch { shellHtml = null; }
-  const clientBuild = shellHtml ? createHash('sha256').update(shellHtml).digest('hex').slice(0, 16) : null;
+  const clientBuild = shellHtml ? shellHtml.match(/<meta name="vantage-client-build" content="([a-f0-9]{16})"/)?.[1] ?? createHash('sha256').update(shellHtml).digest('hex').slice(0, 16) : null;
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
   // The Vantage Administrator console says which build serves, and since when (ADR-0011).
   recordRelease(ctx, { build, client: clientBuild });
@@ -357,7 +357,7 @@ export function createApp(ctx: AppContext) {
   const json = express.json({ limit: '4mb' });
   // Paths whose body is a file, taken in by the route itself once it has decided who is asking. A file sent to a record
   // (ADR-0025) is one of them whatever type it is declared as, so a body declared as JSON is not read here first.
-  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$|me\/imports$|records\/[^/]+\/[^/]+\/attachments\/?$)/i;
+  const RAW_BODY_PATHS = /^\/api\/(?:(?:admin|platform)\/import\/?$|work\/sources\/?$|correspondence\/messages\/import\/?$|me\/imports\/?$|records\/[^/]+\/[^/]+\/attachments\/?$)/i;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
@@ -397,6 +397,9 @@ export function createApp(ctx: AppContext) {
   const timeframeRefusal = (err: unknown) => err instanceof Error && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_TRIGGER' && err.message.startsWith('timeframe:');
 
   app.use((caught: unknown, req: Request, res: Response, _next: NextFunction) => {
+    // A failed streamed download may already have sent its headers. Express must close that response instead of
+    // attempting a second JSON response and raising ERR_HTTP_HEADERS_SENT.
+    if (res.headersSent) return _next(caught);
     const err = boundaryRefusal(caught) ? forbidden('That would join records from two Unit Instances.', 'cross_instance')
       : appendOnlyRefusal(caught) ? forbidden('The audit trail is append-only: an entry is never changed or removed.', 'audit_append_only')
         : timeframeRefusal(caught) ? new HttpError(400, 'A record cannot end before it starts, and one still going on has no end yet.', 'timeframe')
@@ -416,6 +419,9 @@ export function createApp(ctx: AppContext) {
     const e = err as { type?: string; status?: number; message?: string };
     if (e?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.', code: 'too_large' });
     if (e?.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request body is not valid JSON.', code: 'bad_json' });
+    if (e?.type === 'charset.unsupported') return res.status(415).json({ error: 'Use UTF-8 for this request.', code: 'unsupported_charset' });
+    if (e?.type === 'encoding.unsupported') return res.status(415).json({ error: 'That request encoding is not supported.', code: 'unsupported_encoding' });
+    if (e?.type === 'request.size.invalid') return res.status(400).json({ error: 'The request body length does not match its declared size.', code: 'invalid_body_size' });
     console.error('Unhandled request error:', err);
     record(ctx, 'reliability.request_failed', { status: 500, route: routeFamily(req.path) });
     return res.status(500).json({ error: 'The server could not complete that request.', code: 'server_error' });

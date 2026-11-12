@@ -425,6 +425,8 @@ const MIGRATIONS: Migration[] = [
       if (!have.has('description')) db.exec('ALTER TABLE attachments ADD COLUMN description TEXT CHECK (description IS NULL OR length(description) <= 500)');
     },
   },
+  // The new ephemeral challenge table and its index are created idempotently by schema.sql. No existing rows change.
+  { id: 34, name: '034_durable_passkey_challenges', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -1079,6 +1081,14 @@ function isLegacyDatabase(db: Db): boolean {
 export function openDatabase(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   let db = new Database(path);
+  // Refuse an unknown/newer schema before applying even the idempotent base DDL. An older binary must not silently
+  // open a database written by a newer release, nor treat damaged version metadata as an empty database.
+  const hasMeta = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+  const storedVersion = hasMeta ? metaGet(db, 'schema_version') : null;
+  if (storedVersion !== null && (!/^\d+$/.test(storedVersion) || Number(storedVersion) > SCHEMA_VERSION)) {
+    db.close();
+    throw new Error(`Database schema ${storedVersion} is invalid or newer than this build's ${SCHEMA_VERSION}. Use the matching build or the supported restore procedure.`);
+  }
   if (path !== ':memory:' && isLegacyDatabase(db)) {
     db.close();
     const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
