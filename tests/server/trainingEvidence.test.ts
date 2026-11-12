@@ -73,11 +73,15 @@ const titleOf = (table: string, id: string, column = 'title') => (app.ctx.db.pre
 /**
  * A stand-in for clamd (INSTREAM): finds a file that begins with the EICAR test string, and holds its answer while a
  * gate is shut. It does not look inside archives, which is why an import scans each file a ZIP carries on its own.
+ *
+ * It keeps its side of the connection open after the scanner client has ended its own (allowHalfOpen), as clamd does:
+ * otherwise the connection would close the moment the file had been sent, the client would read that as no verdict,
+ * and nothing would be held at all.
  */
 async function fakeClamd() {
   let hold: Promise<void> = Promise.resolve();
   let arrived = () => {};
-  const server = createServer((socket) => {
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
     let data = Buffer.alloc(0);
     socket.on('error', () => {});
     socket.on('data', (c) => {
@@ -104,6 +108,17 @@ async function fakeClamd() {
   };
 }
 const EICAR = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
+
+/**
+ * Whether a request is still unanswered after a pause many times longer than a scan nobody held would take. A test that
+ * changes something "while the scanner has the file" proves with this that the scanner does have it.
+ */
+async function unanswered(request: Promise<unknown>) {
+  let answered = false;
+  void request.then(() => { answered = true; }, () => { answered = true; });
+  await new Promise((r) => setTimeout(r, 150));
+  return !answered;
+}
 
 /** A Vantage whose uploads are scanned by the stand-in: a Marine with a shared training, and an SNCO who may add to it. */
 async function scannedUnit() {
@@ -134,7 +149,7 @@ async function bringIn(zip: Buffer) {
     assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 500));
     const done = await clean.call('POST', `/api/me/imports/${staged.body.id}/commit`, { token, body: { profile: 'fill', expected: { new: staged.body.counts.new, update: staged.body.counts.update } } });
     assert.equal(done.status, 200, JSON.stringify(done.body).slice(0, 500));
-    return { clean, me, token };
+    return { clean, me, token, staged: staged.body, done: done.body };
   } catch (e) { await clean.close(); throw e; }
 }
 
@@ -190,6 +205,11 @@ test('what may be said about a file: a known type, and one line of plain text', 
   // Characters that hide or reorder text are dropped, so a description reads as it was typed.
   assert.deepEqual(cleanDescription('Signed\u202E copy\u200B'), { ok: true, value: 'Signed copy' });
   assert.deepEqual(cleanDescription('   '), { ok: true, value: null });
+  // What is sent may be longer than what is kept, since runs of space come out first. Past eight times the limit it is
+  // refused without being read.
+  const spaced = (spaces: number) => cleanDescription(`Roster${' '.repeat(spaces)}signed`);
+  assert.deepEqual(spaced(ATTACHMENT_LIMITS.description * 8 - 12), { ok: true, value: 'Roster signed' });
+  assert.deepEqual(spaced(ATTACHMENT_LIMITS.description * 8 - 11), { ok: false, error: `Too long (limit ${ATTACHMENT_LIMITS.description} characters).` });
 });
 
 test('a training’s file says what it is, and the list shows its type, description, who added it and when', async () => {
@@ -379,6 +399,7 @@ test('what is said about a file is corrected in place, the file never changes, a
   assert.equal((await put(diaz.token, path, { kind: null })).body.fieldErrors.kind, 'Choose what this file is.');
   assert.equal((await put(diaz.token, path, { kind: 'diploma' })).status, 400);
   assert.equal((await put(diaz.token, path, { description: 'x'.repeat(ATTACHMENT_LIMITS.description + 1) })).status, 400);
+  assert.equal((await put(diaz.token, path, { description: ' x'.repeat(500_000) })).body.fieldErrors.description, `Too long (limit ${ATTACHMENT_LIMITS.description} characters).`, 'a megabyte of it is refused the same way');
   assert.equal((await put(diaz.token, path, { original_name: 'renamed.exe', sha256: 'x', uploaded_by: op.id, record_id: 'elsewhere', content: 'x' })).status, 200, 'anything else in the body is not read');
   assert.equal(stored(up.body.id)!.original_name, was.original_name);
   assert.equal(stored(up.body.id)!.uploaded_by, diaz.id);
@@ -426,6 +447,9 @@ test('a file’s content, type, size and name are checked on the server, and a d
   assert.equal(unnamed.body.mime_type, 'text/plain');
   assert.equal((await up({ body: Buffer.from('PK\u0003\u0004 workbook'), name: 'roster.xlsx', type: 'application/vnd.ms-excel' })).status, 400, 'the spreadsheet program’s type is taken for a CSV only');
   assert.equal((await up({ body: Buffer.from('not a pdf at all'), name: 'x.pdf', type: 'application/octet-stream' })).status, 400);
+  // A name or a type that is a word every object answers to is refused as any unknown type is.
+  for (const name of ['a.constructor', 'a.__proto__']) assert.match((await up({ name, type: 'application/octet-stream' })).body.error, /file type is not allowed/, name);
+  for (const type of ['constructor', '__proto__']) assert.match((await up({ type })).body.error, /file type is not allowed/, type);
   // The same file twice is one file.
   assert.equal((await up({ body: Buffer.from('%PDF-2.0\n% transcript\n%%EOF\n'), name: 'again.pdf' })).body.code, 'duplicate_attachment');
 
@@ -577,6 +601,30 @@ test('evidence keeps its type, description and uploader’s name in exports, and
       AND a.record_id IN (SELECT id FROM trainings WHERE title = 'Sergeants Course' UNION SELECT id FROM activities WHERE title = 'Taught the fiscal class') ORDER BY a.original_name`).all() as Array<Record<string, any>>;
     assert.deepEqual(back.map((a) => [a.original_name, a.kind, a.description]), [['roster.csv', null, 'Graduation roster'], ['sgts-course.pdf', 'certificate', null], ['sign-in.pdf', null, 'Sign-in sheet']]);
   } finally { await second.clean.close(); }
+});
+
+test('an imported file said to be kept under a name every object answers to is left out, for a reason a person can read', async () => {
+  const id = await training(diaz.token, { title: 'Edited-file course', date: '2026-04-01' });
+  for (const name of ['kept.pdf', 'elsewhere.pdf', 'nowhere.pdf']) assert.equal((await attach(diaz.token, 'trainings', id, { kind: 'certificate', name })).status, 201);
+  const exported = await app.call('GET', '/api/me/export?format=zip', { token: diaz.token, binary: true });
+  const zip = readZip(exported.buffer!);
+  const doc = JSON.parse(zip.get('vantage-export.json')!.toString('utf8'));
+  const entry = (name: string) => doc.attachments.find((a: any) => a.original_name === name && a.record_id === id);
+  // A file edited by hand: two files are said to be kept under paths that are not where an export keeps files, and the
+  // ZIP holds something at each. Neither was scanned at upload, so neither comes in.
+  entry('elsewhere.pdf').file = '__proto__';
+  entry('nowhere.pdf').file = 'constructor';
+  const edited = buildZip([...[...zip].map(([name, data]) => ({ name, data: name === 'vantage-export.json' ? Buffer.from(JSON.stringify(doc)) : data })), { name: '__proto__', data: pdf() }, { name: 'constructor', data: pdf() }]);
+  const brought = await bringIn(edited);
+  try {
+    const back = brought.clean.ctx.db.prepare("SELECT a.original_name FROM attachments a JOIN trainings t ON t.id = a.record_id WHERE t.title = 'Edited-file course'").all();
+    assert.deepEqual(back.map((a: any) => a.original_name), ['kept.pdf']);
+    for (const review of [brought.staged, brought.done]) {
+      const problems = review.attachments.problems as Array<{ name: unknown; reason: unknown }>;
+      assert.ok(problems.every((p) => typeof p.name === 'string' && typeof p.reason === 'string'), JSON.stringify(problems));
+      for (const name of ['elsewhere.pdf', 'nowhere.pdf']) assert.equal(problems.find((p) => p.name === name)?.reason, 'It is not where a Vantage export keeps files, so it was not scanned.', name);
+    }
+  } finally { await brought.clean.close(); }
 });
 
 test('an export says what a file is only while the one exporting can still open its record', async () => {
@@ -879,6 +927,7 @@ test('a role taken away, or an account closed, while the scanner holds a file le
     const quiet = clamd.gate();
     const unnoticed = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'second-roster.pdf', on });
     await quiet.seen;
+    assert.equal(await unanswered(unnoticed), true, 'the scanner holds the file');
     on.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(snco.id, role.role_id);
     quiet.release();
     const uncovered = await unnoticed;
@@ -892,6 +941,7 @@ test('a role taken away, or an account closed, while the scanner holds a file le
     const gate = clamd.gate();
     const sending = attach(snco.token, 'trainings', id, { kind: 'roster', name: 'third-roster.pdf', on });
     await gate.seen;
+    assert.equal(await unanswered(sending), true, 'the scanner holds the file');
     const removed = await on.call('DELETE', `/api/org/team/${snco.id}/roles/${role.role_id}`, { token: lead.token });
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
     gate.release();
@@ -910,6 +960,7 @@ test('a role taken away, or an account closed, while the scanner holds a file le
     const mailGate = clamd.gate();
     const mailing = send(marine.token, 2);
     await mailGate.seen;
+    assert.equal(await unanswered(mailing), true, 'the scanner holds the message');
     on.ctx.db.prepare("DELETE FROM unit_members WHERE user_id = ? AND unit_id = 'G8'").run(marine.id);
     mailGate.release();
     const unplaced = await mailing;
@@ -921,6 +972,7 @@ test('a role taken away, or an account closed, while the scanner holds a file le
     const outGate = clamd.gate();
     const leaving = send(marine.token, 3);
     await outGate.seen;
+    assert.equal(await unanswered(leaving), true, 'the scanner holds the message');
     assert.equal((await on.call('DELETE', `/api/org/units/G8/members/${marine.id}`, { token: lead.token })).status, 200);
     outGate.release();
     assert.equal((await leaving).status, 401);
@@ -930,9 +982,20 @@ test('a role taken away, or an account closed, while the scanner holds a file le
     // scanner has their file: the session that sent it has ended, and the file is not kept.
     const mine = await training((await on.login('diaz')).body.token, { title: 'Own course' }, on);
     const token = (await on.login('diaz')).body.token as string;
+    // Closed by whatever path leaves the session's own row in place, the account is still closed: its session no longer
+    // stands. Opened again, the same session is good again.
+    const shutGate = clamd.gate();
+    const shut = attach(token, 'trainings', mine, { kind: 'certificate', name: 'shut.pdf', on });
+    await shutGate.seen;
+    assert.equal(await unanswered(shut), true, 'the scanner holds the file');
+    on.ctx.db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(marine.id);
+    shutGate.release();
+    assert.equal((await shut).status, 401);
+    on.ctx.db.prepare('UPDATE users SET active = 1 WHERE id = ?').run(marine.id);
     const ownGate = clamd.gate();
     const own = attach(token, 'trainings', mine, { kind: 'certificate', name: 'own.pdf', on });
     await ownGate.seen;
+    assert.equal(await unanswered(own), true, 'the scanner holds the file');
     const closed = await on.call('POST', `/api/platform/accounts/${marine.id}/deactivate`, { token: lead.token, body: { reason: 'left the service' } });
     assert.equal(closed.status, 200, JSON.stringify(closed.body));
     ownGate.release();

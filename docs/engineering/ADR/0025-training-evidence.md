@@ -47,7 +47,9 @@ Against the specification, seven things were missing:
 `attachments` gains `kind` and `description` (migration 033). `kind` is one of certificate, transcript, completion,
 qualification, roster, other (`shared/attachments.ts`, `EVIDENCE_KINDS`), held to that list by a CHECK. `description`
 is one line of plain text, at most 500 characters, held by a CHECK and cleaned by one function
-(`cleanDescription`) that the upload, the correction and the import all use.
+(`cleanDescription`) that the upload, the correction and the import all use. Hidden characters and runs of space come
+out before the limit is applied, so what is sent may be longer than what is kept; past eight times the limit it is
+refused without being read, so a description of megabytes costs nothing.
 
 - An upload to a training must say what the file is. An upload to any other record type must not: evidence types are
   training's (`takesEvidenceKind`). Every record type's files take a description.
@@ -107,7 +109,9 @@ No new permission. The record decides (`server/authz/records.ts`):
   tab, line feed, carriage return and form feed for TXT and CSV.
 - The type a browser states is a claim. Where it states none (empty, or `application/octet-stream`), or states a
   spreadsheet program's type for a `.csv`, the type is read from the filename and then proven the same way. A stated,
-  allowed type must still agree with the filename.
+  allowed type must still agree with the filename. An extension stands for a type only if it is one Vantage names: the
+  lookup is a map, so a file named `a.constructor` finds no type there. The allowed-types check that follows refused
+  such a file before this too; the map only keeps a type from ever being anything but text.
 - A filename is kept as it reads: its last path segment, without control characters, lone surrogates, zero-width or
   direction-override characters; path punctuation becomes a hyphen; a long name is shortened in its stem and keeps its
   extension.
@@ -153,7 +157,9 @@ refused entry under its name (`upload_source`, `server/services/intake.ts`); nei
 - **Single-record export:** each file carries `kind`, `description` and `uploader_label`.
 - **Import:** a known evidence type is kept only where the target record type takes one; a description is kept only if
   `cleanDescription` accepts it; anything else comes in empty and the file still comes in. The importer is the uploader
-  and the date is the import's, as before; the export keeps who first added it.
+  and the date is the import's, as before; the export keeps who first added it. A file's scan verdict is looked up
+  only under the paths the upload scanned, so a file said to be kept at `__proto__` or `constructor` is one that was
+  never scanned, and is left out with the reason every unscanned file gets.
 - **Moves:** a file keeps its type and description when its entry moves and when the move is undone.
 - **Instance archive:** row-generic, so the two columns travel with no change.
 - **Retention:** an anonymized record holds no files. A certificate names its Marine in its name and on its face, so
@@ -229,8 +235,15 @@ change it.
 - The destroy disposition (`destroyRecords`) is unchanged: it removes a record with every file on it, including a file a
   held person added to somebody else's record. Only the anonymize path gained that exception here.
 - Correcting or removing a file is not stopped by withholding attachments from a Unit Instance (section 3), and a
-  request with an undecodable `Content-Encoding` or a malformed percent-escape in its path is answered 500 by the
-  application-wide error handler, as on main.
+  request with an undecodable `Content-Encoding`, a JSON charset the parser does not know, or a malformed percent-escape
+  in its path is answered 500 by the application-wide error handler, as on main. The handler should answer each with the
+  4xx the framework gave it; that is a change to every route, so it is left for its own change.
+- An import file edited by hand so that something other than text stands where text belongs is answered 500, as on
+  main, and leaves a staged import that answers 500 until it is cancelled or expires: a JSON object that names its own
+  `toString` in an attachment entry or a record field, `career.steps` that is not a list, and a value nested thousands
+  deep. Only the person importing is affected. Reading one such value as blank was tried here and taken out again: the
+  file then reached code that met the same value elsewhere (`attachmentPath`, the duplicate screen, the fix form). The
+  fix belongs where the import reads the file (ADR-0019), as its own change.
 
 ## Consequences
 

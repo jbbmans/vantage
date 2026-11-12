@@ -12,7 +12,8 @@ const SIGNATURES: Record<string, (body: Buffer) => boolean> = {
   'image/png': (body) => body.length >= 45 && body.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) && body.subarray(-8).equals(Buffer.from('49454e44ae426082', 'hex')),
   'image/jpeg': (body) => body.length >= 4 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff && body[body.length - 2] === 0xff && body[body.length - 1] === 0xd9,
 };
-const BY_EXTENSION: Record<string, string> = Object.fromEntries(Object.entries(EXTENSIONS).flatMap(([mime, exts]) => exts.map((ext) => [ext, mime])));
+/** The type each known extension stands for. A map, so a file named "a.constructor" finds no type here, where an object would hand back a member every object inherits. */
+const BY_EXTENSION = new Map<string, string>(Object.entries(EXTENSIONS).flatMap(([mime, exts]) => exts.map((ext): [string, string] => [ext, mime])));
 
 /**
  * What a browser sends when it cannot say what a file is: nothing, or the generic type; and, for a CSV on a machine with
@@ -71,7 +72,7 @@ export function inspectAttachment({ body, filename, contentType, allowedTypes, m
   if (!name) return { ok: false, error: 'The file needs a readable name.' };
   const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
   const declared = String(contentType || '').split(';')[0].trim().toLowerCase();
-  const mime = UNSTATED.has(declared) || (ext === 'csv' && CSV_ALIASES.has(declared)) ? BY_EXTENSION[ext] ?? declared : declared;
+  const mime = UNSTATED.has(declared) || (ext === 'csv' && CSV_ALIASES.has(declared)) ? BY_EXTENSION.get(ext) ?? declared : declared;
   if (!allowedTypes.includes(mime)) return { ok: false, error: 'That file type is not allowed. Use PDF, PNG, JPEG, TXT, or CSV.' };
   if (!EXTENSIONS[mime]?.includes(ext)) return { ok: false, error: 'The filename extension does not match the declared file type.' };
   const sig = SIGNATURES[mime];

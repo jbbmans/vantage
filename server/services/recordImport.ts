@@ -819,7 +819,8 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     if (!isAttachable(target.table)) { problem(a.name, `A ${TABLE_LABELS[target.table].one} does not take files.`); continue; }
     if (!a.data) { problem(a.name, 'The file is not in the ZIP.'); continue; }
     // Every file is scanned at upload (stageImport); one the scan refused or never saw stays out.
-    const scanned = plan.scanned?.[a.path];
+    // Only under a path the upload scanned: "__proto__" and "constructor" are paths a file can claim, not verdicts.
+    const scanned = plan.scanned && Object.hasOwn(plan.scanned, a.path) ? plan.scanned[a.path] : undefined;
     if (scanned !== 'clean' && scanned !== 'skipped') { problem(a.name, scanned ?? 'It is not where a Vantage export keeps files, so it was not scanned.'); continue; }
     const record = ctx.db.prepare(`SELECT * FROM ${target.table} WHERE id = ? AND deleted_at IS NULL`).get(target.id) as (RecordRow & Row) | undefined;
     if (!record || record.user_id !== user.id || !canEdit(scope, user.id, record)) { problem(a.name, 'Its record is not one you can add files to.'); continue; }
