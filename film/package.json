@@ -1,5 +1,6 @@
 {
   "name": "vantage-film",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "description": "The Vantage hero film and chapter videos: composition, voice, score and render pipeline.",

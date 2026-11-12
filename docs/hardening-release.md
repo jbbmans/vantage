@@ -95,6 +95,11 @@ This is a tested engineering candidate, not a statement that the product is perf
 73. Apply the current-access replay check to the older work-action endpoint too, so a former member cannot use an old request key to retrieve a case's current content.
 74. Add deterministic client-state tests for invalid success responses, cancellation, early session deadlines and corrupt theme preferences.
 75. Separate browser composition and Node film-entry typechecking, declare the generated capture/score asset contracts without creating placeholder assets, and add the film composition check to CI. Full video rendering still requires its browser/media prerequisites.
+76. Refresh both Docker stages to the current official Node 22 Bookworm slim digest and apply Debian security updates during builds; retain the final scanned image digest.
+77. Remove unused npm/npx/Yarn/Corepack from the runtime image, preserve them in the build stage, and document direct Node operational-script invocation.
+78. Give the private film package explicit version metadata so its CycloneDX bill of materials can be generated.
+79. Preserve extended CodeQL analysis as a retained SARIF artifact, leave repository default setup responsible for alert uploads, and document the explicit advanced-upload switch rather than masking GitHub's conflicting-setup failure.
+80. Run the new bulk-work browser specifications as a focused CI smoke check before the full browser suite, so a new-flow failure is reported promptly.
 
 The PDF includes the complete patch, including lockfile changes, and a per-file inventory. These numbered entries explain intent; the patch is the exact minor-edit record.
 
