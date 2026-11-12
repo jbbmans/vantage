@@ -646,3 +646,65 @@ test('032 gives duty its override columns and review history, hands the standard
     db.close();
   } finally { cleanup(); }
 });
+
+test('033 gives a file its evidence type and description, empty on every file already attached, and changes no file', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const KEPT = 'id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, hex(content) AS content, created_at, deleted_at';
+  let before: unknown[] = [];
+  const { path, cleanup } = atVersion(32, (db) => {
+    // The database as it was before 033: files that do not say what they are evidence of.
+    for (const column of ['description', 'kind']) db.exec(`ALTER TABLE attachments DROP COLUMN ${column}`);
+    const had = (db.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.ok(!had.includes('kind') && !had.includes('description'));
+    db.pragma('foreign_keys = OFF');
+    db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES ('G8', 'G8', 'G-8', 'active', 'G8', '{}', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES ('G8', 'G8', 'G-8 Comptroller', NULL, 'G8', ?)").run(at);
+    db.pragma('foreign_keys = ON');
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'x', 'Ana', 'Diaz', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO trainings (id, user_id, unit_id, visibility, date, title, created_at, updated_at) VALUES ('t1', 'u1', 'G8', 'unit', '2026-05-01', 'Corporals Course', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO activities (id, user_id, unit_id, visibility, date, title, created_at, updated_at) VALUES ('a1', 'u1', NULL, 'private', '2026-05-02', 'Private entry', ?, ?)").run(at, at);
+    const file = db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    // A certificate whose name says so: its type is still not guessed.
+    file.run('f-cert', 'trainings', 't1', 'u1', 'G8', 'certificate.pdf', 'application/pdf', 9, 'h1', Buffer.from('%PDF-1.7\n'), at, null);
+    file.run('f-note', 'activities', 'a1', 'u1', null, 'roster.txt', 'text/plain', 4, 'h2', Buffer.from('note'), at, null);
+    // One in the recycle bin keeps its place there.
+    file.run('f-gone', 'trainings', 't1', 'u1', 'G8', 'transcript.pdf', 'application/pdf', 9, 'h3', Buffer.from('%PDF-1.4\n'), at, at);
+    before = db.prepare(`SELECT ${KEPT} FROM attachments ORDER BY id`).all().map((r) => ({ ...(r as object) }));
+  });
+  try {
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 33 && m.name === '033_attachment_evidence'));
+    const columns = (db.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns.slice(-2), ['kind', 'description'], 'added last, in the order a new database has them');
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    assert.deepEqual(columns, (fresh.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name), 'an upgraded database and a new one have the same file columns in the same order');
+    fresh.close();
+
+    // Every file is kept exactly as it was, and none is given a type or a description it never had.
+    assert.deepEqual(db.prepare(`SELECT ${KEPT} FROM attachments ORDER BY id`).all().map((r) => ({ ...(r as object) })), before);
+    assert.equal(before.length, 3);
+    assert.deepEqual(db.prepare('SELECT id, kind, description FROM attachments ORDER BY id').all().map((r) => ({ ...(r as object) })),
+      ['f-cert', 'f-gone', 'f-note'].map((id) => ({ id, kind: null, description: null })));
+
+    // The checks a new database has are on the upgraded one.
+    assert.throws(() => db.prepare("UPDATE attachments SET kind = 'diploma' WHERE id = 'f-cert'").run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE attachments SET description = ? WHERE id = 'f-cert'").run('x'.repeat(501)), /CHECK constraint/);
+    db.prepare("UPDATE attachments SET kind = 'certificate', description = ? WHERE id = 'f-cert'").run('x'.repeat(500));
+    // The type is not tied to the record type: a file follows an entry that moves to another one (ADR-0015).
+    db.prepare("UPDATE attachments SET kind = 'roster' WHERE id = 'f-note'").run();
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    db.close();
+
+    // A second boot adds nothing and clears nothing.
+    db = openDatabase(path);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 33).length, 1);
+    assert.deepEqual((db.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name), columns);
+    assert.deepEqual(db.prepare("SELECT kind, length(description) AS n FROM attachments WHERE id = 'f-cert'").get(), { kind: 'certificate', n: 500 });
+    assert.equal((db.prepare("SELECT kind FROM attachments WHERE id = 'f-note'").get() as { kind: string }).kind, 'roster');
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.equal(SCHEMA_VERSION, 33);
+    db.close();
+  } finally { cleanup(); }
+});

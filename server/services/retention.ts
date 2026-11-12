@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { RECORD_TABLE_NAMES, destroyLineage, destroyRecords, forgetImportSnapshots } from './records.ts';
+import { RECORD_TABLE_NAMES, destroyLineage, destroyRecords, forgetImportSnapshots, lineageHeld } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 import { holdState } from './holds.ts';
@@ -145,6 +145,8 @@ export interface DispositionLine {
   held: number;
   acted: number;
   skipped?: string;
+  /** Under an anonymize schedule: the files on the records it anonymizes or has anonymized, which a run removes (ADR-0025). */
+  files?: number;
 }
 
 export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: boolean; actorId: string | null; at?: Date }): { lines: DispositionLine[]; blocked: string | null } {
@@ -188,10 +190,31 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
       ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${clock} IS NOT NULL AND ${clock} < ?${owned} AND user_id IN (${heldUsers.map(() => '?').join(',')})`).get(cutoff, orgUnits, ...heldUsers) as { n: number }).n
       : 0;
 
+    // An anonymized record holds no files (ADR-0025): a certificate, a transcript or a roster names the Marine in its
+    // content, its filename and its description. So a run takes the files of the records it anonymizes and of the ones
+    // already anonymized: a record an earlier run anonymized, or one given a file since, is done as a record and still
+    // has files to go. Which files is settled here, before any word is written, so a preview and a run agree, and so a
+    // task or a project, whose clock is its last change, does not slip past the cutoff by being anonymized.
+    const anonymizes = schedule.disposition === 'anonymize' && columns.length > 0;
+    let fileIds: string[] = [];
+    if (anonymizes) {
+      const anonymized = columns.map((c) => `${c} IS ?`).join(' AND ');
+      const records = `SELECT id FROM ${table} WHERE visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))${exclusion} AND ((${clock} IS NOT NULL AND ${clock} < ?) OR (${anonymized}))`;
+      // A hold on a person keeps the files they added, on anyone's record, as the recycle-bin purge does.
+      const uploader = heldUsers.length ? ` AND a.uploaded_by NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
+      const onFile = ctx.db.prepare(`SELECT a.id, a.record_id FROM attachments a WHERE a.record_table = ? AND a.record_id IN (${records})${uploader}`)
+        .all(table, orgUnits, ...heldUsers, cutoff, ...columns.map(() => REDACTED), ...heldUsers) as Array<{ id: string; record_id: string }>;
+      // A hold over a record type the entry has been keeps its lineage as evidence (destroyLineage). Its files stay with it.
+      const kept = lineageHeld(ctx, table, [...new Set(onFile.map((f) => f.record_id))], holds);
+      fileIds = onFile.filter((f) => !kept.has(f.record_id)).map((f) => f.id);
+    }
+    let files = fileIds.length;
+
     let acted = 0;
-    if (!opts.dryRun && eligible > 0) {
+    if (!opts.dryRun && (eligible > 0 || files > 0)) {
       ctx.db.transaction(() => {
-        if (schedule.disposition === 'destroy') {
+        if (eligible === 0) { /* nothing to anonymize or destroy; only files left on records already anonymized */ }
+        else if (schedule.disposition === 'destroy') {
           const ids = (ctx.db.prepare(`SELECT id FROM ${table} WHERE ${due}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
           acted = destroyRecords(ctx, table, ids, holds).records;
         } else if (columns.length) {
@@ -210,17 +233,18 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
             ctx.db.prepare('UPDATE duty_reviews SET reason = ? WHERE reason IS NOT NULL AND duty_id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
           }
         }
+        if (fileIds.length) files = ctx.db.prepare('DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(fileIds)).changes;
       })();
     }
 
-    lines.push({ record_type: schedule.record_type, disposition: schedule.disposition, retain_days: schedule.retain_days, cutoff, eligible, held, acted });
+    lines.push({ record_type: schedule.record_type, disposition: schedule.disposition, retain_days: schedule.retain_days, cutoff, eligible, held, acted, ...(files ? { files } : {}) });
     ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at, org_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}`, stamp, opts.orgId);
+      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}${files ? `; ${files} attached file${files === 1 ? '' : 's'} ${opts.dryRun ? 'to remove' : 'removed'}` : ''}`, stamp, opts.orgId);
   }
 
-  if (!opts.dryRun && lines.some((l) => l.acted > 0)) {
-    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', org_id: opts.orgId, detail: lines.filter((l) => l.acted).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}`).join('; ') });
+  if (!opts.dryRun && lines.some((l) => l.acted > 0 || l.files)) {
+    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', org_id: opts.orgId, detail: lines.filter((l) => l.acted || l.files).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}${l.files ? `, ${l.files} files` : ''}`).join('; ') });
   }
   return { lines, blocked: null };
 }

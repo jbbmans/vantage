@@ -36,6 +36,13 @@ export function createSession(ctx: AppContext, userId: string, { ip, userAgent, 
   return { token, id, expires: idle, absoluteExpires: absolute };
 }
 
+/**
+ * Whether a session still stands: not signed out, reset or revoked, and its account still open. A request that has
+ * waited on something outside the database (a malware scan) asks again before it writes anything.
+ */
+export const sessionStands = (ctx: AppContext, id: string) =>
+  Boolean(ctx.db.prepare('SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND u.active = 1').get(id));
+
 export function destroySession(ctx: AppContext, id: string) {
   ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
 }

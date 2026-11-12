@@ -93,7 +93,10 @@ version in force on its first day and keeps that score ([ADR-0023](ADR/0023-duty
 unit approves it, at approved points kept apart from the calculated ones; one rule (`dutyReviewOptions` in
 `shared/dutyReview.ts`) says who may approve, return, reject, reopen or set points, the server enforces it and sends
 its answer with every duty it reads, and each decision is a row of `duty_reviews` (migration 032) and an audit entry
-([ADR-0024](ADR/0024-duty-review-permissions-scoring.md)). The person's timeline (`GET /api/record/timeline`)
+([ADR-0024](ADR/0024-duty-review-permissions-scoring.md)). A record's files live in `attachments` and are reached only through the
+record (`canRead` to list and download, `canEdit` to add, correct and remove); a training's files are its evidence and
+say what they are (`kind`, `description`, migration 033), validated by `inspectAttachment`
+([ADR-0025](ADR/0025-training-evidence.md)). The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
 training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in
 `record_lineage`, is audited at both ends and can be undone; nothing moves on its own, and migration 023

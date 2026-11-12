@@ -107,6 +107,17 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   the types of an instance the caller serves in and what its versions score, never who published them or why; an
   import row searches only the duty types of an active instance its owner serves in now (ADR-0023).
   A configuration file never loads a scoring version that would reach back over duty already stood.
+- **A file is exactly as reachable as the record it hangs on** (ADR-0025). Listing and downloading a record's files
+  takes `canRead` on the record; adding one, correcting what it is or its description, and removing one take `canEdit`
+  as well. There is no permission for files alone, a file's id under another record or record type is not found, and
+  an upload's authorization is decided before its body is read, whatever type the body is declared as, and again
+  after the malware scan: the session that sent it must still stand, and the caller's roles and memberships are read
+  afresh, so a sign-out, a deactivation or a role removed while the scanner holds the file leaves nothing stored. A
+  training's files are its evidence: each says what it is (certificate, transcript, completion or qualification
+  document, roster) and the trail records adding, correcting, removing and anyone else's opening of one by the file's
+  id, never by its name or description. A file the scanner rejects is recorded by what the scanner found, not by its
+  name. A person's own export carries the files they added; for one on somebody else's record it says what the file is
+  only while they can still open that record.
 - **Duty review is decided by one rule, on the server** (ADR-0024). `dutyReviewOptions` says who may approve,
   return, reject, reopen or set the points of a duty; `reviewDuty` enforces it and every duty read carries its
   answer, so a page offers only what the server will take. Reviewing takes Review duty and View shared records in
@@ -381,8 +392,13 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 - A name with no account "locks" exactly as a real one does (same count, answer and duration), so the lockout cannot be used to learn which usernames exist. A password reset link clears a lock, since it proves the mailbox.
 - Password policy, the workbook reader and the email sanitizer run in linear time: each once had a pattern that a few hundred crafted bytes could make take seconds on the server's single thread. The current-password check on the change-password form shares the sign-in limit. Reset emails are capped at three an hour per account, and mail sent on a user's request (address confirmation, digests, invitations) at ten per 15 minutes.
 - Links a user saves as evidence must be `http`, `https` or `mailto`, checked the way a browser reads a scheme (ignoring control characters and whitespace). MARADMIN links are kept only when they are `https`.
-- Attachments are sniffed for type (PDF, PNG, JPEG, plain text, CSV), size-limited, hashed, stored in the database, and served with `Content-Disposition: attachment`.
-- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected file is never stored. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
+- Attachments are size-limited, counted per record, hashed and stored in the database. A file's type must be one the service allows (PDF, PNG, JPEG, plain text, CSV), its filename extension must be that type's, and its content must prove it: a signature for PDF, PNG and JPEG, valid UTF-8 with no control characters (C0 or C1, other than tab, line break and page break) for text and CSV. The type a browser states is a claim; where it states none, or a spreadsheet program's type for a `.csv`, the type is read from the filename and proven the same way. A filename is kept without control, zero-width or direction-override characters and keeps its extension when shortened. A download is served with `Content-Disposition: attachment`, `nosniff` and `Content-Security-Policy: sandbox; default-src 'none'` ([ADR-0025](engineering/ADR/0025-training-evidence.md)).
+- Anonymizing a record under a retention schedule deletes its files, which name the person in their names and on their face.
+  A run also deletes files still on records an earlier run anonymized, whatever their clock says (anonymizing a task
+  or a project restarts it); the preview counts them, and the run's history and its `disposition_run` audit entry state
+  the count. A legal hold keeps them as it keeps the records, and also keeps the files a held person added to anyone's
+  record and the files of an entry whose history a hold keeps, until it is released.
+- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected attachment, record import or saved message is never stored, and its audit entry (`upload_rejected`) says what the scanner found, never the file's name; a file inside an import's archive is told apart by its position and the import's id. A rejected workbook is kept only as a refused entry in work intake under its name and is never opened. A saved message is filed, and a file attached, only if the sender's session still stands when the scan ends, by their memberships and roles as they are then. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
 - A workbook is charged against its size limit by what it really expands to, not by the sizes it declares.
 - A person's import of their own records (ADR-0019) takes up to `VANTAGE_RECORD_IMPORT_MAX_BYTES` (50 MB), 5,000 spreadsheet rows or 20,000 records of a Vantage file, scans the file and each file inside a Vantage ZIP on its own, holds one file per person for at most `VANTAGE_RECORD_IMPORT_STAGED_HOURS` (24), and refuses infrastructure backups and other Vantage files by their format. It writes only the importer's account: ids in a file never name a record here, and a record the importer may not place in a unit comes in private. Its undo puts a record back only where an edit could place it now, so nothing others added to it in another Unit Instance since is carried back across.
 
@@ -456,7 +472,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | Mail delivery aimed at the host's own network | Private and reserved addresses refused |
 | A copy of the whole instance walking out | Browser downloads can be turned off; every other Lead Vantage Administrator is notified of each one |
 | CSRF / clickjacking | Client header, `SameSite`, `frame-ancestors 'none'` |
-| Malicious upload | Type sniffing, size cap, attachment disposition, no inline render |
+| Malicious upload | Type proven by content and extension, size cap, cleaned filename, attachment disposition, `nosniff` and a sandboxed download, no inline render |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |
 | Disk full | Write refusal near the size threshold; backups from the console |
 | Tracking pixel in imported mail | Remote images stripped, never fetched; the reader is told |

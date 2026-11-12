@@ -8,6 +8,20 @@ export interface ScanResult {
   verdict: Verdict;
   detail: string;
   scanner: string;
+  /** Under a rejected verdict: what the scanner found, apart from the sentence that names the file. */
+  finding?: string;
+}
+
+/**
+ * A file the scanner rejected. The message names the file for the person who sent it; `finding` is the scanner's own
+ * word alone, and is what the audit trail holds: a filename can name a person, and the trail is append-only (ADR-0025).
+ */
+export class MalwareRejected extends HttpError {
+  readonly finding: string;
+  constructor(detail: string, finding: string) {
+    super(422, detail, 'malware_rejected');
+    this.finding = finding;
+  }
 }
 
 export interface Scanner {
@@ -47,7 +61,7 @@ export class ClamdScanner implements Scanner {
         clearTimeout(timer);
         // clamdscan: 0 clean, 1 infected, 2 error.
         if (code === 0) finish({ verdict: 'clean', detail: `Scanned clean by ${this.name}.`, scanner: this.name });
-        else if (code === 1) finish({ verdict: 'rejected', detail: `${filename} was rejected by the malware scanner: ${(out.trim() || 'signature match').slice(0, 300)}`, scanner: this.name });
+        else if (code === 1) { const finding = (out.trim() || 'signature match').slice(0, 300); finish({ verdict: 'rejected', detail: `${filename} was rejected by the malware scanner: ${finding}`, scanner: this.name, finding }); }
         else finish({ verdict: 'skipped', detail: `The scanner reported an error and could not give a verdict: ${(err.trim() || out.trim() || `exit ${code}`).slice(0, 300)}`, scanner: this.name });
       });
       child.stdin.on('error', () => {});
@@ -83,7 +97,7 @@ export class ClamdSocketScanner implements Scanner {
       socket.on('end', () => {
         const answer = reply.replace(/\0/g, '').trim();
         if (/: OK$/.test(answer)) finish({ verdict: 'clean', detail: `Scanned clean by ${this.name}.`, scanner: this.name });
-        else if (/ FOUND$/.test(answer)) finish({ verdict: 'rejected', detail: `${filename} was rejected by the malware scanner: ${answer.replace(/^stream: /, '').replace(/ FOUND$/, '').slice(0, 200)}`, scanner: this.name });
+        else if (/ FOUND$/.test(answer)) { const finding = answer.replace(/^stream: /, '').replace(/ FOUND$/, '').slice(0, 200); finish({ verdict: 'rejected', detail: `${filename} was rejected by the malware scanner: ${finding}`, scanner: this.name, finding }); }
         else skipped(answer.slice(0, 200) || 'empty reply');
       });
       socket.on('connect', () => {
@@ -111,7 +125,7 @@ export function scannerFor(config: { clamd?: string | null; command: string | nu
  */
 export async function scanUpload(config: { clamd: string | null; scannerCommand: string | null; scanRequired: boolean }, buffer: Buffer, filename: string): Promise<ScanResult> {
   const result = await scannerFor({ clamd: config.clamd, command: config.scannerCommand }).scan(buffer, filename);
-  if (result.verdict === 'rejected') throw new HttpError(422, result.detail, 'malware_rejected');
+  if (result.verdict === 'rejected') throw new MalwareRejected(result.detail, result.finding || 'signature match');
   if (result.verdict === 'skipped' && config.scanRequired) throw new HttpError(503, `${result.detail} This instance accepts only scanned files; try again shortly or ask your administrator.`, 'scan_unavailable');
   return result;
 }

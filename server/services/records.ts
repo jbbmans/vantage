@@ -125,7 +125,20 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
   if (table === 'duties') return withDutyNames(ctx, user.id, hydrated, scope);
+  if (table === 'trainings') return withEvidenceCounts(ctx, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
+}
+
+/**
+ * How many files of evidence each training holds (ADR-0025), so a list says which courses are backed by a certificate
+ * without opening each one. A count only, for rows the reader may already read: the files are listed and opened by the
+ * routes that decide that again. One lookup for the page, however many trainings are on it.
+ */
+export function withEvidenceCounts<T extends Record<string, unknown>>(ctx: AppContext, rows: T[]): Array<T & { evidence_count: number }> {
+  if (!rows.length) return rows as Array<T & { evidence_count: number }>;
+  const counts = new Map((ctx.db.prepare(`SELECT record_id, COUNT(*) AS n FROM attachments WHERE record_table = 'trainings' AND deleted_at IS NULL AND record_id IN (SELECT value FROM json_each(?)) GROUP BY record_id`)
+    .all(JSON.stringify(rows.map((r) => String(r.id)))) as Array<{ record_id: string; n: number }>).map((c) => [c.record_id, c.n]));
+  return rows.map((r) => ({ ...r, evidence_count: counts.get(String(r.id)) ?? 0 }));
 }
 
 /** A counselor reading a counseling they recorded for someone else sees whom it was for. */
@@ -683,6 +696,20 @@ function lineageChain(ctx: AppContext, table: string, id: string, seen: Set<stri
 /** A legal hold keeps a chain whole: one over its person, over any record type the entry has been, or over the whole instance. */
 const chainHeld = (holds: HoldState, chain: LineageLink[]) =>
   holds.instance || chain.some((l) => holds.users.has(l.user_id) || holds.types.has(l.from_table) || holds.types.has(l.to_table));
+
+/**
+ * Of these records, the ones whose lineage a legal hold keeps (destroyLineage below). What such an entry carries, its
+ * files among it, stays with the lineage that is kept (ADR-0025).
+ */
+export function lineageHeld(ctx: AppContext, table: string, ids: string[], holds: HoldState): Set<string> {
+  const held = new Set<string>();
+  if (!isLineageTable(table)) return held;
+  for (const id of ids) {
+    const chain = lineageChain(ctx, table, id, new Set());
+    if (chain.length && chainHeld(holds, chain)) held.add(id);
+  }
+  return held;
+}
 
 /**
  * The lineage of records being destroyed goes with them (ADR-0015): every move that led to one, each holding the entry

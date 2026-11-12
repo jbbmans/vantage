@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import express from 'express';
-import { wrap, clientIp } from '../lib/http.ts';
-import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { wrap, clientIp, parse } from '../lib/http.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
+import { sessionStands } from '../auth/sessions.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
-import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
+import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
+import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
+import { attachmentDetailsSchema } from '../../shared/schemas.ts';
 import { audit, auditListedRecords } from '../services/audit.ts';
-import { scanUpload } from '../services/scanner.ts';
+import { MalwareRejected, scanUpload } from '../services/scanner.ts';
 import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
@@ -74,7 +77,7 @@ recordsRouter.get('/:table/:id/export', wrap((req, res) => {
   const table = tableParam(req);
   const row = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'zip' ? 'zip' : 'json';
-  const out = buildRecordExport(req.ctx, table, row as Record<string, unknown>, format, { files: ATTACHABLE.has(table) });
+  const out = buildRecordExport(req.ctx, table, row as Record<string, unknown>, format, { files: isAttachable(table) });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `${format}${out.attachments ? `; ${out.attachments} files` : ''}`, ip: clientIp(req) });
   res.setHeader('Content-Type', out.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
@@ -133,82 +136,157 @@ recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   res.json(getRecord(req.ctx, 'counselings', row.id));
 }));
 
-const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals', 'duties']);
+// Files on records, and a training's evidence (ADR-0025). Whoever may open the record may list and open its files;
+// whoever may edit it may add one, correct what is said about one, and remove one. Nothing here asks for a permission
+// of its own: a file is exactly as reachable as the record it hangs on.
 const attachmentBody = (req: express.Request, res: express.Response, next: express.NextFunction) =>
   express.raw({ type: () => true, limit: req.ctx.config.attachments.maxBytes })(req, res, next);
 
-function attachableRecord(req: express.Request, needEdit = false) {
+function attachableRecord(req: express.Request, needEdit = false, again = false) {
   const table = tableParam(req);
-  if (!ATTACHABLE.has(table)) throw notFound('That record type does not take attachments.');
+  if (!isAttachable(table)) throw notFound('That record type does not take attachments.');
   const row = getRecord(req.ctx, table, String(req.params.id));
   if (!row) throw notFound('No such record.');
-  const scope = scopeFor(req.ctx, req.user, req);
+  // `again`: the caller's roles and memberships as they are now, not as this request first read them.
+  const scope = again ? scopeFor(req.ctx, req.user) : scopeFor(req.ctx, req.user, req);
   if (!canRead(scope, req.user.id, row)) throw forbidden('You cannot read attachments for that record.');
   if (needEdit && !canEdit(scope, req.user.id, row)) throw forbidden('That record is not yours to update.');
   return { table, row };
 }
 
-const attachmentMeta = (r: Record<string, unknown>) => ({ id: r.id, record_table: r.record_table, record_id: r.record_id, original_name: r.original_name, mime_type: r.mime_type, size_bytes: r.size_bytes, sha256: r.sha256, created_at: r.created_at });
+/** A record that may take a new file now: attachments on for the service, the record editable, its Unit Instance not withheld (ADR-0014). */
+function uploadTarget(req: express.Request, again = false) {
+  if (!req.ctx.runtime.attachmentsEnabled) throw notFound('Attachments are not enabled.');
+  const { table, row } = attachableRecord(req, true, again);
+  if (!featureOn(req.ctx, 'attachments', row.unit_id, row.user_id)) throw forbidden('Vantage has turned file attachments off for this Unit Instance. Files already attached stay readable.', 'feature_withheld');
+  return { table, row };
+}
+
+const KIND_WORDS = EVIDENCE_KINDS.map((k) => EVIDENCE_KIND_LABELS[k].toLowerCase()).join(', ');
+
+/**
+ * What an upload says about its file, sent beside its name because the body is the file: its evidence type, and its
+ * description percent-encoded as the name is. A training's file says what it is; a file on any other record type has no
+ * evidence type to give.
+ */
+function uploadDetails(req: express.Request, table: string): { kind: EvidenceKind | null; description: string | null } {
+  let description: string | undefined = req.get('x-vantage-description');
+  if (description !== undefined) {
+    try { description = decodeURIComponent(description); }
+    catch { throw badRequest('The description could not be read.', { fieldErrors: { description: 'The description could not be read. Type it as plain text.' } }); }
+  }
+  const details = parse(attachmentDetailsSchema, { kind: String(req.get('x-vantage-evidence-kind') ?? '').trim().toLowerCase(), description });
+  if (takesEvidenceKind(table) && !details.kind) throw badRequest(`Choose what this file is: ${KIND_WORDS}.`, { fieldErrors: { kind: 'Choose what this file is.' } });
+  if (!takesEvidenceKind(table) && details.kind) throw badRequest('Only a training’s files take an evidence type.', { fieldErrors: { kind: 'Only a training’s files take an evidence type.' } });
+  return { kind: details.kind ?? null, description: details.description ?? null };
+}
+
+const ATTACHMENT_SELECT = `SELECT a.id, a.record_table, a.record_id, a.original_name, a.mime_type, a.size_bytes, a.sha256, a.created_at, a.kind, a.description, a.uploaded_by,
+                                  u.last_name AS uploader_last, r.abbr AS uploader_rank
+                             FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by LEFT JOIN ranks r ON r.id = u.rank_id`;
+type AttachmentRecord = Omit<AttachmentRow, 'uploader_name'> & { uploader_last: string | null; uploader_rank: string | null };
+/** A file as the API returns it: what is tracked about it, and who added it by rank and name. Never its content. */
+const attachmentMeta = ({ uploader_last, uploader_rank, ...a }: AttachmentRecord): AttachmentRow => ({ ...a, uploader_name: uploader_last ? `${uploader_rank ? `${uploader_rank} ` : ''}${uploader_last}` : null });
+const liveAttachment = (req: express.Request, table: string, recordId: string) =>
+  req.ctx.db.prepare(`${ATTACHMENT_SELECT} WHERE a.id = ? AND a.record_table = ? AND a.record_id = ? AND a.deleted_at IS NULL`).get(String(req.params.attachmentId), table, recordId) as AttachmentRecord | undefined;
+const liveCount = (req: express.Request, table: string, recordId: string) =>
+  (req.ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL').get(table, recordId) as { n: number }).n;
 
 recordsRouter.get('/:table/:id/attachments', wrap((req, res) => {
   const { table, row } = attachableRecord(req);
-  const rows = req.ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at DESC').all(table, row.id) as Array<Record<string, unknown>>;
+  const rows = req.ctx.db.prepare(`${ATTACHMENT_SELECT} WHERE a.record_table = ? AND a.record_id = ? AND a.deleted_at IS NULL ORDER BY a.created_at DESC, a.id`).all(table, row.id) as AttachmentRecord[];
   // On for this record only where the service has attachments on and Vantage has not turned them off for its Unit Instance (ADR-0014).
-  res.json({ attachments: rows.map(attachmentMeta), enabled: featureOn(req.ctx, 'attachments', row.unit_id, row.user_id), maxBytes: req.ctx.config.attachments.maxBytes, allowedTypes: req.ctx.config.attachments.allowedTypes });
+  const body: AttachmentsResponse = { attachments: rows.map(attachmentMeta), enabled: featureOn(req.ctx, 'attachments', row.unit_id, row.user_id), maxBytes: req.ctx.config.attachments.maxBytes, maxPerRecord: req.ctx.config.attachments.maxPerRecord, allowedTypes: req.ctx.config.attachments.allowedTypes };
+  res.json(body);
 }));
 
-recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, res) => {
+// Who may add the file, and what is said about it, are settled before the file is read: a caller who may not is refused
+// without the server taking in a body up to the size limit. The handler decides again once it has the file.
+recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { uploadDetails(req, uploadTarget(req).table); next(); }), attachmentBody, wrap(async (req, res) => {
   const ctx = req.ctx;
-  if (!ctx.runtime.attachmentsEnabled) throw notFound('Attachments are not enabled.');
-  const { table, row } = attachableRecord(req, true);
-  if (!featureOn(ctx, 'attachments', row.unit_id, row.user_id)) throw forbidden('Vantage has turned file attachments off for this Unit Instance. Files already attached stay readable.', 'feature_withheld');
-  const count = (ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL').get(table, row.id) as { n: number }).n;
-  if (count >= ctx.config.attachments.maxPerRecord) throw conflict(`A record can hold at most ${ctx.config.attachments.maxPerRecord} attachments.`, 'attachment_limit');
-  const inspected = inspectAttachment({ body: req.body, filename: req.get('x-vantage-filename'), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
+  const { table, row } = uploadTarget(req);
+  const details = uploadDetails(req, table);
+  const limit = ctx.config.attachments.maxPerRecord;
+  const full = () => conflict(`A record can hold at most ${limit} attachments.`, 'attachment_limit');
+  if (liveCount(req, table, row.id) >= limit) throw full();
+  const inspected = inspectAttachment({ body: req.body, filename: filenameFromHeader(req.get('x-vantage-filename')), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
   if (!inspected.ok) throw badRequest(inspected.error);
   try { if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size + inspected.size >= ctx.config.limits.maxDatabaseBytes) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity'); } catch (e) { if (e instanceof HttpError) throw e; }
   // Evidence is scanned like any other upload: a rejected file is never stored.
   try { await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename); }
   catch (e) {
-    if ((e as HttpError).code === 'malware_rejected') audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, unit_id: row.unit_id, detail: (e as Error).message.slice(0, 300), ip: clientIp(req) });
+    // The trail holds what the scanner found, never the file's name.
+    if (e instanceof MalwareRejected) audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip: clientIp(req) });
     throw e;
   }
-  // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015). Checked with nothing awaited
-  // between it and the insert, so the file never lands on an entry that is gone.
+  // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015), been deleted, been decided or
+  // frozen, or taken its last file, and the caller may have signed out, been reset or deactivated, or lost the role or
+  // the membership that let them add to it. Everything is decided again here, with nothing awaited between it and
+  // the insert, so the file never lands on an entry that is gone or that the caller may no longer add to.
+  // First, the session that sent the file must still stand, as it must for any request.
+  if (!sessionStands(ctx, req.sessionId)) throw unauthorized();
   if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
     throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
   }
+  // Then the caller's authority, read afresh.
+  const current = uploadTarget(req, true).row;
+  if (liveCount(req, table, current.id) >= limit) throw full();
   const id = newId();
   try {
     // The file keeps the unit its record sits in now, so a later move is judged by where it was added (ADR-0008).
-    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, table, row.id, req.user.id, row.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now());
+    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, table, current.id, req.user.id, current.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now(), details.kind, details.description);
   } catch (error) {
     if (String((error as Error).message).includes('UNIQUE')) throw conflict('That exact file is already attached.', 'duplicate_attachment');
     throw error;
   }
-  audit(ctx, { actor_id: req.user.id, action: 'upload_attachment', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `${inspected.size} bytes; ${inspected.mime}`, ip: clientIp(req) });
-  const saved = ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at FROM attachments WHERE id = ?').get(id) as Record<string, unknown>;
+  // The trail names the file and what it is, never its name or what was written about it.
+  audit(ctx, { actor_id: req.user.id, action: 'upload_attachment', entity: table, entity_id: current.id, subject_id: current.user_id !== req.user.id ? current.user_id : null, unit_id: current.unit_id, detail: `attachment ${id}; ${inspected.size} bytes; ${inspected.mime}${details.kind ? `; ${details.kind}` : ''}`, ip: clientIp(req) });
+  const saved = ctx.db.prepare(`${ATTACHMENT_SELECT} WHERE a.id = ?`).get(id) as AttachmentRecord;
   res.status(201).json(attachmentMeta(saved));
 }));
 
 recordsRouter.get('/:table/:id/attachments/:attachmentId', wrap((req, res) => {
   const { table, row } = attachableRecord(req);
-  const file = req.ctx.db.prepare('SELECT * FROM attachments WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').get(String(req.params.attachmentId), table, row.id) as { id: string; original_name: string; mime_type: string; size_bytes: number; content: Buffer } | undefined;
+  const file = req.ctx.db.prepare('SELECT id, original_name, mime_type, size_bytes, content FROM attachments WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').get(String(req.params.attachmentId), table, row.id) as { id: string; original_name: string; mime_type: string; size_bytes: number; content: Buffer } | undefined;
   if (!file) throw notFound('No such attachment.');
-  if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'download_attachment', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
-  res.setHeader('Content-Type', file.mime_type);
+  if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'download_attachment', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, detail: `attachment ${file.id}`, ip: clientIp(req) });
+  res.setHeader('Content-Type', attachmentContentType(file.mime_type));
   res.setHeader('Content-Length', String(file.size_bytes));
+  // Always a download, never a page: saved under its own name, never sniffed into another type, and, should a browser
+  // show it all the same, shown with no script, no form and no origin of Vantage's.
   res.setHeader('Content-Disposition', attachmentDisposition(file.original_name));
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
   res.send(file.content);
+}));
+
+// What is said about a file is corrected in place (ADR-0025): what it is evidence of, and its description. The file
+// itself never changes; its name, content and hash stay as they were added.
+recordsRouter.put('/:table/:id/attachments/:attachmentId', wrap((req, res) => {
+  const { table, row } = attachableRecord(req, true);
+  const patch = parse(attachmentDetailsSchema, req.body);
+  const file = liveAttachment(req, table, row.id);
+  if (!file) throw notFound('No such attachment.');
+  // A training's file may be given a type or another type, never have it taken away; a file that came to another record
+  // type with a moved entry may only lose the type it carried.
+  if (takesEvidenceKind(table) && patch.kind === null) throw badRequest(`Choose what this file is: ${KIND_WORDS}.`, { fieldErrors: { kind: 'Choose what this file is.' } });
+  if (!takesEvidenceKind(table) && patch.kind) throw badRequest('Only a training’s files take an evidence type.', { fieldErrors: { kind: 'Only a training’s files take an evidence type.' } });
+  const next = { kind: patch.kind === undefined ? file.kind : patch.kind, description: patch.description === undefined ? file.description : patch.description };
+  const changed = (['kind', 'description'] as const).filter((k) => next[k] !== file[k]);
+  if (!changed.length) return res.json(attachmentMeta(file));
+  req.ctx.db.prepare('UPDATE attachments SET kind = ?, description = ? WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').run(next.kind, next.description, file.id, table, row.id);
+  // Which details changed, never what they say.
+  audit(req.ctx, { actor_id: req.user.id, action: 'update_attachment', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `attachment ${file.id}; changed ${changed.join(', ')}${changed.includes('kind') ? `; ${file.kind ?? 'none'} to ${next.kind ?? 'none'}` : ''}`, ip: clientIp(req) });
+  res.json(attachmentMeta({ ...file, ...next }));
 }));
 
 recordsRouter.delete('/:table/:id/attachments/:attachmentId', wrap((req, res) => {
   const { table, row } = attachableRecord(req, true);
-  const r = req.ctx.db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').run(now(), String(req.params.attachmentId), table, row.id);
+  const attachmentId = String(req.params.attachmentId);
+  const r = req.ctx.db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').run(now(), attachmentId, table, row.id);
   if (!r.changes) throw notFound('No such attachment.');
-  audit(req.ctx, { actor_id: req.user.id, action: 'delete_attachment', entity: table, entity_id: row.id, unit_id: row.unit_id, ip: clientIp(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'delete_attachment', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `attachment ${attachmentId}`, ip: clientIp(req) });
   res.json({ ok: true });
 }));
 

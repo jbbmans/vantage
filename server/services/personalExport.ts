@@ -1,5 +1,7 @@
 import type { AppContext } from '../context.ts';
-import { RECORD_TABLE_NAMES, hydrate, withGoalProgress } from './records.ts';
+import { RECORD_TABLE_NAMES, getRecord, hydrate, withGoalProgress } from './records.ts';
+import { scopeFor } from '../authz/scope.ts';
+import { canRead } from '../authz/records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { listPasskeys } from '../auth/passkeys.ts';
 import { listPermissions } from '../../shared/permissions.ts';
@@ -80,14 +82,27 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const onOwnRecords = (columns: string, from: 'attachments' | 'comments') => [...recordIds].flatMap(([table, ids]) => (ids.size
     ? db.prepare(`SELECT ${columns} FROM ${from} WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?))`).all(table, JSON.stringify([...ids])) as Row[]
     : []));
-  const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at';
+  // What a file is evidence of and what was written about it travel with it (ADR-0025).
+  const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at, kind, description';
   const byOwnRecord = onOwnRecords(attachmentColumns, 'attachments');
   const byUpload = db.prepare(`SELECT ${attachmentColumns} FROM attachments WHERE uploaded_by = ?`).all(userId) as Row[];
   const seenAttachments = new Set<string>();
   const attachmentRows = [...byOwnRecord, ...byUpload]
     .filter((a) => { const id = String(a.id); if (seenAttachments.has(id)) return false; seenAttachments.add(id); return true; })
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-  for (const a of attachmentRows) a.file = attachmentPath(a);
+  // Who added a file somebody else added, by name: the id is this instance's, and an import makes the importer the
+  // uploader (ADR-0019), so the name is what says who it first came from.
+  for (const a of attachmentRows) { a.uploader_label = a.uploaded_by !== userId ? personLabel(ctx, a.uploaded_by) : null; a.file = attachmentPath(a); }
+  // What is said about a file belongs to the record it hangs on, and whoever keeps that record may have rewritten it
+  // since. For a file the Marine added to somebody else's record, the export says what it is only while the Marine can
+  // still open that record (ADR-0025). The file they supplied, and its name, stay theirs to take.
+  const scope = scopeFor(ctx, { id: userId });
+  const opens = (a: Row) => {
+    if (recordIds.get(String(a.record_table))?.has(String(a.record_id))) return true;
+    const host = (RECORD_TABLE_NAMES as readonly string[]).includes(String(a.record_table)) ? getRecord(ctx, a.record_table as RecordTable, String(a.record_id)) : undefined;
+    return Boolean(host && canRead(scope, userId, host));
+  };
+  for (const a of attachmentRows) if (!opens(a)) { a.kind = null; a.description = null; }
 
   const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
 
@@ -197,7 +212,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     `Vantage personal export for ${owner} (${stamp})`, '',
     'vantage-export.json holds everything in one structured file. The CSVs are the same data one dataset per file, for spreadsheets.',
     'Import records (Settings, Your data) reads this ZIP back: awards stay awards, training stays training, files stay on their records.',
-    'attachments/ holds the files you uploaded, named <record>-<attachment id>-<original name>.', '',
+    'attachments/ holds the files you uploaded, named <record>-<attachment id>-<original name>. attachments.csv lists each with what it is evidence of, its description, who added it and when.', '',
     'Records include entries in the recycle bin (deleted_at is set). Nothing here is a system of record; MOL is.',
     ...('sections' in archive ? ['', `Holds only: ${(archive as unknown as { sections: string[] }).sections.map((k) => categoryOf(k)?.label ?? k).join(', ')}.`] : []),
     '', 'Datasets:', ...Object.entries(archive.counts).map(([k, v]) => `  ${k}: ${v}`),
@@ -329,8 +344,10 @@ export function buildPersonalExportCsv(ctx: AppContext, userId: string, key: str
  * columns, or a ZIP of both with the files. The caller has already decided the reader may open the record.
  */
 export function buildRecordExport(ctx: AppContext, table: ImportTable, row: Row, format: 'json' | 'csv' | 'zip', { files = true } = {}): { body: Buffer | string; filename: string; contentType: string; attachments: number } {
-  const meta = ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at').all(table, String(row.id)) as Row[];
-  for (const a of meta) a.file = attachmentPath(a);
+  // Each file with what is tracked about it (ADR-0025): what it is, what was written about it, and who added it by name,
+  // never by id, which is this instance's.
+  const meta = (ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at, kind, description, uploaded_by FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at').all(table, String(row.id)) as Row[])
+    .map(({ uploaded_by, ...a }) => ({ ...a, uploader_label: personLabel(ctx, uploaded_by), file: attachmentPath(a) }) as Row);
   const record: Row = { ...row };
   if (table === 'counselings' && row.counselor_id && row.counselor_id !== row.user_id) record.counselor_label = personLabel(ctx, row.counselor_id);
   if (table === 'awards' && row.recorded_by && row.recorded_by !== row.user_id) record.recorder_label = personLabel(ctx, row.recorded_by);

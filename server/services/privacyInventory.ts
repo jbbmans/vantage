@@ -456,12 +456,13 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   attachments: {
-    purpose: 'Files attached to a record as its evidence. Stored with a hash so a changed file is detectable.',
+    purpose: 'Files attached to a record as its evidence: for a training, its certificate, transcript, completion or qualification document, or roster. Each says what it is and what it shows, and is stored with a hash so a changed file is detectable.',
     authority: 'Evidence for the record it hangs on; inherits that record’s authority.',
-    access: 'Whoever can read the record it is attached to.',
+    access: 'Whoever can read the record it is attached to. Whoever may edit that record adds, describes and removes its files.',
     columns: {
-      id: 'technical', record_table: 'none', record_id: 'technical', uploaded_by: 'identifier', original_name: 'performance',
+      id: 'technical', record_table: 'none', record_id: 'technical', uploaded_by: 'identifier', unit_id: 'employment', original_name: 'performance',
       mime_type: 'technical', size_bytes: 'technical', sha256: 'technical', content: 'performance', created_at: 'technical', deleted_at: 'technical',
+      kind: 'performance', description: 'performance',
     },
   },
   notifications: {

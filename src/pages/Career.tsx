@@ -31,6 +31,9 @@ const CareerPlan = lazy(() => import('./CareerPlan'));
 /** The export category of each page's records (shared/recordTransfer.ts). */
 const SECTION: Partial<Record<CareerSection, string>> = { training: 'trainings', awards: 'awards', counseling: 'counselings' };
 
+/** How much evidence a training holds, as a list says it (ADR-0025). Nothing when the list did not count it. */
+export const evidenceCount = (n?: number | null) => (n == null ? null : n === 0 ? <span className="text-ink-3">None</span> : <span className="fig">{n} {n === 1 ? 'file' : 'files'}</span>);
+
 /** An award as the list sends it: who entered it, and their name for anyone but them (ADR-0015). */
 type AwardRow = Award & { recorded_by?: string | null; recorder_name?: string };
 /** A leader's recommendation: an award somebody entered for the Marine it is about. */
@@ -189,8 +192,8 @@ export default function Career({ section }: { section: CareerSection }) {
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
-        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-44"></th></>}>
-          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
+        <div className="card" style={{ overflow: 'hidden' }}><Table minWidth={720} head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-24">Evidence</th><th className="w-28">Status</th><th className="w-44"></th></>}>
+          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 

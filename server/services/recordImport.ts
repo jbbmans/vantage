@@ -11,8 +11,9 @@ import { canEdit, canPlace, canPlaceOwnDuty, type RecordRow } from '../authz/rec
 import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
+import { cleanDescription, isAttachable, isEvidenceKind, takesEvidenceKind, type EvidenceKind } from '../../shared/attachments.ts';
 import { sameClaims } from './duties.ts';
-import { scanUpload } from './scanner.ts';
+import { MalwareRejected, scanUpload } from './scanner.ts';
 import { featureOn } from './instanceFlags.ts';
 import { sourcedFieldsFor } from './personnel.ts';
 import { withPersonnelNote } from './personnelRecords.ts';
@@ -53,7 +54,6 @@ type SourceKind = ImportReview['source'];
 export const IMPORT_MAX_ROWS = 5000;
 /** A Vantage export's records, at most: as many as an account holds by default (VANTAGE_MAX_RECORDS_PER_USER). */
 export const IMPORT_MAX_RECORDS = 20_000;
-const ATTACHABLE = new Set<string>(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals', 'duties']);
 /** Fields that name people or records here. A file never sets them: the import does, or nothing does. */
 const NEVER_FROM_FILE = ['id', 'user_id', 'assignee_id', 'counselor_id', 'recorded_by', 'fingerprint', 'kind_confirmed_at', 'frozen_at', 'deleted_at', 'version'];
 /**
@@ -107,7 +107,8 @@ interface Candidate {
   inferred?: string[];
 }
 
-interface AttachmentIn { ref: string; path: string; name: string; mime: string; table: string; sourceRecordId: string; data: Buffer | null }
+/** A file a Vantage export names, with what it says the file is and what was written about it (ADR-0025). */
+interface AttachmentIn { ref: string; path: string; name: string; mime: string; table: string; sourceRecordId: string; data: Buffer | null; kind: EvidenceKind | null; description: string | null }
 
 interface SheetInfo { name: string; headers: string[]; rows: Array<Record<string, string>>; table: ImportReview['sheets'][number]['table']; routedBy: ImportReview['sheets'][number]['routedBy']; mapping: Record<string, string>; preset: Row | null }
 
@@ -239,7 +240,10 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   for (const a of (Array.isArray(doc.attachments) ? doc.attachments : []) as Row[]) {
     if (!a || typeof a !== 'object' || a.deleted_at) continue;
     const path = str(a.file) || attachmentPath(a);
-    attachments.push({ ref: `file:${str(a.id) || path}`, path, name: str(a.original_name), mime: str(a.mime_type), table: str(a.record_table), sourceRecordId: str(a.record_id), data: files?.get(path) ?? null });
+    // A type the file gives is kept only if it is one Vantage knows, and a description only if it is one a person could
+    // have typed here; a file from before either existed, or with something else in their place, comes in without.
+    const described = cleanDescription(a.description ?? null);
+    attachments.push({ ref: `file:${str(a.id) || path}`, path, name: str(a.original_name), mime: str(a.mime_type), table: str(a.record_table), sourceRecordId: str(a.record_id), data: files?.get(path) ?? null, kind: isEvidenceKind(a.kind) ? a.kind : null, description: described.ok ? described.value : null });
   }
   if (truncated) notes.push(`Imports read at most ${IMPORT_MAX_RECORDS.toLocaleString()} records from one file; only the first were read.`);
   if (kind === 'vantage_json' && attachments.length) notes.push(`The JSON names ${attachments.length} attached file${attachments.length === 1 ? '' : 's'} it does not carry. Import the ZIP to bring files back.`);
@@ -812,7 +816,7 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     if (!target) continue;
     if (plan.attachments === false) { problem(a.name, 'You chose to leave files out.'); continue; }
     if (!ctx.runtime.attachmentsEnabled) { problem(a.name, 'Attachments are off on this service.'); continue; }
-    if (!ATTACHABLE.has(target.table)) { problem(a.name, `A ${TABLE_LABELS[target.table].one} does not take files.`); continue; }
+    if (!isAttachable(target.table)) { problem(a.name, `A ${TABLE_LABELS[target.table].one} does not take files.`); continue; }
     if (!a.data) { problem(a.name, 'The file is not in the ZIP.'); continue; }
     // Every file is scanned at upload (stageImport); one the scan refused or never saw stays out.
     const scanned = plan.scanned?.[a.path];
@@ -828,8 +832,9 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     if (inspected.size >= room) { problem(a.name, 'The database is too close to its safety threshold for that file.'); continue; }
     room -= inspected.size;
     const id = newId();
-    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, target.table, target.id, user.id, record.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, a.data, now());
+    // What the file is evidence of comes with it where its record takes one (a training); its description comes anywhere.
+    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, target.table, target.id, user.id, record.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, a.data, now(), takesEvidenceKind(target.table) ? a.kind : null, a.description);
     attachments.included += 1;
     state.results.attachments += 1;
     state.origins.push({ table: 'attachments', id, action: 'attached', sourceId: a.ref.replace(/^file:/, ''), ref: a.path, author: null, before: null, versionAfter: null });
@@ -985,24 +990,26 @@ export async function stageImport(ctx: AppContext, user: SessionUser, input: { b
   // eslint-disable-next-line no-control-regex
   const filename = input.filename.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200) || 'import';
   const found = detect(buffer);
-  const rejected = (detail: string) => audit(ctx, { actor_id: user.id, action: 'upload_rejected', entity: 'record_imports', detail: detail.slice(0, 300), ip });
+  // This entry holds what the scanner found, never the name of the archive or of a file in it (ADR-0025). A file inside
+  // a ZIP is told apart by its place in the archive, and the entry points at the import it was left out of.
+  const id = newId();
+  const rejected = (detail: string, importId: string | null = null) => audit(ctx, { actor_id: user.id, action: 'upload_rejected', entity: 'record_imports', entity_id: importId, detail: detail.slice(0, 300), ip });
   // The file as a whole is scanned as any upload is; a rejected file is never kept.
   try { await scanUpload(ctx.config.intake, buffer, filename); }
-  catch (e) { if ((e as HttpError).code === 'malware_rejected') rejected(`${filename}: ${(e as Error).message}`); throw e; }
+  catch (e) { if (e instanceof MalwareRejected) rejected(`import file rejected by the malware scanner: ${e.finding}`); throw e; }
   // Each file a ZIP carries is scanned on its own, as an attachment upload is; one that fails stays out, the rest come in.
   const scanned: Record<string, string> = {};
   if (found.kind === 'vantage_zip' && found.files) {
-    for (const [path, data] of found.files) {
-      if (!path.startsWith('attachments/') || !data.length) continue;
+    const attached = [...found.files].filter(([path, data]) => path.startsWith('attachments/') && data.length);
+    for (const [index, [path, data]] of attached.entries()) {
       try { scanned[path] = (await scanUpload(ctx.config.intake, data, path.slice(12))).verdict === 'clean' ? 'clean' : 'skipped'; }
       catch (e) {
-        if ((e as HttpError).code !== 'malware_rejected') throw e;
+        if (!(e instanceof MalwareRejected)) throw e;
         scanned[path] = 'Refused by the malware scan.';
-        rejected(`${filename} › ${path}: ${(e as Error).message}`);
+        rejected(`attached file ${index + 1} of ${attached.length} in an import rejected by the malware scanner: ${e.finding}`, id);
       }
     }
   }
-  const id = newId();
   const at = now();
   ctx.db.transaction(() => {
     ctx.db.prepare("UPDATE record_imports SET status = 'cancelled', content = NULL, review = NULL, updated_at = ? WHERE user_id = ? AND status = 'staged'").run(at, user.id);
@@ -1094,7 +1101,7 @@ export function undoImport(ctx: AppContext, user: SessionUser, id: string, ip?: 
         // A file comes off only where its owner could take it off now: a record frozen since they left its unit keeps it.
         const file = ctx.db.prepare('SELECT record_table, record_id FROM attachments WHERE id = ? AND uploaded_by = ? AND deleted_at IS NULL').get(o.record_id, user.id) as { record_table: string; record_id: string } | undefined;
         if (!file) continue;
-        const host = ATTACHABLE.has(file.record_table) ? getRecord(ctx, file.record_table as RecordTable, file.record_id) : undefined;
+        const host = isAttachable(file.record_table) ? getRecord(ctx, file.record_table as RecordTable, file.record_id) : undefined;
         if (!host || !canEdit(scope, user.id, host)) { kept += 1; continue; }
         removed += ctx.db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(at, o.record_id).changes;
         continue;

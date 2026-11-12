@@ -402,7 +402,11 @@ CREATE TABLE IF NOT EXISTS attachments (
   sha256        TEXT NOT NULL,
   content       BLOB NOT NULL,
   created_at    TEXT NOT NULL,
-  deleted_at    TEXT
+  deleted_at    TEXT,
+  -- What the file is evidence of, and a line on what it shows (ADR-0025). The list is shared/attachments.ts
+  -- EVIDENCE_KINDS. Not tied to record_table: a file follows an entry that moves between record types (ADR-0015).
+  kind          TEXT CHECK (kind IS NULL OR kind IN ('certificate', 'transcript', 'completion', 'qualification', 'roster', 'other')),
+  description   TEXT CHECK (description IS NULL OR length(description) <= 500)
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_record ON attachments(record_table, record_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_live_digest ON attachments(record_table, record_id, sha256) WHERE deleted_at IS NULL;

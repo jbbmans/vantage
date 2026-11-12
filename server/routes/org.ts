@@ -12,7 +12,8 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { issueToken } from '../auth/tokens.ts';
 import { layout } from '../services/mailLayout.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
-import { hydrate, withGoalProgress } from '../services/records.ts';
+import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/records.ts';
+import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
@@ -495,6 +496,10 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const unitClause = isSelf ? '' : `AND visibility = 'unit' AND unit_id IN (${ph})`;
   const scoped = <T,>(table: 'activities' | 'trainings' | 'awards' | 'duties') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC${table === 'duties' ? ', start_time DESC' : ''} LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
   const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties'), scope) as unknown as Duty[];
+  // How much evidence each training holds (ADR-0025), where this reader could open it: the files are theirs to list and
+  // open by the same rule (canRead), so a count is never given for a training whose files would be refused.
+  const trainings = scoped<Training>('trainings');
+  const evidence = new Map(withEvidenceCounts(ctx, trainings.filter((t) => canRead(scope, req.user.id, t as unknown as RecordRow)) as unknown as Array<Record<string, unknown>>).map((t) => [String(t.id), t.evidence_count]));
   const counselings = isSelf
     ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id) as Counseling[]
     : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units) as Counseling[];
@@ -516,7 +521,7 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
-    activities: scoped<Activity>('activities'), trainings: scoped<Training>('trainings'), awards: scoped<Award>('awards'), duties, counselings, goals, tasks,
+    activities: scoped<Activity>('activities'), trainings: trainings.map((t) => (evidence.has(t.id) ? { ...t, evidence_count: evidence.get(t.id) } : t)), awards: scoped<Award>('awards'), duties, counselings, goals, tasks,
   };
   res.json(body);
 }));
