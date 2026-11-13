@@ -5,7 +5,7 @@ import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } fr
 import { requireAuth } from '../auth/middleware.ts';
 import { sessionStands } from '../auth/sessions.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
-import { canEdit, canRead } from '../authz/records.ts';
+import { canEdit, canRead, unfinalized } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
 import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
@@ -174,7 +174,8 @@ function attachableRecord(req: express.Request, needEdit = false, again = false)
   if (!row) throw notFound('No such record.');
   // `again`: the caller's roles and memberships as they are now, not as this request first read them.
   const scope = again ? scopeFor(req.ctx, req.user) : scopeFor(req.ctx, req.user, req);
-  if (!canRead(scope, req.user.id, row)) throw forbidden('You cannot read attachments for that record.');
+  // A counseling draft, or one shared for review, is not there for anyone else: the same 404 as an id that is not (ADR-0027).
+  if (!canRead(scope, req.user.id, row)) throw unfinalized(row) ? notFound('No such record.') : forbidden('You cannot read attachments for that record.');
   // A final counseling's counselor keeps its files, a signed worksheet among them, though its words no longer change (ADR-0027).
   if (needEdit && !(table === 'counselings' ? mayManageCounselingFiles(req.ctx, scope, req.user.id, row) : canEdit(scope, req.user.id, row))) throw forbidden('That record is not yours to update.');
   return { table, row };

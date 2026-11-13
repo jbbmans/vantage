@@ -189,6 +189,7 @@ export function withdrawCounseling(ctx: AppContext, user: SessionUser, id: strin
   const { row, scope } = loadForAction(ctx, user, id, reqKey);
   if (!counselingAuthority(ctx, scope, user.id, row).counselor) throw forbidden('Only its counselor, who still counsels this Marine, takes a shared draft back.', 'counseling_counselor_only');
   const input = parse(actionBody, body);
+  if (row.frozen_at || anonymized(row)) throw forbidden('This counseling is frozen and stays as it is.', 'counseling_frozen');
   if (row.stage !== 'review') throw conflict(row.stage === 'draft' ? 'This counseling draft is not shared.' : 'This counseling is final.', 'counseling_stage', { current: row });
   if (row.version !== input.version) throw stale(ctx, id);
   ctx.db.transaction(() => {

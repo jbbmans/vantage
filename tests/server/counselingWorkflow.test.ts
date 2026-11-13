@@ -7,6 +7,7 @@ import { buildPersonalExport, buildPersonalExportZip } from '../../server/servic
 import { exportInstance } from '../../server/services/exports.ts';
 import { saveSchedule, runDisposition, REDACTED } from '../../server/services/retention.ts';
 import { readZip } from '../../server/lib/zip.ts';
+import { auditListedRecords } from '../../server/services/audit.ts';
 import {
   COUNSELING_STAGES, counselingDocument, counselingOptions, dayOf, documentBand, sessionKindFor, signatureNotes, worksheetBlocks, worksheetFor,
   type CounselingDocument, type CounselingDocumentInput,
@@ -191,6 +192,27 @@ test('a draft is its counselor’s alone: nobody else reads, counts or hears of 
   assert.ok((await get(lopez.token, '/api/records/counselings?deleted=1')).body.some((r: any) => r.id === c.id));
   assert.ok(!(await get(diaz.token, '/api/records/counselings?deleted=1')).body.some((r: any) => r.id === c.id));
   assert.equal((await post(lopez.token, `${path}/restore`)).status, 200);
+
+  // Nor does the trail tell the Marine of it: what its counselor did to the draft is kept, but not under its Marine.
+  await get(lopez.token, `${path}/worksheet?purpose=print`);
+  assert.equal((await file(lopez.token, `${path}/export?format=pdf`)).status, 200);
+  for (const who of [diaz, reyes, nguyen]) assert.equal((await get(who.token, `${path}/attachments`)).status, 404, 'its files are no such record either');
+  const onIt = app.ctx.db.prepare("SELECT action, subject_id FROM audit_log WHERE entity = 'counselings' AND entity_id = ?").all(c.id) as Array<{ action: string; subject_id: string | null }>;
+  assert.ok(onIt.length >= 6, JSON.stringify(onIt));
+  assert.deepEqual(onIt.filter((e) => e.subject_id), [], 'no entry on a draft names its Marine');
+  assert.ok(!(await get(diaz.token, '/api/me/audit')).body.some((e: any) => e.entity_id === c.id), 'not in their access log');
+  assert.ok(!buildPersonalExport(app.ctx, diaz.id).audit_trail.some((e: any) => e.entity_id === c.id), 'nor in their export’s trail');
+  assert.ok(buildPersonalExport(app.ctx, lopez.id).audit_trail.some((e: any) => e.entity_id === c.id), 'its counselor’s trail keeps what they did');
+  const listed = lastSeq();
+  auditListedRecords(app.ctx, lopez.id, 'counselings', [stored(c.id)]);
+  assert.deepEqual(auditSince(listed), [], 'listing their own draft is not a listing of the Marine’s records');
+
+  // An import naming the draft's id finds nothing of theirs there: no "Yours: …" with the draft's words.
+  const staged = await app.call('POST', '/api/me/imports', { token: diaz.token, raw: Buffer.from(JSON.stringify({ format: 'vantage-personal/1', profile: { id: diaz.id }, records: { counselings: [{ id: c.id, user_id: diaz.id, type: 'monthly', date: day(-1), summary: 'My notes from the session.' }] } })), headers: { 'content-type': 'application/json', 'x-filename': 'mine.json' } });
+  assert.equal(staged.status, 201, JSON.stringify(staged.body));
+  assert.ok(!JSON.stringify(staged.body).includes('backlog'), 'the draft’s words are not in the review');
+  assert.ok(staged.body.rows.every((r: any) => !r.duplicateOf && r.outcome !== 'present'), JSON.stringify(staged.body.rows));
+  assert.equal((await del(diaz.token, `/api/me/imports/${staged.body.id}`)).status, 200);
 });
 
 test('shared for review, its Marine reads it and answers in its comments; the unit still does not', async () => {
@@ -245,6 +267,14 @@ test('shared for review, its Marine reads it and answers in its comments; the un
   assert.deepEqual(JSON.parse(String((app.ctx.db.prepare('SELECT mentions FROM comments WHERE id = ?').get(later.body.id) as { mentions: string }).mentions)), [], 'a mention does not reach a Marine who cannot read the draft');
   assert.ok(!app.ctx.db.prepare('SELECT 1 FROM notifications WHERE user_id = ? AND dedupe_key LIKE ?').get(diaz.id, `%${later.body.id}%`));
   assert.equal((await post(lopez.token, `${path}/withdraw`, { version: back.body.version })).status, 409, 'withdrawn once');
+
+  // A frozen counseling stays as it is: its counselor does not take it back from the Marine either.
+  const held = await written({ stage: 'review' });
+  app.ctx.db.prepare('UPDATE counselings SET frozen_at = ? WHERE id = ?').run(new Date().toISOString(), held.id);
+  const frozen = await post(lopez.token, `/api/records/counselings/${held.id}/withdraw`, { version: held.version });
+  assert.equal(frozen.status, 403, JSON.stringify(frozen.body));
+  assert.equal(frozen.body.code, 'counseling_frozen');
+  assert.equal(stored(held.id).stage, 'review');
 });
 
 test('a counseling shared for review on creation tells its Marine; one finalized on creation needs a date', async () => {

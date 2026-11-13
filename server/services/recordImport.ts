@@ -7,7 +7,7 @@ import { newId, now } from '../lib/ids.ts';
 import { readZip, ZipError } from '../lib/zip.ts';
 import { readWorkbook, WorkbookError } from '../lib/workbook.ts';
 import { orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
-import { canEdit, canPlace, canPlaceOwnDuty, type RecordRow } from '../authz/records.ts';
+import { canEdit, canPlace, canPlaceOwnDuty, readsUnfinalized, unfinalized, type RecordRow } from '../authz/records.ts';
 import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
@@ -623,7 +623,10 @@ function suggestionFor(c: Candidate, as: ImportTable): ImportReviewRow['suggesti
 function ownRecord(ctx: AppContext, table: ImportTable, id: string, userId: string): Row | null {
   if (table === 'career_steps') return (ctx.db.prepare('SELECT * FROM career_steps WHERE id = ? AND user_id = ?').get(id, userId) as Row | undefined) ?? null;
   const row = getRecord(ctx, table as RecordTable, id, { includeDeleted: true }) as Row | undefined;
-  return row && row.user_id === userId ? row : null;
+  if (!row || row.user_id !== userId) return null;
+  // A counseling draft about them is not theirs to see, deleted or not: its id answers as one that is not here (ADR-0027 §8).
+  const asRecord = row as unknown as RecordRow;
+  return unfinalized(asRecord) && !readsUnfinalized(userId, asRecord) ? null : row;
 }
 
 function importedBefore(ctx: AppContext, userId: string, table: ImportTable, sourceId: string): { id: string; title: string; at: string } | null {
