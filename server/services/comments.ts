@@ -1,7 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
-import { canRead, type RecordRow } from '../authz/records.ts';
+import { canRead, readsUnfinalized, unfinalized, type RecordRow } from '../authz/records.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -24,12 +24,18 @@ function host(ctx: AppContext, user: SessionUser, scope: Scope, table: string, i
   if (!isRecordTable(table) || !COMMENTABLE.has(table)) throw notFound('That record type does not take comments.');
   const row = getRecord(ctx, table as RecordTable, id) as RecordRow | undefined;
   if (!row) throw notFound('No such record.');
-  if (!canRead(scope, user.id, row)) throw forbidden('You cannot read that record.');
+  // A counseling not yet final is no such record to anyone who may not read it (ADR-0027).
+  if (!canRead(scope, user.id, row)) throw unfinalized(row) ? notFound('No such record.') : forbidden('You cannot read that record.');
   return { table: table as RecordTable, row };
 }
 
 function assertCanPost(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string) {
   return host(ctx, user, scope, table, id);
+}
+
+/** The Marine a record is about reads it, except a counseling still in draft, which only its counselor reads (ADR-0027). */
+function ownerReads(row: RecordRow): boolean {
+  return !unfinalized(row) || readsUnfinalized(row.user_id, row);
 }
 
 function resolveMentions(ctx: AppContext, body: string, hostRow: RecordRow): string[] {
@@ -47,7 +53,7 @@ function resolveMentions(ctx: AppContext, body: string, hostRow: RecordRow): str
   ).all(...names, ...names) as Array<{ id: string; username: string; first_name: string; last_name: string }>;
 
   return found
-    .filter((u) => (u.id === hostRow.user_id ? true : canRead(scopeFor(ctx, { id: u.id }), u.id, hostRow)))
+    .filter((u) => (u.id === hostRow.user_id ? ownerReads(hostRow) : canRead(scopeFor(ctx, { id: u.id }), u.id, hostRow)))
     .map((u) => u.id);
 }
 
@@ -81,13 +87,25 @@ export function addComment(ctx: AppContext, user: SessionUser, scope: Scope, tab
 
   const who = `${user.first_name} ${user.last_name}`.trim() || user.username;
   notifyMentions(ctx, { targets: mentions, exclude: user.id, who, body, table, id, commentId });
-  if (row.user_id !== user.id && !mentions.includes(row.user_id)) {
+  if (row.user_id !== user.id && !mentions.includes(row.user_id) && ownerReads(row)) {
     notify(ctx, row.user_id, {
       kind: 'comment_added',
       title: `${who} commented on your record`,
       message: body.slice(0, 160),
       actionUrl: recordUrl(table, id),
       dedupeKey: `comment-owner:${commentId}:${row.user_id}`,
+    });
+  }
+  // A counseling's counselor hears what is said on it too: a Marine answers a draft shared for review in its comments
+  // (ADR-0027), and the counselor is who that answer is for.
+  const counselor = table === 'counselings' && row.counselor_id && row.counselor_id !== row.user_id ? row.counselor_id : null;
+  if (counselor && counselor !== user.id && !mentions.includes(counselor) && canRead(scopeFor(ctx, { id: counselor }), counselor, row)) {
+    notify(ctx, counselor, {
+      kind: 'comment_added',
+      title: `${who} commented on a counseling you wrote`,
+      message: body.slice(0, 160),
+      actionUrl: recordUrl(table, id),
+      dedupeKey: `comment-owner:${commentId}:${counselor}`,
     });
   }
 

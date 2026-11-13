@@ -1173,6 +1173,8 @@ function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: Report
     if (period?.to) { where.push(`t.${col} <= ?`); params.push(period.to); }
   }
   const table = { activities: 'activities', trainings: 'trainings', awards: 'awards', counselings: 'counselings', goals: 'goals', tasks: 'tasks' }[dataset]!;
+  // A counseling counts once it is final (ADR-0027): a draft is its counselor's working copy.
+  if (table === 'counselings') where.push("t.stage = 'final'");
   let rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} LIMIT ${SCAN_LIMIT}`).all(...params) as Array<Record<string, unknown>>;
   if (table === 'goals') rows = withGoalProgress(ctx, rows);
   const names = namesOf(ctx, rows.flatMap((r) => [r.user_id as string, r.assignee_id as string, r.counselor_id as string]));

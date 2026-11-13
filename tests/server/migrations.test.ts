@@ -737,7 +737,79 @@ test('033 gives a file its evidence type and description, empty on every file al
     assert.deepEqual(db.prepare("SELECT kind, length(description) AS n FROM attachments WHERE id = 'f-cert'").get(), { kind: 'certificate', n: 500 });
     assert.equal((db.prepare("SELECT kind FROM attachments WHERE id = 'f-note'").get() as { kind: string }).kind, 'roster');
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
-    assert.equal(SCHEMA_VERSION, 34);
+    db.close();
+  } finally { cleanup(); }
+});
+
+test('035 makes every counseling already written final at revision 1, adds its amendment history, and changes no counseling', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const KEPT = 'id, user_id, counselor_id, counselor_name, unit_id, visibility, date, type, summary, strengths, improvements, goals_set, follow_up_date, acknowledged_at, version, frozen_at, deleted_at, created_at, updated_at';
+  let before: unknown[] = [];
+  const { path, cleanup } = atVersion(34, (db) => {
+    // The database as it was before 035: counselings with no stage, revision or finalization, and no amendment history.
+    db.exec('DROP TABLE counseling_revisions');
+    db.pragma('foreign_keys = OFF');
+    db.exec(`CREATE TABLE counselings_pre (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), counselor_id TEXT REFERENCES users(id), counselor_name TEXT,
+      unit_id TEXT REFERENCES units(id), visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')), date TEXT,
+      type TEXT NOT NULL DEFAULT 'monthly', summary TEXT NOT NULL, strengths TEXT, improvements TEXT, goals_set TEXT, follow_up_date TEXT,
+      acknowledged_at TEXT, version INTEGER NOT NULL DEFAULT 1, frozen_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    db.exec('DROP TABLE counselings');
+    db.exec('ALTER TABLE counselings_pre RENAME TO counselings');
+    db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES ('G8', 'G8', 'G-8', 'active', 'G8', '{}', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES ('G8', 'G8', 'G-8 Comptroller', NULL, 'G8', ?)").run(at);
+    db.pragma('foreign_keys = ON');
+    const user = db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    user.run('u1', 'u1', 'x', 'Ana', 'Diaz', at, at);
+    user.run('u2', 'u2', 'x', 'Ben', 'Cole', at, at);
+    const c = db.prepare('INSERT INTO counselings (id, user_id, counselor_id, unit_id, visibility, date, type, summary, acknowledged_at, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    // A leader's counseling the Marine acknowledged, one not yet acknowledged, the Marine's own notes, and one in the bin.
+    c.run('c-ack', 'u1', 'u2', 'G8', 'unit', '2026-09-01', 'quarterly', 'Read and acknowledged.', at, 2, null, at, at);
+    c.run('c-open', 'u1', 'u2', 'G8', 'unit', '2026-10-01', 'monthly', 'Not yet acknowledged.', null, 1, null, at, at);
+    c.run('c-own', 'u1', null, null, 'private', '2026-10-02', 'event', 'My own notes.', null, 1, null, at, at);
+    c.run('c-gone', 'u1', 'u2', 'G8', 'unit', '2026-08-01', 'monthly', 'Deleted.', null, 1, at, at, at);
+    before = db.prepare(`SELECT ${KEPT} FROM counselings ORDER BY id`).all().map((r) => ({ ...(r as object) }));
+  });
+  try {
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 35 && m.name === '035_counseling_workflow'));
+    const columns = (db.prepare('PRAGMA table_info(counselings)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns.slice(-5), ['stage', 'revision', 'finalized_at', 'finalized_by', 'particulars'], 'added last, in the order a new database has them');
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    assert.deepEqual(columns, (fresh.prepare('PRAGMA table_info(counselings)').all() as Array<{ name: string }>).map((c) => c.name), 'an upgraded database and a new one have the same counseling columns in the same order');
+    fresh.close();
+
+    // Every counseling is kept exactly as it was: final at revision 1, with no stamp or particulars nobody recorded.
+    assert.deepEqual(db.prepare(`SELECT ${KEPT} FROM counselings ORDER BY id`).all().map((r) => ({ ...(r as object) })), before);
+    assert.equal(before.length, 4);
+    assert.deepEqual(db.prepare('SELECT id, stage, revision, finalized_at, finalized_by, particulars FROM counselings ORDER BY id').all().map((r) => ({ ...(r as object) })),
+      ['c-ack', 'c-gone', 'c-open', 'c-own'].map((id) => ({ id, stage: 'final', revision: 1, finalized_at: null, finalized_by: null, particulars: null })));
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_counselings_stage'").get());
+
+    // The checks a new database has are on the upgraded one.
+    assert.throws(() => db.prepare("UPDATE counselings SET stage = 'pending' WHERE id = 'c-open'").run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE counselings SET revision = 0 WHERE id = 'c-open'").run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE counselings SET finalized_by = 'nobody' WHERE id = 'c-open'").run(), /FOREIGN KEY/);
+
+    // Its amendment history is append-only: what it kept is never rewritten, only redacted under the retention schedule.
+    const kept = db.prepare('INSERT INTO counseling_revisions (id, counseling_id, unit_id, revision, content, finalized_at, acknowledged_at, amended_by, reason, changed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    kept.run('r1', 'c-ack', 'G8', 1, '{"fields":{}}', null, at, 'u2', 'Wrong date', 'date', at);
+    assert.throws(() => kept.run('r1b', 'c-ack', 'G8', 1, '{"fields":{}}', null, null, 'u2', 'Twice', 'date', at), /UNIQUE/);
+    assert.throws(() => db.prepare("UPDATE counseling_revisions SET reason = 'Rewritten' WHERE id = 'r1'").run(), /kept|amendment|append/i);
+    assert.throws(() => db.prepare("UPDATE counseling_revisions SET changed = 'summary' WHERE id = 'r1'").run(), /kept|amendment|append/i);
+    db.prepare('UPDATE counseling_revisions SET content = ?, reason = ? WHERE id = ?').run('[redacted under retention schedule]', '[redacted under retention schedule]', 'r1');
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    db.close();
+
+    // A second boot adds nothing and clears nothing.
+    db = openDatabase(path);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 35).length, 1);
+    assert.deepEqual((db.prepare('PRAGMA table_info(counselings)').all() as Array<{ name: string }>).map((c) => c.name), columns);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM counseling_revisions').get() as { n: number }).n, 1);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.equal(SCHEMA_VERSION, 35);
     db.close();
   } finally { cleanup(); }
 });

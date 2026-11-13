@@ -235,6 +235,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   counted('drafts', 'Drafts from financial cases', doc.drafts, 'Drafts belong to the cases they were worded from.');
   counted('record_moves', 'Record moves', doc.record_moves, 'Imported records start their own history here.');
   counted('duty_reviews', 'Duty review history', doc.duty_reviews, 'A file never approves duty: imported duty comes in submitted for review, and the decisions made on it before stay in the export.');
+  counted('counseling_revisions', 'Counseling amendment history', doc.counseling_revisions, 'An imported counseling comes in as your own notes, as it reads now; what it said before each amendment stays in the export.');
 
   const attachments: AttachmentIn[] = [];
   for (const a of (Array.isArray(doc.attachments) ? doc.attachments : []) as Row[]) {
@@ -641,7 +642,9 @@ function twinIndex(ctx: AppContext, userId: string) {
     if (table === 'activities') return (ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL').get(userId, key) as { id: string; title: string } | undefined) ?? null;
     if (!byTable.has(table)) {
       const index = new Map<string, { id: string; title: string }>();
-      for (const r of ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL`).all(userId) as Row[]) index.set(contentKey(table, r), { id: String(r.id), title: titleOf(table, r) });
+      // A counseling draft about the Marine is its counselor's alone (ADR-0027): nothing is matched to it, or named from it.
+      const readable = table === 'counselings' ? " AND stage <> 'draft'" : '';
+      for (const r of ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL${readable}`).all(userId) as Row[]) index.set(contentKey(table, r), { id: String(r.id), title: titleOf(table, r) });
       byTable.set(table, index);
     }
     return byTable.get(table)!.get(key) ?? null;

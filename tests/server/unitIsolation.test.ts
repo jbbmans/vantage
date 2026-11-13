@@ -171,8 +171,9 @@ test('nobody else’s record can be moved into another Unit Instance', async () 
   const row = app.ctx.db.prepare('SELECT unit_id FROM activities WHERE id = ?').get(g8.activity) as { unit_id: string };
   assert.equal(row.unit_id, 'FISCAL', 'the entry stayed where its author put it');
 
-  // A counselor may re-place a counseling they wrote, but not into another Unit Instance: that refusal is the boundary's.
-  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-06', type: 'quarterly', summary: 'Quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit' });
+  // A counselor may re-place a counseling they are still drafting, but not into another Unit Instance: that refusal is
+  // the boundary's. (A final counseling is not re-placed at all; it changes only by an amendment, ADR-0027.)
+  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-06', type: 'quarterly', summary: 'Quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit', stage: 'draft' });
   assert.equal(counseling.status, 201, JSON.stringify(counseling.body));
   const moved = await put(reyes.token, `/api/records/counselings/${counseling.body.id}`, { unit_id: 'MANPOWER', visibility: 'unit' });
   assert.equal(moved.status, 403, JSON.stringify(moved.body));
@@ -420,7 +421,7 @@ test('a project cannot move out from under work filed in another Unit Instance, 
 });
 
 test('a counselor cannot carry a counseling across by taking it out of every unit first', async () => {
-  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-07', type: 'quarterly', summary: 'Second quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit' });
+  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-07', type: 'quarterly', summary: 'Second quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit', stage: 'draft' });
   assert.equal(counseling.status, 201, JSON.stringify(counseling.body));
   const path = `/api/records/counselings/${counseling.body.id}`;
   const out = await put(reyes.token, path, { unit_id: null, visibility: 'private' });
@@ -428,7 +429,7 @@ test('a counselor cannot carry a counseling across by taking it out of every uni
   assert.equal(out.body.code, 'scope_owner_only');
   assert.equal((await put(reyes.token, path, { unit_id: 'MANPOWER', visibility: 'unit' })).status, 403);
   assert.equal((app.ctx.db.prepare('SELECT unit_id FROM counselings WHERE id = ?').get(counseling.body.id) as { unit_id: string }).unit_id, 'FISCAL');
-  // Inside the instance it was written in, the counselor still re-places it.
+  // Inside the instance it was written in, the counselor still re-places their draft.
   assert.equal((await put(reyes.token, path, { unit_id: 'G8', visibility: 'unit' })).status, 200);
 });
 

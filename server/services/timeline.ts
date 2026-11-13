@@ -33,7 +33,7 @@ const SOURCES = {
   counselings: `SELECT 'counseling' AS kind, 'counselings' AS source, id, ${single('date')}, type AS title, counselor_name AS detail,
                        CASE WHEN counselor_id IS NULL OR counselor_id = user_id THEN NULL WHEN acknowledged_at IS NULL THEN 'unacknowledged' ELSE 'acknowledged' END AS status,
                        created_at, 0 AS from_work
-                  FROM counselings WHERE user_id = @me AND deleted_at IS NULL`,
+                  FROM counselings WHERE user_id = @me AND deleted_at IS NULL AND stage = 'final'`,
   // Duty always has both ends (ADR-0023); its title is its type when it has none of its own, and its detail the type.
   duties: `SELECT 'duty' AS kind, 'duties' AS source, d.id, substr(d.date, 1, 10) AS day, substr(d.end_date, 1, 10) AS last_day, d.end_date, 0 AS ongoing,
                   COALESCE(NULLIF(d.title, ''), t.name, 'Duty') AS title, t.name AS detail, d.approval_status AS status, d.created_at, 0 AS from_work

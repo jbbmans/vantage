@@ -394,11 +394,50 @@ CREATE TABLE IF NOT EXISTS counselings (
   frozen_at       TEXT,
   deleted_at      TEXT,
   created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  updated_at      TEXT NOT NULL,
+  -- Its workflow (Task 20, ADR-0027, migration 035). A counseling a leader writes for a Marine is a draft, its counselor's
+  -- alone; shared for review, its counselor's and its Marine's; or final. A Marine's own notes, and everything written
+  -- before 035, are final.
+  stage           TEXT NOT NULL DEFAULT 'final' CHECK (stage IN ('draft', 'review', 'final')),
+  -- Which text it is: 1 as finalized, one more for each amendment. What each amendment replaced is in counseling_revisions.
+  revision        INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  finalized_at    TEXT,
+  finalized_by    TEXT REFERENCES users(id),
+  -- Who it is about and who counseled, as they stood when it was finalized: the worksheet prints these (JSON).
+  particulars     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_counselings_user ON counselings(user_id);
 CREATE INDEX IF NOT EXISTS idx_counselings_counselor ON counselings(counselor_id);
 CREATE INDEX IF NOT EXISTS idx_counselings_unit ON counselings(unit_id, visibility);
+
+-- A counseling's amendment history (Task 20, ADR-0027): what a final counseling said before each amendment, with who
+-- amended it, when, why, which fields changed, and whether its Marine had acknowledged what was replaced. Written with
+-- the amendment it records and kept as written; only its words are ever changed, to the retention notice when a
+-- schedule anonymizes the counseling. It goes when its counseling is destroyed.
+CREATE TABLE IF NOT EXISTS counseling_revisions (
+  id              TEXT PRIMARY KEY,
+  counseling_id   TEXT NOT NULL REFERENCES counselings(id) ON DELETE CASCADE,
+  -- The unit the counseling stood in when it was amended.
+  unit_id         TEXT REFERENCES units(id),
+  -- The revision this amendment replaced.
+  revision        INTEGER NOT NULL CHECK (revision >= 1),
+  -- What the counseling said at that revision, and its particulars (JSON).
+  content         TEXT NOT NULL,
+  finalized_at    TEXT,
+  acknowledged_at TEXT,
+  amended_by      TEXT NOT NULL REFERENCES users(id),
+  reason          TEXT NOT NULL,
+  -- The fields the amendment changed, by name.
+  changed         TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  UNIQUE (counseling_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_counseling_revisions_amender ON counseling_revisions(amended_by);
+CREATE TRIGGER IF NOT EXISTS counseling_revisions_kept BEFORE UPDATE OF id, counseling_id, unit_id, revision, finalized_at, acknowledged_at, amended_by, changed, created_at ON counseling_revisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a counseling revision is kept as it was written'); END;
+CREATE TRIGGER IF NOT EXISTS counseling_revisions_words_kept BEFORE UPDATE OF content, reason ON counseling_revisions FOR EACH ROW
+  WHEN (NEW.content IS NOT OLD.content AND NEW.content IS NOT '[redacted under retention schedule]') OR (NEW.reason IS NOT OLD.reason AND NEW.reason IS NOT '[redacted under retention schedule]')
+BEGIN SELECT RAISE(ABORT, 'a counseling revision is kept as it was written'); END;
 
 CREATE TABLE IF NOT EXISTS attachments (
   id            TEXT PRIMARY KEY,

@@ -4,7 +4,16 @@ import { has } from '../../shared/permissions.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
 import type { DutyReviewAuthority } from '../../shared/dutyReview.ts';
 
-export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null; approval_status?: string | null }
+export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null; approval_status?: string | null; stage?: string | null }
+
+/**
+ * A counseling its counselor has not finalized (ADR-0027): a draft is theirs alone, and one shared for review is theirs
+ * and its Marine's. Nobody else reads it, whatever they hold in its unit, and nothing else counts it. Only counselings
+ * have a stage; every other record reads as final.
+ */
+export const unfinalized = (row: RecordRow) => row.stage === 'draft' || row.stage === 'review';
+export const readsUnfinalized = (userId: string, row: RecordRow) =>
+  Boolean(row.counselor_id && row.counselor_id === userId) || (row.stage === 'review' && row.user_id === userId);
 
 /** An award or a duty somebody entered for the Marine it is about: a leader's recommendation or record (ADR-0015, ADR-0023). */
 export const recordedByOther = (row: RecordRow) => Boolean(row.recorded_by && row.recorded_by !== row.user_id);
@@ -20,10 +29,19 @@ export function readableClause(ctx: AppContext, scope: Scope, userId: string, al
   }
   if (opts.counselor) { parts.push(`${alias}.counselor_id = ?`); params.push(userId); }
   if (opts.assignee) { parts.push(`(${alias}.assignee_id = ? AND ${alias}.visibility = 'unit')`); params.push(userId); }
+  // A counseling not yet final is read only by its counselor, and by its Marine once it is shared for review (ADR-0027).
+  if (opts.counselor) {
+    params.push(userId, userId);
+    return { clause: `((${parts.join(' OR ')}) AND (${alias}.stage = 'final' OR ${alias}.counselor_id = ? OR (${alias}.stage = 'review' AND ${alias}.user_id = ?)))`, params };
+  }
   return { clause: `(${parts.join(' OR ')})`, params };
 }
 
+/** SQL that keeps only final counselings, for every reader of counselings but the lists their counselor works from. */
+export const finalCounselings = (alias = 'c') => `${alias}.stage = 'final'`;
+
 export function canRead(scope: Scope, userId: string, row: RecordRow): boolean {
+  if (unfinalized(row)) return readsUnfinalized(userId, row);
   if (row.user_id === userId) return true;
   if (row.counselor_id && row.counselor_id === userId) return true;
   if (row.assignee_id && row.assignee_id === userId && row.visibility === 'unit') return true;
@@ -37,6 +55,9 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.approval_status === 'approved' || row.approval_status === 'rejected') return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.acknowledged_at) return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
+  // A counseling a leader wrote is edited while it is a draft or in review, by its counselor alone. Once final it changes
+  // only by an amendment, which keeps what it replaced (ADR-0027): nobody edits, moves or deletes it.
+  if (row.counselor_id && row.counselor_id !== row.user_id && row.stage) return unfinalized(row) && row.counselor_id === userId;
   // A recommendation is its recorder's and the chain's to change, never its subject's: a Marine does not mark their own
   // award approved (ADR-0015). Its recorder may, while it is shared with the unit they still counsel in.
   if (recordedByOther(row)) {
