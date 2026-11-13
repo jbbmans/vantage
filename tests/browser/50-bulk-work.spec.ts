@@ -70,8 +70,14 @@ test.describe('on a touch phone', () => {
     // Once the preview has been on screen for a moment, a tap on Apply goes through.
     const apply = dialog.getByRole('button', { name: 'Apply to 1 case' });
     await expect(apply).toBeEnabled();
-    await apply.tap();
+    // A double tap on Apply: the second tap lands where Close now is, and must not close the results unread.
+    const at = (await apply.boundingBox())!;
+    await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+    await page.waitForTimeout(150);
+    await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
     await expect(dialog.getByText('1 applied · 0 not changed')).toBeVisible();
+    await page.waitForTimeout(300);
+    await expect(dialog).toBeVisible();
     expect(await claimedBy(page, item.id)).toBeTruthy();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   });
@@ -162,4 +168,31 @@ test('only the timed refresh is marked background, and the keyboard cursor stays
   expect(reads.slice(before).every((read) => read.background)).toBeTruthy();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`/work/items/${target.id}$`));
+});
+
+test('the selection bar works from the keyboard, and Escape closes the dialog without dropping the selection', async ({ page }) => {
+  const reference = `KEYS-${crypto.randomUUID()}`;
+  await makeCase(page, reference);
+  await page.goto('/work/queue');
+  const search = page.getByLabel('Search the queue');
+  await search.fill(reference);
+  await expect(page.getByRole('checkbox', { name: /^Select / })).toHaveCount(1);
+  await search.press('Escape');
+  await page.keyboard.press(' ');
+  await expect(page.getByText('1 selected')).toBeVisible();
+  const update = page.getByRole('button', { name: 'Update selected', exact: true });
+  await update.focus();
+  // Enter on the focused button opens the dialog; it is not taken as "open the case under the cursor".
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Update selected work' });
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/\/work\/queue/);
+  await dialog.getByLabel('Bulk action').click();
+  await page.getByRole('option', { name: 'Claim for myself' }).click();
+  await dialog.getByRole('button', { name: 'Preview changes' }).click();
+  await expect(dialog.getByText('1 ready · 0 cannot be changed')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('1 selected')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: `Select ${reference}` })).toBeChecked();
 });

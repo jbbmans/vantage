@@ -52,3 +52,25 @@ test('a retried action is answered with the saved one even after its value type 
     assert.equal(fresh.status, 400, fresh.text);
   } finally { await app.close(); }
 });
+
+test('a retry that reuses a saved action key with a different body is refused, not answered with the saved action', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const made = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title: 'Synthetic changed retry', reference: 'SYN-CHANGED' } });
+    const id = made.body.id;
+    await app.call('POST', `/api/work/items/${id}/claim`, { token: op.token, body: { version: made.body.version } });
+    const send = (body: unknown) => app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body, headers: { 'idempotency-key': 'synthetic-changed-key' } });
+    const action = { kind: 'worked', note: 'Synthetic first attempt.', quantity: 3 };
+    assert.equal((await send(action)).status, 201);
+    const same = await send(action);
+    assert.equal(same.status, 200, same.text);
+    assert.equal(same.body.replayed, true);
+    const changed = await send({ ...action, quantity: 30, resolve: true });
+    assert.equal(changed.status, 409, changed.text);
+    assert.equal(changed.body.code, 'idempotency_conflict');
+    const after = await app.call('GET', `/api/work/items/${id}`, { token: op.token });
+    assert.notEqual(after.body.item.state, 'resolved');
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM work_actions WHERE work_item_id = ?').get(id) as { n: number }).n, 1);
+  } finally { await app.close(); }
+});

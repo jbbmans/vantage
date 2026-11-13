@@ -198,7 +198,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable;
-      if (importing || saveViewOpen || bulkOpen) return;
+      // A key a dialog already handled (Escape closing it, say) is not a queue shortcut too, and nothing in a dialog is.
+      if (event.defaultPrevented || importing || saveViewOpen || bulkOpen || deletingView || target?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
+      // Enter and Space on a focused button, link or checkbox do what that control does, not what the cursor row does.
+      const control = Boolean(target?.closest?.('button, a[href], summary, [role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]'));
       if (typing) {
         if (event.key === 'Escape') (target as HTMLInputElement).blur();
         return;
@@ -222,14 +225,14 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       };
       if (event.key === 'j' || event.key === 'ArrowDown') move(1);
       else if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
-      else if (event.key === ' ') { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
-      else if (event.key === 'Enter') { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
+      else if (event.key === ' ' && !control) { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
+      else if (event.key === 'Enter' && !control) { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
       else if (event.key === 'c') { event.preventDefault(); if (rows[cursor]) void claim(rows[cursor]); }
       else if (event.key === 'Escape') setSelected(new Set());
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, cursor, selected, importing, saveViewOpen, bulkOpen, toggleSelected, copySelection, claim, openItem]);
+  }, [rows, cursor, selected, importing, saveViewOpen, bulkOpen, deletingView, toggleSelected, copySelection, claim, openItem]);
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - WINDOW_OVERSCAN);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + WINDOW_OVERSCAN * 2;

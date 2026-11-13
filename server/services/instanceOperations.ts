@@ -14,7 +14,7 @@ import { withheldFlags, type WithheldFlag } from './instanceFlags.ts';
  * upgrade and whether that upgrade kept its rows, its health, how fresh the backup holding it is, its last restore, and
  * any feature Vantage turned off for it. In a shared deployment every Unit Instance runs the service's one build and
  * schema, so those agree across the list; what differs is what each one went through and holds. In a dedicated
- * deployment the list is of one, and the fleet view comes from each deployment's `npm run operations-report` (I-13).
+ * deployment the list is of one, and the fleet view comes from each deployment's `scripts/operations-report.ts` (I-13).
  * Counts and dates only: nothing here reads a Unit Instance's records.
  */
 
@@ -65,7 +65,7 @@ export function instanceOperations(ctx: AppContext, { at = Date.now(), service, 
   // ——— What every Unit Instance shares: the build, the schema, the upgrades, the backups and restores ———
   const version = versionStatus(ctx);
   const releases = releaseHistory(ctx);
-  // The build this process serves; read from outside it (npm run operations-report), the newest release recorded.
+  // The build this process serves; read from outside it (scripts/operations-report.ts), the newest release recorded.
   const build = version.startedAt ? version.build : releases.at(-1)?.build ?? version.build;
   const database = Number(metaGet(db, 'schema_version') || 0);
   const schemaState = database === SCHEMA_VERSION ? 'current' : database < SCHEMA_VERSION ? 'behind' : 'ahead';

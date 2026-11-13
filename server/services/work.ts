@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
@@ -451,6 +452,11 @@ export function recordAction(
   const note = (input.note || '').slice(0, 5000) || null;
   const quantity = input.quantity == null ? null : Number(input.quantity);
   const dollarAmount = input.dollar_amount == null ? null : Number(input.dollar_amount);
+  // What this request asks for, so a retry with a changed body is told so instead of getting the saved action back.
+  const fingerprint = createHash('sha256').update(JSON.stringify([
+    kind, note, input.occurred_at ?? null, quantity, input.unit_label || null, dollarAmount, input.dollar_type || null,
+    Boolean(input.draft_record), Boolean(input.resolve), input.category || null, input.eval_area || null,
+  ])).digest('hex');
 
   return ctx.db.transaction(() => {
     const row = reload(ctx, itemId);
@@ -459,7 +465,15 @@ export function recordAction(
     // value types can change between a lost response and its retry, and a refused retry invites entering it twice.
     if (scopedKey) {
       const prior = ctx.db.prepare('SELECT * FROM work_actions WHERE idempotency_key = ?').get(scopedKey) as Record<string, unknown> | undefined;
-      if (prior) return { action: prior, item: hydrate(row), activity_id: prior.activity_id as string | null, replayed: true };
+      if (prior) {
+        const event = ctx.db.prepare(`SELECT body FROM work_events WHERE work_item_id = ? AND kind = 'action_recorded' AND json_extract(body, '$.action_id') = ?`).get(itemId, prior.id) as { body: string } | undefined;
+        const saved = event ? (JSON.parse(event.body) as { request_fingerprint?: string }).request_fingerprint : undefined;
+        // Actions saved before fingerprints were kept answer every retry, as they always did.
+        if (saved && saved !== fingerprint) {
+          throw conflict('An action was already recorded with this request, and it differs from this one. Reload the case to see what was saved, then record any change as a new action.', 'idempotency_conflict');
+        }
+        return { action: prior, item: hydrate(row), activity_id: prior.activity_id as string | null, replayed: true };
+      }
     }
     if (quantity != null && !Number.isFinite(quantity)) throw badRequest('The amount of work done is not a number.');
     if (dollarAmount != null && !Number.isFinite(dollarAmount)) throw badRequest('The value is not a number.');
@@ -503,7 +517,7 @@ export function recordAction(
     ).run(actionId, itemId, user.id, row.unit_id, kind, note, occurredAt, quantity, input.unit_label || null, dollarAmount, input.dollar_type || null, activityId, scopedKey, at);
     appendEvent(ctx, {
       item: row, actorId: user.id, kind: 'action_recorded', occurredAt: `${occurredAt}T12:00:00.000Z`,
-      body: { action_id: actionId, action: kind, text: note, quantity, unit_label: input.unit_label || null, drafted_record: Boolean(activityId) },
+      body: { action_id: actionId, action: kind, text: note, quantity, unit_label: input.unit_label || null, drafted_record: Boolean(activityId), ...(scopedKey ? { request_fingerprint: fingerprint } : {}) },
     });
 
     if (input.resolve || kind === 'resolved') {

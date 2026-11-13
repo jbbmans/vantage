@@ -175,7 +175,7 @@ export function InstanceOperationsPage() {
 
       <Panel title="The service they run on" subtitle={`Checked ${formatStamp(service.health.checkedAt)}`} action={<span className="flex items-center gap-2"><StatusBadge status={service.health.status} /><Button size="sm" variant="ghost" onClick={() => refetch()} loading={isFetching}><RefreshCw className="h-3.5 w-3.5" />Check again</Button></span>}>
         <p className="text-sm text-ink-2">Every Unit Instance here runs Vantage {service.version.version} at schema {service.schema.database}{service.schema.state !== 'current' ? `, while this build needs ${service.schema.code}` : ''}, so they upgrade together. What differs is what each one went through and holds.</p>
-        <p className="mt-2 text-xs text-ink-3">A dedicated deployment is a service of its own with its own console; <span className="mono">npm run operations-report</span> on its host prints the same view for it. <Link className="link" to="/operations">Operations</Link> has the service’s own checks.</p>
+        <p className="mt-2 text-xs text-ink-3">A dedicated deployment is a service of its own with its own console; <span className="mono">node scripts/operations-report.ts</span> on its host prints the same view for it. <Link className="link" to="/operations">Operations</Link> has the service’s own checks.</p>
       </Panel>
 
       <Panel title="Schema upgrades" subtitle="Each counted, table by table and Unit Instance by Unit Instance, before and after">

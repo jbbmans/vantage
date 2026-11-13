@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import { metaGet, metaSet } from '../db/index.ts';
 
 /**
- * The restores a database has been through, and its lineage (ADR-0014). A restore with `npm run restore` writes its
+ * The restores a database has been through, and its lineage (ADR-0014). A restore with `scripts/restore.ts` writes its
  * record into the database it puts in place; importing a service archive writes one in the console; and a start that
  * finds its database no longer holds the audit entry the service last noted beside it (the lineage file), with no
  * restore to explain it, records that the database was replaced some other way. The running service writes each into
@@ -33,7 +33,7 @@ export interface UndoneChange {
 export interface RestoreRecord {
   id: string;
   at: string;
-  /** script: npm run restore. archive: a service archive imported in the console. detected: a start found the database replaced some other way. */
+  /** script: scripts/restore.ts. archive: a service archive imported in the console. detected: a start found the database replaced some other way. */
   method: 'script' | 'archive' | 'detected';
   /** The Lead Vantage Administrator who authorized it; none for a detected replacement. */
   by: { id: string | null; username: string; name: string } | null;
@@ -167,7 +167,7 @@ export function checkLineage(db: Db, file: string | null): RestoreRecord | null 
   if (!lineage) return null;
   const finding = lineageFinding(db, lineage);
   if (!finding) return null;
-  // npm run restore records itself in the copy before it renames it into place, and then writes the lineage; a restore
+  // scripts/restore.ts records itself in the copy before it renames it into place, and then writes the lineage; a restore
   // that stopped between the two is explained by its own record.
   if (restoreHistory(db).some((r) => r.method === 'script' && r.at >= lineage.at)) return null;
   const current = chainPoint(db);

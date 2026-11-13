@@ -7,8 +7,9 @@ import { BULK_WORK_LIMIT, type BulkWorkAction, type BulkWorkInput, type BulkWork
 
 export interface SelectedWork { id: string; version: number; reference?: string | null; title?: string }
 
-/** How long Apply ignores taps after the preview appears, so a double tap on Preview cannot apply unseen changes. */
-const APPLY_ARMS_AFTER_MS = 700;
+/** How long a button that takes the place of the one just tapped ignores taps: Apply after Preview, so a double tap
+ *  cannot apply changes nobody has seen, and Close after Apply, so it cannot close the results unread. */
+const NEXT_TAP_AFTER_MS = 700;
 
 export default function BulkWorkDialog({ items, onClose, onApplied }: {
   items: SelectedWork[];
@@ -23,6 +24,7 @@ export default function BulkWorkDialog({ items, onClose, onApplied }: {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [closeArmed, setCloseArmed] = useState(true);
   const key = useRef<string | null>(null);
   const summary = useRef<HTMLParagraphElement>(null);
   const ids = items.map((item) => item.id);
@@ -34,9 +36,14 @@ export default function BulkWorkDialog({ items, onClose, onApplied }: {
   // Apply waits a moment after the preview is drawn before it takes a tap.
   useEffect(() => {
     if (!preview || result) return;
-    const timer = window.setTimeout(() => setArmed(true), APPLY_ARMS_AFTER_MS);
+    const timer = window.setTimeout(() => setArmed(true), NEXT_TAP_AFTER_MS);
     return () => window.clearTimeout(timer);
   }, [preview, result]);
+  useEffect(() => {
+    if (closeArmed) return;
+    const timer = window.setTimeout(() => setCloseArmed(true), NEXT_TAP_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [closeArmed]);
   // The Preview and Apply buttons come and go, so focus moves to the summary of what was found or done.
   useEffect(() => { if (preview || result) summary.current?.focus(); }, [preview, result]);
 
@@ -49,18 +56,18 @@ export default function BulkWorkDialog({ items, onClose, onApplied }: {
   const apply = async () => {
     if (!preview || !key.current || !armed) return;
     // Only the cases the preview showed as ready are sent, so the count on the button is what can change.
-    const ready = new Set(preview.results.filter((row) => row.ok).map((row) => row.id));
+    const readyIds = new Set(preview.results.filter((row) => row.ok).map((row) => row.id));
     const skipped = preview.results.filter((row) => !row.ok);
     setBusy(true); setError('');
     try {
-      const response = await api.runBulkWork({ ...input, items: input.items.filter((item) => ready.has(item.id)) }, key.current);
+      const response = await api.runBulkWork({ ...input, items: input.items.filter((item) => readyIds.has(item.id)) }, key.current);
       const byId = new Map([...skipped, ...response.results].map((row) => [row.id, row]));
       const merged: BulkWorkResponse = {
         results: items.map((item) => byId.get(item.id)).filter((row): row is BulkWorkResponse['results'][number] => Boolean(row)),
         succeeded: response.succeeded,
         failed: response.failed + skipped.length,
       };
-      setResult(merged); onApplied(merged);
+      setResult(merged); setCloseArmed(false); onApplied(merged);
     }
     catch (e) { setError(`${api.errorText(e)} You can retry this same request safely; already applied changes are not repeated.`); }
     finally { setBusy(false); }
@@ -70,7 +77,7 @@ export default function BulkWorkDialog({ items, onClose, onApplied }: {
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }} title="Update selected work" size="md"
       description="Preview each case first. Permissions and versions are checked again when you apply; any refusal is listed individually."
       footer={<>
-        <Button variant="ghost" disabled={busy} onClick={onClose}>{result ? 'Close' : 'Cancel'}</Button>
+        <Button variant="ghost" disabled={busy || !closeArmed} onClick={onClose}>{result ? 'Close' : 'Cancel'}</Button>
         {!result && !preview && <Button key="preview" variant="primary" loading={busy} disabled={!ready} onClick={inspect}>Preview changes</Button>}
         {!result && preview && <Button key="apply" variant="primary" loading={busy} disabled={!preview.succeeded || !armed} onClick={apply}>Apply to {preview.succeeded} {preview.succeeded === 1 ? 'case' : 'cases'}</Button>}
       </>}>

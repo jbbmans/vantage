@@ -23,7 +23,7 @@ Vantage's production target is an enterprise deployment on the Marine Corps Ente
 
 The public site at vantageusmc.com on Render is the legacy deployment (`legacy-public`, [docs/deploy-render.md](docs/deploy-render.md)). It keeps working until it is retired, and it is not the target. The tenancy and authority model below comes from [ADR-0006](docs/engineering/ADR/0006-centralized-tenancy-and-authority.md). In code, a Unit Instance is still called an organization (`organizations`, `/api/orgs`).
 
-- **Unit Instances.** Each command or staff section is a Unit Instance: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other Unit Instance's. A deployment either shares one database among many (`VANTAGE_TOPOLOGY=shared`) or holds exactly one (`dedicated`). Vantage Administrators provision them in the Vantage Administrator console or with `npm run provision-instance`.
+- **Unit Instances.** Each command or staff section is a Unit Instance: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other Unit Instance's. A deployment either shares one database among many (`VANTAGE_TOPOLOGY=shared`) or holds exactly one (`dedicated`). Vantage Administrators provision them in the Vantage Administrator console or with `node scripts/provision-instance.ts`.
 - **Accounts belong to the Marine.** One account follows a person between commands; their private entries, career plan and export stay theirs.
 - **Three tiers of authority, none implying another.**
 
@@ -98,8 +98,8 @@ Scripts:
 | `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
 | `npm run build` | production client into `dist/` |
 | `npm start` | production server (`node server/index.ts`), serves `dist/` |
-| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | make an account a Lead Vantage Administrator and give it a temporary password, from the shell |
-| `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
+| `VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>` | make an account a Lead Vantage Administrator and give it a temporary password, from the shell |
+| `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
 | `VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD=… node scripts/start-over.ts ERASE-EVERYTHING --unit … [--roster file]` | erase everything in place, create a Lead Vantage Administrator and the first Unit Instance, and import a roster; see [operations.md](docs/operations.md#starting-over) |
 
 Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.

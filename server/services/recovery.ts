@@ -75,7 +75,7 @@ export function reviewUpgrade(ctx: AppContext, user: SessionUser, id: string, no
 // ——— Backups ———
 
 /**
- * Audits each backup `npm run backup` recorded and the trail does not hold yet (ADR-0014). The script writes its record
+ * Audits each backup `scripts/backup.ts` recorded and the trail does not hold yet (ADR-0014). The script writes its record
  * with `audited: false`; this writes the entry and marks it in one transaction, so a backup is audited once.
  */
 export function auditServerBackups(ctx: AppContext): number {

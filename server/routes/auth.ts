@@ -238,9 +238,9 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   const clean = code.replace(/\s+/g, '').toLowerCase();
   const step = secret ? matchTotp(secret, clean) : null;
   const recoveryCode = /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean) ? (clean.includes('-') ? clean : `${clean.slice(0, 5)}-${clean.slice(5)}`) : null;
-  // The code is spent and the challenge consumed in one transaction. If the challenge cannot be consumed (it expired a
-  // moment ago, or another request used it), the throw rolls back the spend, so a recovery code is never lost to a
-  // sign-in that did not happen.
+  // The code is spent, the challenge consumed and a recovery code's use audited in one transaction. If the challenge
+  // cannot be consumed (it expired a moment ago, or another request used it), the throw rolls back the spend, so a
+  // recovery code is not lost to a challenge that was already gone.
   const factor = ctx.db.transaction((): 'totp' | 'recovery' | null => {
     let spent: 'totp' | 'recovery' | null = null;
     if (step !== null && ctx.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND COALESCE(totp_last_step, -1) < ?').run(step, row.id, step).changes === 1) spent = 'totp';
@@ -249,9 +249,9 @@ authRouter.post('/login/mfa', wrap((req, res) => {
       if (rc && ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now(), rc.id).changes === 1) spent = 'recovery';
     }
     if (spent && !consumeToken(ctx, 'login_mfa', challenge)) throw unauthorized('The sign-in challenge expired or was already used. Start again.', 'challenge_expired');
+    if (spent === 'recovery') audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip });
     return spent;
   }).immediate();
-  if (factor === 'recovery') audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip });
   if (!factor) {
     limiters.mfaToken.bump(key);
     limiters.loginIp.bump(ip);
