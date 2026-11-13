@@ -167,6 +167,15 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   // On paper: the buttons are gone, and Chromium prints it on Letter, upright.
   await printed.emulateMedia({ media: 'print' });
   await expect(printed.getByRole('toolbar', { name: 'Print' })).toBeHidden();
+  // The handling line heads and foots every printed page, as the PDF's does.
+  const frame = await printed.evaluate(() => ({
+    head: getComputedStyle(document.querySelector('.cw .report-frame > thead')!).display,
+    foot: getComputedStyle(document.querySelector('.cw .report-frame > tfoot')!).display,
+    running: [document.querySelector('.cw .report-frame > thead')!.textContent, document.querySelector('.cw .report-frame > tfoot')!.textContent],
+  }));
+  expect(frame.head, 'the handling line heads every page').toBe('table-header-group');
+  expect(frame.foot, 'and foots every page').toBe('table-footer-group');
+  for (const line of frame.running) expect(line).toContain('Working paper');
   const paper = (await printed.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
   expect(paper, 'Letter, portrait').toMatch(/\/MediaBox\s*\[\s*0 0 612 792\s*\]/);
   await printed.emulateMedia({ media: 'screen' });
@@ -224,5 +233,16 @@ test('a counseling still in draft is no such record to its Marine, and their own
   await view.getByRole('tab', { name: 'Worksheet (NAVMC 2795)' }).click();
   await expect(view.getByRole('article', { name: 'Counseling worksheet' })).toContainText('No counselor finalized or signed them in Vantage.');
   expect(await axe(page), 'own counseling notes').toEqual([]);
+
+  // Its counselor shares the draft from its form on their own counseling list: the list says where it now stands.
+  await lead.page.goto('/career/counseling');
+  const mine = lead.page.getByRole('row').filter({ hasText: 'Draft only the counselor sees' });
+  await expect(mine.getByText('Draft', { exact: true })).toBeVisible();
+  await mine.getByRole('button', { name: 'Edit' }).click();
+  const editing = lead.page.getByRole('dialog', { name: 'Edit draft counseling' });
+  await editing.getByLabel('Goals set').fill('Clear the oldest UMT first.');
+  await editing.getByRole('button', { name: 'Share with Marine' }).click();
+  await toast(lead.page, 'Shared with the Marine for review.');
+  await expect(mine.getByText('Shared for review', { exact: true })).toBeVisible();
   await lead.context.close();
 });

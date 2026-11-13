@@ -350,7 +350,7 @@ test('amending a counseling names the fields that changed, never what they say',
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   const entry = last('counseling_amended')!;
   assert.equal(entry.entity_id, created.body.id);
-  assert.equal(entry.subject_id, marine.id);
+  assert.equal(entry.subject_id, null, 'a draft is its counselor’s alone: the entry does not name its Marine (ADR-0027)');
   assert.equal(entry.category, 'user');
   assert.equal(entry.detail, 'counselor edit; changed: summary, goals_set', 'only the fields that changed, by name');
   assert.ok(!app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'edit' AND entity_id = ?").get(created.body.id), 'not the generic edit');
@@ -363,6 +363,7 @@ test('amending a counseling names the fields that changed, never what they say',
   const amended = await post(op.token, `/api/records/counselings/${created.body.id}/amend`, { version: final.body.version, summary: 'SECRET-AMENDMENT', reason: 'SECRET-REASON' });
   assert.equal(amended.status, 200, JSON.stringify(amended.body));
   assert.equal(last('counseling_amended')!.detail, 'counselor amendment; revision 2; changed: summary');
+  assert.equal(last('counseling_amended')!.subject_id, marine.id, 'a final counseling is its Marine’s record: the trail names them');
   const details = (app.ctx.db.prepare('SELECT detail FROM audit_log').all() as Array<{ detail: string | null }>).map((r) => r.detail ?? '');
   assert.ok(!details.some((d) => /SECRET-(REVISION|AMENDMENT|REASON)/.test(d)), 'no word of the counseling or the reason in the trail');
 });

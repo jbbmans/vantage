@@ -7,6 +7,7 @@ import { RANKS } from './ranks.ts';
 import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
 import { VERSION } from '../version.ts';
 import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
+import { REDACTED } from '../../shared/constants.ts';
 
 export type Db = Database.Database;
 
@@ -445,6 +446,10 @@ const MIGRATIONS: Migration[] = [
       if (!have.has('finalized_at')) db.exec('ALTER TABLE counselings ADD COLUMN finalized_at TEXT');
       if (!have.has('finalized_by')) db.exec('ALTER TABLE counselings ADD COLUMN finalized_by TEXT REFERENCES users(id)');
       if (!have.has('particulars')) db.exec('ALTER TABLE counselings ADD COLUMN particulars TEXT');
+      // One a retention schedule already anonymized stays done: its new particulars are redacted as its words are, so the
+      // next run neither counts it again nor stamps it as disposed of that day.
+      db.prepare(`UPDATE counselings SET particulars = ? WHERE particulars IS NULL AND summary IS ? AND strengths IS ? AND improvements IS ? AND goals_set IS ? AND counselor_name IS ?`)
+        .run(REDACTED, REDACTED, REDACTED, REDACTED, REDACTED, REDACTED);
       db.exec('CREATE INDEX IF NOT EXISTS idx_counselings_stage ON counselings(counselor_id, stage)');
       instanceBoundaryTriggers(db);
     },

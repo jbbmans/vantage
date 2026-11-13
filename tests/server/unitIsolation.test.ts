@@ -717,3 +717,30 @@ test('one Unit Instance cannot re-key the sign-in of an account that serves in a
   assert.equal((await get(g8marine.token, '/api/me')).status, 401);
   g8marine.token = await login('g8marine');
 });
+
+test('a counselor’s authority in one Unit Instance never moves a counseling in another', async () => {
+  // A Marine of both instances; Reyes counsels them in each. Reyes finalizes a counseling in G8, then holds nothing in G8.
+  const both = await app.register('twoinstances');
+  await enroll(app, op.token, 'FISCAL', both.id);
+  await enroll(app, g1lead.token, 'MANPOWER', both.id);
+  const made = await post(reyes.token, '/api/records/counselings', { user_id: both.id, type: 'quarterly', date: '2026-10-01', summary: 'Quarterly counseling in G8.', visibility: 'unit', unit_id: 'FISCAL', stage: 'final' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const path = `/api/records/counselings/${made.body.id}`;
+  const draft = await post(reyes.token, '/api/records/counselings', { user_id: both.id, type: 'monthly', date: '2026-10-02', summary: 'A G8 draft.', visibility: 'unit', unit_id: 'FISCAL', stage: 'draft' });
+  assert.equal(draft.status, 201, JSON.stringify(draft.body));
+  const grants = app.ctx.db.prepare('SELECT * FROM member_roles WHERE user_id = ? AND unit_id = ?').all(reyes.id, 'G8') as Array<Record<string, unknown>>;
+  assert.ok(grants.length);
+  app.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(reyes.id, 'G8');
+  try {
+    const read = await get(reyes.token, path);
+    assert.equal(read.status, 200, 'its counselor still reads what they wrote');
+    assert.equal(read.body.workflow.amend, false, 'counseling the Marine in G1 is no authority over a G8 counseling');
+    const amend = await post(reyes.token, `${path}/amend`, { version: made.body.version, summary: 'Changed from G1.', reason: 'x' });
+    assert.equal(amend.status, 403, JSON.stringify(amend.body));
+    for (const step of ['share', 'finalize']) assert.equal((await post(reyes.token, `/api/records/counselings/${draft.body.id}/${step}`, { version: draft.body.version })).status, 403, step);
+    assert.equal((app.ctx.db.prepare('SELECT summary FROM counselings WHERE id = ?').get(made.body.id) as { summary: string }).summary, 'Quarterly counseling in G8.');
+  } finally {
+    const put = app.ctx.db.prepare('INSERT INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)');
+    for (const g of grants) put.run(g.user_id, g.role_id, g.unit_id, g.granted_by ?? null, g.created_at);
+  }
+});

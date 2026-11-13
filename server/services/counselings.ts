@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
-import { PERMISSIONS, can, detailUnitsFor, scopeFor, type Scope } from '../authz/scope.ts';
+import { PERMISSIONS, can, detailUnitsFor, orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
 import { canEdit, canRead, unfinalized, type RecordRow } from '../authz/records.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { parse } from '../lib/http.ts';
@@ -44,9 +44,11 @@ const rankName = (p: { abbr?: string | null; first_name?: string | null; last_na
  * counselor may open their record and outranks them. Writing a counseling took exactly this (createRecord); finalizing,
  * sharing and amending one take it again, so a counselor who has moved on does not finalize or amend what they left.
  */
-export function stillCounsels(ctx: AppContext, scope: Scope, counselorId: string, row: Pick<RecordRow, 'user_id' | 'counselor_id'>): boolean {
+export function stillCounsels(ctx: AppContext, scope: Scope, counselorId: string, row: Pick<RecordRow, 'user_id' | 'counselor_id' | 'unit_id'>): boolean {
   if (!row.counselor_id || row.counselor_id !== counselorId || row.user_id === counselorId) return false;
-  return detailUnitsFor(ctx, scope, row.user_id).some((u) => can(scope, PERMISSIONS.COUNSEL, u));
+  // Within the counseling's own Unit Instance: what someone holds in another never moves a record in this one (ADR-0008).
+  const instance = row.unit_id ? orgOfUnit(ctx, row.unit_id) : undefined;
+  return detailUnitsFor(ctx, scope, row.user_id).some((u) => can(scope, PERMISSIONS.COUNSEL, u) && (instance === undefined || orgOfUnit(ctx, u) === instance));
 }
 
 /** What the reader holds over one counseling (shared/counseling.ts CounselingAuthority). */
@@ -308,8 +310,15 @@ function revisionRows(ctx: AppContext, id: string) {
                          WHERE v.counseling_id = ? ORDER BY v.revision DESC`).all(id) as RevisionRow[];
 }
 
-const revisionContent = (raw: string): { fields: Partial<Record<CounselingField, string | null>>; particulars: CounselingParticulars | null } => {
-  if (raw === REDACTED) return { fields: Object.fromEntries(['summary', 'strengths', 'improvements', 'goals_set', 'counselor_name'].map((f) => [f, REDACTED])), particulars: null };
+/**
+ * What an earlier revision said. Anonymized, its words are gone but not what kind of session it was or when: those it
+ * shares with the counseling as it stands, which keeps them (ADR-0027 §8).
+ */
+const revisionContent = (raw: string, row?: Row): { fields: Partial<Record<CounselingField, string | null>>; particulars: CounselingParticulars | null } => {
+  if (raw === REDACTED) {
+    const kept = row ? { type: (row.type as string | null) ?? null, date: (row.date as string | null) ?? null, follow_up_date: (row.follow_up_date as string | null) ?? null } : {};
+    return { fields: { ...kept, ...Object.fromEntries(['summary', 'strengths', 'improvements', 'goals_set', 'counselor_name'].map((f) => [f, REDACTED])) }, particulars: null };
+  }
   try {
     const parsed = JSON.parse(raw) as { fields?: Record<string, string | null>; particulars?: CounselingParticulars | null };
     return { fields: parsed.fields ?? {}, particulars: parsed.particulars ?? null };
@@ -349,7 +358,7 @@ export function counselingWorksheet(ctx: AppContext, user: SessionUser, id: stri
   if (!Number.isInteger(wanted) || wanted < 1 || wanted > row.revision) throw notFound(`This counseling has no revision ${opts.revision}.`);
   const earlier = wanted < row.revision ? history.find((v) => v.revision === wanted) : undefined;
   if (wanted < row.revision && !earlier) throw notFound(`This counseling has no revision ${opts.revision}.`);
-  const kept = earlier ? revisionContent(earlier.content) : null;
+  const kept = earlier ? revisionContent(earlier.content, row) : null;
   const stored = parseParticulars(row.particulars);
   const particulars = kept?.particulars ?? stored ?? particularsNow(ctx, row);
   const hidden = anonymized(row);
@@ -365,7 +374,9 @@ export function counselingWorksheet(ctx: AppContext, user: SessionUser, id: stri
     // Anonymized under its retention schedule: nobody is named on it, not even as they are now.
     particulars: hidden ? { subject: { name: REDACTED, rank: null, grade: null, mos: null, billet: null, unit: null }, counselor: null } : particulars,
     particulars_as_of: hidden || kept?.particulars || stored ? 'finalized' : 'now',
-    finalized: { at: earlier ? earlier.finalized_at : row.finalized_at, by: nameOf(row.finalized_by) },
+    // When and by whom the counseling was finalized, on every revision: who amended it, and when, is in its amendments,
+    // so a revision's worksheet says the same once a later amendment replaces it.
+    finalized: { at: row.finalized_at, by: nameOf(row.finalized_by) },
     acknowledged_at: earlier ? earlier.acknowledged_at : row.acknowledged_at,
     amendments: history.map((v) => ({
       revision: v.revision + 1, at: v.created_at, by: hidden ? null : v.last_name ? rankName({ abbr: v.abbr, last_name: v.last_name }) : null,

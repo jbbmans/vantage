@@ -440,6 +440,12 @@ test('an amendment keeps what it replaced, why and by whom; the Marine acknowled
   assert.equal(old.body.acknowledgement.due, false);
   const current = await get(diaz.token, `${path}/worksheet`);
   assert.equal(documentBand(current.body), 'AMENDED - REVISION 3');
+  // Every revision says the same of its finalization, replaced or not: who amended it, and when, is in its amendments.
+  const middle = await get(diaz.token, `${path}/worksheet?revision=2`);
+  assert.equal(middle.status, 200);
+  for (const doc of [old.body, middle.body]) assert.deepEqual(doc.finalized, current.body.finalized);
+  assert.equal(current.body.finalized.at, stored(c.id).finalized_at);
+  assert.match(current.body.finalized.by, /Lopez/);
   assert.equal(current.body.amendments.length, 2);
   assert.equal(current.body.acknowledgement.due, true);
   for (const r of ['0', '4', 'x', '1.5']) assert.equal((await get(diaz.token, `${path}/worksheet?revision=${r}`)).status, 404, r);
@@ -598,6 +604,15 @@ test('anonymizing a counseling takes its words, its particulars and its historyâ
     assert.equal(sheet.body.amendments[0].reason, REDACTED);
     assert.equal(sheet.body.amendments[0].by, null);
     assert.ok(!JSON.stringify(sheet.body).includes('Long-ago'));
+    // Its earlier revision keeps what kind of session it was and when, as the counseling does: no made-up "Other".
+    const before = await get(reyes.token, `/api/records/counselings/${c.id}/worksheet?revision=1`);
+    assert.equal(before.status, 200);
+    assert.deepEqual([before.body.type, before.body.date, before.body.follow_up_date], [sheet.body.type, '2010-01-04', sheet.body.follow_up_date]);
+    assert.equal(before.body.type, 'quarterly');
+    assert.ok(!JSON.stringify(before.body).includes('Long-ago'));
+    // A second run finds nothing more to do: an anonymized counseling is done, not due again.
+    const again = runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id });
+    assert.equal(again.lines.find((l) => l.record_type === 'counselings')?.eligible, 0);
     const history = await get(diaz.token, `/api/records/counselings/${c.id}/revisions`);
     assert.equal(history.body.revisions[0].reason, REDACTED);
     assert.equal(history.body.revisions[0].content.summary, REDACTED);

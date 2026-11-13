@@ -57,8 +57,8 @@ counseling they received are always `final` and keep the rules they had: theirs 
   counts, the member page (to anyone but its counselor), the personal export of its Marine, comment mentions and comment
   notices. Its counselor still sees their drafts where they work on them: their counseling list, the Marine's page, their
   recycle bin and their own export.
-- **A draft one may not read is no such record**: reading, editing, deleting, restoring, commenting, every workflow
-  step, its revisions, its worksheet and its PDF answer 404, not 403, so its existence is not disclosed. A final
+- **A draft one may not read is no such record**: reading, editing, deleting, restoring, commenting, its files, every
+  workflow step, its revisions, its worksheet and its PDF answer 404, not 403, so its existence is not disclosed. A final
   counseling one may not read still answers 403, as before.
 - **Default `final`.** Every counseling written before 035, every archive from before it, an import, and an API caller
   that writes one for a Marine without naming a stage, get a final counseling, as they would have before. A final one
@@ -69,8 +69,10 @@ counseling they received are always `final` and keep the rules they had: theirs 
 `counselingAuthority` (server) works out what the reader holds over one counseling:
 
 - **counselor**: they wrote it (`counselor_id`) and still counsel its Marine: Counsel members in a unit the Marine
-  serves in, where they may open the Marine's record (`stillCounsels`, the rule writing one took). A counselor who has
-  moved on keeps reading and printing what they wrote, but no longer shares, finalizes or amends it.
+  serves in, where they may open the Marine's record (`stillCounsels`, the rule writing one took), and that unit is in
+  the counseling's own Unit Instance: counseling the same Marine in another instance is no authority over this one
+  (ADR-0008). A counselor who has moved on keeps reading and printing what they wrote, but no longer shares, finalizes
+  or amends it.
 - **manager**: Manage shared records in its unit, on a counseling shared with that unit, never one about themselves.
   They corrected such a counseling before; they amend it now.
 - **subject**: it is about them.
@@ -147,7 +149,9 @@ What the document holds:
   | Areas to improve | Major Accomplishments and/or Comments, labelled | Targets for Coming Period and/or Comments, labelled |
 
 - The two signature lines, **Marine Counseled** and **Marine Performing Counseling**, with what Vantage knows under
-  each: acknowledged on a date (and that it means read, not agreed), finalized on a date and by whom. They stay lines to
+  each: acknowledged on a date (and that it means read, not agreed), finalized on a date and by whom. Every revision
+  gives the counseling's own finalization, replaced or not; who amended it, and when, is in its amendments, so a
+  revision's worksheet reads the same after a later amendment replaces it. They stay lines to
   sign on paper; Vantage does not sign.
 - The target date for the next session, the amendment history (newest first, at most 50, with the total), the notices
   (para 3005.1.i; no SSN; for own notes, that no counselor signed them; for a counseling finalized before 035, that its
@@ -159,7 +163,9 @@ What the document holds:
   "Working paper" when none is set. Vantage adds no classification or CUI marking of its own.
 - Its dates are days in the reader's time zone, as its "generated on" is.
 - Anonymized under a retention schedule, it names nobody: the particulars, the amenders and the reasons carry the
-  retention notice.
+  retention notice. An earlier revision keeps the session's type and dates, as the counseling does.
+- On the print page the handling line heads and foots every printed page, as in the PDF: the worksheet sits in the
+  report print frame (ADR-0020), whose table header and footer repeat on each page.
 
 ### 7. Audit
 
@@ -174,7 +180,12 @@ What the document holds:
 | `export_record` | the PDF, detail `pdf; revision n` |
 | `view_record` | someone other than its Marine previewed its worksheet |
 
-No counseling's words, and no amendment's reason, go into the audit trail or a notification.
+No counseling's words, and no amendment's reason, go into the audit trail or a notification. **An entry on a
+counseling while it is a draft does not name its Marine** (`subject_id` is left empty, `server/services/audit.ts`), and
+listing one's own drafts is not a listing of the Marine's records: the trail keeps what its counselor did, but the
+Marine's access log and personal export never show that a draft exists. Once it is shared or final, entries name them
+again. Audit readers of the unit still see that a draft was written and by whom, as they see every entry's metadata,
+but not whom it is about or what it says.
 
 ### 8. Exports, imports, retention
 
@@ -183,7 +194,7 @@ No counseling's words, and no amendment's reason, go into the audit trail or a n
   `counseling-revisions.csv`. The **instance export** carries `counseling_revisions`.
 - An **import** brings a counseling in as the Marine's own notes, as it reads now (John's Task 13 decision), so it is
   final; its history stays in the export it came from. A counseling draft about the Marine is never matched against or
-  named by an import.
+  named by an import: not as a twin, and not by its id, which answers as one that is not there.
 - **Retention**: anonymizing a counseling also replaces its particulars, and the words and reasons of its amendment
   history, with the retention notice; which revision, who, when and which fields stay. Destroying it destroys its history.
 - The **privacy inventory** lists the new columns and `counseling_revisions`.
@@ -194,8 +205,10 @@ No counseling's words, and no amendment's reason, go into the audit trail or a n
 `particulars` to a database that lacks them, with the CHECKs a new database gets, and the index
 `idx_counselings_stage (counselor_id, stage)`. `counseling_revisions` and its triggers come from `schema.sql`, which is
 safe to replay. Every counseling already written is final at revision 1 with no finalization stamp or particulars:
-nothing recorded them, and its worksheet says its particulars are as they are now. No row is removed or reshaped, and no
-counseling's text, people, unit or acknowledgement is touched. It is idempotent, and leaves no Unit Instance boundary
+nothing recorded them, and its worksheet says its particulars are as they are now. A counseling a retention schedule
+had already anonymized gets the retention notice in its new `particulars` too, so the next run counts it as done rather
+than anonymizing and recording it again. No row is removed or reshaped, and no counseling's text, people, unit or
+acknowledgement is touched. It is idempotent, and leaves no Unit Instance boundary
 violation and no foreign-key error (`tests/server/migrations.test.ts`).
 
 ### 10. Where it shows

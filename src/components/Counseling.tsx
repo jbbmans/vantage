@@ -10,7 +10,7 @@ import { recordDownloads, type DownloadChoice } from '@/components/DownloadMenu'
 import { onText } from '@/components/common';
 import { useCounselingRevisions, useCounselingStep } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { formatStamp, humanize, todayIso } from '@/lib/utils';
+import { formatStamp, humanize, isoDay, todayIso } from '@/lib/utils';
 import { COUNSELING_TYPES } from '../../shared/constants';
 import { formatDate } from '../../shared/metrics';
 import {
@@ -68,7 +68,12 @@ export function CounselingDialog({ open, onOpenChange, initial, row, leader, tit
   leader?: boolean; title: string; onSaved?: (saved: Counseling) => void;
 }) {
   const stage = row?.stage ?? 'draft';
-  const then = (step: api.CounselingStep) => (saved: Counseling) => api.counselingStep(saved.id, step, saved.version);
+  // The step after the save goes through the same cache as the workflow buttons, so the list shows where it now stands.
+  const step = useCounselingStep();
+  const then = (to: api.CounselingStep) => (saved: Counseling) => step.mutateAsync({ id: saved.id, step: to, version: saved.version });
+  // Only the steps the server says this reader may take on it: a counselor who no longer counsels the Marine still edits
+  // their draft, but neither shares nor finalizes it.
+  const may = (k: 'share' | 'finalize') => !row?.workflow || row.workflow[k];
   // A new one is created at the stage asked for; a draft is saved, then moved on.
   const actions: Array<SaveAction<CounselingDraft>> | undefined = !leader ? undefined : !initial?.id
     ? [
@@ -79,12 +84,12 @@ export function CounselingDialog({ open, onOpenChange, initial, row, leader, tit
     : stage === 'draft'
       ? [
         { label: 'Save draft', done: 'Draft saved.' },
-        { label: 'Share with Marine', done: 'Shared with the Marine for review.', then: then('share') },
-        { label: 'Finalize', done: 'Finalized. The Marine is asked to acknowledge it.', variant: 'primary', check: needsDate, then: then('finalize') },
+        ...(may('share') ? [{ label: 'Share with Marine', done: 'Shared with the Marine for review.', then: then('share') }] : []),
+        ...(may('finalize') ? [{ label: 'Finalize', done: 'Finalized. The Marine is asked to acknowledge it.', variant: 'primary' as const, check: needsDate, then: then('finalize') }] : []),
       ]
       : [
         { label: 'Save changes', done: 'Saved. The Marine sees the change.' },
-        { label: 'Finalize', done: 'Finalized. The Marine is asked to acknowledge it.', variant: 'primary', check: needsDate, then: then('finalize') },
+        ...(may('finalize') ? [{ label: 'Finalize', done: 'Finalized. The Marine is asked to acknowledge it.', variant: 'primary' as const, check: needsDate, then: then('finalize') }] : []),
       ];
   const note = !leader ? undefined : stage === 'review' ? 'The Marine is reading this draft.' : 'Only you see a draft. Once final it changes only by amendment.';
   return (
@@ -113,7 +118,8 @@ export function counselingStanding(row: Counseling, me?: string): string {
     return subject ? `A draft ${counselor} shared with you for review. Comment on it below; you acknowledge it once it is final.`
       : `Shared with ${row.subject_name || 'the Marine'} for review. They can read it and comment, and acknowledge it once you finalize it.`;
   }
-  const final = `Final${row.finalized_at ? ` since ${formatDate(row.finalized_at.slice(0, 10), 'd MMM yyyy')}` : ''}${row.revision > 1 ? `, amended (revision ${row.revision})` : ''}.`;
+  // The reader's own calendar day, as the worksheet beside it gives it: the UTC day is already tomorrow every US evening.
+  const final = `Final${row.finalized_at ? ` since ${formatDate(isoDay(new Date(row.finalized_at)), 'd MMM yyyy')}` : ''}${row.revision > 1 ? `, amended (revision ${row.revision})` : ''}.`;
   const ack = row.acknowledged_at ? `${subject ? 'You' : 'The Marine'} acknowledged ${row.revision > 1 ? 'this revision' : 'it'} on ${formatStamp(row.acknowledged_at)}.`
     : subject ? 'Acknowledge it to confirm you read it. It does not mean you agree.' : 'Awaiting the Marine’s acknowledgement.';
   return `${final} ${ack} It changes only by amendment, which keeps what it said before.`;
@@ -225,7 +231,7 @@ export function CounselingHistory({ row, className }: { row: Counseling; classNa
       {isPending ? <Skeleton className="h-12" /> : error || !data ? <p className="text-xs text-ink-3">{api.errorText(error)}</p> : (
         <ol className="divide-y divide-line rounded-md border border-line">
           <li className="px-3 py-2 text-xs text-ink-2">Revision {data.revision} is what it says now.</li>
-          {[...data.revisions].reverse().map((r) => (
+          {data.revisions.map((r) => (
             <li key={r.revision} className="px-3 py-2 text-sm">
               <p className="text-xs font-semibold text-ink-2">Revision {r.revision} replaced on {formatStamp(r.amended_at)}{r.amended_by_name ? ` by ${r.amended_by_name}` : ''}</p>
               <p className="mt-0.5 whitespace-pre-wrap text-ink">Why: {r.reason}</p>
@@ -253,9 +259,8 @@ export function CounselingWorksheet({ doc, variant = 'screen' }: { doc: Counseli
       {r.map((c) => <div key={c.label} className="cw-cell"><span className="cw-label">{c.label}</span><span className="cw-value">{c.value || ' '}</span></div>)}
     </div>
   ));
-  return (
-    <article className={`report-doc cw ${variant === 'screen' ? 'report-screen' : ''}`} aria-label="Counseling worksheet">
-      <p className="report-marking">{doc.marking}</p>
+  const body = (
+    <>
       <header className="cw-head">
         <p className="cw-eyebrow">Vantage · User’s Guide to Counseling (NAVMC 2795)</p>
         <H1 className="cw-title">{doc.worksheet.caption}</H1>
@@ -285,8 +290,28 @@ export function CounselingWorksheet({ doc, variant = 'screen' }: { doc: Counseli
         </section>
       )}
       <ul className="cw-notes">{[...doc.notices, doc.source].map((n) => <li key={n}>{n}</li>)}</ul>
-      <p className="report-marking report-marking-foot">{doc.marking}</p>
-      <p className="cw-foot">{doc.worksheet.figure} · record {doc.id.slice(0, 8)} · revision {doc.revision}{band ? ` · ${band}` : ''} · Generated {doc.generated.on} by {doc.generated.by} in Vantage, from the structured counseling record.</p>
+    </>
+  );
+  const foot = `${doc.worksheet.figure} · record ${doc.id.slice(0, 8)} · revision ${doc.revision}${band ? ` · ${band}` : ''} · Generated ${doc.generated.on} by ${doc.generated.by} in Vantage, from the structured counseling record.`;
+  if (variant === 'screen') {
+    return (
+      <article className="report-doc cw report-screen" aria-label="Counseling worksheet">
+        <p className="report-marking">{doc.marking}</p>
+        {body}
+        <p className="report-marking report-marking-foot">{doc.marking}</p>
+        <p className="cw-foot">{foot}</p>
+      </article>
+    );
+  }
+  // On paper, the handling line heads and foots every page, as the PDF's does: a table's header and footer repeat on each
+  // printed page it reaches (the report print frame, ADR-0020). It lays the page out and holds no data.
+  return (
+    <article className="report-doc cw report-print" aria-label="Counseling worksheet">
+      <table className="report-frame" role="presentation">
+        <thead><tr><td><p className="report-running"><span>{doc.marking}</span><span>{doc.worksheet.figure}{band ? ` · ${band}` : ''}</span></p></td></tr></thead>
+        <tfoot><tr><td><p className="report-running report-running-foot"><span>{doc.marking}</span><span>{foot}</span></p></td></tr></tfoot>
+        <tbody><tr><td>{body}</td></tr></tbody>
+      </table>
     </article>
   );
 }

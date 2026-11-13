@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openDatabase, migrationHistory, instanceBoundaryViolations, SCHEMA_VERSION } from '../../server/db/index.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
+import { REDACTED } from '../../shared/constants.ts';
 import { hmac } from '../../server/lib/crypto.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
@@ -768,6 +769,9 @@ test('035 makes every counseling already written final at revision 1, adds its a
     c.run('c-open', 'u1', 'u2', 'G8', 'unit', '2026-10-01', 'monthly', 'Not yet acknowledged.', null, 1, null, at, at);
     c.run('c-own', 'u1', null, null, 'private', '2026-10-02', 'event', 'My own notes.', null, 1, null, at, at);
     c.run('c-gone', 'u1', 'u2', 'G8', 'unit', '2026-08-01', 'monthly', 'Deleted.', null, 1, at, at, at);
+    // And one a retention schedule had already anonymized.
+    c.run('c-anon', 'u1', 'u2', 'G8', 'unit', '2010-01-04', 'monthly', REDACTED, null, 2, null, at, at);
+    db.prepare("UPDATE counselings SET strengths = ?, improvements = ?, goals_set = ?, counselor_name = ? WHERE id = 'c-anon'").run(REDACTED, REDACTED, REDACTED, REDACTED);
     before = db.prepare(`SELECT ${KEPT} FROM counselings ORDER BY id`).all().map((r) => ({ ...(r as object) }));
   });
   try {
@@ -782,9 +786,10 @@ test('035 makes every counseling already written final at revision 1, adds its a
 
     // Every counseling is kept exactly as it was: final at revision 1, with no stamp or particulars nobody recorded.
     assert.deepEqual(db.prepare(`SELECT ${KEPT} FROM counselings ORDER BY id`).all().map((r) => ({ ...(r as object) })), before);
-    assert.equal(before.length, 4);
+    assert.equal(before.length, 5);
+    // One already anonymized has its new particulars redacted too, so a retention run counts it as done, not due again.
     assert.deepEqual(db.prepare('SELECT id, stage, revision, finalized_at, finalized_by, particulars FROM counselings ORDER BY id').all().map((r) => ({ ...(r as object) })),
-      ['c-ack', 'c-gone', 'c-open', 'c-own'].map((id) => ({ id, stage: 'final', revision: 1, finalized_at: null, finalized_by: null, particulars: null })));
+      ['c-ack', 'c-anon', 'c-gone', 'c-open', 'c-own'].map((id) => ({ id, stage: 'final', revision: 1, finalized_at: null, finalized_by: null, particulars: id === 'c-anon' ? REDACTED : null })));
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_counselings_stage'").get());
 
     // The checks a new database has are on the upgraded one.
