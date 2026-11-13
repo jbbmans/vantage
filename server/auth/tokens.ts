@@ -18,15 +18,17 @@ export interface TokenRow { id: string; kind: TokenKind; user_id: string | null;
 export function peekToken(ctx: AppContext, kind: TokenKind, token: string): TokenRow | null {
   const row = ctx.db.prepare('SELECT * FROM tokens WHERE kind = ? AND token_hash = ? AND used_at IS NULL').get(kind, sha256(`${kind}:${String(token || '')}`)) as (Omit<TokenRow, 'payload'> & { payload: string }) | undefined;
   if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  if (new Date(row.expires_at).getTime() <= Date.now()) return null;
   return { ...row, payload: JSON.parse(row.payload || '{}') };
 }
 
 export function consumeToken(ctx: AppContext, kind: TokenKind, token: string): TokenRow | null {
-  const row = peekToken(ctx, kind, token);
-  if (!row) return null;
-  ctx.db.prepare('UPDATE tokens SET used_at = ? WHERE id = ?').run(now(), row.id);
-  return row;
+  return ctx.db.transaction(() => {
+    const row = peekToken(ctx, kind, token);
+    if (!row) return null;
+    const changed = ctx.db.prepare('UPDATE tokens SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now(), row.id).changes;
+    return changed ? row : null;
+  }).immediate();
 }
 
 export function revokeTokens(ctx: AppContext, kind: TokenKind, userId: string) {

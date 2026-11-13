@@ -23,6 +23,39 @@ function atVersion(version: number, seed: (db: Database.Database) => void) {
   return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
+test('034 adds only pending challenges, preserves existing unit rows and is idempotent', () => {
+  const { path, cleanup } = atVersion(33, (db) => {
+    db.exec('DROP TABLE passkey_challenges');
+    db.prepare('INSERT INTO units (id, code, name, created_at) VALUES (?, ?, ?, ?)').run('SYN', 'SYN', 'Synthetic unit preserved by migration', '2026-01-01T00:00:00.000Z');
+  });
+  try {
+    let db = openDatabase(path);
+    const row = db.prepare("SELECT * FROM units WHERE id = 'SYN'").get();
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM passkey_challenges').get() as { n: number }).n, 0);
+    assert.ok(migrationHistory(db).some((m) => m.id === 34));
+    db.close(); db = openDatabase(path);
+    assert.deepEqual(db.prepare("SELECT * FROM units WHERE id = 'SYN'").get(), row);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 34).length, 1);
+    db.close();
+  } finally { cleanup(); }
+});
+
+test('a newer or malformed schema is refused before base DDL mutates the database', () => {
+  for (const version of [String(SCHEMA_VERSION + 1), 'not-a-schema']) {
+    const { path, cleanup } = atVersion(33, (db) => {
+      db.exec('DROP TABLE passkey_challenges');
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(version);
+    });
+    try {
+      assert.throws(() => openDatabase(path), /invalid or newer/);
+      const db = new Database(path, { readonly: true });
+      assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'passkey_challenges'").get(), undefined);
+      assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, version);
+      db.close();
+    } finally { cleanup(); }
+  }
+});
+
 test('007 grants the split work verbs to roles that could already do that work', () => {
   const { path, cleanup } = atVersion(6, (db) => {
     db.prepare('INSERT INTO units (id, code, name, created_at) VALUES (?, ?, ?, ?)').run('G8', 'G8', 'G-8', new Date().toISOString());
@@ -704,7 +737,7 @@ test('033 gives a file its evidence type and description, empty on every file al
     assert.deepEqual(db.prepare("SELECT kind, length(description) AS n FROM attachments WHERE id = 'f-cert'").get(), { kind: 'certificate', n: 500 });
     assert.equal((db.prepare("SELECT kind FROM attachments WHERE id = 'f-note'").get() as { kind: string }).kind, 'roster');
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
-    assert.equal(SCHEMA_VERSION, 33);
+    assert.equal(SCHEMA_VERSION, 34);
     db.close();
   } finally { cleanup(); }
 });

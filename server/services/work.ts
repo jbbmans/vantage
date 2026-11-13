@@ -15,6 +15,7 @@ import { zoneOf } from '../lib/zone.ts';
 import { parse } from '../lib/http.ts';
 import { activitySchema } from '../../shared/schemas.ts';
 import { UNIT_SETTING_LIMITS, normalizeUnitSettings } from '../../shared/unitConfig.ts';
+import { replayedWorkRequest, workRequestKey, type WorkRequest } from './workRequests.ts';
 
 export interface WorkItemRow {
   id: string; unit_id: string | null; owner_id: string; visibility: string;
@@ -184,10 +185,11 @@ function reload(ctx: AppContext, id: string): WorkItemRow {
   return row;
 }
 
-export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null) {
+export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null, request?: WorkRequest) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours to claim.');
+    if (replayedWorkRequest(ctx, user, id, request, 'claimed')) return hydrate(row);
     if (!mayClaim(scope, user, row)) throw forbidden('You can see this work but you are not cleared to pick it up.');
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
     if (row.claimed_by && row.claimed_by !== user.id) {
@@ -202,20 +204,23 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
               stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(user.id, at, at, id);
-    appendEvent(ctx, { item: row, actorId: user.id, kind: 'claimed' });
-    record(ctx, 'work.claimed', { bulk: false, count: 1 }, { id: user.id });
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'claimed', ...(request ? { idempotencyKey: workRequestKey(user.id, id, request), body: { request_fingerprint: request.fingerprint } } : {}) });
+    record(ctx, 'work.claimed', { bulk: Boolean(request), count: 1 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
 }
 
-export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null) {
+export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null, request?: WorkRequest) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
+    if (replayedWorkRequest(ctx, user, id, request, 'released')) return hydrate(row);
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
     if (!(holder(scope, user, row) || mayReassign(scope, user, row))) {
       throw forbidden('Only the person holding this work, or somebody who can reassign work here, can release it.');
     }
+    if (!row.claimed_by) return hydrate(row);
+    if (CLOSED_STATES.has(row.state)) throw conflict('This work is already closed.');
     const at = now();
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL,
@@ -223,7 +228,7 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
               state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
               version = version + 1, updated_at = ? WHERE id = ?`
     ).run(at, id);
-    appendEvent(ctx, { item: row, actorId: user.id, kind: 'released', subjectId: row.claimed_by !== user.id ? row.claimed_by : null });
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'released', subjectId: row.claimed_by !== user.id ? row.claimed_by : null, ...(request ? { idempotencyKey: workRequestKey(user.id, id, request), body: { request_fingerprint: request.fingerprint } } : {}) });
     record(ctx, 'work.released', { held_hours: row.claimed_at ? Math.max(0, (Date.parse(at) - Date.parse(row.claimed_at)) / 3_600_000) : 0 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
@@ -440,10 +445,6 @@ export function recordAction(
   idempotencyKey: string | null,
 ) {
   const scopedKey = idempotencyKey ? `${user.id}:${itemId}:${idempotencyKey}` : null;
-  if (scopedKey) {
-    const prior = ctx.db.prepare('SELECT * FROM work_actions WHERE idempotency_key = ?').get(scopedKey) as Record<string, unknown> | undefined;
-    if (prior) return { action: prior, item: hydrate(reload(ctx, itemId)), activity_id: prior.activity_id as string | null, replayed: true };
-  }
 
   const kind = ACTION_KINDS.includes(input.kind as never) ? input.kind : 'worked';
   const occurredAt = input.occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(input.occurred_at) ? input.occurred_at : zonedDay(zoneOf(ctx, user));
@@ -460,6 +461,10 @@ export function recordAction(
   return ctx.db.transaction(() => {
     const row = reload(ctx, itemId);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
+    if (scopedKey) {
+      const prior = ctx.db.prepare('SELECT * FROM work_actions WHERE idempotency_key = ?').get(scopedKey) as Record<string, unknown> | undefined;
+      if (prior) return { action: prior, item: hydrate(row), activity_id: prior.activity_id as string | null, replayed: true };
+    }
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording what you did.');
 
     const at = now();

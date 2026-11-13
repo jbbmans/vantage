@@ -26,6 +26,7 @@
     "shared/**/*.ts",
     "tests/server/**/*.ts",
     "scripts/**/*.ts",
+    "film/tools/instance.ts",
     "playwright.config.ts"
   ]
 }

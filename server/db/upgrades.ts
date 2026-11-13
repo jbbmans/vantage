@@ -15,7 +15,7 @@ type Db = Database.Database;
 
 /** Tables an upgrade is not held to: what signs people in, queues and caches that come and go, and the records of the service itself. */
 const NOT_COUNTED = new Set([
-  'meta', 'sqlite_sequence', 'sessions', 'tokens', 'email_queue', 'oidc_states', 'connector_auth_states', 'product_events', 'demo_workspaces',
+  'meta', 'sqlite_sequence', 'sessions', 'tokens', 'passkey_challenges', 'email_queue', 'oidc_states', 'connector_auth_states', 'product_events', 'demo_workspaces',
 ]);
 
 export interface RowCounts {

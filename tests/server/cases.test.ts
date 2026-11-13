@@ -276,6 +276,8 @@ test('a retried entry with the same idempotency key is recorded once', async () 
   const b = await entry(avery.token, id, { kind: 'finding', text: 'Invoice B posted to the wrong line.' }, 'k-1');
   assert.equal(a.status, 201); assert.equal(b.status, 200);
   assert.equal(b.body.replayed, true);
+  const changed = await entry(avery.token, id, { kind: 'finding', text: 'A different finding must use a new request.' }, 'k-1');
+  assert.equal(changed.status, 409); assert.equal(changed.body.code, 'idempotency_conflict');
   const d = await detail(avery.token, id);
   assert.equal(d.case.events.filter((e: any) => e.kind === 'finding').length, 1);
 });

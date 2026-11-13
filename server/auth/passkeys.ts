@@ -4,28 +4,34 @@ import {
 } from '@simplewebauthn/server';
 import type { AppContext } from '../context.ts';
 import { now } from '../lib/ids.ts';
+import { sha256 } from '../lib/crypto.ts';
 
 /** A passkey is used on the application and on the Unit Manager console, wherever each one lives. */
 const passkeyOrigins = (ctx: AppContext) => [...new Set([ctx.config.urls.app, ctx.config.urls.console])];
 
-const challenges = new Map<string, { challenge: string; userId: string | null; expires: number }>();
 const CHALLENGE_TTL = 5 * 60_000;
 export const MAX_CHALLENGES = 2000;
-let sweptAt = 0;
+type ChallengeKind = 'registration' | 'authentication';
 
-function remember(key: string, challenge: string, userId: string | null) {
-  const at = Date.now();
-  if (at - sweptAt > 30_000) { sweptAt = at; for (const [k, v] of challenges) if (v.expires < at) challenges.delete(k); }
-  while (challenges.size >= MAX_CHALLENGES) challenges.delete(challenges.keys().next().value as string);
-  challenges.set(key, { challenge, userId, expires: at + CHALLENGE_TTL });
+function remember(ctx: AppContext, kind: ChallengeKind, key: string, challenge: string, userId: string | null) {
+  ctx.db.transaction(() => {
+    const at = now();
+    ctx.db.prepare('DELETE FROM passkey_challenges WHERE expires_at <= ?').run(at);
+    ctx.db.prepare('INSERT OR REPLACE INTO passkey_challenges (key_hash, kind, challenge, user_id, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(sha256(key), kind, challenge, userId, new Date(Date.now() + CHALLENGE_TTL).toISOString(), at);
+    // Keep the newest bounded set, even when more than one application process shares the database.
+    ctx.db.prepare('DELETE FROM passkey_challenges WHERE key_hash IN (SELECT key_hash FROM passkey_challenges ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)').run(MAX_CHALLENGES);
+  }).immediate();
 }
-export function passkeyChallengeCount() { return challenges.size; }
+export function passkeyChallengeCount(ctx: AppContext) { return (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkey_challenges').get() as { n: number }).n; }
 
-function take(key: string) {
-  const entry = challenges.get(key);
-  challenges.delete(key);
-  if (!entry || entry.expires < Date.now()) return null;
-  return entry;
+function take(ctx: AppContext, kind: ChallengeKind, key: string) {
+  return ctx.db.transaction(() => {
+    const entry = ctx.db.prepare('DELETE FROM passkey_challenges WHERE key_hash = ? AND kind = ? RETURNING challenge, user_id, expires_at')
+      .get(sha256(key), kind) as { challenge: string; user_id: string | null; expires_at: string } | undefined;
+    if (!entry || Date.parse(entry.expires_at) <= Date.now()) return null;
+    return { challenge: entry.challenge, userId: entry.user_id };
+  }).immediate();
 }
 
 interface PasskeyRow { id: string; user_id: string; public_key: Buffer; counter: number; transports: string; device_type: string | null; backed_up: number; name: string; created_at: string; last_used_at: string | null }
@@ -46,12 +52,12 @@ export async function registrationOptions(ctx: AppContext, user: { id: string; u
     excludeCredentials: existing.map((c) => ({ id: c.id, transports: JSON.parse(c.transports || '[]') as AuthenticatorTransport[] })),
     authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
   });
-  remember(`reg:${user.id}`, options.challenge, user.id);
+  remember(ctx, 'registration', `reg:${user.id}`, options.challenge, user.id);
   return options;
 }
 
 export async function completeRegistration(ctx: AppContext, userId: string, response: RegistrationResponseJSON, name: string) {
-  const pending = take(`reg:${userId}`);
+  const pending = take(ctx, 'registration', `reg:${userId}`);
   if (!pending) throw new Error('Passkey registration timed out. Start again.');
   const verification = await verifyRegistrationResponse({
     response, expectedChallenge: pending.challenge, expectedOrigin: passkeyOrigins(ctx), expectedRPID: ctx.config.rpId, requireUserVerification: true,
@@ -77,12 +83,12 @@ export async function authenticationOptions(ctx: AppContext, username?: string |
   }
   const options = await generateAuthenticationOptions({ rpID: ctx.config.rpId, allowCredentials: allow, userVerification: 'required' });
   const key = `auth:${options.challenge}`;
-  remember(key, options.challenge, userId);
+  remember(ctx, 'authentication', key, options.challenge, userId);
   return { options, key };
 }
 
 export async function completeAuthentication(ctx: AppContext, response: AuthenticationResponseJSON, challengeKey: string) {
-  const pending = take(challengeKey);
+  const pending = take(ctx, 'authentication', challengeKey);
   if (!pending) throw new Error('Passkey sign-in timed out. Try again.');
   const row = ctx.db.prepare('SELECT * FROM passkeys WHERE id = ?').get(response.id) as PasskeyRow | undefined;
   if (!row) throw new Error('That passkey is not registered here.');
@@ -100,4 +106,4 @@ export function deletePasskey(ctx: AppContext, userId: string, id: string): bool
   return ctx.db.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').run(id, userId).changes > 0;
 }
 
-export function resetPasskeyChallenges() { challenges.clear(); }
+export function resetPasskeyChallenges(ctx: AppContext) { ctx.db.prepare('DELETE FROM passkey_challenges').run(); }

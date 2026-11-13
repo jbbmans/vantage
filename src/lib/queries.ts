@@ -345,7 +345,7 @@ export const caseKeys = {
 
 export const useWorkItem = (id: string | null) => useQuery<WorkItemDetail>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
 export const useRecordSummary = (params: Record<string, string | undefined> = {}, enabled = true) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000, enabled });
-export const useAssignedWork = () => useQuery<AssignedItem[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
+export const useAssignedWork = () => useQuery<AssignedItem[]>({ queryKey: caseKeys.assigned, queryFn: ({ signal }) => api.assignedWork({ signal, background: true }), staleTime: 10_000, refetchInterval: 30_000, refetchIntervalInBackground: false });
 export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
 export const useRecordDrafts = (enabled = true) => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts, enabled });
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });

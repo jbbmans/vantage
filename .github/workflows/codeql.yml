@@ -1,6 +1,7 @@
 name: CodeQL
 
-# Static analysis of the server and client for injection, path traversal, unsafe deserialization and the like.
+# Extended static analysis remains available as a SARIF artifact. Repository default setup owns alert uploads here.
+# Set VANTAGE_CODEQL_UPLOAD=true only after switching repository settings from default to advanced setup.
 on:
   push:
     branches: [main]
@@ -24,3 +25,24 @@ jobs:
           languages: javascript-typescript
           queries: security-extended
       - uses: github/codeql-action/analyze@v3
+        with:
+          output: results
+          upload: ${{ vars.VANTAGE_CODEQL_UPLOAD == 'true' }}
+      - name: Retain extended analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif
+          path: results/*.sarif
+          if-no-files-found: error
+          retention-days: 30
+      - name: Explain alert upload mode
+        if: always()
+        env:
+          UPLOAD: ${{ vars.VANTAGE_CODEQL_UPLOAD == 'true' }}
+        run: |
+          if [ "$UPLOAD" = true ]; then
+            echo 'Advanced setup uploads alerts. Repository default setup must be disabled.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Extended analysis is retained in the codeql-sarif artifact. Repository default setup owns alert uploads; analysis findings are not represented as a clean security verdict.' >> "$GITHUB_STEP_SUMMARY"
+          fi

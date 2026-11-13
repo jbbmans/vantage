@@ -326,8 +326,11 @@ export type Prefs = z.infer<typeof prefsSchema>;
 export function fieldErrors(error: z.ZodError): Record<string, string> {
   const out: Record<string, string> = {};
   for (const issue of error.issues) {
-    const key = issue.path.length ? issue.path.map(String).join('.') : '_';
-    if (!out[key]) out[key] = issue.message;
+    // A malformed imported collection can contain thousands of failing elements. Keep a useful, bounded response
+    // instead of echoing the whole invalid request back as validation text.
+    if (Object.keys(out).length >= 25) break;
+    const key = issue.path.length ? issue.path.map(String).join('.').slice(0, 160) : '_';
+    if (!Object.hasOwn(out, key)) Object.defineProperty(out, key, { value: issue.message.slice(0, 400), enumerable: true });
   }
   return out;
 }
