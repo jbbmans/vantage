@@ -50,8 +50,9 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await page.getByRole('button', { name: 'New counseling' }).click();
   const counsel = page.getByRole('dialog', { name: /New counseling for Rivera/ });
   await counsel.getByLabel('Summary').fill('Strong first month. Keep logging outcomes with every entry.');
-  await counsel.getByRole('button', { name: 'Add counseling' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Counseling added.' })).toBeVisible();
+  // A counselor's counseling is drafted, shared or finalized (ADR-0027); finalized, its Marine is asked to acknowledge it.
+  await counsel.getByRole('button', { name: 'Finalize' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Finalized.' })).toBeVisible();
 
   await ip.goto('/career/counseling');
   await expect(ip.getByText('Strong first month')).toBeVisible();

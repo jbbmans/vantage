@@ -110,6 +110,23 @@ export const useTrainings = () => useRecords('trainings');
 export const useAwards = () => useRecords('awards');
 export const useCounselings = () => useRecords('counselings');
 export const useDuties = () => useRecords('duties');
+/** A counseling's amendment history (ADR-0027): what it said before each amendment, who amended it and why. */
+export const useCounselingRevisions = (id: string | null, enabled = true) => useQuery({ queryKey: ['counseling-revisions', id], queryFn: () => api.counselingRevisions(id!), enabled: Boolean(id) && enabled });
+/**
+ * One step of a counseling's workflow, or an amendment. The counseling as it now stands replaces the one the lists hold
+ * before they are read again; whatever the answer, they are read again, since a refusal usually means it changed.
+ */
+export function useCounselingStep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; step: api.CounselingStep; version: number } | { id: string; step: 'amend'; body: api.CounselingAmendment }) =>
+      (v.step === 'amend' ? api.amendCounseling(v.id, v.body) : api.counselingStep(v.id, v.step, v.version)),
+    onSuccess: (saved) => {
+      qc.setQueriesData<Array<RecordRows['counselings']>>({ queryKey: ['records', 'counselings'] }, (rows) => (Array.isArray(rows) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows));
+    },
+    onSettled: () => invalidateDomains(qc, 'counseling'),
+  });
+}
 export const useDutyOptions = (forId?: string | null, enabled = true) => useQuery<DutyOptionsResponse>({ queryKey: ['duty-options', forId || null], queryFn: () => api.dutyOptions(forId), staleTime: 60_000, enabled });
 export const useDutyCandidates = (enabled = true) => useQuery<DutyCandidatesResponse>({ queryKey: ['duty-candidates'], queryFn: api.dutyCandidates, staleTime: 30_000, enabled });
 /** Duty waiting for the reader's decision (ADR-0024), and whether they review duty at all. */
@@ -141,7 +158,7 @@ const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
   activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates'], ['duty-candidates']],
   training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
   award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
-  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
+  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet']],
   duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
   goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],

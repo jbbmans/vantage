@@ -1,7 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { drawMark } from './pdfMark.ts';
 import { pdfText } from './pdfReport.ts';
-import { documentBand, type CounselingDocument } from '../../shared/counseling.ts';
+import { amendmentLine, documentBand, personLine, signatureNotes, worksheetHead, type CounselingDocument, type WorksheetCell } from '../../shared/counseling.ts';
 
 /**
  * A counseling's worksheet as a printed PDF (Task 20, ADR-0027), in the layout of NAVMC 2795 Appendix A: Figure A-1 for
@@ -41,7 +41,6 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
     };
     const s = form.particulars.subject;
     const counselor = form.particulars.counselor;
-    const person = (p: { name: string; rank: string | null } | null) => (p ? `${p.rank ? `${p.rank} ` : ''}${p.name}` : '');
 
     // ——— What it is ———
     drawMark(doc, left + width - 38, doc.y - 4, 38);
@@ -60,8 +59,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
     }
 
     // ——— The header blocks: labelled boxes, as the worksheet has them ———
-    type Field = { label: string; value: string; span: number };
-    const grid = (rows: Field[][]) => {
+    const grid = (rows: WorksheetCell[][]) => {
       for (const row of rows) {
         const total = row.reduce((n, f) => n + f.span, 0);
         doc.font('Helvetica').fontSize(9.5);
@@ -81,24 +79,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       }
       doc.x = left;
     };
-    const kind = form.session_kind;
-    const box = (on: boolean) => (on ? '[X]' : '[  ]');
-    const grade = [s.rank, s.grade ? `(${s.grade})` : ''].filter(Boolean).join(' ');
-    if (form.worksheet.key === 'A-1') {
-      grid([
-        [{ label: 'Name:', value: s.name, span: 3 }, { label: 'Date:', value: form.date ?? '', span: 1 }],
-        [{ label: 'Grade:', value: grade, span: 1 }, { label: 'MOS:', value: s.mos ?? '', span: 1 }, { label: 'Billet:', value: s.billet ?? '', span: 2 }],
-      ]);
-    } else {
-      grid([
-        [{ label: 'Grade', value: grade, span: 1 }, { label: 'Name:', value: s.name, span: 2 }, { label: 'MOS', value: s.mos ?? '', span: 1 }],
-        [{ label: 'Billet', value: s.billet ?? '', span: 2 }, { label: 'Date', value: form.date ?? '', span: 1 }, { label: 'ICS / Follow-on', value: `${box(kind === 'ics')} ICS   ${box(kind === 'follow_on')} Follow-on`, span: 1 }],
-      ]);
-    }
-    grid([[
-      { label: 'Unit (Vantage)', value: s.unit ?? '', span: 2 },
-      { label: 'Type of session (Vantage)', value: `${form.type_label}${kind === 'event' ? ' (event-related, NAVMC 2795 para 2001.4)' : ''}`, span: 2 },
-    ]]);
+    grid(worksheetHead(form));
     text('The SSN block on the worksheet is left out: Vantage does not record or print an SSN.', 'Helvetica-Oblique', 7.5, MUTED);
     doc.moveDown(0.6);
 
@@ -129,14 +110,9 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       doc.font('Helvetica').fontSize(9).fillColor(INK).text(pdfText(name || ' '), x, sigY + 15, { width: half, lineBreak: false, ellipsis: true });
       doc.font('Helvetica').fontSize(7.5).fillColor(MUTED).text(pdfText(note), x, sigY + 28, { width: half, lineGap: 1 });
     };
-    const ack = form.own_notes ? 'The Marine’s own notes: nothing to acknowledge in Vantage.'
-      : form.acknowledgement.at ? `Acknowledged in Vantage on ${form.acknowledgement.at.slice(0, 10)}: confirms the Marine read it, not that they agree.`
-        : form.stage === 'final' ? 'Not yet acknowledged in Vantage.' : 'Acknowledged once it is final.';
-    const fin = form.own_notes ? 'Recorded by the Marine. No counselor finalized it in Vantage.'
-      : form.finalized.at ? `Finalized in Vantage on ${form.finalized.at.slice(0, 10)}${form.finalized.by ? ` by ${form.finalized.by}` : ''}.`
-        : form.stage === 'final' ? 'Recorded in Vantage before finalization was kept.' : 'Not yet finalized.';
-    signature(left, 'Marine Counseled', person({ name: s.name, rank: s.rank }), ack);
-    signature(left + half + 24, 'Marine Performing Counseling', person(counselor), fin);
+    const notes = signatureNotes(form);
+    signature(left, 'Marine Counseled', personLine({ name: s.name, rank: s.rank }), notes.subject);
+    signature(left + half + 24, 'Marine Performing Counseling', personLine(counselor), notes.counselor);
     doc.y = sigY + 58;
     doc.x = left;
     grid([[{ label: 'Target Date for Next Session', value: form.follow_up_date ?? '', span: 1 }]]);
@@ -149,7 +125,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       doc.moveDown(0.2);
       for (const a of form.amendments) {
         ensure(34);
-        text(`Revision ${a.revision}  ·  ${a.at.slice(0, 10)}${a.by ? `  ·  ${a.by}` : ''}  ·  changed ${a.changed.join(', ') || 'nothing'}${a.acknowledged_at ? `  ·  replaced text the Marine acknowledged on ${a.acknowledged_at.slice(0, 10)}` : ''}`, 'Helvetica-Bold', 8, INK2);
+        text(amendmentLine(a, form.generated.zone).replace(/ · /g, '  ·  '), 'Helvetica-Bold', 8, INK2);
         text(`Why: ${a.reason}`, 'Helvetica', 8.5, INK, { paragraphGap: 3 });
       }
       if (form.amendments_total > form.amendments.length) text(`${form.amendments_total - form.amendments.length} earlier amendments are in the record's history.`, 'Helvetica-Oblique', 8, MUTED);

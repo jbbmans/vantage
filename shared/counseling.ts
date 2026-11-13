@@ -164,7 +164,8 @@ export interface CounselingDocument {
   /** When this revision was replaced, for an earlier one. */
   superseded_at: string | null;
   marking: string;
-  generated: { on: string; by: string };
+  /** When, by whom, and in which time zone: the worksheet's dates are days there, as its "generated on" is. */
+  generated: { on: string; by: string; zone?: string };
   source: string;
   notices: string[];
 }
@@ -206,7 +207,7 @@ export interface CounselingDocumentInput {
   amendments_total: number;
   superseded_at: string | null;
   marking: string;
-  generated: { on: string; by: string };
+  generated: { on: string; by: string; zone?: string };
 }
 
 export function counselingDocument(input: CounselingDocumentInput): CounselingDocument {
@@ -247,11 +248,67 @@ export function counselingDocument(input: CounselingDocumentInput): CounselingDo
   };
 }
 
+/** The calendar day of a stamp in the zone the worksheet was generated in, so its dates and its "generated on" agree. */
+export function dayOf(iso: string, zone?: string | null): string {
+  if (!zone) return iso.slice(0, 10);
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(iso));
+    const part = (t: string) => parts.find((p) => p.type === t)?.value;
+    const day = `${part('year')}-${part('month')}-${part('day')}`;
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : iso.slice(0, 10);
+  } catch { return iso.slice(0, 10); }
+}
+
+/** A labelled box at the head of the worksheet, `span` quarters of the width wide. */
+export interface WorksheetCell { label: string; value: string; span: number }
+
+export const personLine = (p: { name: string; rank: string | null } | null) => (p ? `${p.rank ? `${p.rank} ` : ''}${p.name}` : '');
+
+/**
+ * The labelled boxes at the head of the worksheet, row by row, as its figure has them, and then the two Vantage adds.
+ * The preview, the print page and the PDF all lay them out from here, so the three never disagree.
+ */
+export function worksheetHead(doc: Pick<CounselingDocument, 'worksheet' | 'particulars' | 'date' | 'session_kind' | 'type_label'>): WorksheetCell[][] {
+  const s = doc.particulars.subject;
+  const kind = doc.session_kind;
+  const box = (on: boolean) => (on ? '[X]' : '[  ]');
+  const grade = [s.rank, s.grade ? `(${s.grade})` : ''].filter(Boolean).join(' ');
+  const figure: WorksheetCell[][] = doc.worksheet.key === 'A-1'
+    ? [
+      [{ label: 'Name:', value: s.name, span: 3 }, { label: 'Date:', value: doc.date ?? '', span: 1 }],
+      [{ label: 'Grade:', value: grade, span: 1 }, { label: 'MOS:', value: s.mos ?? '', span: 1 }, { label: 'Billet:', value: s.billet ?? '', span: 2 }],
+    ]
+    : [
+      [{ label: 'Grade', value: grade, span: 1 }, { label: 'Name:', value: s.name, span: 2 }, { label: 'MOS', value: s.mos ?? '', span: 1 }],
+      [{ label: 'Billet', value: s.billet ?? '', span: 2 }, { label: 'Date', value: doc.date ?? '', span: 1 }, { label: 'ICS / Follow-on', value: `${box(kind === 'ics')} ICS   ${box(kind === 'follow_on')} Follow-on`, span: 1 }],
+    ];
+  return [...figure, [
+    { label: 'Unit (Vantage)', value: s.unit ?? '', span: 2 },
+    { label: 'Type of session (Vantage)', value: `${doc.type_label}${kind === 'event' ? ' (event-related, NAVMC 2795 para 2001.4)' : ''}`, span: 2 },
+  ]];
+}
+
+/** What the worksheet says under each of its two signature lines: where the counseling stands in Vantage. */
+export function signatureNotes(doc: Pick<CounselingDocument, 'own_notes' | 'stage' | 'acknowledgement' | 'finalized'> & { generated?: { zone?: string } }): { subject: string; counselor: string } {
+  const zone = doc.generated?.zone;
+  const subject = doc.own_notes ? 'The Marine’s own notes: nothing to acknowledge in Vantage.'
+    : doc.acknowledgement.at ? `Acknowledged in Vantage on ${dayOf(doc.acknowledgement.at, zone)}: confirms the Marine read it, not that they agree.`
+      : doc.stage === 'final' ? 'Not yet acknowledged in Vantage.' : 'Acknowledged once it is final.';
+  const counselor = doc.own_notes ? 'Recorded by the Marine. No counselor finalized it in Vantage.'
+    : doc.finalized.at ? `Finalized in Vantage on ${dayOf(doc.finalized.at, zone)}${doc.finalized.by ? ` by ${doc.finalized.by}` : ''}.`
+      : doc.stage === 'final' ? 'Recorded in Vantage before finalization was kept.' : 'Not yet finalized.';
+  return { subject, counselor };
+}
+
+/** One amendment's line on the worksheet: which revision, when, who, and what it changed. */
+export const amendmentLine = (a: CounselingDocument['amendments'][number], zone?: string) =>
+  `Revision ${a.revision} · ${dayOf(a.at, zone)}${a.by ? ` · ${a.by}` : ''} · changed ${a.changed.join(', ') || 'nothing'}${a.acknowledged_at ? ` · replaced text the Marine acknowledged on ${dayOf(a.acknowledged_at, zone)}` : ''}`;
+
 /** The band a worksheet carries when it is not the final, current text. */
-export function documentBand(doc: Pick<CounselingDocument, 'stage' | 'revision' | 'current_revision' | 'superseded_at'>): string | null {
+export function documentBand(doc: Pick<CounselingDocument, 'stage' | 'revision' | 'current_revision' | 'superseded_at'> & { generated?: { zone?: string } }): string | null {
   if (doc.stage === 'draft') return 'DRAFT - NOT FINAL';
   if (doc.stage === 'review') return 'DRAFT FOR REVIEW - NOT FINAL';
-  if (doc.revision < doc.current_revision) return `REVISION ${doc.revision} OF ${doc.current_revision} - REPLACED BY AN AMENDMENT${doc.superseded_at ? ` ON ${doc.superseded_at.slice(0, 10)}` : ''}`;
+  if (doc.revision < doc.current_revision) return `REVISION ${doc.revision} OF ${doc.current_revision} - REPLACED BY AN AMENDMENT${doc.superseded_at ? ` ON ${dayOf(doc.superseded_at, doc.generated?.zone)}` : ''}`;
   if (doc.current_revision > 1) return `AMENDED - REVISION ${doc.current_revision}`;
   return null;
 }

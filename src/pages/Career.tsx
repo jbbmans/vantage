@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip, ArrowRightLeft, Upload } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
+import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip, ArrowRightLeft, Upload, Printer } from 'lucide-react';
+import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, NumberInput, Stat, Segmented } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
@@ -15,14 +16,14 @@ import RecordImportDialog from '@/components/RecordImportDialog';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
 import { TimeframeFields, TimeframeText, timeframeCheck, timeframeDraft, type TimeframeDraft } from '@/components/Timeframe';
-import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
-import { useQueryClient } from '@tanstack/react-query';
+import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
+import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES } from '../../shared/constants';
 import { formatDate, formatNumber } from '../../shared/metrics';
 import { formatTimeframe } from '../../shared/timeframe';
 import { PERMISSIONS } from '../../shared/permissions';
-import type { Award, Training } from '../../shared/types';
+import type { Award, Counseling, Training } from '../../shared/types';
+import { counselorWritten } from '../../shared/counseling';
 import { formatStamp, humanize, todayIso } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
 import { usePlace } from '@/lib/place';
@@ -41,11 +42,9 @@ const recordedByOther = (r: { user_id: string; recorded_by?: string | null }) =>
 
 interface TrainingDraft extends TimeframeDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface AwardDraft { id?: string; version?: number; name: string; period_start: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
-interface CounselingDraft { id?: string; version?: number; summary: string; date: string; type: string; counselor_name: string; strengths: string; improvements: string; goals_set: string; follow_up_date: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
 export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', ...timeframeDraft({ date: todayIso() }), type: 'course', hours: '', provider: '', status: 'completed', notes: '', visibility: v, unit_id: unit });
 export const emptyAward = (v: 'private' | 'unit', unit: string | null): AwardDraft => ({ name: '', period_start: '', date: todayIso(), type: 'personal_award', status: 'planned', recommending_official: '', approving_authority: '', citation: '', notes: '', submitted_at: '', approved_at: '', presented_at: '', visibility: v, unit_id: unit });
-export const emptyCounseling = (v: 'private' | 'unit', unit: string | null): CounselingDraft => ({ summary: '', date: todayIso(), type: 'monthly', counselor_name: '', strengths: '', improvements: '', goals_set: '', follow_up_date: '', visibility: v, unit_id: unit });
 
 export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
   return (
@@ -87,24 +86,6 @@ export function AwardFields({ d, set, errors, ai }: { d: AwardDraft; set: (k: an
   );
 }
 
-export function CounselingFields({ d, set, errors, leader }: { d: CounselingDraft; set: (k: any, v: unknown) => void; errors: Record<string, string>; leader?: boolean }) {
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Date" error={errors.date}><Input type="date" value={d.date} onChange={onText(set, 'date')} /></Field>
-        <Field label="Type"><Select value={d.type} onValueChange={(v) => set('type', v)} options={COUNSELING_TYPES.map((t) => ({ value: t, label: humanize(t) }))} /></Field>
-        {!leader && <Field label="Counselor" className="col-span-2"><Input value={d.counselor_name} onChange={onText(set, 'counselor_name')} placeholder="SSgt Rivera" /></Field>}
-      </div>
-      <Field label="Summary" required error={errors.summary}><Textarea autoFocus rows={3} value={d.summary} onChange={onText(set, 'summary')} placeholder="What was discussed and decided." /></Field>
-      <Field label="Strengths"><Textarea rows={2} value={d.strengths} onChange={onText(set, 'strengths')} /></Field>
-      <Field label="Areas to improve"><Textarea rows={2} value={d.improvements} onChange={onText(set, 'improvements')} /></Field>
-      <Field label="Goals set"><Textarea rows={2} value={d.goals_set} onChange={onText(set, 'goals_set')} /></Field>
-      <Field label="Follow-up"><Input type="date" value={d.follow_up_date} onChange={onText(set, 'follow_up_date')} /></Field>
-      {!leader && <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />}
-    </>
-  );
-}
-
 /** The pages under /career. Readiness is its own page (Readiness.tsx) at /career/readiness. */
 export type CareerSection = 'plan' | 'training' | 'awards' | 'counseling';
 
@@ -123,7 +104,6 @@ export default function Career({ section }: { section: CareerSection }) {
   const place = usePlace();
   const navigate = useNavigate();
   const toast = useToast();
-  const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
   const tab = section;
@@ -135,7 +115,10 @@ export default function Career({ section }: { section: CareerSection }) {
   const undoTraining = useRestoreRecord('trainings'); const undoAward = useRestoreRecord('awards'); const undoCounseling = useRestoreRecord('counselings');
   const [training, setTraining] = useState<TrainingDraft | null>(null);
   const [award, setAward] = useState<AwardDraft | null>(null);
-  const [counseling, setCounseling] = useState<CounselingDraft | null>(null);
+  // The counseling form: a new one, or one being edited with the counseling as the server sent it.
+  const [counseling, setCounseling] = useState<{ draft: CounselingDraft; row?: Counseling } | null>(null);
+  const [amending, setAmending] = useState<Counseling | null>(null);
+  const [counselingPane, setCounselingPane] = useState<'record' | 'worksheet'>('record');
   const [view, setView] = useState<any>(null);
   const [confirm, setConfirm] = useState<{ store: 'trainings' | 'awards' | 'counselings'; row: any } | null>(null);
   const [moving, setMoving] = useState<{ store: 'trainings' | 'awards'; row: Training | AwardRow } | null>(null);
@@ -174,21 +157,25 @@ export default function Career({ section }: { section: CareerSection }) {
   // After a move, or an undo, the entry lives somewhere else: open it there.
   const goTo = (entry: MovedEntry) => { setView(null); navigate(entryHref(entry.table, entry.id)); };
   const startMove = (store: 'trainings' | 'awards', row: Training | AwardRow) => { setView(null); if (openId) setOpenId(''); setMoving({ store, row }); };
-  const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
+  // The counseling open in the dialog, as the list now holds it: a step taken in the dialog shows there at once.
+  const shownCounseling: Counseling | null = view?.kind === 'counseling' ? (counselings?.find((c) => c.id === view.row.id) ?? view.row) : null;
+  const editCounseling = (c: Counseling) => setCounseling({ draft: counselingDraft(c), row: c });
+  const awaitingMe = (counselings || []).filter((c) => c.workflow?.acknowledge).length;
+  const myDrafts = (counselings || []).filter((c) => counselorWritten(c) && c.counselor_id === me && c.stage !== 'final').length;
 
   return (
     <div className="page">
       <PageHeader eyebrow={place.group} title={HEADINGS[tab][0]} lede={HEADINGS[tab][1]}>
         {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />New training</Button>}
         {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />New award</Button>}
-        {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />New counseling</Button>}
+        {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling({ draft: emptyCounseling(vis, unit) })}><Plus className="h-4 w-4" />New counseling</Button>}
         {SECTION[tab] && <><Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import</Button><DownloadMenu label="Export" choices={categoryDownloads(SECTION[tab]!)} /></>}
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
         <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}`} to={tab === 'training' ? undefined : '/career/training'} />
         <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} to={tab === 'awards' ? undefined : '/career/awards'} />
-        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
+        <Stat label="Counselings" value={(counselings || []).length} hint={awaitingMe ? `${awaitingMe === 1 ? 'one awaits' : `${awaitingMe} await`} your acknowledgement` : myDrafts ? `${myDrafts} you wrote ${myDrafts === 1 ? 'is' : 'are'} not final yet` : 'up to date'} tone={awaitingMe ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
@@ -210,11 +197,12 @@ export default function Career({ section }: { section: CareerSection }) {
         </div>
       ))}
 
-      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Record what your leadership told you, or what you told your Marines. Counselings recorded by a leader ask for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}>New counseling</Button>} /></div> : (
+      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Record what your leadership told you, or what you told your Marines. Counselings recorded by a leader ask for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling({ draft: emptyCounseling(vis, unit) })}>New counseling</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Counseling</th><th className="w-28">Type</th><th className="w-32">Follow-up</th><th className="w-32">Status</th><th className="w-28"></th></>}>
-          {(counselings || []).map((c) => { const leaderRecorded = c.counselor_id && c.counselor_id !== c.user_id; const needsAck = c.user_id === me && leaderRecorded && !c.acknowledged_at; return (
-            <tr key={c.id}><td className="text-xs"><DateText value={c.date} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'counseling', row: c })}>{c.summary.length > 90 ? `${c.summary.slice(0, 90)}…` : c.summary}</button><span className="block text-xs text-ink-3">{c.counselor_name ? `by ${c.counselor_name}` : ''}{c.user_id !== me && c.subject_name ? ` · for ${c.subject_name}` : ''}</span></td><td className="text-xs">{humanize(c.type)}</td><td className="text-xs"><DateText value={c.follow_up_date} fallback="" /></td><td>{needsAck ? <Badge tone="warn">Acknowledge</Badge> : c.acknowledged_at ? <Badge tone="good">Acknowledged</Badge> : leaderRecorded ? <Badge>Pending</Badge> : <Badge>Self-recorded</Badge>}</td><td className="text-right">{needsAck && <Button size="xs" variant="soft" onClick={() => acknowledge(c)}>Acknowledge</Button>}{canEditRow(c) && !leaderRecorded && <><Button size="xs" variant="ghost" onClick={() => setCounseling({ ...c, date: c.date || '', counselor_name: c.counselor_name || '', strengths: c.strengths || '', improvements: c.improvements || '', goals_set: c.goals_set || '', follow_up_date: c.follow_up_date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'counselings', row: c })}>Delete</Button></>}</td></tr>
-          ); })}
+          {(counselings || []).map((c) => (
+            <tr key={c.id}><td className="text-xs"><DateText value={c.date} fallback="No date" /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => { setCounselingPane('record'); setView({ kind: 'counseling', row: c }); }}>{c.summary.length > 90 ? `${c.summary.slice(0, 90)}…` : c.summary}</button><span className="block text-xs text-ink-3">{c.counselor_name ? `by ${c.counselor_name}` : ''}{c.user_id !== me && c.subject_name ? ` · for ${c.subject_name}` : ''}</span></td><td className="text-xs">{humanize(c.type)}</td><td className="text-xs"><DateText value={c.follow_up_date} fallback="" /></td><td><CounselingStatus row={c} me={me} /></td>
+              <td className="text-right"><CounselingActions row={c} size="xs" only={['acknowledge']} />{c.workflow?.edit && <><Button size="xs" variant="ghost" onClick={() => editCounseling(c)}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'counselings', row: c })}>Delete</Button></>}</td></tr>
+          ))}
         </Table></div>
       ))}
 
@@ -226,18 +214,30 @@ export default function Career({ section }: { section: CareerSection }) {
             {citationOut && <AiResult output={citationOut.output} meta={citationOut.meta} primaryKey="citation" />}
           </>
         )} />
-      <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'New counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
+      <CounselingDialog open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling?.draft ?? null} row={counseling?.row} leader={Boolean(counseling?.row && counselorWritten(counseling.row))}
+        title={!counseling?.draft.id ? 'New counseling' : counseling.row?.stage === 'review' ? 'Edit counseling shared for review' : counseling.row && counselorWritten(counseling.row) ? 'Edit draft counseling' : 'Edit counseling'} />
+      <AmendDialog row={amending} open={Boolean(amending)} onOpenChange={(o) => { if (!o) setAmending(null); }} />
 
       <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.kind === 'training' || view?.kind === 'award' ? formatTimeframe(view.kind === 'award' ? 'awards' : 'trainings', view.row, { pattern: 'd MMMM yyyy' }) || undefined : view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
-        footer={view ? <><DownloadMenu size="sm" choices={recordDownloads(view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings', view.row.id, view.kind !== 'counseling')} />{view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></>
-          : (view?.kind === 'award' || view?.kind === 'training') && canMove(view.row) ? <Button onClick={() => startMove(view.kind === 'award' ? 'awards' : 'trainings', view.row)}><ArrowRightLeft className="h-4 w-4" />Move to…</Button> : undefined}</> : undefined}>
+        footer={shownCounseling ? <>{shownCounseling.workflow?.acknowledge && <span className="mr-auto basis-full text-xs text-ink-3 sm:basis-auto">Acknowledging confirms you read it, not that you agree.</span>}<DownloadMenu size="sm" choices={counselingDownloads(shownCounseling)} /><Button size="sm" onClick={() => openCounselingPrint(shownCounseling.id)}><Printer className="h-4 w-4" aria-hidden />Print</Button>
+          <CounselingActions row={shownCounseling} size="sm" onEdit={() => editCounseling(shownCounseling)} onAmend={() => setAmending(shownCounseling)} /></>
+          : view ? <><DownloadMenu size="sm" choices={recordDownloads(view.kind === 'award' ? 'awards' : 'trainings', view.row.id, true)} />{canMove(view.row) ? <Button onClick={() => startMove(view.kind === 'award' ? 'awards' : 'trainings', view.row)}><ArrowRightLeft className="h-4 w-4" />Move to…</Button> : undefined}</> : undefined}>
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
         {view?.kind === 'award' && view.row.user_id === me && recordedByOther(view.row) && <p className="mt-3 text-xs text-ink-3">{view.row.recorder_name || 'A leader'} recorded this award for you, so only they can change it. Ask them if something needs correcting.</p>}
         {view?.kind === 'training' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', view.row.type === 'pme' ? 'PME' : humanize(view.row.type)], ['Hours', view.row.hours != null ? formatNumber(view.row.hours) : null], ['Provider', view.row.provider], ['Notes', view.row.notes ? <span className="whitespace-pre-wrap">{view.row.notes}</span> : null]]} />}
         {/* Files go where an entry moves (ADR-0015), so an award or a course shows the files it holds. */}
         {(view?.kind === 'award' || view?.kind === 'training') && <div className="mt-4"><Attachments table={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} canEdit={canEditRow(view.row)} /></div>}
         {(view?.kind === 'award' || view?.kind === 'training') && <RecordLineage store={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} onUndone={goTo} className="mt-4" />}
-        {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? formatStamp(view.row.acknowledged_at) : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
+        {shownCounseling && <div className="space-y-3">
+          <p className="text-sm leading-relaxed text-ink-2" data-testid="counseling-standing">{counselingStanding(shownCounseling, me)}</p>
+          <Segmented label="Show" size="sm" value={counselingPane} onChange={setCounselingPane} options={[{ value: 'record', label: 'Record' }, { value: 'worksheet', label: 'Worksheet (NAVMC 2795)' }]} />
+          {counselingPane === 'worksheet' ? <CounselingPreview row={shownCounseling} /> : <>
+            <DescriptionList items={[['Counselor', shownCounseling.counselor_name || (shownCounseling.counselor_id === me ? 'You' : null)], ['Subject', shownCounseling.subject_name || null], ['Follow-up', <DateText value={shownCounseling.follow_up_date} fallback="" />], ['Finalized', shownCounseling.finalized_at ? formatStamp(shownCounseling.finalized_at) : null], ['Acknowledged', shownCounseling.acknowledged_at ? formatStamp(shownCounseling.acknowledged_at) : null]]} />
+            {[['Summary', shownCounseling.summary], ['Strengths', shownCounseling.strengths], ['Areas to improve', shownCounseling.improvements], ['Goals set', shownCounseling.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}
+          </>}
+          <CounselingHistory row={shownCounseling} />
+          <p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p>
+        </div>}
         {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
       </Dialog>
       <RecordImportDialog open={importing} onOpenChange={setImporting} />

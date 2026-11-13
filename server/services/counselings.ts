@@ -373,7 +373,7 @@ export function counselingWorksheet(ctx: AppContext, user: SessionUser, id: stri
     amendments_total: history.length,
     superseded_at: earlier?.created_at ?? null,
     marking: ctx.runtime.reportMarking || DEFAULT_REPORT_MARKING,
-    generated: { on: zonedDay(zoneOf(ctx, user)), by: reader ? rankName(reader) : user.username },
+    generated: { on: zonedDay(zoneOf(ctx, user)), by: reader ? rankName(reader) : user.username, zone: zoneOf(ctx, user) },
   });
   const purpose = opts.purpose ?? 'view';
   if (purpose === 'print') audit(ctx, { actor_id: user.id, action: 'print_counseling', entity: 'counselings', entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: row.unit_id, detail: `revision ${wanted}${row.stage === 'final' ? '' : `; ${row.stage}`}`, ip });

@@ -6,6 +6,7 @@ import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesRespons
 import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
 import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../../shared/attachments';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
+import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
@@ -167,7 +168,19 @@ export const updateRecord = (store: Store, id: string, patch: unknown) => api.pu
 export const deleteRecord = (store: Store, id: string) => api.del(`/records/${store}/${encodeURIComponent(id)}`);
 export const restoreRecord = (store: Store, id: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/restore`);
 export const importActivities = (rows: unknown[]) => api.post('/records/activities/import', { rows });
-export const acknowledgeCounseling = (id: string) => api.post(`/records/counselings/${encodeURIComponent(id)}/acknowledge`);
+// A counseling's workflow (ADR-0027): each step against the version its reader saw. The Marine acknowledges the text they
+// read; an amendment says why; its history and worksheet are read from what is stored, and the PDF is drawn from it.
+export type CounselingStep = 'share' | 'withdraw' | 'finalize' | 'acknowledge';
+export const counselingStep = (id: string, step: CounselingStep, version: number) => api.post<RecordRows['counselings']>(`/records/counselings/${encodeURIComponent(id)}/${step}`, { version });
+export const acknowledgeCounseling = (id: string, version: number) => counselingStep(id, 'acknowledge', version);
+export type CounselingAmendment = Partial<Record<CounselingField, string | null>> & { version: number; reason: string };
+export const amendCounseling = (id: string, body: CounselingAmendment) => api.post<RecordRows['counselings']>(`/records/counselings/${encodeURIComponent(id)}/amend`, body);
+export const counselingRevisions = (id: string) => api.get<{ revision: number; revisions: CounselingRevision[] }>(`/records/counselings/${encodeURIComponent(id)}/revisions`);
+export const counselingWorksheet = (id: string, opts: { revision?: number | null; purpose?: 'view' | 'print' } = {}) =>
+  api.get<CounselingDocument>(`/records/counselings/${encodeURIComponent(id)}/worksheet${opts.revision || opts.purpose === 'print' ? `?${[opts.revision ? `revision=${opts.revision}` : '', opts.purpose === 'print' ? 'purpose=print' : ''].filter(Boolean).join('&')}` : ''}`);
+export const counselingPdfUrl = (id: string, revision?: number | null) => `/api/records/counselings/${encodeURIComponent(id)}/export?format=pdf${revision ? `&revision=${revision}` : ''}`;
+export const counselingPrintUrl = (id: string, opts: { revision?: number | null; autoprint?: boolean } = {}) =>
+  `/career/counseling/${encodeURIComponent(id)}/print${opts.revision || opts.autoprint ? `?${[opts.revision ? `revision=${opts.revision}` : '', opts.autoprint ? 'autoprint=1' : ''].filter(Boolean).join('&')}` : ''}`;
 export const attachments = (store: Store, id: string) => api.get<AttachmentsResponse>(`/records/${store}/${encodeURIComponent(id)}/attachments`);
 /** What a file is and what it shows travel beside its name, as headers: the body is the file itself (ADR-0025). */
 export const uploadAttachment = (store: Store, id: string, file: File, details: AttachmentDetails = {}) => request<AttachmentRow>('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, {

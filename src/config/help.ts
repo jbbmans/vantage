@@ -248,10 +248,12 @@ export const HELP: HelpSection[] = [
         id: 'counseling',
         q: 'How does counseling work?',
         a: [
-          'A counseling you record asks the Marine to acknowledge it. Once they have acknowledged it, the text they acknowledged cannot be changed — not by you, not by an owner.',
-          'The counseled Marine acknowledges and nothing more; the record belongs to its author.',
+          'Write a counseling from the Marine’s page. Save it as a draft only you see, share it with the Marine for review, or finalize it. A Marine reads a draft you shared and answers in its comments; they acknowledge it once it is final.',
+          'Once final, a counseling changes only by amendment: say what changed and why. What it said before is kept in its amendment history, and the Marine is asked to acknowledge the amended text. Acknowledging means they read it, not that they agree.',
+          'Print a counseling, or download it as a PDF, as a worksheet in the layout of NAVMC 2795 (User’s Guide to Counseling) Appendix A: Figure A-1 for a Lance Corporal and below, Figure A-2 for a Corporal and above. It is not an official form, and it never shows an SSN. The record stays the source; the PDF is one way to read it.',
+          'Your own notes of a counseling you received are always final and yours to edit.',
         ],
-        also: ['acknowledge', 'counsel', '6105'],
+        also: ['acknowledge', 'counsel', '6105', 'navmc 2795', 'worksheet', 'amend', 'draft'],
       },
       {
         id: 'invite',

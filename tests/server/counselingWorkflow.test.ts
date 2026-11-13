@@ -8,7 +8,7 @@ import { exportInstance } from '../../server/services/exports.ts';
 import { saveSchedule, runDisposition, REDACTED } from '../../server/services/retention.ts';
 import { readZip } from '../../server/lib/zip.ts';
 import {
-  COUNSELING_STAGES, counselingDocument, counselingOptions, documentBand, sessionKindFor, worksheetBlocks, worksheetFor,
+  COUNSELING_STAGES, counselingDocument, counselingOptions, dayOf, documentBand, sessionKindFor, signatureNotes, worksheetBlocks, worksheetFor,
   type CounselingDocument, type CounselingDocumentInput,
 } from '../../shared/counseling.ts';
 
@@ -133,6 +133,12 @@ test('the workflow rule: who may do what, at each stage', () => {
   assert.equal(documentBand({ stage: 'final', revision: 1, current_revision: 1, superseded_at: null }), null);
   assert.equal(documentBand({ stage: 'final', revision: 2, current_revision: 2, superseded_at: null }), 'AMENDED - REVISION 2');
   assert.equal(documentBand({ stage: 'final', revision: 1, current_revision: 3, superseded_at: '2026-11-02T10:00:00.000Z' }), 'REVISION 1 OF 3 - REPLACED BY AN AMENDMENT ON 2026-11-02');
+  // Its dates are days where it was generated, as its "generated on" is: 04:00 UTC on the 13th is still the 12th in Chicago.
+  assert.equal(dayOf('2026-11-13T04:00:00.000Z', 'America/Chicago'), '2026-11-12');
+  assert.equal(dayOf('2026-11-13T04:00:00.000Z', null), '2026-11-13');
+  assert.equal(dayOf('2026-11-13T04:00:00.000Z', 'Not/AZone'), '2026-11-13');
+  assert.equal(documentBand({ stage: 'final', revision: 1, current_revision: 2, superseded_at: '2026-11-13T04:00:00.000Z', generated: { zone: 'America/Chicago' } }), 'REVISION 1 OF 2 - REPLACED BY AN AMENDMENT ON 2026-11-12');
+  assert.equal(signatureNotes({ own_notes: false, stage: 'final', acknowledgement: { at: '2026-11-13T04:00:00.000Z', due: false }, finalized: { at: '2026-11-13T03:00:00.000Z', by: 'Sgt Lopez, Maria' }, generated: { zone: 'America/Chicago' } }).counselor, 'Finalized in Vantage on 2026-11-12 by Sgt Lopez, Maria.');
 });
 
 test('a draft is its counselor’s alone: nobody else reads, counts or hears of it', async () => {

@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer } from 'lucide-react';
+import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Tabs, Panel, EmptyState, Badge, Skeleton, Stat } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, CategoryDot, DescriptionList, Table, useParam } from '@/components/common';
-import { CounselingFields, AwardFields, emptyCounseling, emptyAward, evidenceCount } from '@/pages/Career';
+import { AwardFields, emptyAward, evidenceCount } from '@/pages/Career';
+import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingStatus, counselingDraft, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
+import { counselorWritten } from '../../shared/counseling';
 import { Attachments } from '@/components/Attachments';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { can, canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
@@ -26,7 +28,7 @@ import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/D
 import { ApprovedPoints, DutyReviewActions, DutyReviewHistory } from '@/components/DutyReview';
 import { hasReviewOptions } from '../../shared/dutyReview';
 import { DUTY_STATUS_LABELS, formatHours } from '../../shared/duty';
-import type { Duty, Training } from '../../shared/types';
+import type { Counseling, Duty, Training } from '../../shared/types';
 import { PERMISSIONS } from '../../shared/permissions';
 import { formatTimeframe } from '../../shared/timeframe';
 
@@ -46,7 +48,8 @@ export default function MemberDetail() {
   const { data: readiness } = useQuery({ queryKey: ['readiness', id], queryFn: () => api.memberReadiness(id), enabled: Boolean(data) });
   const { data: rolesData } = useRoles(Boolean(data?.canManageMembers?.length));
   const [tab, setTab] = useParam('tab', 'personnel');
-  const [counseling, setCounseling] = useState<any>(null);
+  const [counseling, setCounseling] = useState<{ draft: CounselingDraft; row?: Counseling } | null>(null);
+  const [amending, setAmending] = useState<Counseling | null>(null);
   const [award, setAward] = useState<any>(null);
   const [duty, setDuty] = useState<DutyMode | null>(null);
   const [dutyView, setDutyView] = useState<Duty | null>(null);
@@ -92,7 +95,7 @@ export default function MemberDetail() {
   const revoke = async (roleId: string) => { try { await api.revokeRole(id, roleId); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role removed.'); } catch (e) { toast.error(api.errorText(e)); } };
   // What the personnel feed sets is not sent, so a correction to the rest is never refused for it.
   const saveProfile = async () => { try { const body = Object.fromEntries(Object.entries({ first_name: profile.first_name, last_name: profile.last_name, middle_initial: profile.middle_initial || null, rank_id: profile.rank_id || null, mos: profile.mos || null, eas: profile.eas || null }).filter(([k]) => !sourced.has(k))); await api.updateMemberProfile(id, body); reload(); toast.success('Profile updated.'); setProfile(null); } catch (e) { toast.error(api.errorText(e)); } };
-  const pendingAck = records ? records.counselings.filter((c) => !c.acknowledged_at && c.counselor_id && c.counselor_id !== c.user_id).length : 0;
+  const pendingAck = records ? records.counselings.filter((c) => c.stage === 'final' && !c.acknowledged_at && counselorWritten(c)).length : 0;
   const assignments = record.instances.flatMap((i) => i.assignments);
 
   return (
@@ -102,7 +105,7 @@ export default function MemberDetail() {
         {canEditProfile && <Button onClick={() => setProfile({ first_name: person.first_name, last_name: person.last_name, middle_initial: person.middle_initial || '', rank_id: person.rank_id || '', mos: person.mos || '', eas: person.eas || '' })}><Pencil className="h-4 w-4" />Edit profile</Button>}
         {canCounsel && <Button onClick={() => setAward({ ...emptyAward('unit', unitId), user_id: id })}><AwardIcon className="h-4 w-4" />Recommend award</Button>}
         {canCounsel && <Button onClick={() => setDuty({ kind: 'new', forUser: { id, name: fullName(person) } })}><Timer className="h-4 w-4" />Record duty</Button>}
-        {canCounsel && <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}><MessageSquare className="h-4 w-4" />New counseling</Button>}
+        {canCounsel && <Button variant="primary" onClick={() => setCounseling({ draft: { ...emptyCounseling('unit', unitId), user_id: id } })}><MessageSquare className="h-4 w-4" />New counseling</Button>}
         {records && <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>}
       </PageHeader>
       {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />{records ? `You are seeing only what this Marine shared with ${records.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.` : 'You are seeing their personnel record: where they serve, in what billet and under whom. Their entries stay with those who may read them. This view was logged.'}</p>}
@@ -143,13 +146,17 @@ export default function MemberDetail() {
         </Table></div>
       ))}
 
-      {tab === 'counseling' && (records.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}>New counseling</Button> : undefined} /></div> : (
+      {tab === 'counseling' && (records.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ draft: { ...emptyCounseling('unit', unitId), user_id: id } })}>New counseling</Button> : undefined} /></div> : (
         <div className="space-y-3">{records.counselings.map((c) => (
           <article key={c.id} className="card p-4">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3"><DateText value={c.date} /><Badge>{humanize(c.type)}</Badge>{c.counselor_name && <span>by {c.counselor_name}</span>}{c.acknowledged_at ? <Badge tone="good">Acknowledged</Badge> : c.counselor_id && c.counselor_id !== c.user_id ? <Badge tone="warn">Awaiting acknowledgement</Badge> : <Badge>Self-recorded</Badge>}{c.follow_up_date && <span>follow-up <DateText value={c.follow_up_date} /></span>}</div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3"><DateText value={c.date} fallback="No date" /><Badge>{humanize(c.type)}</Badge>{c.counselor_name && <span>by {c.counselor_name}</span>}<CounselingStatus row={c} />{c.follow_up_date && <span>follow-up <DateText value={c.follow_up_date} /></span>}</div>
             <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{c.summary}</p>
             <DescriptionList items={[['Strengths', c.strengths], ['Areas to improve', c.improvements], ['Goals set', c.goals_set]]} />
-            {c.counselor_id === identity?.user.id && !c.acknowledged_at && <div className="mt-2 flex justify-end"><Button size="xs" variant="ghost" onClick={() => setCounseling({ ...c, date: c.date || '', counselor_name: c.counselor_name || '', strengths: c.strengths || '', improvements: c.improvements || '', goals_set: c.goals_set || '', follow_up_date: c.follow_up_date || '' })}>Edit</Button></div>}
+            <CounselingHistory row={c} className="mt-3" />
+            <div className="mt-2 flex flex-wrap justify-end gap-1">
+              <Button size="xs" variant="ghost" onClick={() => openCounselingPrint(c.id)}><Printer className="h-3.5 w-3.5" aria-hidden />Print</Button>
+              <CounselingActions row={c} size="xs" onEdit={() => setCounseling({ draft: counselingDraft(c), row: c })} onAmend={() => setAmending(c)} onMoved={() => refetch()} />
+            </div>
           </article>
         ))}</div>
       ))}
@@ -176,7 +183,8 @@ export default function MemberDetail() {
       )}
       </>}
 
-      <RecordDialog store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : `New counseling for ${person.last_name}`} noun="Counseling" size="lg" validate={(d: any) => (!d.summary.trim() ? 'A summary is required.' : null)} onSaved={() => refetch()} fields={(d: any, set, errors) => <CounselingFields d={d} set={set} errors={errors} leader />} />
+      <CounselingDialog open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling?.draft ?? null} row={counseling?.row} leader title={counseling?.draft.id ? `Edit counseling for ${person.last_name}` : `New counseling for ${person.last_name}`} onSaved={() => refetch()} />
+      <AmendDialog row={amending} open={Boolean(amending)} onOpenChange={(o) => { if (!o) setAmending(null); }} onAmended={() => refetch()} />
       <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) setAward(null); }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg" validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />
       <DutyDialog mode={duty} open={Boolean(duty)} onOpenChange={(o) => { if (!o) setDuty(null); }} onSaved={() => { refetch(); setTab('duty'); }} />
       <Dialog open={Boolean(dutyViewed)} onOpenChange={(o) => { if (!o) setDutyView(null); }} title={dutyViewed ? dutyViewed.title || dutyViewed.duty_type_name || 'Duty' : ''} size="lg">
