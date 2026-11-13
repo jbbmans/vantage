@@ -33,6 +33,12 @@ export const takesEvidenceKind = (table: string): boolean => (EVIDENCE_TABLES as
 
 /** The bounds on what is written about a file: its description's length, and its name's. */
 export const ATTACHMENT_LIMITS = { description: 500, filename: 120 } as const;
+/**
+ * The most text a description is cleaned from. Hidden characters and runs of space come out before the limit is applied,
+ * so what is sent may be longer than what is kept; past this it is refused before it is cleaned, so megabytes of it cost
+ * no more than the request that carried them.
+ */
+const DESCRIPTION_READ_LIMIT = ATTACHMENT_LIMITS.description * 8;
 
 /**
  * Characters that hide in a line of text or reorder it on screen: zero-width marks, the soft hyphen, and the
@@ -49,6 +55,7 @@ export const stripHidden = (value: string): string => value.replace(HIDDEN, '');
 export function cleanDescription(value: unknown): { ok: true; value: string | null } | { ok: false; error: string } {
   if (value == null) return { ok: true, value: null };
   if (typeof value !== 'string') return { ok: false, error: 'The description must be text.' };
+  if (value.length > DESCRIPTION_READ_LIMIT) return { ok: false, error: `Too long (limit ${ATTACHMENT_LIMITS.description} characters).` };
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/.test(value) || /\p{Cs}/u.test(value)) return { ok: false, error: 'The description holds characters that cannot be kept. Type it as plain text.' };
   const line = stripHidden(value).replace(/\s+/g, ' ').trim();
