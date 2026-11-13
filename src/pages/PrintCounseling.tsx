@@ -28,10 +28,11 @@ export default function PrintCounseling() {
   }, [doc, autoprint]);
   // Opened in its own tab, it has nowhere to go back to: Back opens the counseling there.
   const back = () => { if (window.history.length > 1) window.history.back(); else window.location.assign(`/career/counseling?open=${encodeURIComponent(id)}`); };
+  // The PDF of the revision on the page, though the counseling may have been amended since it was opened.
   const pdf = async () => {
     if (!doc) return;
     setDownloading(true);
-    try { const name = await withSudo(() => api.downloadFile(api.counselingPdfUrl(id, revision), `vantage-counseling-${id.slice(0, 8)}-r${doc.revision}.pdf`)); toast.success(`Downloaded ${name}.`); }
+    try { const name = await withSudo(() => api.downloadFile(api.counselingPdfUrl(id, doc.revision), `vantage-counseling-${id.slice(0, 8)}-r${doc.revision}.pdf`)); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setDownloading(false); }
   };
