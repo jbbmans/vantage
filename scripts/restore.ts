@@ -187,7 +187,7 @@ db.transaction(() => {
     if (!metaGet(db, 'database_id') && replaced?.database_id && sameDatabase !== false) metaSet(db, 'database_id', replaced.database_id);
   }
   // A session, a link or a queued message from the backup's day would sign someone in, or send, as of then.
-  for (const table of ['sessions', 'tokens', 'email_queue', 'oidc_states', 'connector_auth_states']) if (hasTable(table)) db.prepare(`DELETE FROM ${table}`).run();
+  for (const table of ['sessions', 'tokens', 'passkey_challenges', 'email_queue', 'oidc_states', 'connector_auth_states']) if (hasTable(table)) db.prepare(`DELETE FROM ${table}`).run();
   // An approval to change somebody's sign-in belongs to the backup's day; it is asked for again.
   if (hasTable('credential_approvals')) {
     db.prepare("UPDATE credential_approvals SET status = 'cancelled', decided_at = COALESCE(decided_at, ?), decision_note = COALESCE(decision_note, 'Cancelled by a restore of the database.') WHERE status IN ('pending', 'approved')").run(at);

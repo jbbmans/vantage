@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
 import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
 import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -345,7 +346,51 @@ export const caseKeys = {
 
 export const useWorkItem = (id: string | null) => useQuery<WorkItemDetail>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
 export const useRecordSummary = (params: Record<string, string | undefined> = {}, enabled = true) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000, enabled });
-export const useAssignedWork = () => useQuery<AssignedItem[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
+/**
+ * Keeps a query fresh while the page is visible: once its data is `everyMs` old, it is read again. Only these timed reads
+ * are marked as background, so a page left open never keeps an idle session alive, while the reads a person causes
+ * (opening the page, changing a filter, coming back to the tab) still count as activity. The answer is written into the
+ * page's cache entry with setQueryData, so the query's own fetcher, which invalidations and refetches use, stays the
+ * foreground one. A timed read is skipped while another read of the key is under way, and its answer is dropped if the
+ * entry changed meanwhile (newer data, a read in progress, or an invalidation after a change). A failed read is not
+ * tried again for another `everyMs`.
+ */
+export function useBackgroundRefresh<T>(queryKey: readonly unknown[], fetchQuietly: (signal: AbortSignal) => Promise<T>, everyMs = 30_000) {
+  const qc = useQueryClient();
+  const latest = useRef({ queryKey, fetchQuietly });
+  useEffect(() => { latest.current = { queryKey, fetchQuietly }; });
+  useEffect(() => {
+    let inflight: AbortController | null = null;
+    let lastTry = 0;
+    const tick = () => {
+      if (inflight || document.visibilityState !== 'visible') return;
+      const { queryKey: key, fetchQuietly: fetcher } = latest.current;
+      const state = qc.getQueryState(key);
+      if (!state || state.fetchStatus !== 'idle') return;
+      if (Date.now() - Math.max(state.dataUpdatedAt, state.errorUpdatedAt, lastTry) < everyMs) return;
+      lastTry = Date.now();
+      const controller = new AbortController();
+      inflight = controller;
+      fetcher(controller.signal)
+        .then((data) => {
+          const now = qc.getQueryState(key);
+          if (controller.signal.aborted || !now || now.fetchStatus !== 'idle' || now.dataUpdateCount !== state.dataUpdateCount) return;
+          if (now.isInvalidated && !state.isInvalidated) return;
+          qc.setQueryData(key, data);
+        })
+        // A failed timed read changes nothing; the page's own reads report their errors.
+        .catch(() => undefined)
+        .finally(() => { if (inflight === controller) inflight = null; });
+    };
+    const timer = window.setInterval(tick, Math.max(1_000, Math.min(5_000, Math.floor(everyMs / 6))));
+    return () => { window.clearInterval(timer); inflight?.abort(); };
+  }, [qc, everyMs]);
+}
+
+export const useAssignedWork = () => {
+  useBackgroundRefresh(caseKeys.assigned, (signal) => api.assignedWork({ signal, background: true }));
+  return useQuery<AssignedItem[]>({ queryKey: caseKeys.assigned, queryFn: ({ signal }) => api.assignedWork({ signal }), staleTime: 10_000 });
+};
 export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
 export const useRecordDrafts = (enabled = true) => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts, enabled });
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });

@@ -229,6 +229,12 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'Nobody reads them; a code is only checked against its hash.',
     columns: { id: 'technical', user_id: 'identifier', code_hash: 'authentication', used_at: 'technical' },
   },
+  passkey_challenges: {
+    purpose: 'Single-use WebAuthn challenges that expire after five minutes and are consumed before verification or removed by cleanup.',
+    authority: 'Necessary to verify passkey authentication and registration.',
+    access: 'Server only. Excluded from portable archives and personal exports; expired entries are pruned.',
+    columns: { key_hash: 'authentication', kind: 'none', challenge: 'authentication', user_id: 'identifier', expires_at: 'technical', created_at: 'technical' },
+  },
   tokens: {
     purpose: 'Single-use links: password reset, invitations, email confirmation. Stored only as hashes, and expired.',
     authority: 'Necessary to operate account recovery and enrolment.',

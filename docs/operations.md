@@ -3,6 +3,10 @@
 This is the Vantage team's run book for the central service. Commands do not run Vantage; what a Unit Instance's
 Unit Managers do for themselves is in the Unit Manager console, and is noted where it touches these steps.
 
+The runtime Docker image holds Node and the application, without npm, npx, Yarn or Corepack, so the commands here call each script with `node scripts/...`. They work the same in a source checkout. The image's base is pinned by digest, and Debian's security updates are applied when the image is built, so two builds on different days can differ in their OS packages. CI scans the built image and fails on fixable high and critical findings. Identify the image you deploy by its digest, as your registry or host records it (for a local build, `docker image inspect --format '{{.Id}}' <image>`).
+
+Repository code scanning uses GitHub default setup for alert uploads. The checked-in extended CodeQL workflow retains SARIF results as an artifact and does not upload by default, avoiding GitHub's rejection of advanced uploads while default setup is enabled. Review the artifact and the Security tab. To switch to advanced uploads, disable default setup in repository settings and set `VANTAGE_CODEQL_UPLOAD=true`; do not interpret a completed analysis job as a finding-free result.
+
 ## Backups
 
 A backup is the whole service as it is stored: every Unit Instance, account, password hash, sealed secret, record
@@ -10,11 +14,11 @@ and the audit trail. It is not the same thing as a data export (see [Backups are
 Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before
 every upgrade, and store it somewhere the data classification allows. Render disks are not backed up for you.
 
-- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is one self-contained file, readable by its owner only, and the script prints the newest audit entry it holds; encrypt it before it leaves the host.
+- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db node scripts/backup.ts /backups/vantage-$(date +%F).db`. The copy is one self-contained file, readable by its owner only, and the script prints the newest audit entry it holds; encrypt it before it leaves the host.
 - **From the browser**: **Vantage Administrator console → Backup and restore → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
 Each backup taken either way is recorded in the database it copied: when, how, its size, file name and newest audit
-entry, and for a download, who took it. A download is audited as it happens; a backup taken with `npm run backup` is
+entry, and for a download, who took it. A download is audited as it happens; a backup taken with `node scripts/backup.ts` is
 audited by the running service within five minutes, or at its next start, because the script does not hold the key
 the audit trail is sealed with. **Operations → Backups** shows the last 20 and whether the newest is fresh. One older
 than `VANTAGE_BACKUP_MAX_AGE_HOURS` (default 168, a week) or none at all needs attention on the console's health check.
@@ -26,13 +30,13 @@ storage replication) never passes through Vantage and is not shown (I-28).
 ## Restoring from a backup
 
 Restoring is done on the host, with the service stopped, by a Lead Vantage Administrator's authority, and it is
-audited (ADR-0014). `npm run restore` is the only supported way.
+audited (ADR-0014). `node scripts/restore.ts` is the only supported way.
 
 1. **Vantage Administrator console → Maintenance → Start maintenance**, with the reason (the change or incident
    record's number, I-35). Then stop the service.
 2. **See what it would undo:**
    ```
-   VANTAGE_DB=/data/vantage.db VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE \
+   VANTAGE_DB=/data/vantage.db VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE \
      --from /backups/vantage-2026-10-14.db --by boletz --reason "Ransomware on the host; back to last night" \
      --change INC-4471 --dry-run
    ```
@@ -52,7 +56,7 @@ audited (ADR-0014). `npm run restore` is the only supported way.
 
 **Never copy a `.db` file over the live one by hand.** The service notes the newest audit entry its database holds
 beside it (`<database>.lineage`, or `VANTAGE_LINEAGE_FILE`; `off` turns it off). A start that finds its database no
-longer holds that entry, with no `npm run restore` to explain it, records that the database was replaced outside the
+longer holds that entry, with no `node scripts/restore.ts` run to explain it, records that the database was replaced outside the
 restore command (`database_replaced`), shows it on every Unit Instance's health for 14 days, and tells Vantage staff
 and the Lead Unit Managers. The lineage lives on the same host: it catches a mistake or an old procedure, not someone
 who rewrites it too. That is what the off-host audit copy is for (below).
@@ -84,7 +88,7 @@ its last upgrade and whether it kept its rows, its health, its backup freshness,
 withheld from it. A Unit Instance's own role holders see theirs under **Operations** in the Unit Manager console,
 with the service's own checks as one status.
 
-On the host, `VANTAGE_DB=/data/vantage.db npm run operations-report > operations.json` prints the same as JSON
+On the host, `VANTAGE_DB=/data/vantage.db node scripts/operations-report.ts > operations.json` prints the same as JSON
 (`vantage-operations/1`) without starting Vantage or writing anything, for whatever watches many deployments at once
 (I-34). It reports the service's own health as not checked, since that needs the running process.
 
@@ -175,7 +179,7 @@ Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 nod
 ## Recovering access
 
 - **A Unit Instance with no Lead Unit Manager left** (moved, separated, locked out): **Vantage Administrator console → Unit Instances → Name Lead Unit Manager** names one, only for a Unit Instance with none, and never the Vantage Administrator doing it (ADR-0010). Someone not yet a member is seated in its top unit. A Unit Instance that has Lead Unit Managers names its own. A Lead Unit Manager who has left every unit of the instance, or been separated by the roster feed, no longer counts.
-- **Every Lead Vantage Administrator locked out:** `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server makes that account a Lead Vantage Administrator, clears its authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
+- **Every Lead Vantage Administrator locked out:** `VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>` on the server makes that account a Lead Vantage Administrator, clears its authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
 
 ## Lost phone
 

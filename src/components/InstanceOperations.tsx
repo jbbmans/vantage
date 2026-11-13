@@ -75,7 +75,7 @@ export const BACKUP_STATE: Record<BackupState, { label: string; tone: Tone }> = 
 };
 
 const RESTORE_METHOD: Record<'script' | 'archive' | 'detected', string> = {
-  script: 'restored on the host with npm run restore',
+  script: 'restored on the host with the restore script',
   archive: 'loaded from a service archive',
   detected: 'replaced outside Vantage’s restore command',
 };

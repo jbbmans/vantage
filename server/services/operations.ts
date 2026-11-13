@@ -148,6 +148,7 @@ export function backupStatus(ctx: AppContext, at = Date.now()) {
 
 export interface JobState {
   name: string; label: string; everyMs: number; runs: number; failures: number; consecutiveFailures: number;
+  running: boolean; skipped: number;
   lastRunAt: string | null; lastOkAt: string | null; lastError: string | null; lastMs: number | null; registeredAt: string;
 }
 const jobs = new WeakMap<AppContext, Map<string, JobState>>();
@@ -158,9 +159,12 @@ const jobs = new WeakMap<AppContext, Map<string, JobState>>();
  */
 export function trackedJob(ctx: AppContext, name: string, label: string, everyMs: number, fn: () => unknown): () => Promise<void> {
   if (!jobs.has(ctx)) jobs.set(ctx, new Map());
-  const state: JobState = { name, label, everyMs, runs: 0, failures: 0, consecutiveFailures: 0, lastRunAt: null, lastOkAt: null, lastError: null, lastMs: null, registeredAt: now() };
+  const state: JobState = { name, label, everyMs, runs: 0, failures: 0, consecutiveFailures: 0, running: false, skipped: 0, lastRunAt: null, lastOkAt: null, lastError: null, lastMs: null, registeredAt: now() };
   jobs.get(ctx)!.set(name, state);
   return async () => {
+    // A slow mailbox, scan or feed must finish before another tick starts the same job in this process.
+    if (state.running) { state.skipped += 1; return; }
+    state.running = true;
     const started = performance.now();
     state.lastRunAt = now();
     try {
@@ -174,6 +178,7 @@ export function trackedJob(ctx: AppContext, name: string, label: string, everyMs
       state.lastError = String((error as Error)?.message || error).slice(0, 300);
       console.warn(`${label} failed: ${state.lastError}`);
     } finally {
+      state.running = false;
       state.runs += 1;
       state.lastMs = Math.round(performance.now() - started);
     }
@@ -237,7 +242,7 @@ function auditChecks(ctx: AppContext, verified?: ReturnType<typeof verifyAuditCh
 
 function backupCheck(ctx: AppContext, at: number): HealthCheck {
   const b = backupStatus(ctx, at);
-  if (b.state === 'never') return { id: 'backup', label: 'Backups', status: 'warn', summary: 'Vantage has no record of a backup. Take one with npm run backup on the server; copies the hosting environment makes on its own do not show here.' };
+  if (b.state === 'never') return { id: 'backup', label: 'Backups', status: 'warn', summary: 'Vantage has no record of a backup. Take one on the server with node scripts/backup.ts <file>; copies the hosting environment makes on its own do not show here.' };
   const age = b.ageHours! < 48 ? `${Math.round(b.ageHours!)} hours` : `${Math.round(b.ageHours! / 24)} days`;
   return { id: 'backup', label: 'Backups', status: b.state === 'stale' ? 'warn' : 'ok', summary: `Last backup ${age} ago (${b.last!.method === 'server' ? 'on the server' : 'downloaded from the console'}). The service expects one every ${b.maxAgeHours} hours.` };
 }

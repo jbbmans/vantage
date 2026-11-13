@@ -766,7 +766,7 @@ function browserCopy(req: Request, what: string) {
 /**
  * Backup and restore: the backups recorded, the restores this database went through (with what each undid), and whether
  * the lineage that tells a database put back behind the service's back is kept (ADR-0014). Restoring is on the host,
- * with the service stopped: npm run restore.
+ * with the service stopped: node scripts/restore.ts.
  */
 platformRouter.get('/recovery', requirePlatform('platform.data'), wrap((req, res) => {
   res.json({ backups: backupStatus(req.ctx), restores: restoreStatus(req.ctx) });

@@ -4,7 +4,7 @@
 
 Vantage is a Marine Corps work, accountability, performance-record and career-development platform. A Marine claims work, researches and completes it, and keeps an attributed record of their part without retyping it. A leader sees workload, waiting and blockers without a roll call. The same Marine logs what happens outside a tasker, keeps goals, plans their career, and builds supported JEPES or FITREP input.
 
-Five destinations: **Today · Work · Record · Goals · Career**, the **Reference**, and **Team**: your fire team and the command above it.
+**Today** and the grouped destinations **Work · Records · Personnel · Training & Development · Reports & Analytics · Administration · Help**. The menu, search and shortcuts read the same navigation definition in `src/config/nav.ts`; what is available follows the person's role and unit.
 
 - **Today**: your work with its next step, what is waiting on someone else, what is open to claim, what changed, quick capture, and your goals and next career step. Leaders see their section first: unassigned, overdue, blocked and waiting work, and who holds what.
 - **Work**: the queue of tasker items (open work, open to claim, mine), taskers and projects, tasks, and correspondence. Each item has its own page with an append-only history. Every claim, handoff, stage, wait, observation, decision, submission, funds check and verification is attributed and dated.
@@ -23,7 +23,7 @@ Vantage's production target is an enterprise deployment on the Marine Corps Ente
 
 The public site at vantageusmc.com on Render is the legacy deployment (`legacy-public`, [docs/deploy-render.md](docs/deploy-render.md)). It keeps working until it is retired, and it is not the target. The tenancy and authority model below comes from [ADR-0006](docs/engineering/ADR/0006-centralized-tenancy-and-authority.md). In code, a Unit Instance is still called an organization (`organizations`, `/api/orgs`).
 
-- **Unit Instances.** Each command or staff section is a Unit Instance: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other Unit Instance's. A deployment either shares one database among many (`VANTAGE_TOPOLOGY=shared`) or holds exactly one (`dedicated`). Vantage Administrators provision them in the Vantage Administrator console or with `npm run provision-instance`.
+- **Unit Instances.** Each command or staff section is a Unit Instance: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other Unit Instance's. A deployment either shares one database among many (`VANTAGE_TOPOLOGY=shared`) or holds exactly one (`dedicated`). Vantage Administrators provision them in the Vantage Administrator console or with `node scripts/provision-instance.ts`.
 - **Accounts belong to the Marine.** One account follows a person between commands; their private entries, career plan and export stay theirs.
 - **Three tiers of authority, none implying another.**
 
@@ -74,7 +74,7 @@ Nothing from the earlier product was removed. It moved: activities are under Rec
 - **Authoritative personnel.** A roster extract from an upstream personnel system becomes the source for rank, unit, MOS and EAS; those fields stop being self-editable, every change is audited field by field, a sync never deletes anybody, and an extract that would separate a large share of the roster stops and asks.
 - **Records management.** Retention schedules with their citation, legal holds that suspend every deletion path (scheduled disposition, the recycle-bin purge and source-file pruning alike) and always win, previews before anything acts, and disposition evidence for every run. Nothing disposes until somebody enables it.
 - **Privacy inventory.** A PIA data inventory generated from the live schema, with every table declared, so it cannot quietly stop being true; unclassified and stale columns are reported as the gaps they are.
-- **Security.** 15-character minimum passwords (PBKDF2-HMAC-SHA256, FIPS approved), passkeys (WebAuthn), TOTP with recovery codes, a lockout after three failures kept in the database, 15-minute idle sessions (10 for Vantage staff), the DoD Notice and Consent Banner on request, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log that can be copied to a SIEM as it is written, a signed hash chain over every case history, malware scanning of every upload through clamd, and a secret that can be rotated. Access to a unit's work follows current membership and flows down the chain of command, never up. Private records are never readable through the app by leaders, organization owners or Vantage staff.
+- **Security.** 15-character minimum passwords (PBKDF2-HMAC-SHA256), passkeys (WebAuthn), TOTP with recovery codes, a lockout after three failures kept in the database, 15-minute idle sessions (10 for Vantage staff), the DoD Notice and Consent Banner on request, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log that can be copied to a SIEM as it is written, a signed hash chain over every case history, upload scanning through clamd when configured, and a secret that can be rotated. The deployment must establish validated cryptographic modules and required scanning policy; choosing an algorithm does not certify the application. Access to a unit's work follows current membership and flows down the chain of command, never up. Private records are never readable through the app by leaders, organization owners or Vantage staff.
 - **Unit Manager console.** One organization at a time: its people and organization roles, units and their leaders, the personnel feed, retention and holds, Vantage access approvals, the privacy inventory, its audit trail and a structure export.
 - **Vantage Administrator console.** Organizations, sign-in help for any account, Vantage staff, access requests, platform settings, metrics, AI, email, usage, the platform audit trail, platform-wide holds, backups and whole-service recovery.
 
@@ -98,8 +98,8 @@ Scripts:
 | `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
 | `npm run build` | production client into `dist/` |
 | `npm start` | production server (`node server/index.ts`), serves `dist/` |
-| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | make an account a Lead Vantage Administrator and give it a temporary password, from the shell |
-| `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
+| `VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>` | make an account a Lead Vantage Administrator and give it a temporary password, from the shell |
+| `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
 | `VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD=… node scripts/start-over.ts ERASE-EVERYTHING --unit … [--roster file]` | erase everything in place, create a Lead Vantage Administrator and the first Unit Instance, and import a roster; see [operations.md](docs/operations.md#starting-over) |
 
 Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.

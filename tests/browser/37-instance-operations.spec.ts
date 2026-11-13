@@ -48,7 +48,7 @@ test('Backup and restore keeps infrastructure backups apart from the data export
   await loginAs(page, OPERATOR.username);
   await openAdmin(page, 'data', 'Backup and restore');
   for (const name of ['Database backup', 'Restore', 'Restores', 'Service archive', 'Not backups: data exports']) await expect(panel(page, name), name).toBeVisible();
-  await expect(panel(page, 'Restore')).toContainText('VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE');
+  await expect(panel(page, 'Restore')).toContainText('VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE');
   const exports = panel(page, 'Not backups: data exports');
   for (const name of ['Personal export', 'Unit configuration', 'Roster']) await expect(exports.getByRole('cell', { name: new RegExp(`^${name}`) }).first(), name).toBeVisible();
   await expect(exports).not.toContainText('Database backup');

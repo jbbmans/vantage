@@ -39,8 +39,8 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
     id: 'database_backup', kind: 'infrastructure', label: 'Database backup', format: 'SQLite database file (.db)',
     holds: 'The whole service exactly as stored: every Unit Instance, account, password hash, sealed secret, record and the audit trail.',
     who: 'Lead Vantage Administrators (Backups and recovery); on the host, whoever runs the command.',
-    routes: ['GET /api/platform/backup'], commands: ['npm run backup -- <file>', 'npm run restore'],
-    restores: 'Only on the host, with the service stopped: npm run restore checks it, keeps the database it replaces, and is audited.',
+    routes: ['GET /api/platform/backup'], commands: ['node scripts/backup.ts <file>', 'node scripts/restore.ts'],
+    restores: 'Only on the host, with the service stopped: node scripts/restore.ts checks it, keeps the database it replaces, and is audited.',
   },
   {
     id: 'service_archive', kind: 'infrastructure', label: 'Service archive', format: `${SERVICE_ARCHIVE_FORMAT} JSON`,
@@ -122,7 +122,7 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
 const SQLITE_HEADER = 'SQLite format 3\u0000';
 const ARCHIVE_MARK = /"format"\s*:\s*"vantage-instance\/1"/;
 
-const BACKUP_REFUSED = 'That is a Vantage database backup, not a file to import. A backup is the whole service and is only ever restored on the host by Vantage staff (npm run restore).';
+const BACKUP_REFUSED = 'That is a Vantage database backup, not a file to import. A backup is the whole service and is only ever restored on the host by Vantage staff (node scripts/restore.ts).';
 const ARCHIVE_REFUSED = 'That is the Vantage service archive, every Unit Instance at once, not a file to import here. Only Lead Vantage Administrators load it, into a fresh service.';
 
 /**

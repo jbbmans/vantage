@@ -11,7 +11,10 @@ import { useToast } from '@/components/ui/toast';
 import { DateText, DueText, PageShell, dueIn } from '@/components/common';
 import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
-import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
+import BulkWorkDialog, { type SelectedWork } from '@/components/BulkWorkDialog';
+import { BULK_WORK_LIMIT } from '../../shared/bulkWork';
+import { can, useBackgroundRefresh, useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
+import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics';
 import { cn, isoDay, todayIso, useMediaQuery } from '@/lib/utils';
@@ -52,6 +55,11 @@ const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort
 /** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
 const isClosedRow = (row: { state?: string }) => ['resolved', 'not_applicable'].includes(String(row.state));
+/** Where the cursor is now: on its case if that case is still listed, otherwise at the same place in the list. */
+const cursorIndex = (at: { id: string | null; index: number }, rows: Array<{ id: string }>) => {
+  const found = at.id ? rows.findIndex((row) => row.id === at.id) : -1;
+  return found >= 0 ? found : Math.max(0, Math.min(at.index, rows.length - 1));
+};
 const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !isClosedRow(row));
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
@@ -73,7 +81,9 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   }));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [cursor, setCursor] = useState(0);
+  // The keyboard cursor follows a case, not a row number, so a refresh that reorders or drops rows never leaves it on
+  // somebody else's case. When its case leaves the list, it stays at the same place in the list.
+  const [cursorAt, setCursorAt] = useState<{ id: string | null; index: number }>({ id: null, index: 0 });
   const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
   // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here, and Back, which takes the mark
   // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay; when ⌘K added the
@@ -92,6 +102,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     else setSearchParams((p) => { if (!p.has('import')) return p; const n = new URLSearchParams(p); n.delete('import'); return n; }, { replace: true });
   }, [markedHere, navigate, setSearchParams]);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkItems, setBulkItems] = useState<SelectedWork[]>([]);
+  const [savingView, setSavingView] = useState(false);
+  const [shareViewUnit, setShareViewUnit] = useState('');
   const [viewName, setViewName] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [deletingView, setDeletingView] = useState(false);
@@ -113,14 +127,33 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     limit: query.limit, offset: query.offset, due_before: query.overdue ? yesterday() : undefined,
   }), [query]);
 
-  const list = useQuery({ queryKey: ['work-items', params], queryFn: () => api.listWorkItems(params), staleTime: 10_000 });
+  const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal }), staleTime: 10_000 });
+  useBackgroundRefresh(['work-items', params], (signal) => api.listWorkItems(params, { signal, background: true }));
   const views = useQuery({ queryKey: ['work-views'], queryFn: api.listWorkViews, staleTime: 60_000 });
   const rows: any[] = useMemo(() => list.data?.items || [], [list.data]);
   const total: number = list.data?.total ?? 0;
+  const cursor = useMemo(() => cursorIndex(cursorAt, rows), [cursorAt, rows]);
 
   const refresh = useCallback(() => invalidateWork(qc), [qc]);
 
-  useEffect(() => { setCursor(0); setSelected(new Set()); }, [query]);
+  useEffect(() => { setCursorAt({ id: null, index: 0 }); setSelected(new Set()); }, [query]);
+
+  useEffect(() => {
+    if (!rows.length) return;
+    setCursorAt((at) => {
+      const index = cursorIndex(at, rows);
+      return at.id === rows[index].id && at.index === index ? at : { id: rows[index].id, index };
+    });
+  }, [rows]);
+
+  useEffect(() => {
+    if (bulkOpen || list.isPending) return;
+    const visible = new Set(rows.map((row) => row.id));
+    setSelected((current) => {
+      const next = new Set([...current].filter((id) => visible.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [rows, bulkOpen, list.isPending]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -165,7 +198,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable;
-      if (importing || saveViewOpen) return;
+      // A key a dialog already handled (Escape closing it, say) is not a queue shortcut too, and nothing in a dialog is.
+      if (event.defaultPrevented || importing || saveViewOpen || bulkOpen || deletingView || target?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
+      // Enter and Space on a focused button, link or checkbox do what that control does, not what the cursor row does.
+      const control = Boolean(target?.closest?.('button, a[href], summary, [role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]'));
       if (typing) {
         if (event.key === 'Escape') (target as HTMLInputElement).blur();
         return;
@@ -176,27 +212,27 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       }
       const move = (delta: number) => {
         event.preventDefault();
-        setCursor((c) => {
-          const next = Math.max(0, Math.min(rows.length - 1, c + delta));
+        setCursorAt((at) => {
+          const next = Math.max(0, Math.min(rows.length - 1, cursorIndex(at, rows) + delta));
           const el = scroller.current;
           if (el) {
             const top = next * ROW_HEIGHT;
             if (top < el.scrollTop) el.scrollTop = top;
             else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_HEIGHT - el.clientHeight;
           }
-          return next;
+          return { id: rows[next]?.id ?? null, index: next };
         });
       };
       if (event.key === 'j' || event.key === 'ArrowDown') move(1);
       else if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
-      else if (event.key === ' ') { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
-      else if (event.key === 'Enter') { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
+      else if (event.key === ' ' && !control) { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
+      else if (event.key === 'Enter' && !control) { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
       else if (event.key === 'c') { event.preventDefault(); if (rows[cursor]) void claim(rows[cursor]); }
       else if (event.key === 'Escape') setSelected(new Set());
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, cursor, selected, importing, saveViewOpen, toggleSelected, copySelection, claim, openItem]);
+  }, [rows, cursor, selected, importing, saveViewOpen, bulkOpen, deletingView, toggleSelected, copySelection, claim, openItem]);
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - WINDOW_OVERSCAN);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + WINDOW_OVERSCAN * 2;
@@ -225,16 +261,19 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   };
 
   const saveCurrentView = async () => {
+    if (savingView) return;
+    setSavingView(true);
     try {
       // The search box reaches the query a beat after typing stops; the view keeps what the box says now.
       const q = search.trim();
-      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure, overdue: query.overdue } });
+      const saved = await api.saveWorkView({ name: viewName, shared: Boolean(shareViewUnit), unit_id: shareViewUnit || null, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure, overdue: query.overdue } });
       track('work.view_saved', { filters: [query.state, query.claimed, q, query.unit_id, query.procedure].filter(Boolean).length });
       toast.success('View saved.');
-      setSaveViewOpen(false); setViewName('');
+      setSaveViewOpen(false); setViewName(''); setShareViewUnit('');
       setActiveViewId(saved?.id ?? null);
       qc.invalidateQueries({ queryKey: ['work-views'] });
     } catch (e) { toast.error(api.errorText(e)); }
+    finally { setSavingView(false); }
   };
 
   const heldByMe = rows.filter((r) => r.claimed_by === identity?.user.id).length;
@@ -250,6 +289,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
       </>}
     >
+
+      {!list.isPending && <p className="mb-3 text-xs text-ink-3">The queue refreshes every 30 seconds while this page is visible. Each change checks the case version again.</p>}
 
       {/* One row that scrolls sideways on a phone, rather than two rows of pills before the first case. */}
       <div className="scroll-x-quiet -mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Whose work">
@@ -281,7 +322,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         {activeView && activeView.user_id === identity?.user.id && (
           <Button variant="ghost" size="sm" aria-label={`Delete the saved view “${activeView.name}”`} onClick={() => setDeletingView(true)}><Trash2 className="h-4 w-4" /></Button>
         )}
-        <Button onClick={() => setSaveViewOpen(true)}><Bookmark className="h-4 w-4" />Save this view</Button>
+        <Button onClick={() => { setShareViewUnit(''); setSaveViewOpen(true); }}><Bookmark className="h-4 w-4" />Save this view</Button>
       </div>
 
       {showFilters && (
@@ -307,8 +348,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       {selected.size > 0 && (
         <div className="card mb-3 flex flex-wrap items-center gap-2 p-3" role="region" aria-label="Selected rows">
           <span className="text-sm font-medium text-ink">{selected.size} selected</span>
+          <Button variant="primary" onClick={() => { setBulkItems(rows.filter((row) => selected.has(row.id)).map(({ id, version, reference, title }) => ({ id, version, reference, title }))); setBulkOpen(true); }} disabled={selected.size > BULK_WORK_LIMIT}>Update selected</Button>
           <Button onClick={copySelection}><ClipboardCopy className="h-4 w-4" />Copy</Button>
           <Button variant="ghost" onClick={() => setSelected(new Set())}><X className="h-4 w-4" />Clear</Button>
+          {selected.size > BULK_WORK_LIMIT && <p className="text-xs text-ink-2">Select up to {BULK_WORK_LIMIT} cases to update together.</p>}
         </div>
       )}
 
@@ -331,8 +374,11 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
           {!wide && (
           <ul className="space-y-2">
             {rows.map((row) => (
-              <li key={row.id}>
-                <button type="button" onClick={() => openItem(row.id)} className="w-full rounded-lg border border-line bg-surface p-3 text-left transition-colors hover:border-line-strong">
+              <li key={row.id} className={cn('flex rounded-lg border border-line bg-surface transition-colors hover:border-line-strong', selected.has(row.id) && 'border-accent bg-accent/5')}>
+                <label className="flex min-h-11 min-w-11 cursor-pointer items-start justify-center pt-4">
+                  <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
+                </label>
+                <button type="button" onClick={() => openItem(row.id)} className="min-w-0 flex-1 rounded-r-lg p-3 pl-0 text-left">
                   <span className="flex items-center justify-between gap-2">
                     <span className="fig text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</span>
                     <StageBadge stage={row.stage || row.state} waiting={row.waiting_category} />
@@ -355,7 +401,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
             <table className="w-full table-fixed border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-surface-2">
                 <tr>
-                  <th scope="col" className="w-10 px-3 py-2" />
+                  <th scope="col" className="w-10 px-3 py-2"><span className="sr-only">Select work</span></th>
                   {COLUMNS.map((c) => (
                     <th key={c.key} scope="col" className={cn('px-3 py-2 text-left text-xs font-semibold text-ink-2', c.width)}>
                       {c.key === 'claimed' ? c.label : (
@@ -383,7 +429,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                         <tr
                           key={row.id}
                           style={{ height: ROW_HEIGHT }}
-                          onClick={() => { setCursor(index); openItem(row.id); }}
+                          onClick={() => { setCursorAt({ id: row.id, index }); openItem(row.id); }}
                           className={cn('cursor-pointer border-b border-line transition-colors', isSelected && 'bg-accent/5', isCursor && 'outline outline-2 -outline-offset-2 outline-accent', !isSelected && 'hover:bg-surface-2')}
                         >
                           <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
@@ -408,7 +454,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
                           <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             {row.claimed_by
-                              ? (mine ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
+                              ? (mine && !isClosedRow(row) ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
                               : ['resolved', 'not_applicable'].includes(row.state) ? null
                               : <Button size="sm" variant="ghost" onClick={() => claim(row)}><Hand className="h-3.5 w-3.5" />Claim</Button>}
                           </td>
@@ -435,6 +481,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       {importing && <ImportWizard onClose={() => setImporting(false)} onImported={() => { setImporting(false); refresh(); }} />}
+      {bulkOpen && <BulkWorkDialog items={bulkItems} onClose={() => setBulkOpen(false)} onApplied={(result) => {
+        setSelected(new Set(result.results.filter((row) => !row.ok).map((row) => row.id)));
+        refresh();
+      }} />}
 
       <ConfirmDialog
         open={deletingView} onOpenChange={setDeletingView}
@@ -443,11 +493,13 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       />
 
       <Dialog
-        open={saveViewOpen} onOpenChange={setSaveViewOpen} title="Save this view" size="sm"
+        open={saveViewOpen} onOpenChange={(open) => { if (!savingView) setSaveViewOpen(open); }} title="Save this view" size="sm"
         description="Filters, sort and search are stored under a name you can come back to."
-        footer={<><Button variant="ghost" onClick={() => setSaveViewOpen(false)}>Cancel</Button><Button variant="primary" disabled={!viewName.trim()} onClick={saveCurrentView}>Save view</Button></>}
+        footer={<><Button variant="ghost" disabled={savingView} onClick={() => setSaveViewOpen(false)}>Cancel</Button><Button variant="primary" loading={savingView} disabled={!viewName.trim()} onClick={saveCurrentView}>Save view</Button></>}
       >
-        <Field label="Name"><Input autoFocus value={viewName} onChange={(e) => setViewName(e.target.value)} placeholder="Overdue and unclaimed" /></Field>
+        <Field label="Name"><Input autoFocus value={viewName} disabled={savingView} maxLength={80} onChange={(e) => setViewName(e.target.value)} placeholder="Overdue and unclaimed" /></Field>
+        {identity && identity.memberships.length > 0 && <Field label="Share this view"><Select value={shareViewUnit} disabled={savingView} onValueChange={setShareViewUnit}
+          options={[{ value: '', label: 'Only me' }, ...identity.memberships.filter((membership) => can(identity, PERMISSIONS.CREATE_SHARED_WORK, membership.unit_id)).map((membership) => ({ value: membership.unit_id, label: membership.unit_short || membership.unit_name }))]} /></Field>}
       </Dialog>
     </PageShell>
   );

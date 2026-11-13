@@ -75,7 +75,7 @@ export function reviewUpgrade(ctx: AppContext, user: SessionUser, id: string, no
 // ——— Backups ———
 
 /**
- * Audits each backup `npm run backup` recorded and the trail does not hold yet (ADR-0014). The script writes its record
+ * Audits each backup `scripts/backup.ts` recorded and the trail does not hold yet (ADR-0014). The script writes its record
  * with `audited: false`; this writes the entry and marks it in one transaction, so a backup is audited once.
  */
 export function auditServerBackups(ctx: AppContext): number {
@@ -85,7 +85,7 @@ export function auditServerBackups(ctx: AppContext): number {
     const keys = new Set<string>();
     // Read again inside the write lock: another process may have audited them already.
     for (const r of backupHistory(ctx.db).filter((b) => b.method === 'server' && b.audited === false)) {
-      audit(ctx, { actor_id: null, action: 'backup', entity: 'database', entity_id: r.file, detail: `taken on the server with npm run backup at ${r.at}: ${r.bytes ?? 'unknown'} bytes${r.seq ? `, through audit entry ${r.seq}` : ''}${r.file ? `, as ${r.file}` : ''}` });
+      audit(ctx, { actor_id: null, action: 'backup', entity: 'database', entity_id: r.file, detail: `taken on the server with the backup script at ${r.at}: ${r.bytes ?? 'unknown'} bytes${r.seq ? `, through audit entry ${r.seq}` : ''}${r.file ? `, as ${r.file}` : ''}` });
       keys.add(`${r.at}|${r.file}`);
     }
     markBackupsAudited(ctx.db, (r) => keys.has(`${r.at}|${r.file}`));

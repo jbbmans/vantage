@@ -2,7 +2,7 @@ import type { Db } from '../db/index.ts';
 import { metaGet, metaSet } from '../db/index.ts';
 
 /**
- * The backups Vantage knows were taken: a download from the Vantage Administrator console, or `npm run backup` on the
+ * The backups Vantage knows were taken: a download from the Vantage Administrator console, or `scripts/backup.ts` on the
  * server. Kept in the database they describe, so the console can say how fresh the last one is. A copy the hosting
  * environment takes on its own (a volume snapshot, storage replication) never passes through Vantage and is not here
  * (I-09). Only this module and scripts/backup.ts write it; it imports nothing beyond the database helpers, so the script

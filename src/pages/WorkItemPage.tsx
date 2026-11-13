@@ -841,7 +841,11 @@ function ActionForm({ itemId, item, onDone }: { itemId: string; item: WorkItemVi
       setKey(newKey()); setNote(''); setQuantity(''); setAmount('');
       if (res.activity_id) invalidateDomains(qc, 'activity');
       onDone();
-    } catch (e) { toast.error(api.errorText(e)); }
+    } catch (e) {
+      // The earlier attempt was saved and this one differs: show the case as it is, and let the change go as a new action.
+      if (e instanceof api.ApiError && e.code === 'idempotency_conflict') { setKey(newKey()); onDone(); }
+      toast.error(api.errorText(e));
+    }
     finally { setBusy(false); }
   };
   return (

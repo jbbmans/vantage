@@ -3,7 +3,7 @@
 This extends `docs/security.md`, which covers identities, sessions, authorization, integrity,
 transport, AI and correspondence. It is not repeated here. This file covers the access modes, the case
 history, the Record, and the synthetic demo. Nothing here is a claim of accreditation: no DoD, USMC,
-MCEN, NETACT-RES, RMF or CAC approval has been sought or granted.
+MCEN, NETACT-RES, RMF or CAC approval is established by this repository. Deployment authorization is a separate decision for the responsible authority.
 
 ## Access modes
 
@@ -12,10 +12,9 @@ MCEN, NETACT-RES, RMF or CAC approval has been sought or granted.
 | `accounts` (default) | Local accounts: 15+ character passwords (PBKDF2-HMAC-SHA256), passkeys, TOTP, step-up, a lockout after three failures, sessions with 15-minute idle and absolute expiry, rate limits. Optionally CAC through `CAC_MODE=direct` (mTLS) or `CAC_MODE=proxy` (a trusted reverse proxy that must present a 32+ character shared secret). | Evaluation and operation |
 | `demo` | No sign-in form. Each visitor receives a disposable workspace of synthetic people and a session as one of them. | Only a non-production instance, on its own database |
 
-Enterprise identity (an approved OIDC/SAML provider or authenticating proxy) is a boundary to be
-implemented when the provider is chosen. The existing CAC proxy mode is the model for a trusted
-header boundary: configured secret, header validation, and refusal to start when misconfigured. No CAC
-PIN is ever collected. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
+OIDC organization sign-in is implemented in `server/auth/oidc.ts` and `server/routes/auth.ts`; the deployment must choose and configure an approved provider. SAML is not implemented. CAC direct and proxy modes remain separate configured boundaries. The proxy requires a secret and validated headers, and refuses unsafe configuration. Vantage never collects a CAC PIN. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
+
+Passkey challenges live in the database for restart continuity, expire after five minutes, and are atomically consumed before verification. Registration and authentication are separate purposes. The store is bounded to 2,000 pending challenges; expiry cleanup also runs with session cleanup. Pending challenges are excluded from portable archives and personal exports, cleared on restore/import, and classified in the privacy inventory. This does not make the SQLite deployment a distributed service.
 
 ## Synthetic demo safeguards (tested in `tests/server/demo.test.ts`)
 
@@ -44,9 +43,7 @@ PIN is ever collected. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
 
 - `work_events` is append-only at the database. Triggers refuse UPDATE always and DELETE outside a demo
   database. Corrections are new events that name the one they supersede.
-- **Limit.** A database administrator can drop triggers or edit rows. The audit log's HMAC chain detects
-  removed or altered audit entries. Case events are not chained. Chaining them is a candidate follow-up
-  if evaluators require tamper evidence at that level.
+- Case events have HMAC-backed hash chains in `work_event_seals` and `work_event_heads`, implemented in `server/services/caseSeal.ts`; case views report integrity. The audit log has its own HMAC chain. **Limit:** an administrator controlling both the database and the sealing keys can rewrite local evidence. Independently retained, off-host audit records are still needed.
 - Every write re-reads the row in a transaction and checks the caller's authority from the session:
   - read: owner, holder, or unit member for unit-visible work;
   - claim: `CLAIM_WORK`;
@@ -57,6 +54,7 @@ PIN is ever collected. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
   Optimistic concurrency returns 409 `version_conflict`.
 - A handoff target must be able to read and claim the item on their own authority. The candidate list
   returns only names and ranks of such people, and only to the holder or a reassigner.
+- Bulk claim, release and handoff accept at most 100 distinct case IDs with selected versions. Preview is read-only. Apply rechecks each case in its existing transaction and reports partial refusals individually. Actor-, case- and payload-bound request identifiers prevent retries from repeating history; replay still requires current read access. Bulk operations do not close cases, bypass funds checks, or create financial credit.
 
 ## The Record
 

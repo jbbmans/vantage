@@ -94,8 +94,8 @@ export function Operations() {
         <Panel title="Backups" subtitle={`Expected every ${backups.maxAgeHours} hours (VANTAGE_BACKUP_MAX_AGE_HOURS)`} action={<Badge tone={BACKUP_TONE[backups.state]}>{backups.state === 'never' ? 'None recorded' : humanize(backups.state)}</Badge>}>
           {backups.last
             ? <p className="text-sm text-ink-2">Last backup {timeAgo(backups.last.at)}, {backups.last.method === 'server' ? 'taken on the server' : 'downloaded from this console'}{backups.last.bytes ? `, ${mb(backups.last.bytes)}` : ''}{backups.last.by ? `, by ${backups.last.by}` : ''}.</p>
-            : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">npm run backup -- /path/to/copy.db</span> on the server.</p>}
-          <p className="mt-2 text-xs text-ink-3">Vantage records backups taken with npm run backup and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
+            : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">node scripts/backup.ts /path/to/copy.db</span> on the server.</p>}
+          <p className="mt-2 text-xs text-ink-3">Vantage records backups taken on the server with the backup script and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
           {backups.history.length > 1 && (
             <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Size</th></>}>
               {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}
@@ -175,7 +175,7 @@ export function InstanceOperationsPage() {
 
       <Panel title="The service they run on" subtitle={`Checked ${formatStamp(service.health.checkedAt)}`} action={<span className="flex items-center gap-2"><StatusBadge status={service.health.status} /><Button size="sm" variant="ghost" onClick={() => refetch()} loading={isFetching}><RefreshCw className="h-3.5 w-3.5" />Check again</Button></span>}>
         <p className="text-sm text-ink-2">Every Unit Instance here runs Vantage {service.version.version} at schema {service.schema.database}{service.schema.state !== 'current' ? `, while this build needs ${service.schema.code}` : ''}, so they upgrade together. What differs is what each one went through and holds.</p>
-        <p className="mt-2 text-xs text-ink-3">A dedicated deployment is a service of its own with its own console; <span className="mono">npm run operations-report</span> on its host prints the same view for it. <Link className="link" to="/operations">Operations</Link> has the service’s own checks.</p>
+        <p className="mt-2 text-xs text-ink-3">A dedicated deployment is a service of its own with its own console; <span className="mono">node scripts/operations-report.ts</span> on its host prints the same view for it. <Link className="link" to="/operations">Operations</Link> has the service’s own checks.</p>
       </Panel>
 
       <Panel title="Schema upgrades" subtitle="Each counted, table by table and Unit Instance by Unit Instance, before and after">

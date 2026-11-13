@@ -67,7 +67,7 @@ const HOST_META = [
  * Tables left out of the archive on purpose: sign-ins, links, queued mail and support's approvals to change an account's
  * sign-in, which belong to the old host. Each approval and its use is in the audit trail, which moves.
  */
-export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces', 'credential_approvals'] as const;
+export const NOT_EXPORTED = ['sessions', 'tokens', 'passkey_challenges', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces', 'credential_approvals'] as const;
 
 export function exportInstance(ctx: AppContext) {
   const tables: Record<string, unknown[]> = {};

@@ -236,12 +236,12 @@ test('a pre-5.0 database file is set aside instead of being opened', async () =>
 
 test('passkey option requests count against the sign-in limiter and the challenge store stays bounded', async () => {
   const { passkeyChallengeCount, MAX_CHALLENGES, resetPasskeyChallenges } = await import('../../server/auth/passkeys.ts');
-  resetPasskeyChallenges();
+  resetPasskeyChallenges(app.ctx);
   let last = 200;
   for (let i = 0; i < 20 && last === 200; i++) last = (await app.call('POST', '/api/auth/passkey/options', { body: {} })).status;
   assert.equal(last, 429);
-  assert.ok(passkeyChallengeCount() <= MAX_CHALLENGES);
-  resetPasskeyChallenges();
+  assert.ok(passkeyChallengeCount(app.ctx) <= MAX_CHALLENGES);
+  resetPasskeyChallenges(app.ctx);
   resetLimiters();
 });
 

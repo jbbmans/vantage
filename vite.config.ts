@@ -36,7 +36,11 @@ function publicFiles(): Plugin {
       const index = join(out, 'index.html');
       const sw = join(out, 'sw.js');
       if (!existsSync(index) || !existsSync(sw)) return;
-      const build = createHash('sha256').update(readFileSync(index)).digest('hex').slice(0, 16);
+      const documents = ['index.html', 'console.html', 'admin.html', 'public.html'].map((name) => join(out, name)).filter(existsSync);
+      const hash = createHash('sha256');
+      for (const file of documents) hash.update(readFileSync(file));
+      const build = hash.digest('hex').slice(0, 16);
+      for (const file of documents) writeFileSync(file, readFileSync(file, 'utf8').replace('</head>', `<meta name="vantage-client-build" content="${build}" /></head>`));
       writeFileSync(sw, readFileSync(sw, 'utf8').replaceAll('__VANTAGE_BUILD__', build).replaceAll('__ICONS__', icons));
     },
   };

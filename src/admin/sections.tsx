@@ -364,13 +364,13 @@ interface RecoveryReport {
   restores: { history: RestoreView[]; lineage: { kept: boolean; writtenAt: string | null }; usernames: Record<string, string> };
 }
 
-const RESTORE_HOW: Record<RestoreView['method'], string> = { script: 'npm run restore', archive: 'Service archive', detected: 'Replaced outside Vantage' };
+const RESTORE_HOW: Record<RestoreView['method'], string> = { script: 'Restore script', archive: 'Service archive', detected: 'Replaced outside Vantage' };
 const FINDING: Record<NonNullable<RestoreView['finding']>, string> = {
   other_database: 'It is another database, not the one this service last ran.',
   missing_entry: 'It no longer holds the audit entry the service noted when it last ran: an older copy was put back.',
   different_entry: 'It holds another entry where the one the service noted should be.',
 };
-const RESTORE_COMMAND = 'VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE --from <backup.db> --by <your username> --reason "<why>" [--change <record>] --dry-run';
+const RESTORE_COMMAND = 'VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE --from <backup.db> --by <your username> --reason "<why>" [--change <record>] --dry-run';
 
 export function DataAdmin() {
   const { data, isPending, error, refetch } = useAdmin<RecoveryReport>('recovery', api.platformRecovery);
@@ -389,7 +389,7 @@ export function DataAdmin() {
       <p className="text-sm text-ink-2">A backup is the whole service as it is stored: every Unit Instance, account, password hash, sealed secret, record and the audit trail. Only Lead Vantage Administrators take one, and restoring one puts every Unit Instance back together. The data exports further down are something else: one Unit Instance’s, unit’s or person’s data for its own use, and none of them restores anything.</p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Database backup" subtitle="A consistent copy of the SQLite database" action={<Badge tone={backups.state === 'fresh' ? 'good' : 'warn'}>{backups.state === 'never' ? 'None recorded' : backups.state === 'fresh' ? 'Recent' : 'Overdue'}</Badge>}>
-          <p className="text-sm text-ink-2">{backups.last ? `Last ${timeAgo(backups.last.at)}, ${backups.last.method === 'server' ? 'on the server' : 'through the browser'}${backups.last.seq ? `, through audit entry ${backups.last.seq}` : ''}; expected every ${backups.maxAgeHours} hours.` : `Expected every ${backups.maxAgeHours} hours.`} On the host: <span className="mono">npm run backup -- /path/to/copy.db</span>. Each one is in the platform audit trail.</p>
+          <p className="text-sm text-ink-2">{backups.last ? `Last ${timeAgo(backups.last.at)}, ${backups.last.method === 'server' ? 'on the server' : 'through the browser'}${backups.last.seq ? `, through audit entry ${backups.last.seq}` : ''}; expected every ${backups.maxAgeHours} hours.` : `Expected every ${backups.maxAgeHours} hours.`} On the host: <span className="mono">node scripts/backup.ts /path/to/copy.db</span>. Each one is in the platform audit trail.</p>
           {backups.browserBackups
             ? <><p className="mt-2 text-xs text-ink-3">Every other Lead Vantage Administrator is told each time one is downloaded.</p><Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button></>
             : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
@@ -407,7 +407,7 @@ export function DataAdmin() {
           </ol>
           <pre className="mono mt-3 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{RESTORE_COMMAND}</pre>
           <p className="mt-2 text-xs text-ink-3">It refuses while the service has the database open, unless the backup verifies under this service’s secret, and unless --by names a Lead Vantage Administrator. It keeps the database it replaces beside it, signs everyone out and cancels support approvals waiting. At its next start the service writes the restore into the audit trail and tells Vantage staff and every Unit Instance’s Lead Unit Managers.</p>
-          <p className="mt-2 text-xs text-ink-3">{restores.lineage.kept ? `The service notes its newest audit entry beside the database${restores.lineage.writtenAt ? ` (last ${timeAgo(restores.lineage.writtenAt)})` : ''}, so a database put back any other way is noticed at the next start.` : 'The lineage file is off (VANTAGE_LINEAGE_FILE=off), so a database put back outside npm run restore is not noticed.'}</p>
+          <p className="mt-2 text-xs text-ink-3">{restores.lineage.kept ? `The service notes its newest audit entry beside the database${restores.lineage.writtenAt ? ` (last ${timeAgo(restores.lineage.writtenAt)})` : ''}, so a database put back any other way is noticed at the next start.` : 'The lineage file is off (VANTAGE_LINEAGE_FILE=off), so a database put back outside the restore script is not noticed.'}</p>
         </Panel>
       </div>
 

@@ -237,13 +237,22 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   const secret = row.totp_secret ? decryptSecret(secretsOf(ctx.config), row.totp_secret) : null;
   const clean = code.replace(/\s+/g, '').toLowerCase();
   const step = secret ? matchTotp(secret, clean) : null;
-  let ok = step !== null && ctx.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND COALESCE(totp_last_step, -1) < ?').run(step, row.id, step).changes === 1;
-  if (!ok && /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean)) {
-    const normalized = clean.includes('-') ? clean : `${clean.slice(0, 5)}-${clean.slice(5)}`;
-    const rc = ctx.db.prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL').get(row.id, sha256(`recovery:${normalized}`)) as { id: string } | undefined;
-    if (rc) { ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?').run(now(), rc.id); ok = true; audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip }); }
-  }
-  if (!ok) {
+  const recoveryCode = /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean) ? (clean.includes('-') ? clean : `${clean.slice(0, 5)}-${clean.slice(5)}`) : null;
+  // The code is spent, the challenge consumed and a recovery code's use audited in one transaction. If the challenge
+  // cannot be consumed (it expired a moment ago, or another request used it), the throw rolls back the spend, so a
+  // recovery code is not lost to a challenge that was already gone.
+  const factor = ctx.db.transaction((): 'totp' | 'recovery' | null => {
+    let spent: 'totp' | 'recovery' | null = null;
+    if (step !== null && ctx.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND COALESCE(totp_last_step, -1) < ?').run(step, row.id, step).changes === 1) spent = 'totp';
+    else if (recoveryCode) {
+      const rc = ctx.db.prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL').get(row.id, sha256(`recovery:${recoveryCode}`)) as { id: string } | undefined;
+      if (rc && ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now(), rc.id).changes === 1) spent = 'recovery';
+    }
+    if (spent && !consumeToken(ctx, 'login_mfa', challenge)) throw unauthorized('The sign-in challenge expired or was already used. Start again.', 'challenge_expired');
+    if (spent === 'recovery') audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip });
+    return spent;
+  }).immediate();
+  if (!factor) {
     limiters.mfaToken.bump(key);
     limiters.loginIp.bump(ip);
     limiters.mfaUser.bump(row.id);
@@ -252,7 +261,6 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     throw unauthorized('That code is not valid.', 'bad_code');
   }
   limiters.mfaUser.clear(row.id);
-  consumeToken(ctx, 'login_mfa', challenge);
   return finishSignIn(req, res, row, 'password+totp');
 }));
 
