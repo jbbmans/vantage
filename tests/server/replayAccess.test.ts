@@ -29,3 +29,26 @@ test('old research and action keys cannot expose current case content after memb
     }
   } finally { await app.close(); }
 });
+
+test('a retried action is answered with the saved one even after its value type stops being tracked', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const made = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title: 'Synthetic retried action', reference: 'SYN-RETRY' } });
+    const id = made.body.id;
+    await app.call('POST', `/api/work/items/${id}/claim`, { token: op.token, body: { version: made.body.version } });
+    const type = app.ctx.runtime.metrics.value_types[0].key;
+    const action = { kind: 'worked', note: 'Synthetic valued action.', dollar_amount: 125, dollar_type: type };
+    const send = () => app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: action, headers: { 'idempotency-key': 'synthetic-retry-key' } });
+    const first = await send();
+    assert.equal(first.status, 201, first.text);
+    app.ctx.runtime.metrics = { ...app.ctx.runtime.metrics, value_types: app.ctx.runtime.metrics.value_types.filter((t) => t.key !== type) };
+    const retry = await send();
+    assert.ok(retry.status < 300, retry.text);
+    assert.equal(retry.body.replayed, true);
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM work_actions WHERE work_item_id = ?').get(id) as { n: number }).n, 1);
+    // A new request with that type is refused, as before.
+    const fresh = await app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: action, headers: { 'idempotency-key': 'synthetic-new-key' } });
+    assert.equal(fresh.status, 400, fresh.text);
+  } finally { await app.close(); }
+});

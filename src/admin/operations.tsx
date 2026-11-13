@@ -94,8 +94,8 @@ export function Operations() {
         <Panel title="Backups" subtitle={`Expected every ${backups.maxAgeHours} hours (VANTAGE_BACKUP_MAX_AGE_HOURS)`} action={<Badge tone={BACKUP_TONE[backups.state]}>{backups.state === 'never' ? 'None recorded' : humanize(backups.state)}</Badge>}>
           {backups.last
             ? <p className="text-sm text-ink-2">Last backup {timeAgo(backups.last.at)}, {backups.last.method === 'server' ? 'taken on the server' : 'downloaded from this console'}{backups.last.bytes ? `, ${mb(backups.last.bytes)}` : ''}{backups.last.by ? `, by ${backups.last.by}` : ''}.</p>
-            : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">npm run backup -- /path/to/copy.db</span> on the server.</p>}
-          <p className="mt-2 text-xs text-ink-3">Vantage records backups taken with npm run backup and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
+            : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">node scripts/backup.ts /path/to/copy.db</span> on the server.</p>}
+          <p className="mt-2 text-xs text-ink-3">Vantage records backups taken on the server with the backup script and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
           {backups.history.length > 1 && (
             <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Size</th></>}>
               {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}

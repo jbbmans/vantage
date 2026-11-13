@@ -1,6 +1,6 @@
 # ADR-0026: Workflow retries and authentication continuity
 
-Status: implemented in the hardening candidate; deployment authorization remains separate.
+Status: accepted and implemented (first proposed in PR #71, merged through its fix-up); deployment authorization remains separate.
 
 ## Problem
 
@@ -12,7 +12,7 @@ Keep the existing React/Express/SQLite architecture and its three authority tier
 
 Bind retry identifiers to actor, case, operation and a SHA-256 fingerprint of the parsed payload. Persist the identifier and fingerprint with the existing sealed event. A replay requires current read access and never changes a later holder or appends another event. New research entries also bind their payload. Older entries without fingerprints retain their established retry behavior after the current-access check.
 
-Freeze the dialog's selected versions when it opens. A visible-page poll may update the queue but cannot silently revise the request the Marine is reviewing. Unsuccessful cases still matching the view remain selected. Hidden pages do not run periodic queue/assigned-work polls; the requests use the existing background header so polling does not extend an idle session.
+Freeze the dialog's selected versions when it opens. A visible-page poll may update the queue but cannot silently revise the request the Marine is reviewing. Unsuccessful cases still matching the view remain selected. Hidden pages do not run periodic queue/assigned-work polls. Only the timed refresh carries the existing background header, so a page left open does not extend an idle session, while the reads a person causes (opening the queue, searching, filtering, sorting, paging, returning to the tab) still count as activity. The queue's keyboard cursor follows a case id, so a refresh that reorders or removes rows cannot move it onto another case. Apply sends only the cases the preview showed as ready, and ignores taps for a moment after the preview appears.
 
 Store pending WebAuthn challenges in an additive `passkey_challenges` table, introduced by migration 034. Registration and authentication are separate purposes. Challenges expire after five minutes, are atomically consumed before verification, and are capped at 2,000 per database. Expired challenges are cleaned with sessions and on new challenge issuance. Portable archives and personal exports exclude them; import and restore clear them. Physical backups contain the table like the rest of the database. No existing account, record, credential or financial value is reshaped.
 
@@ -29,4 +29,4 @@ Consume reset/invitation/second-factor/email-change links in an immediate transa
 
 ## Verification
 
-The focused tests cover partial success, stale versions, unauthorized callers and recipients, unchanged sealed history on retry, restart continuity, challenge purpose/expiry/capacity, token single use, overlapping jobs, request size/encoding boundaries, real calendar dates, and bounded validation errors. Browser specifications cover desktop and phone selection, preview-before-apply and stale-version refusal. Run `npm run check` and `npm run test:browser`; the release report records what actually ran and any environmental block.
+The focused tests cover partial success, stale versions, unauthorized callers and recipients, unchanged sealed history on retry, restart continuity, challenge purpose/expiry/capacity, token single use, overlapping jobs, request size/encoding boundaries, real calendar dates, and bounded validation errors. Browser specifications cover preview-before-apply from the keyboard, a double tap on a touch phone, stale-version refusal and a mixed selection where only the ready case is sent. Run `npm run check` and `npm run test:browser`; the release report records what actually ran and any environmental block.

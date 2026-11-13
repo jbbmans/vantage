@@ -11,7 +11,7 @@ import type { AppContext } from '../server/context.ts';
 
 /**
  * Each Unit Instance's operations as one JSON document, read on the host without starting Vantage or writing anything:
- * `npm run operations-report > operations.json` (ADR-0014). It is the adapter for whatever the enterprise uses to watch
+ * `node scripts/operations-report.ts > operations.json` (ADR-0014). It is the adapter for whatever the enterprise uses to watch
  * many deployments at once (I-13, I-34): a dedicated deployment's one Unit Instance, or a shared one's every Unit
  * Instance, with the version, schema, last upgrade, health, backup freshness, last restore and withheld features of each.
  * The service's own health needs the running process (its jobs, its connections), so here it is not checked; the

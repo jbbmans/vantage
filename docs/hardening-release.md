@@ -1,8 +1,10 @@
-# Vantage hardening candidate: implementation and handoff
+# Vantage hardening release: what changed
 
 Baseline: `b1892945a9d6fccceb2b7cc5cba8948d9c7d0dbc` from `jbbmans/vantage`.
-Working branch: `codex/cradle-to-grave-hardening`.
-This is a tested engineering candidate, not a statement that the product is perfect or authorized for operational Marine Corps data.
+The changes were first proposed in PR #71 (`codex/cradle-to-grave-hardening`). They reach `main` through a fix-up
+branch that keeps that work, leaves out what did not belong in the product repository, and corrects the defects a
+review found in it. The entries below describe the result as merged.
+This is a tested engineering change, not a statement that the product is perfect or authorized for operational Marine Corps data.
 
 ## What changed, including the small details
 
@@ -16,7 +18,7 @@ This is a tested engineering candidate, not a statement that the product is perf
 6. Update the four pinned Remotion packages together to 4.0.543 in the separate film project; retain their existing licensing model.
 7. Resolve patched film URI and source-map dependencies in its own lockfile.
 8. Audit both dependency trees in CI. Publish separate application and film bills of materials.
-9. Add a reproducible inventory command and a CI inventory artifact. Every tracked/nonignored file is hashed; text lines and function syntax are counted. This is not a claim of manual review or executed-line coverage.
+9. (Not carried over: the source-inventory command and its CI artifact.)
 
 ### Request and validation boundaries
 
@@ -45,18 +47,18 @@ This is a tested engineering candidate, not a statement that the product is perf
 29. Check current read access before returning a previous research entry. Prior access does not survive membership removal or a case transfer.
 30. Bind new research-entry retry keys to payload fingerprints; preserve legacy retries for events created before fingerprints existed.
 31. Stop appending release history or incrementing versions when an authorized release finds nobody holding the case.
-32. Refuse release of a held, closed case.
+32. Refuse release of a held, closed case. The queue no longer offers Release on a closed row, as the case page already did not.
 33. Cache recipient scopes within one bulk candidate request, avoiding repeated permission reconstruction for the same Marine.
-34. Add a preview/apply dialog with explicit ready/applied/unchanged labels, bounded notes, a busy state and recoverable errors.
-35. Freeze selected case versions when the dialog opens; automatic refresh cannot change the reviewed payload.
+34. Add a preview/apply dialog with explicit ready/applied/unchanged labels, bounded notes, a busy state and recoverable errors. Preview and Apply are separate buttons, and Apply takes no tap for 700 ms after the preview appears, so a double tap on Preview cannot apply changes nobody has seen. After Preview or Apply, focus moves to the summary of what was found or done. Every label's spoken name contains its visible text.
+35. Freeze selected case versions when the dialog opens; automatic refresh cannot change the reviewed payload. Apply sends only the cases the preview showed as ready, so the count on the button is what can change; the others are listed as unchanged with their preview reason.
 36. Keep a stable request key for a retry after a network/server error, and explain how to retry safely.
-37. Leave failed cases selected when they remain in the current view; remove selections that no longer belong to that view after closing the dialog.
+37. Leave failed and skipped cases selected when they remain in the current view; remove selections that no longer belong to that view after closing the dialog.
 38. Suspend queue keyboard shortcuts while the bulk dialog is open.
 39. Provide phone card checkboxes with touch-sized labels, visible selection styling and separate case-opening controls.
 40. Name the desktop selection column for assistive technology.
-41. Refresh visible queue and assigned-work queries every 30 seconds; cancel abandoned reads and pause periodic polling in hidden pages.
-42. Mark automatic reads as background requests so they do not keep idle sessions alive; explain refresh behavior in the queue.
-43. Expose the existing server capability for sharing a saved queue view, offering only authorized units and defaulting to private.
+41. Refresh visible queue and assigned-work queries every 30 seconds; cancel abandoned reads and pause periodic polling in hidden pages. The queue's keyboard cursor follows its case, not a row number, so a refresh that reorders or drops rows never leaves it on a different case.
+42. Mark only the timed refresh as a background request, so a page left open does not keep an idle session alive. Opening the queue, searching, filtering, sorting and paging still count as activity. Explain refresh behavior in the queue.
+43. Expose the existing server capability for sharing a saved queue view, offering only authorized units and defaulting to private every time the dialog opens.
 44. Prevent duplicate saved-view submissions, disable controls while saving and match the server's 80-character name limit.
 
 ### Authentication, sessions and update notices
@@ -87,26 +89,26 @@ This is a tested engineering candidate, not a statement that the product is perf
 65. Add request/parser, bounded-error and impossible-date regression tests.
 66. Add restart, wrong-purpose, expiry, capacity, isolation and single-use authentication tests.
 67. Add scheduled-overlap/failure tests and update schema-version expectations.
-68. Add desktop/phone browser specifications for preview-before-apply and stale-version refusal.
-69. Add a pilot, measurement, ownership-review and adoption packet for command review. It does not send messages, assign intellectual property or enroll the project in a competition.
+68. Add browser specifications for preview-before-apply from the keyboard, a double tap on a touch phone, stale-version refusal, and a mixed selection where only the ready case is sent.
+69. (Not carried over: a personal pilot and career packet, which is not product documentation.)
 70. Refuse malformed/newer schema-version metadata before applying base schema changes, closing the database handle on refusal.
 71. Require the second-factor and email-confirmation callers to check the result of token consumption; a successful earlier lookup cannot substitute for a successful one-time use.
-72. Conditionally spend recovery codes, and commit email confirmation together with token consumption and its audit record.
-73. Apply the current-access replay check to the older work-action endpoint too, so a former member cannot use an old request key to retrieve a case's current content.
+72. Conditionally spend recovery codes, and commit email confirmation together with token consumption and its audit record. The second-factor step spends its code (an authenticator step or a recovery code) and consumes the sign-in challenge in one transaction, so a challenge that is gone by then leaves the code unspent.
+73. Apply the current-access replay check to the older work-action endpoint too, so a former member cannot use an old request key to retrieve a case's current content. A retry of a saved action is answered before its input is checked again, so a value type removed in between does not refuse it.
 74. Add deterministic client-state tests for invalid success responses, cancellation, early session deadlines and corrupt theme preferences.
 75. Separate browser composition and Node film-entry typechecking, declare the generated capture/score asset contracts without creating placeholder assets, and add the film composition check to CI. Full video rendering still requires its browser/media prerequisites.
-76. Refresh both Docker stages to the current official Node 22 Bookworm slim digest and apply Debian security updates during builds; retain the final scanned image digest.
-77. Remove unused npm/npx/Yarn/Corepack from the runtime image, preserve them in the build stage, and document direct Node operational-script invocation.
+76. Refresh both Docker stages to the current official Node 22 Bookworm slim digest and apply Debian security updates during builds. Builds on different days can therefore differ in their OS packages; CI scans the built image, and the deployed image is identified by the digest its registry or host records.
+77. Remove unused npm/npx/Yarn/Corepack from the runtime image and preserve them in the build stage. Every operator instruction (the consoles, the backup warning, the data-transfer catalogue, the script usage lines, the operations and MCEN deployment guides) now says `node scripts/<name>.ts`, which works both in the container and in a checkout.
 78. Give the private film package explicit version metadata so its CycloneDX bill of materials can be generated.
 79. Preserve extended CodeQL analysis as a retained SARIF artifact, leave repository default setup responsible for alert uploads, and document the explicit advanced-upload switch rather than masking GitHub's conflicting-setup failure.
-80. Run the new bulk-work browser specifications as a focused CI smoke check before the full browser suite, so a new-flow failure is reported promptly.
-81. Invoke the focused browser check through the npm browser-test script so its required production-build prehook runs on a clean CI checkout.
+80. (Not carried over: a separate bulk-work browser smoke step in CI. The full browser suite already runs those specifications, and a failing smoke step stopped the rest of the suite from running.)
+81. (Not carried over, with item 80.)
 
-The PDF includes the complete patch, including lockfile changes, and a per-file inventory. These numbered entries explain intent; the patch is the exact minor-edit record.
+These numbered entries explain intent; the merged diff, lockfiles included, is the exact record.
 
 ## Verification and release handoff
 
-Run `npm ci`, `npm run check`, `npm audit`, `npm --prefix film ci`, `npm --prefix film audit`, and the browser suite on a supported runner. The PDF records the observed counts/results and any unexecuted checks. Browser launch restrictions in a review workspace are not evidence that browser behavior passed.
+Run `npm ci`, `npm run check`, `npm audit`, `npm --prefix film ci`, `npm --prefix film audit`, and the browser suite on a supported runner. The results observed for this change are in its pull request's handoff report. Browser launch restrictions in a review workspace are not evidence that browser behavior passed.
 
 No production data was opened or migrated. No production deployment, DNS change, merge, ownership transfer, submission or message to the chain of command is part of this branch.
 
@@ -131,6 +133,5 @@ These are recommendations and release conditions, not implemented capabilities:
 - Multi-process scheduling leases, distributed rate limits, durable cross-process presence and a supported high-availability topology if that scale is approved. The new overlap guard is process-local.
 - Approved external integrations and service credentials for DAI/GCSS-MC/Advana/M365, with data-owner and access-control agreements; no invented endpoints or permissions.
 - User research with junior analysts and leaders, error-rate and task-time baselines, measured adoption, and a funded support/maintenance owner.
-- Written ownership, outside-activity and contracting guidance before commercialization or accepting terms that affect the government's rights.
 
-Read [the pilot and career packet](pilot-and-career-packet.md) and [ADR-0026](engineering/ADR/0026-workflow-and-auth-continuity.md).
+Read [ADR-0026](engineering/ADR/0026-workflow-and-auth-continuity.md).

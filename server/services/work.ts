@@ -451,19 +451,21 @@ export function recordAction(
   const note = (input.note || '').slice(0, 5000) || null;
   const quantity = input.quantity == null ? null : Number(input.quantity);
   const dollarAmount = input.dollar_amount == null ? null : Number(input.dollar_amount);
-  if (quantity != null && !Number.isFinite(quantity)) throw badRequest('The amount of work done is not a number.');
-  if (dollarAmount != null && !Number.isFinite(dollarAmount)) throw badRequest('The value is not a number.');
-  if (dollarAmount != null && !input.dollar_type) throw badRequest('Say what kind of value this is. An unlabelled amount cannot be counted.');
-  if (input.dollar_type && !ctx.runtime.metrics.value_types.some((t) => t.key === input.dollar_type)) {
-    throw badRequest('That is not a value type this instance tracks.');
-  }
 
   return ctx.db.transaction(() => {
     const row = reload(ctx, itemId);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
+    // A retry of an action already saved answers with that action before anything is checked again: the instance's
+    // value types can change between a lost response and its retry, and a refused retry invites entering it twice.
     if (scopedKey) {
       const prior = ctx.db.prepare('SELECT * FROM work_actions WHERE idempotency_key = ?').get(scopedKey) as Record<string, unknown> | undefined;
       if (prior) return { action: prior, item: hydrate(row), activity_id: prior.activity_id as string | null, replayed: true };
+    }
+    if (quantity != null && !Number.isFinite(quantity)) throw badRequest('The amount of work done is not a number.');
+    if (dollarAmount != null && !Number.isFinite(dollarAmount)) throw badRequest('The value is not a number.');
+    if (dollarAmount != null && !input.dollar_type) throw badRequest('Say what kind of value this is. An unlabelled amount cannot be counted.');
+    if (input.dollar_type && !ctx.runtime.metrics.value_types.some((t) => t.key === input.dollar_type)) {
+      throw badRequest('That is not a value type this instance tracks.');
     }
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording what you did.');
 

@@ -53,6 +53,37 @@ test('a second-factor route never creates a session if its password challenge wa
   } finally { await app.close(); }
 });
 
+test('a recovery code or authenticator step is not used up when the sign-in challenge is gone by the time it is consumed', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const start = await app.call('POST', '/api/me/mfa/totp/start', { token: op.token });
+    const step = Math.floor(Date.now() / 30000);
+    const confirmed = await app.call('POST', '/api/me/mfa/totp/confirm', { token: op.token, body: { code: totpCode(start.body.secret, step) } });
+    assert.equal(confirmed.status, 200);
+    const recovery = confirmed.body.recoveryCodes[0];
+    const usedCodes = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ? AND used_at IS NOT NULL').get(op.id) as { n: number }).n;
+    const lastStep = () => (app.ctx.db.prepare('SELECT totp_last_step AS s FROM users WHERE id = ?').get(op.id) as { s: number | null }).s;
+
+    for (const code of [recovery, totpCode(start.body.secret, step + 1)]) {
+      const pending = await app.login('boletz');
+      const stepBefore = lastStep();
+      const hook = spendAfterLookup(app, 'login_mfa');
+      try {
+        const result = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: pending.body.challenge, code } });
+        assert.equal(result.status, 401, JSON.stringify(result.body)); assert.equal(result.body.code, 'challenge_expired');
+      } finally { hook.mock.restore(); }
+      assert.equal(usedCodes(), 0);
+      assert.equal(lastStep(), stepBefore);
+    }
+    // The same recovery code still signs in once there is a live challenge.
+    const pending = await app.login('boletz');
+    const signedIn = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: pending.body.challenge, code: recovery } });
+    assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+    assert.equal(usedCodes(), 1);
+  } finally { await app.close(); }
+});
+
 test('email confirmation never changes the account when the token was spent after the first lookup', async () => {
   const app = await startApp();
   try {

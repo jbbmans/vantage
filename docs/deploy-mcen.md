@@ -109,8 +109,8 @@ Adding a unit never needs a source change.
     cat > g1.json <<'JSON'
     {"name": "MARFORRES G-1", "code": "G1", "short_name": "G-1", "manager": "<username or 10-digit DoD ID>"}
     JSON
-    VANTAGE_PROVISION=1 npm run provision-instance -- --by <administrator> g1.json --dry-run
-    VANTAGE_PROVISION=1 npm run provision-instance -- --by <administrator> g1.json
+    VANTAGE_PROVISION=1 node scripts/provision-instance.ts --by <administrator> g1.json --dry-run
+    VANTAGE_PROVISION=1 node scripts/provision-instance.ts --by <administrator> g1.json
     ```
 
   The manager is the first Lead Unit Manager, and their account must already exist. It is never the
@@ -123,12 +123,12 @@ Adding a unit never needs a source change.
 
 ## Backups and restore
 
-- **Back up on the host.** Run `npm run backup` (a consistent copy of the database, attachments
+- **Back up on the host.** Run `node scripts/backup.ts <file>` (a consistent copy of the database, attachments
   included) and keep copies where the enterprise keeps backups (I-09). Each run is recorded and audited,
   and the Vantage Administrator console (**Operations → Backups**) says when the last one was taken. Set
   `VANTAGE_BACKUP_MAX_AGE_HOURS` to the enterprise's backup interval (default 168). A snapshot the host
   takes on its own is not seen by Vantage (I-28).
-- **Restore with `npm run restore`, never by copying a file.** A Lead Vantage Administrator authorizes it,
+- **Restore with `node scripts/restore.ts`, never by copying a file.** A Lead Vantage Administrator authorizes it,
   with the service stopped and maintenance started with the change or incident record's number (I-29,
   I-35). It checks the backup, keeps the database it replaces, signs everyone out and is audited in every
   Unit Instance, whose Lead Unit Managers are told. A database replaced any other way is detected at the
@@ -142,7 +142,7 @@ Adding a unit never needs a source change.
   and each Unit Instance's, and records, audits and tells the Lead Unit Managers about any it lost.
 - **Each Unit Instance's operations.** **Instance operations** in the Vantage Administrator console shows
   each one's version, schema, last upgrade, health, backup freshness and last restore; its Unit Managers
-  see theirs under **Operations**. `npm run operations-report` prints the same as JSON for whatever
+  see theirs under **Operations**. `node scripts/operations-report.ts` prints the same as JSON for whatever
   watches many deployments (I-34).
 - **Health.** `/api/health` is for the platform's probe. The Vantage Administrator console's
   **Operations** page is the full report, including revocation lists and CAs nearing expiry

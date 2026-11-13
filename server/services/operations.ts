@@ -242,7 +242,7 @@ function auditChecks(ctx: AppContext, verified?: ReturnType<typeof verifyAuditCh
 
 function backupCheck(ctx: AppContext, at: number): HealthCheck {
   const b = backupStatus(ctx, at);
-  if (b.state === 'never') return { id: 'backup', label: 'Backups', status: 'warn', summary: 'Vantage has no record of a backup. Take one with npm run backup on the server; copies the hosting environment makes on its own do not show here.' };
+  if (b.state === 'never') return { id: 'backup', label: 'Backups', status: 'warn', summary: 'Vantage has no record of a backup. Take one on the server with node scripts/backup.ts <file>; copies the hosting environment makes on its own do not show here.' };
   const age = b.ageHours! < 48 ? `${Math.round(b.ageHours!)} hours` : `${Math.round(b.ageHours! / 24)} days`;
   return { id: 'backup', label: 'Backups', status: b.state === 'stale' ? 'warn' : 'ok', summary: `Last backup ${age} ago (${b.last!.method === 'server' ? 'on the server' : 'downloaded from the console'}). The service expects one every ${b.maxAgeHours} hours.` };
 }

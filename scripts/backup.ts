@@ -4,7 +4,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { recordBackup } from '../server/services/backupLog.ts';
 
 /**
- * A consistent copy of the database, taken on the server: `npm run backup -- /backups/vantage-2026-10-02.db`.
+ * A consistent copy of the database, taken on the server: `node scripts/backup.ts /backups/vantage-2026-10-02.db`.
  * Uses SQLite's online backup, so it is safe while Vantage runs. The copy is readable by its owner only; encrypt it
  * and move it wherever the data's classification allows. On an accredited host this replaces the browser download
  * (VANTAGE_BROWSER_BACKUPS=false). The database then records that a backup was taken, so the Vantage Administrator
@@ -13,7 +13,7 @@ import { recordBackup } from '../server/services/backupLog.ts';
 const source = process.env.VANTAGE_DB || resolve(import.meta.dirname, '..', 'data', 'vantage.db');
 const dest = process.argv[2];
 if (!dest) {
-  console.error('Usage: npm run backup -- <destination file>');
+  console.error('Usage: node scripts/backup.ts <destination file>');
   process.exit(2);
 }
 mkdirSync(dirname(resolve(dest)), { recursive: true });

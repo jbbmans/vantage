@@ -13,7 +13,7 @@ import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import BulkWorkDialog, { type SelectedWork } from '@/components/BulkWorkDialog';
 import { BULK_WORK_LIMIT } from '../../shared/bulkWork';
-import { can, useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
+import { can, useBackgroundRefresh, useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics';
@@ -55,6 +55,11 @@ const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort
 /** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
 const isClosedRow = (row: { state?: string }) => ['resolved', 'not_applicable'].includes(String(row.state));
+/** Where the cursor is now: on its case if that case is still listed, otherwise at the same place in the list. */
+const cursorIndex = (at: { id: string | null; index: number }, rows: Array<{ id: string }>) => {
+  const found = at.id ? rows.findIndex((row) => row.id === at.id) : -1;
+  return found >= 0 ? found : Math.max(0, Math.min(at.index, rows.length - 1));
+};
 const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !isClosedRow(row));
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
@@ -76,7 +81,9 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   }));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [cursor, setCursor] = useState(0);
+  // The keyboard cursor follows a case, not a row number, so a refresh that reorders or drops rows never leaves it on
+  // somebody else's case. When its case leaves the list, it stays at the same place in the list.
+  const [cursorAt, setCursorAt] = useState<{ id: string | null; index: number }>({ id: null, index: 0 });
   const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
   // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here, and Back, which takes the mark
   // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay; when ⌘K added the
@@ -120,14 +127,24 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     limit: query.limit, offset: query.offset, due_before: query.overdue ? yesterday() : undefined,
   }), [query]);
 
-  const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal, background: true }), staleTime: 10_000, refetchInterval: 30_000, refetchIntervalInBackground: false });
+  const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal }), staleTime: 10_000 });
+  useBackgroundRefresh(['work-items', params], (signal) => api.listWorkItems(params, { signal, background: true }));
   const views = useQuery({ queryKey: ['work-views'], queryFn: api.listWorkViews, staleTime: 60_000 });
   const rows: any[] = useMemo(() => list.data?.items || [], [list.data]);
   const total: number = list.data?.total ?? 0;
+  const cursor = useMemo(() => cursorIndex(cursorAt, rows), [cursorAt, rows]);
 
   const refresh = useCallback(() => invalidateWork(qc), [qc]);
 
-  useEffect(() => { setCursor(0); setSelected(new Set()); }, [query]);
+  useEffect(() => { setCursorAt({ id: null, index: 0 }); setSelected(new Set()); }, [query]);
+
+  useEffect(() => {
+    if (!rows.length) return;
+    setCursorAt((at) => {
+      const index = cursorIndex(at, rows);
+      return at.id === rows[index].id && at.index === index ? at : { id: rows[index].id, index };
+    });
+  }, [rows]);
 
   useEffect(() => {
     if (bulkOpen || list.isPending) return;
@@ -192,15 +209,15 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       }
       const move = (delta: number) => {
         event.preventDefault();
-        setCursor((c) => {
-          const next = Math.max(0, Math.min(rows.length - 1, c + delta));
+        setCursorAt((at) => {
+          const next = Math.max(0, Math.min(rows.length - 1, cursorIndex(at, rows) + delta));
           const el = scroller.current;
           if (el) {
             const top = next * ROW_HEIGHT;
             if (top < el.scrollTop) el.scrollTop = top;
             else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_HEIGHT - el.clientHeight;
           }
-          return next;
+          return { id: rows[next]?.id ?? null, index: next };
         });
       };
       if (event.key === 'j' || event.key === 'ArrowDown') move(1);
@@ -302,7 +319,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         {activeView && activeView.user_id === identity?.user.id && (
           <Button variant="ghost" size="sm" aria-label={`Delete the saved view “${activeView.name}”`} onClick={() => setDeletingView(true)}><Trash2 className="h-4 w-4" /></Button>
         )}
-        <Button onClick={() => setSaveViewOpen(true)}><Bookmark className="h-4 w-4" />Save this view</Button>
+        <Button onClick={() => { setShareViewUnit(''); setSaveViewOpen(true); }}><Bookmark className="h-4 w-4" />Save this view</Button>
       </div>
 
       {showFilters && (
@@ -409,7 +426,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                         <tr
                           key={row.id}
                           style={{ height: ROW_HEIGHT }}
-                          onClick={() => { setCursor(index); openItem(row.id); }}
+                          onClick={() => { setCursorAt({ id: row.id, index }); openItem(row.id); }}
                           className={cn('cursor-pointer border-b border-line transition-colors', isSelected && 'bg-accent/5', isCursor && 'outline outline-2 -outline-offset-2 outline-accent', !isSelected && 'hover:bg-surface-2')}
                         >
                           <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
@@ -434,7 +451,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
                           <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             {row.claimed_by
-                              ? (mine ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
+                              ? (mine && !isClosedRow(row) ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
                               : ['resolved', 'not_applicable'].includes(row.state) ? null
                               : <Button size="sm" variant="ghost" onClick={() => claim(row)}><Hand className="h-3.5 w-3.5" />Claim</Button>}
                           </td>
@@ -478,7 +495,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         footer={<><Button variant="ghost" disabled={savingView} onClick={() => setSaveViewOpen(false)}>Cancel</Button><Button variant="primary" loading={savingView} disabled={!viewName.trim()} onClick={saveCurrentView}>Save view</Button></>}
       >
         <Field label="Name"><Input autoFocus value={viewName} disabled={savingView} maxLength={80} onChange={(e) => setViewName(e.target.value)} placeholder="Overdue and unclaimed" /></Field>
-        {identity && identity.memberships.length > 0 && <Field label="Share this view"><Select aria-label="Share saved view with" value={shareViewUnit} disabled={savingView} onValueChange={setShareViewUnit}
+        {identity && identity.memberships.length > 0 && <Field label="Share this view"><Select value={shareViewUnit} disabled={savingView} onValueChange={setShareViewUnit}
           options={[{ value: '', label: 'Only me' }, ...identity.memberships.filter((membership) => can(identity, PERMISSIONS.CREATE_SHARED_WORK, membership.unit_id)).map((membership) => ({ value: membership.unit_id, label: membership.unit_short || membership.unit_name }))]} /></Field>}
       </Dialog>
     </PageShell>
