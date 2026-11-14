@@ -347,7 +347,8 @@ analytics and the records behind each figure (`server/services/unitAnalytics.ts`
 - **Shared records only.** Cases, duty and training shared with the units read; never private entries, drafts or
   another Unit Instance's records.
 - **Names follow `VIEW_MEMBER_DETAIL` in the record's unit.** Without it, a case's holder, a duty's or a course's
-  Marine are not named, duty load is by unit, and the training standing is counts with no list. A duty a retention
+  Marine are not named, duty load is by unit, and the training standing is counts with no list. A Marine not named is
+  listed under a number, never their account id, which the roster would put a name to. A duty a retention
   schedule anonymized names nobody and has no title. The Personnel section lists Marines exactly as the Roster page and
   the personnel report do (`personnelRoster`), so its count is theirs. A drill links to a Marine only where
   `detailUnitsFor` allows, and never to the reader themselves.

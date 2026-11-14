@@ -81,7 +81,8 @@ the count and total of all). Sections:
   unit. This is stricter than the dashboard's and report center's single check on the root unit; see Not done here.
 - Only shared records count (`visibility = 'unit'`), never private ones, drafts or another Unit Instance's.
 - **A record names a Marine only where the reader opens member records** (`VIEW_MEMBER_DETAIL`) in its unit. Without
-  it, duty load is by unit, and the training standing shows counts with no drill (its records are Marines). A duty a
+  it, duty load is by unit, and the training standing shows counts with no drill (its records are Marines). A Marine
+  not named is listed under a number, never their account id, which the roster would put a name to. A duty a
   retention schedule anonymized names nobody and has no title. The Personnel section is the roster, read with
   `personnelRoster` as the Roster page and the personnel report read it, so it lists Marines as they do and its count is
   theirs (a deactivated account only for whoever manages it).

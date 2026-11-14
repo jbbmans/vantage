@@ -346,11 +346,14 @@ function buildTraining(r: Reading): Built {
       in: m,
     });
   }
+  // A Marine the reader may not see by name is listed under a number, not their account id, which the roster would name.
+  let unnamed = 0;
+  const unnamedId = () => `unnamed-${++unnamed}`;
   for (const [id, x] of trained) {
     const who = r.detailIn.has(x.unit_id) ? names.get(id) || null : null;
     sources.push({
       record: {
-        drill: { id, kind: 'marine', title: who || 'A Marine', detail: `${plural(x.courses, 'course')} · ${hoursText(x.hours)}`, date: null, who: null, unit: r.unitName(x.unit_id), status: null, to: null },
+        drill: { id: who ? id : unnamedId(), kind: 'marine', title: who || 'A Marine', detail: `${plural(x.courses, 'course')} · ${hoursText(x.hours)}`, date: null, who: null, unit: r.unitName(x.unit_id), status: null, to: null },
         user_id: id, unit_id: x.unit_id, table: 'trainings', named: Boolean(who),
       },
       in: [{ visual: 'training_now', key: 'marines', value: 1 }],
@@ -365,7 +368,7 @@ function buildTraining(r: Reading): Built {
     sources.push({
       record: {
         drill: {
-          id: `${x.r.id}:${x.p.id}`, kind: 'marine', title: seen ? x.p.name : 'A Marine', detail: x.r.title, date: x.s.last, who: null, unit: x.p.team,
+          id: seen ? `${x.r.id}:${x.p.id}` : `${x.r.id}:${unnamedId()}`, kind: 'marine', title: seen ? x.p.name : 'A Marine', detail: x.r.title, date: x.s.last, who: null, unit: x.p.team,
           status: STANDING_SERIES.find((s) => s.key === status)?.label || null, to: null,
         },
         user_id: x.p.id, unit_id: seenIn, table: 'trainings', named: seen,

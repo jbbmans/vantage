@@ -238,6 +238,14 @@ test('training: the standing as the training report has it, and listed only to w
   assert.equal(visualOf(plain, 'training_standing').drill, false, 'counts only');
   assert.doesNotMatch(JSON.stringify(plain), /Rivera/);
   assert.equal((await drill(nco.token, 'G8', 'training', { visual: 'training_standing', key: 'req-cyber', series: 'overdue' })).status, 403);
+  // Unnamed, a Marine who trained is not listed under their account id either, which the roster would put a name to.
+  const unnamed = await drill(nco.token, 'G8', 'training', { visual: 'training_now', key: 'marines' });
+  assert.equal(unnamed.status, 200, JSON.stringify(unnamed.body));
+  const quiet = unnamed.body as DrillResponse;
+  assert.equal(quiet.count, trainers.count);
+  assert.ok(quiet.records.every((r) => r.title === 'A Marine' && r.to === null));
+  assert.doesNotMatch(JSON.stringify(quiet), new RegExp(`${marine.id}|Rivera`));
+  assert.equal(new Set(quiet.records.map((r) => r.id)).size, quiet.count, 'still each Marine once');
 });
 
 test('personnel: the roster by grade, team and MOS, each Marine once', async () => {
