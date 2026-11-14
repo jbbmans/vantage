@@ -7,6 +7,18 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-14',
+    title: 'The Unit dashboard answers questions about casework, duty, training and the roster',
+    items: [
+      'Open Reports & Analytics → Unit dashboard and choose Casework, Duty, Training or Personnel. Output shows what it always did.',
+      'Each chart is headed by the question it answers, such as how long the open cases have been open or who is carrying the duty load, with a sentence that gives the answer.',
+      'Select any bar, column or figure to see the records it counts, and open each one. The list adds up to the figure.',
+      'Choose Table on a chart to read the same figures as a table. A printed chart carries its table.',
+      'Names show only where you may open Marines’ records in that unit; otherwise figures are by unit.',
+      'Printed reports now say which table each chart comes from, and show months and weeks as columns.',
+    ],
+  },
+  {
     date: '2026-11-13',
     title: 'Counselings are drafted, finalized and amended, and print as a NAVMC 2795 worksheet',
     items: [

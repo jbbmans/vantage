@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
-import { BarList } from '@/components/charts';
+import { BarChart, clientVisual } from '@/components/analytics';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
@@ -262,10 +262,13 @@ function SectionOverview({ unitId }: { unitId: string }) {
           {!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
             : !w.data.members.some((m) => m.assigned || m.documents_researched) ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
             : (
-              <BarList
-                items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
-                format={(v) => `${v} held`}
-              />
+              <BarChart visual={clientVisual({
+                id: 'holders', kind: 'bars', format: 'number', noun: 'item', question: 'Who holds what',
+                buckets: w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({
+                  key: m.id, label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, values: [m.assigned], counts: [m.assigned],
+                  hint: `${m.assigned} held · ${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}`,
+                })),
+              })} />
             )}
           <p className="mt-3 text-xs text-ink-3">Counts show what was recorded. They do not measure effort or quality, and zero recorded is not zero work.</p>
         </Panel>

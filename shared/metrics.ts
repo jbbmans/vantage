@@ -14,6 +14,13 @@ export function toDate(value: unknown): Date | null {
 
 export const dayKey = (d: Date) => format(d, 'yyyy-MM-dd');
 
+/** A day written YYYY-MM-DD that is on the calendar: 2026-02-29 and 2026-13-40 are not. */
+export function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const t = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === value;
+}
+
 export function fiscalYearOf(ref = new Date()): number {
   return ref.getMonth() >= FISCAL_YEAR_START_MONTH ? ref.getFullYear() + 1 : ref.getFullYear();
 }

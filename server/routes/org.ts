@@ -16,6 +16,8 @@ import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/recor
 import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
+import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
+import { ANALYTICS_MAX_DAYS, isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Duty, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
@@ -23,6 +25,7 @@ import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
+import { isCalendarDay } from '../../shared/metrics.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
@@ -39,6 +42,8 @@ function dashboardWindow(req: Request) {
   const to = String(req.query.to || zonedDay(zoneOf(req.ctx, req.user)));
   const from = String(req.query.from || zonedDay(zoneOf(req.ctx, req.user), -89));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  // A day that is not on the calendar (2026-13-40) is refused, not read as a month the window does not have.
+  if (!isCalendarDay(from) || !isCalendarDay(to)) throw badRequest('Use real dates, as YYYY-MM-DD.');
   return { from, to };
 }
 
@@ -67,6 +72,34 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'view_unit_dashboard', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${from}..${to}`, ip: clientIp(req) });
   res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
+}));
+
+/**
+ * A unit's analytics (Task 21, ADR-0028): one section's figures, and the records behind one of them. Who may read them,
+ * and whom they name, is the service's to decide; here the section, the window and the figure asked for are checked.
+ */
+function analyticsSection(req: Request): AnalyticsSection {
+  const section = String(req.params.section);
+  if (!isAnalyticsSection(section)) throw notFound('No such analytics section.');
+  return section;
+}
+function analyticsWindow(req: Request) {
+  const w = dashboardWindow(req);
+  // Both days are in the window, so 2026-01-01 to 2026-01-31 is 31 days.
+  if ((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000 + 1 > ANALYTICS_MAX_DAYS) throw badRequest(`Use a window of ${ANALYTICS_MAX_DAYS} days or fewer.`);
+  return w;
+}
+const drillQuery = z.object({ visual: z.string().trim().min(1).max(40), key: z.string().min(1).max(120), series: z.string().trim().min(1).max(40).optional() });
+
+orgRouter.get('/units/:unitId/analytics/:section', wrap((req, res) => {
+  const section = analyticsSection(req);
+  res.json(unitAnalytics(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), clientIp(req)));
+}));
+
+orgRouter.get('/units/:unitId/analytics/:section/drill', wrap((req, res) => {
+  const section = analyticsSection(req);
+  const ask = parse(drillQuery, { visual: req.query.visual, key: req.query.key, series: req.query.series || undefined });
+  res.json(unitAnalyticsDrill(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), ask, clientIp(req)));
 }));
 
 orgRouter.get('/units/:unitId/overview', wrap((req, res) => {

@@ -174,6 +174,11 @@ test('unit dashboard aggregates shared work and gates member rows', async () => 
   assert.equal(ncoDash.body.members.length, 0);
   assert.equal((await app.call('GET', '/api/org/units/G8/dashboard', { token: (await app.login('marine')).body.token })).status, 403);
   assert.equal((await app.call('GET', '/api/org/units/G8/dashboard?from=2026-13-01', { token: sn })).status, 400);
+  // A day that passes the pattern but is not on the calendar is refused too, and a far end fills no week not yet begun.
+  for (const q of ['from=2026-01-01&to=2026-02-30', 'from=2026-12-99&to=2026-12-31']) assert.equal((await app.call('GET', `/api/org/units/G8/dashboard?${q}`, { token: sn })).status, 400, q);
+  const far = await app.call('GET', '/api/org/units/G8/dashboard?from=2026-01-01&to=9999-12-31', { token: sn });
+  assert.equal(far.status, 200);
+  assert.ok(far.body.weekly.length >= 1 && far.body.weekly.every((w: { week: string }) => Date.parse(`${w.week}T00:00:00Z`) <= Date.now() + 86_400_000), 'the weeks stop at this one');
 });
 
 test('audit log and export are permission-gated and chain-verified', async () => {

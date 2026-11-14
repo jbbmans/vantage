@@ -36,6 +36,11 @@ test('the analysis compares the period with the prior one and breaks the record 
   assert.equal(kpi('awards').value, 1);
   assert.equal(a.monthly.length, 3);
   assert.deepEqual(a.monthly.map((m: { entries: number }) => m.entries), [1, 1, 2]);
+  // All time starts at the first month with an entry, not in January 1970, and ends at the period's end.
+  const all = (await app.call('GET', '/api/reports/analysis?period=all', { token: op.token })).body;
+  assert.equal(all.monthly[0].month, '2026-05', 'the first month with an entry');
+  assert.ok(all.monthly.some((m: { month: string; entries: number }) => m.month === '2026-09' && m.entries === 2));
+  assert.equal(all.monthly.reduce((n: number, m: { entries: number }) => n + m.entries, 0), all.counts.current, 'every entry is in a month');
   assert.equal(a.byArea.find((x: { name: string }) => x.name === 'Leadership').entries, 1);
   assert.ok(a.coverage.emptyAreas.includes('Individual Character'));
   const obligated = a.byValueType.find((t: { key: string }) => t.key === 'obligated');

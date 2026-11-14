@@ -5,7 +5,7 @@ import { startApp, enroll, today, PASSWORD, type TestApp } from './helpers.ts';
 import { orgOfUnit } from '../../server/authz/scope.ts';
 import { addMonths, standing } from '../../server/services/reportCenter.ts';
 import { renderReportDocumentPdf } from '../../server/lib/pdfReport.ts';
-import { REPORT_FORMAT, REPORT_TYPES, REPORT_SPECS, primaryTable, type ReportDocument } from '../../shared/reportCatalog.ts';
+import { REPORT_FORMAT, REPORT_TYPES, REPORT_SPECS, chartBars, labelledColumn, primaryTable, type ReportDocument } from '../../shared/reportCatalog.ts';
 import { PROCEDURE_LIST } from '../../shared/procedures.ts';
 
 /**
@@ -131,6 +131,98 @@ test('every report runs, and is one document with its title, subject, period, fi
     assert.equal(Boolean(doc.period), Boolean(spec.period), `${type} is dated exactly when it has a period`);
     if (doc.period) assert.equal(doc.filters[0].label, 'Period');
     assert.deepEqual(doc.files, ['pdf', 'csv', 'xlsx', 'json']);
+  }
+});
+
+test('every chart in every report draws a column of a table beside it, and prints with its source', async () => {
+  // Task 21 (ADR-0028): a chart is never the only place its figures are. Each names the table in its own section that
+  // holds them, and the column it draws; every bar's figure is in that column, so the chart traces to its rows.
+  let charts = 0;
+  for (const type of REPORT_TYPES) {
+    for (const params of [{ type }, { type, unit_id: 'G8' }] as Array<Record<string, string>>) {
+      const res = await run(op.token, params);
+      if (res.status !== 200) continue;
+      const doc = res.body as ReportDocument;
+      for (const s of doc.sections) {
+        if (!s.chart) continue;
+        charts += 1;
+        const source = s.tables.find((x) => x.id === s.chart!.table);
+        assert.ok(source, `${type} ${s.id}: the chart's table is in its section`);
+        assert.ok(source!.columns.some((c) => c.key === s.chart!.column), `${type} ${s.id}: the chart draws a column of its table`);
+        const values = source!.rows.map((r) => Number(r[s.chart!.column]));
+        for (const b of s.chart.bars) assert.ok(values.some((v) => Math.abs(v - b.value) < 0.005), `${type} ${s.id}: ${b.label} (${b.value}) is in the table`);
+      }
+    }
+  }
+  assert.ok(charts >= 3, `charts were checked (${charts})`);
+  // Printed: bars and columns each name their source, and a figure over time stands in columns.
+  const doc = (await run(op.token, { type: 'unit', unit_id: 'G8' })).body as ReportDocument;
+  const table = { id: 'src', title: 'Source figures', columns: [{ key: 'label', label: 'Month' }, { key: 'n', label: 'Entries', kind: 'number' as const }], rows: [{ label: 'Jan', n: 2 }, { label: 'Feb', n: 5 }, { label: 'Mar', n: 3 }], total: 3, empty: 'None.' };
+  const bars = [{ label: 'Jan', value: 2 }, { label: 'Feb', value: 5 }, { label: 'Mar', value: 3 }];
+  for (const shape of ['bars', 'columns'] as const) {
+    const pdf = await renderReportDocumentPdf({ ...doc, sections: [{ id: 'c', heading: 'Charted', chart: { title: 'Entries charted', kind: 'number', bars, table: 'src', column: 'n', shape }, tables: [table] }] });
+    assert.ok(pdfDraws(pdf, 'From the table Source figures, column Entries.'), `${shape}: the printed chart names the table and column it draws`);
+    assert.ok(pdfDraws(pdf, 'Entries charted'), `${shape}: and its title`);
+  }
+  assert.equal(doc.sections.find((s) => s.id === 'weeks')?.chart?.shape, 'columns', 'the unit report draws its weeks as columns');
+
+  // Columns over time keep their quiet weeks at zero, so the gaps show: one row per week of the period, a week apart.
+  const weeks = doc.sections.find((s) => s.id === 'weeks')!.tables[0].rows.map((r) => String(r.week));
+  assert.ok(weeks.length >= 13, `every week of the 90 days, though entries were shared in only two (${weeks.length})`);
+  for (let i = 1; i < weeks.length; i += 1) assert.equal(Date.parse(weeks[i]) - Date.parse(weeks[i - 1]), 7 * 86_400_000, `${weeks[i - 1]} then ${weeks[i]}: no week left out`);
+  // A week not yet begun is not a quiet week: a period that ends ahead (this calendar year, or a far end such as the open
+  // end 9999-12-31) stops at this week, and promptly.
+  const begun = (week: string) => Date.parse(`${week}T00:00:00Z`) <= Date.now() + 86_400_000;
+  for (const params of [{ period: 'year' }, { period: 'fiscalYear' }, { from: '2026-01-01', to: '9999-12-31' }] as Array<Record<string, string>>) {
+    const started = Date.now();
+    const res = await run(op.token, { type: 'unit', unit_id: 'G8', ...params });
+    assert.equal(res.status, 200, JSON.stringify(params));
+    const rows = (res.body as ReportDocument).sections.find((s) => s.id === 'weeks')!.tables[0].rows.map((r) => String(r.week));
+    assert.ok(rows.length && rows.every(begun), `${JSON.stringify(params)}: no week after this one (${rows.slice(-2).join(', ')})`);
+    assert.ok(Date.now() - started < 5000, `${JSON.stringify(params)}: answered promptly`);
+  }
+  // A day that is not on the calendar is refused, not a server error.
+  for (const to of ['2026-13-40', '2026-02-30']) assert.equal((await run(op.token, { type: 'unit', unit_id: 'G8', from: '2026-01-01', to })).status, 400, to);
+  // A long series draws its latest columns, bars their first, and says how many the table holds.
+  const many = Array.from({ length: 75 }, (_, i) => ({ label: `W${i + 1}`, value: i + 1 }));
+  assert.deepEqual(chartBars({ bars: many, shape: 'columns' }).bars.map((b) => b.label).slice(-1), ['W75'], 'a figure over time still ends today');
+  assert.equal(chartBars({ bars: many, shape: 'columns' }).left, 15);
+  assert.equal(chartBars({ bars: many }).bars[0].label, 'W1');
+  const longTable = { ...table, rows: many.map((b) => ({ label: b.label, n: b.value })), total: 75 };
+  const long = await renderReportDocumentPdf({ ...doc, sections: [{ id: 'c', heading: 'Charted', chart: { title: 'Entries charted', kind: 'number', bars: many, table: 'src', column: 'n', shape: 'columns' }, tables: [longTable] }] });
+  assert.ok(pdfDraws(long, 'The latest 60 of 75 are drawn; the table holds them all.'), 'the PDF says the chart is cut and where the rest are');
+  // A section's heading is kept on the page of its chart: never left alone at the foot of the page before.
+  const onOnePage = (pdf: Buffer, a: string, b: string) => {
+    const [ha, hb] = [a, b].map((t) => Buffer.from(t, 'latin1').toString('hex'));
+    const raw = pdf.toString('latin1');
+    for (let at = raw.indexOf('stream\n'); at !== -1; at = raw.indexOf('stream\n', at)) {
+      const end = raw.indexOf('endstream', at);
+      try {
+        const page = inflateSync(pdf.subarray(at + 7, end)).toString('latin1').replace(/>\s*-?[\d.]+\s*</g, '').toLowerCase();
+        if (page.includes(ha)) return page.includes(hb);
+      } catch { /* not a compressed stream */ }
+      at = end + 9;
+    }
+    return false;
+  };
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ label: `Requirement ${i + 1}`, value: i + 1 }));
+  const twelveTable = { ...table, rows: twelve.map((b) => ({ label: b.label, n: b.value })), total: 12 };
+  const stranded: number[] = [];
+  for (let filler = 1; filler <= 40; filler += 1) {
+    const rows = Array.from({ length: filler }, (_, i) => ({ label: `Row ${i + 1}`, n: i }));
+    const pdf = await renderReportDocumentPdf({ ...doc, sections: [
+      { id: 'f', heading: 'Filler', tables: [{ ...table, id: 'fill', title: 'Filler rows', rows, total: filler }] },
+      { id: 'c', heading: 'Requirements charted', chart: { title: 'Marines who met each', kind: 'number', bars: twelve, table: 'src', column: 'n' }, tables: [twelveTable] },
+    ] });
+    if (!onOnePage(pdf, 'Requirements charted', 'Marines who met each')) stranded.push(filler);
+  }
+  assert.deepEqual(stranded, [], 'the heading starts on the page of its chart, whatever comes before it');
+  // Labels never crowd the last column: none within half a step of it.
+  for (const n of [9, 17, 22, 27, 53, 60]) {
+    const shown = Array.from({ length: n }, (_, i) => i).filter((i) => labelledColumn(i, n));
+    const step = Math.ceil(n / 6);
+    assert.ok(shown.includes(n - 1) && shown.includes(0), `${n}: the first and last are labelled`);
+    assert.ok(shown.at(-2)! <= n - 1 - step / 2, `${n}: the label before the last is at least half a step from it (${shown.join(',')})`);
   }
 });
 

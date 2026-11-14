@@ -16,7 +16,9 @@ export interface AnalysisCounseling { date?: string | null; type?: string | null
 
 export interface Kpi { key: string; label: string; value: number; prior: number; format: 'number' | 'money' | 'percent' | 'hours'; movement: Movement; note?: string }
 export interface Share { name: string; entries: number; value: number; quantity: number; share: number; priorEntries: number; movement: Movement; outcomeRate: number }
-export interface LedgerRow { id?: string; date: string | null; title: string; category: string | null; area: string | null; quantity: number | null; unit_label: string | null; value: number | null; value_type: string | null; result: string | null; system: string | null; organization: string | null; strength: number }
+export interface LedgerRow { id?: string; date: string | null; title: string; category: string | null; area: string | null; quantity: number | null; unit_label: string | null; value: number | null; value_type: string | null; result: string | null; system: string | null; organization: string | null; strength: number
+  /** In the appendix: the month the entry counts in (its first day in the period), and whether its value adds to the headline. */
+  month?: string; summable?: boolean }
 
 export interface Analysis {
   period: { from: string; to: string; label: string }; prior: { from: string; to: string; label: string };
@@ -55,11 +57,12 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const monthLabel = (key: string) => { const [y, m] = key.split('-').map(Number); return `${MONTHS[m - 1]} ${String(y).slice(-2)}`; };
 const weekKey = (iso: string) => { const d = toDate(iso)!; const day = (d.getDay() + 6) % 7; const monday = new Date(d.getTime() - day * DAY); return dayKey(monday); };
 
+/** The months from one day to another, the latest 121 of them, so a long period still ends at its end. */
 function monthsBetween(from: string, to: string): string[] {
+  const index = (d: string) => { const [y, m] = d.split('-').map(Number); return y * 12 + m - 1; };
+  const end = index(to);
   const out: string[] = [];
-  let [y, m] = from.split('-').map(Number);
-  const [ey, em] = to.split('-').map(Number);
-  while (y < ey || (y === ey && m <= em)) { out.push(`${y}-${String(m).padStart(2, '0')}`); m += 1; if (m > 12) { m = 1; y += 1; } if (out.length > 120) break; }
+  for (let i = Math.max(index(from), end - 120); i <= end; i += 1) out.push(`${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`);
   return out;
 }
 
@@ -135,7 +138,9 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   const runRate = { weeks: r2(weeks), entriesPerWeek: r2(current.length / weeks), priorEntriesPerWeek: r2(previous.length / priorWeeks), valuePerWeek: r2(m.totalDollars / weeks), priorValuePerWeek: r2(pm.totalDollars / priorWeeks), elapsedFraction, projectedEntries: project(current.length), projectedValue: project(m.totalDollars) };
 
   // Monthly series
-  const monthly = monthsBetween(period.from, period.to).map((month) => {
+  // "All time" starts at the first month with an entry, not in 1970.
+  const firstDay = current.map(counted).filter((d): d is string => Boolean(d)).sort()[0];
+  const monthly = monthsBetween(period.from > '1970-01-01' || !firstDay ? period.from : firstDay, period.to).map((month) => {
     const rows = current.filter((a) => monthKey(counted(a) ?? '') === month);
     return { month, label: monthLabel(month), entries: rows.length, value: r2(rows.reduce((n, a) => n + (isSummable(a.dollar_type, cfg) ? Number(a.dollar_amount) || 0 : 0), 0)), quantity: rows.reduce((n, a) => n + (Number(a.quantity) || 0), 0), withOutcome: rows.filter((a) => a.result && String(a.result).trim()).length };
   });
@@ -233,6 +238,6 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   return {
     period, prior, counts: { current: current.length, prior: previous.length }, kpis, runRate, monthly, byCategory, byArea, byValueType, bySystem, byOrganization, byUnitLabel,
     concentration, consistency, coverage, goals: goalSummary, career, quality, summary,
-    appendix: current.map((a) => ledgerRow(a, cfg)),
+    appendix: current.map((a) => ({ ...ledgerRow(a, cfg), month: monthKey(counted(a) ?? ''), summable: isSummable(a.dollar_type, cfg) && a.dollar_amount != null })),
   };
 }
