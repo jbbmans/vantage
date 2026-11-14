@@ -8,13 +8,14 @@ import PersonnelBulkDialog from '@/components/PersonnelBulk';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { AreaChart, BarList } from '@/components/charts';
+import { clientVisual, DrillDialog, VisualView, type DrillTarget, type OnDrill } from '@/components/analytics';
+import { QueryFailure } from '@/components/QueryFailure';
 import { DateText, Table, useParam } from '@/components/common';
 import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics, useMetricsReport } from '@/lib/queries';
-import { MetricTotalsGrid } from '@/components/MetricTotals';
+import { ContributorsDialog, MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
-import { ECHELONS, categoryColor } from '../../shared/constants';
+import { ECHELONS } from '../../shared/constants';
 import { formatDate, formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
@@ -24,6 +25,7 @@ import { markTeamSeen } from '@/components/GettingStarted';
 import type { PersonnelRosterRow, TeamPerson, TeamResponse, Unit } from '../../shared/types';
 import { groupFor } from '@/config/nav';
 import type { ReportType } from '../../shared/reportCatalog';
+import type { AnalyticsSection, FigureFormat } from '../../shared/unitAnalytics';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
@@ -31,7 +33,7 @@ const TeamWorkload = lazy(() => import('./TeamWorkload'));
 const SECTION_LEDES: Partial<Record<TeamSection, string>> = {
   workload: 'Who holds what, what the section is waiting on, and how old the open work is. Counts show what was recorded, not effort.',
   roster: 'Everyone on the team, with their billet, supervisor, dates and roles. Opening a Marine’s record is logged, and their private entries, drafts and career plans never appear.',
-  dashboard: 'What the unit produced in the window, from shared entries only. Figures built from fewer than three people are not shown.',
+  dashboard: 'The unit’s output, casework, duty, training and roster, from shared records only. Select any figure to see the records it counts.',
   roles: 'What each role may do in this unit, and who holds it.',
   units: 'The teams in this command and how they nest.',
   audit: 'Every time someone opened another Marine’s record here: who, whose, and when.',
@@ -74,6 +76,8 @@ export default function Team({ section }: { section: TeamSection }) {
   // A section this view does not offer (a team-level view has no roster) shows the overview instead.
   const shown: TeamSection = allowed.has(section) ? section : 'overview';
   const [messaging, setMessaging] = useState(false);
+  const [dashboardShow] = useParam('show', 'output');
+  const report = shown === 'dashboard' ? DASHBOARD_REPORTS[isDashboardShow(dashboardShow) ? dashboardShow : 'output'] : SECTION_REPORTS[shown];
   // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
   if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
@@ -88,7 +92,7 @@ export default function Team({ section }: { section: TeamSection }) {
     <div className="page">
       <PageHeader eyebrow={section === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={section === 'overview' ? where || 'Personnel' : SECTION_LABELS[section]} lede={missing ? undefined : SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
-        {!missing && unit && SECTION_REPORTS[shown] && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: SECTION_REPORTS[shown]!, subject: 'unit', unit_id: unit })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
+        {!missing && unit && report && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       {isPending ? <Skeleton className="h-64" /> : missing ? (
@@ -490,22 +494,114 @@ function Units({ units, manageUnits, orgAdmin, roster }: { units: Unit[]; manage
   );
 }
 
+/** What the unit dashboard shows: what the unit produced (shared outcomes), or one area of its analytics (Task 21). */
+type DashboardShow = 'output' | AnalyticsSection;
+const DASHBOARD_SHOWS: Array<{ value: DashboardShow; label: string }> = [
+  { value: 'output', label: 'Output' }, { value: 'work', label: 'Casework' }, { value: 'duty', label: 'Duty' }, { value: 'training', label: 'Training' }, { value: 'personnel', label: 'Personnel' },
+];
+const isDashboardShow = (v: string): v is DashboardShow => DASHBOARD_SHOWS.some((s) => s.value === v);
+// The report each part of the dashboard prints as, so "Print or file" carries what is on screen.
+const DASHBOARD_REPORTS: Record<DashboardShow, ReportType> = { output: 'unit', work: 'financial', duty: 'duty', training: 'training', personnel: 'personnel' };
+const SHOW_LEDES: Record<AnalyticsSection, string> = {
+  work: 'Cases this unit and the units beneath it hold: what is open, how old, what came in and what was resolved.',
+  duty: 'Duty recorded in the window: who stood how much, of what kind, and what still waits for approval.',
+  training: 'Shared training in the window, and where each Marine stands on what the command requires.',
+  personnel: 'Who is on the roster today, by grade, team and MOS, and where a supervisor, billet or end date needs a look.',
+};
+
 function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: string; unitLabel: string; canExport: boolean; canDetail: boolean }) {
-  const cfg = useMetrics();
   const toast = useToast();
+  const [show, setShow] = useParam('show', 'output');
+  const shown: DashboardShow = isDashboardShow(show) ? show : 'output';
   const [days, setDays] = useState('90');
   const { from, to } = useMemo(() => lastDays(days), [days]);
+  const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS} />
+        {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} />}
+        <span className="text-xs text-ink-3">{shown === 'output' ? `Shared entries only · ${formatRange(from, to)}` : shown === 'personnel' ? 'As of today' : formatRange(from, to)}</span>
+        {canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}
+      </div>
+      {shown === 'output'
+        ? <UnitOutput unitId={unitId} unitLabel={unitLabel} from={from} to={to} canExport={canExport} canDetail={canDetail} />
+        : <UnitAnalyticsPanel key={`${unitId}:${shown}`} unitId={unitId} section={shown} from={from} to={to} />}
+    </div>
+  );
+}
+
+/** One area of the unit's analytics: every figure answers a question, and every bar opens the records it counts. */
+function UnitAnalyticsPanel({ unitId, section, from, to }: { unitId: string; section: AnalyticsSection; from: string; to: string }) {
+  // Reading analytics is audited, so it is not read again on focus or failure; a change to the records refreshes it.
+  const q = useQuery({ queryKey: keys.unitAnalytics(unitId, section, from, to), queryFn: () => api.unitAnalytics(unitId, section, from, to), staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <div className="card"><QueryFailure error={q.error} onRetry={() => q.refetch()} what="These figures" /></div>;
+  const d = q.data;
+  const ask = drill ? { from: d.from, to: d.to, visual: drill.visual.id, key: drill.bucket.key, series: drill.series?.key ?? null } : null;
+  const at = drill?.series ? drill.visual.series.findIndex((x) => x.key === drill.series!.key) : -1;
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-ink-2">{SHOW_LEDES[section]}</p>
+      {d.visuals.filter((v) => v.kind === 'kpis').map((v) => <VisualView key={v.id} visual={v} onDrill={setDrill} />)}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {d.visuals.filter((v) => v.kind !== 'kpis').map((v) => <VisualView key={v.id} visual={v} onDrill={setDrill} className={v.kind === 'columns' ? 'lg:col-span-2' : undefined} />)}
+      </div>
+      {d.notes.length > 0 && <ul className="space-y-1 text-xs leading-relaxed text-ink-3">{d.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+      {drill && ask && (
+        <DrillDialog
+          title={`${drill.bucket.label}${drill.series ? ` · ${drill.series.label}` : ''}`}
+          description={drill.visual.question}
+          queryKey={keys.unitAnalyticsDrill({ unitId, section, ...ask })}
+          load={() => api.unitAnalyticsDrill(unitId, section, ask)}
+          expected={at >= 0 ? drill.bucket.values[at] : drill.bucket.value}
+          onClose={() => setDrill(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the unit produced in the window, from shared outcomes: the figures, one metric month by month and by category,
+ * readiness, and the members behind it. Each month and category opens the outcomes it adds up.
+ */
+function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { unitId: string; unitLabel: string; from: string; to: string; canExport: boolean; canDetail: boolean }) {
+  const cfg = useMetrics();
   const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
   const unitMetrics = useMetricsReport(unitMetricParams);
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
-  const unitTop = unitMetrics.data?.monthly?.[0];
-  const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
+  const series = unitMetrics.data?.monthly || [];
+  const [picked, setPicked] = useState('');
+  const top = series.find((m) => m.metricId === picked) || series[0];
+  const total = top ? [...(unitMetrics.data?.headline || []), ...(unitMetrics.data?.tracked || [])].find((t) => t.metricId === top.metricId) : undefined;
+  const [opened, setOpened] = useState<{ only?: string[]; category?: string; value: number; outcomes: number; label: string } | null>(null);
   if (isPending || !data) return <Skeleton className="h-64" />;
   const t = data.totals;
+  const format: FigureFormat = total?.kind === 'money' ? 'money' : total?.kind === 'duration' ? 'hours' : 'number';
+  const noun = 'outcome';
+  const months = top ? clientVisual({
+    id: 'output_months', question: `How much ${top.metricLabel.toLowerCase()} did the unit record each month?`, kind: 'columns', format, noun,
+    buckets: top.points.map((p) => ({ key: p.key, label: p.label, values: [p.value], counts: [p.outcomes] })),
+  }) : null;
+  const categories = top ? clientVisual({
+    id: 'output_categories', question: `Where did the ${top.metricLabel.toLowerCase()} land?`, kind: 'bars', format, noun,
+    note: 'By the category each outcome was recorded under.',
+    buckets: (unitMetrics.data?.byCategory || []).map((c) => ({ c, m: c.totals.find((x) => x.metricId === top.metricId) }))
+      .filter((x) => x.m && x.m.outcomes)
+      .map(({ c, m }) => ({ key: c.value, label: c.value, values: [m!.value], counts: [m!.outcomes] }))
+      .sort((a, b) => b.values[0] - a.values[0]),
+  }) : null;
+  const picker = series.length > 1 ? <Select aria-label="Figure" className="w-48" value={top?.metricId || ''} onValueChange={setPicked} options={series.map((m) => ({ value: m.metricId, label: m.metricLabel }))} /> : null;
+  const onMonth: OnDrill = ({ bucket }) => {
+    const point = top?.points.find((p) => p.key === bucket.key);
+    if (point) setOpened({ only: point.contributors, value: point.value, outcomes: point.outcomes, label: `in ${point.label}` });
+  };
+  const onCategory: OnDrill = ({ bucket }) => setOpened({ category: bucket.key, value: bucket.value, outcomes: bucket.count, label: `under ${bucket.label}, ${formatRange(from, to)}` });
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2"><Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} /><span className="text-xs text-ink-3">Shared entries only · {formatRange(from, to)}</span>{canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}</div>
       <div>
         <h3 className="eyebrow mb-2">What the unit produced in this window</h3>
         <MetricTotalsGrid
@@ -522,20 +618,14 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
         <Stat label="Outcomes with a result" value={`${t.completeness}%`} hint={t.completeness >= 100 ? 'every one says what came of it' : 'the rest need a result written'} tone={t.completeness < 60 ? 'warn' : undefined} />
         <Stat label="Needs attention" value={t.overdue_tasks + t.counseling_due} hint={`${t.overdue_tasks} overdue tasks, ${t.counseling_due} counselings due`} tone={t.overdue_tasks + t.counseling_due ? 'warn' : 'good'} />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title={unitTop ? `${unitTop.metricLabel} by month` : 'Over time'} subtitle="On the same basis as the figures above" padded={false} bodyClassName="p-3">
-          {unitTop && unitTop.points.length > 1
-            ? <AreaChart ariaLabel={`${unitTop.metricLabel} by month`} data={unitTop.points.map((pt) => ({ label: pt.label, value: pt.value }))} />
-            : <EmptyState title="Not enough history for a chart yet" description="A couple of months of shared outcomes will show the shape here." />}
-        </Panel>
-        <Panel title="Where the work landed" subtitle="Outcomes by category">
-          <BarList
-            items={(unitMetrics.data?.byCategory || []).map((b) => ({ label: b.value, value: b.totals.reduce((n, x) => n + x.outcomes, 0) })).sort((a, b) => b.value - a.value).slice(0, 8)}
-            format={(v) => `${v} ${v === 1 ? 'outcome' : 'outcomes'}`}
-            colorFor={(l) => categoryColor(l, cfg)}
-          />
-        </Panel>
-      </div>
+      {months && categories ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <VisualView className="lg:col-span-2" visual={months} onDrill={onMonth} first="Month" actions={picker} />
+          <VisualView visual={categories} onDrill={onCategory} first="Category" />
+        </div>
+      ) : (
+        <div className="card"><EmptyState title="Not enough shared outcomes for a chart yet" description="Shared outcomes that carry a quantity, a value or hours will show month by month here." /></div>
+      )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
@@ -547,6 +637,15 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
         </Panel>
       </div>
       {canExport && <Panel title="Command brief" subtitle="AI summarizes aggregate totals only; no names leave the server" action={<AiAction workflow="command_brief" input={{ unit_id: unitId, from, to }} label="Draft brief" onResult={(output, meta) => setBrief({ output, meta })} />}>{brief ? <AiResult output={brief.output} meta={brief.meta} primaryKey="executive_summary" /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />A one-paragraph read of {unitLabel} for the window above.</p>}</Panel>}
+      {opened && total && (
+        <ContributorsDialog
+          total={total}
+          params={opened.category ? { ...unitMetricParams, category: opened.category } : unitMetricParams}
+          only={opened.only}
+          figure={{ value: opened.value, outcomes: opened.outcomes, label: opened.label }}
+          onClose={() => setOpened(null)}
+        />
+      )}
     </div>
   );
 }

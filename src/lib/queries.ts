@@ -82,6 +82,8 @@ export const keys = {
   delta: (params: Record<string, unknown>) => ['delta', params] as const,
   analysis: (params: Record<string, unknown>) => ['analysis', params] as const,
   dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
+  unitAnalytics: (unitId: string, section: string, from: string, to: string) => ['unit-analytics', unitId, section, from, to] as const,
+  unitAnalyticsDrill: (params: Record<string, unknown>) => ['unit-analytics-drill', params] as const,
   metrics: (params: Record<string, unknown>) => ['metrics', params] as const,
   metricContributors: (params: Record<string, unknown>) => ['metric-contributors', params] as const,
   goalContributors: (id: string) => ['goal-contributors', id] as const,
@@ -150,7 +152,7 @@ export function useReviewDuty() {
 export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'duty' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
 
 const FIGURES: ReadonlyArray<readonly unknown[]> = [
-  ['report'], ['delta'], ['analysis'], ['dashboard'], ['metrics'], ['metric-contributors'],
+  ['report'], ['delta'], ['analysis'], ['dashboard'], ['unit-analytics'], ['metrics'], ['metric-contributors'],
   ['goal-contributors'], ['records', 'goals'], ['record', 'goals'], ['record-summary'],
 ];
 
@@ -159,11 +161,11 @@ const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
   training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
   award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
   counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet']],
-  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
+  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['unit-analytics'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
   goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
-  work: [['work-items'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],
+  work: [['work-items'], ['unit-analytics'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],
   draft: [['record-drafts']],
   career: [['career']],
   correspondence: [['threads'], ['item-threads'], ['connectors']],

@@ -134,6 +134,39 @@ test('every report runs, and is one document with its title, subject, period, fi
   }
 });
 
+test('every chart in every report draws a column of a table beside it, and prints with its source', async () => {
+  // Task 21 (ADR-0028): a chart is never the only place its figures are. Each names the table in its own section that
+  // holds them, and the column it draws; every bar's figure is in that column, so the chart traces to its rows.
+  let charts = 0;
+  for (const type of REPORT_TYPES) {
+    for (const params of [{ type }, { type, unit_id: 'G8' }] as Array<Record<string, string>>) {
+      const res = await run(op.token, params);
+      if (res.status !== 200) continue;
+      const doc = res.body as ReportDocument;
+      for (const s of doc.sections) {
+        if (!s.chart) continue;
+        charts += 1;
+        const source = s.tables.find((x) => x.id === s.chart!.table);
+        assert.ok(source, `${type} ${s.id}: the chart's table is in its section`);
+        assert.ok(source!.columns.some((c) => c.key === s.chart!.column), `${type} ${s.id}: the chart draws a column of its table`);
+        const values = source!.rows.map((r) => Number(r[s.chart!.column]));
+        for (const b of s.chart.bars) assert.ok(values.some((v) => Math.abs(v - b.value) < 0.005), `${type} ${s.id}: ${b.label} (${b.value}) is in the table`);
+      }
+    }
+  }
+  assert.ok(charts >= 3, `charts were checked (${charts})`);
+  // Printed: bars and columns each name their source, and a figure over time stands in columns.
+  const doc = (await run(op.token, { type: 'unit', unit_id: 'G8' })).body as ReportDocument;
+  const table = { id: 'src', title: 'Source figures', columns: [{ key: 'label', label: 'Month' }, { key: 'n', label: 'Entries', kind: 'number' as const }], rows: [{ label: 'Jan', n: 2 }, { label: 'Feb', n: 5 }, { label: 'Mar', n: 3 }], total: 3, empty: 'None.' };
+  const bars = [{ label: 'Jan', value: 2 }, { label: 'Feb', value: 5 }, { label: 'Mar', value: 3 }];
+  for (const shape of ['bars', 'columns'] as const) {
+    const pdf = await renderReportDocumentPdf({ ...doc, sections: [{ id: 'c', heading: 'Charted', chart: { title: 'Entries charted', kind: 'number', bars, table: 'src', column: 'n', shape }, tables: [table] }] });
+    assert.ok(pdfDraws(pdf, 'From the table Source figures, column Entries.'), `${shape}: the printed chart names the table and column it draws`);
+    assert.ok(pdfDraws(pdf, 'Entries charted'), `${shape}: and its title`);
+  }
+  assert.equal(doc.sections.find((s) => s.id === 'weeks')?.chart?.shape, 'columns', 'the unit report draws its weeks as columns');
+});
+
 test('each report says what its records say', async () => {
   const unit = (type: string, extra: Record<string, string> = {}) => run(op.token, { type, unit_id: 'G8', ...extra }).then((r) => { assert.equal(r.status, 200, JSON.stringify(r.body)); return r.body as ReportDocument; });
 

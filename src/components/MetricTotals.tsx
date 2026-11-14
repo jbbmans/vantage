@@ -4,10 +4,11 @@ import { ArrowRight, ArrowUpRight, Info } from 'lucide-react';
 import { Badge, Button, EmptyState, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { TimeframeText } from '@/components/Timeframe';
-import { useMetricContributors, type MetricContributor } from '@/lib/queries';
+import { useIdentity, useMetricContributors, type MetricContributor } from '@/lib/queries';
 import { formatDollars, formatNumber, formatDollarsExact } from '../../shared/metrics';
 import type { MetricTotal } from '../../shared/metricEngine';
 import { cn } from '@/lib/utils';
+import { useReturnFocus } from '@/components/analytics';
 
 export function formatMetric(total: Pick<MetricTotal, 'kind' | 'value' | 'unit'>, exact = false): string {
   if (total.kind === 'money') return exact ? formatDollarsExact(total.value) : formatDollars(total.value);
@@ -79,16 +80,30 @@ export function MetricCard({ total, prior, params, tone = 'headline' }: MetricCa
   );
 }
 
-function ContributorsDialog({ total, params, onClose }: { total: MetricTotal; params: Record<string, string | undefined>; onClose: () => void }) {
+/**
+ * The outcomes behind one figure. `only` narrows the window's contributors to those a smaller figure counts (one month of
+ * a chart), and `figure` is that figure, so the list is checked against what was on screen. An outcome is opened where
+ * it can be: an activity at its record, a training of one's own at one's training; another Marine's training is listed
+ * without a link, since no page here opens it.
+ */
+export function ContributorsDialog({ total, params, onClose, only, figure, title }: {
+  total: MetricTotal; params: Record<string, string | undefined>; onClose: () => void;
+  only?: readonly string[]; figure?: { value: number; outcomes: number; label: string }; title?: string;
+}) {
   const query = useMetricContributors({ ...params, metric_id: total.metricId });
-  const rows = query.data || [];
+  const { data: identity } = useIdentity();
+  useReturnFocus();
+  const keep = only ? new Set(only) : null;
+  const rows = (query.data || []).filter((r) => !keep || keep.has(`${r.table}:${r.id}`));
   const sum = rows.reduce((a, r) => a + r.value, 0);
+  const shown = figure ?? { value: total.value, outcomes: total.outcomes, label: `${params.from || 'the start'} to ${params.to || 'today'}` };
+  const linkFor = (r: MetricContributor) => (r.table === 'activities' ? `/records/${r.id}` : r.user_id === identity?.user.id ? '/career/training' : null);
   return (
     <Dialog
       open
       onOpenChange={(o) => { if (!o) onClose(); }}
-      title={`What counted toward ${metricUnitLabel(total)}`}
-      description={`${formatMetric(total, total.kind === 'money')} across ${total.outcomes} ${total.outcomes === 1 ? 'outcome' : 'outcomes'}, ${params.from || 'the start'} to ${params.to || 'today'}.`}
+      title={title || `What counted toward ${metricUnitLabel(total)}`}
+      description={`${formatMetric({ ...total, value: shown.value }, total.kind === 'money')} across ${shown.outcomes} ${shown.outcomes === 1 ? 'outcome' : 'outcomes'}, ${shown.label}.`}
       size="lg"
       footer={<Button variant="ghost" onClick={onClose}>Close</Button>}
     >
@@ -99,24 +114,28 @@ function ContributorsDialog({ total, params, onClose }: { total: MetricTotal; pa
       ) : (
         <>
           <ul className="divide-y divide-line">
-            {rows.map((r: MetricContributor) => (
-              <li key={`${r.table}-${r.id}`}>
-                <Link
-                  to={r.table === 'activities' ? `/records/${r.id}` : '/career/training'}
-                  className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-surface-2"
-                  onClick={onClose}
-                >
+            {rows.map((r: MetricContributor) => {
+              const to = linkFor(r);
+              const body = (
+                <>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-ink">{r.title}</span>
                     <span className="block text-xs text-ink-3"><TimeframeText table={r.table} row={r} /></span>
                   </span>
                   <span className="fig shrink-0 text-sm font-medium text-ink">{formatMetric({ kind: total.kind, value: r.value, unit: r.unit }, total.kind === 'money')}</span>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-3" />
-                </Link>
-              </li>
-            ))}
+                  {to ? <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden /> : null}
+                </>
+              );
+              return (
+                <li key={`${r.table}-${r.id}`}>
+                  {to
+                    ? <Link to={to} className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-surface-2" onClick={onClose}>{body}</Link>
+                    : <div className="flex items-center gap-3 px-1 py-2.5">{body}</div>}
+                </li>
+              );
+            })}
           </ul>
-          {Math.abs(sum - total.value) > 0.005 && total.aggregation === 'sum' && (
+          {Math.abs(sum - shown.value) > 0.005 && total.aggregation === 'sum' && (
             <p className="mt-3 flex items-start gap-2 text-xs text-warn">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               These rows add to {formatMetric({ kind: total.kind, value: sum, unit: total.unit }, true)}, which does not match the figure above. Report this.

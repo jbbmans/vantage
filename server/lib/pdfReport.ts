@@ -95,15 +95,38 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       doc.moveDown(0.2);
     };
 
-    // ——— Horizontal bars, each with its label and its figure; the table below holds the same numbers in full ———
-    const chart = (c: ReportChart) => {
+    // ——— Charts, each with its labels and figures; the table below holds the same numbers in full ———
+    // A chart is kept on one page, and says which table and column it draws. A figure over time stands in columns.
+    const chart = (c: ReportChart, source: ReportTable | undefined) => {
       const bars = c.bars.slice(0, 30);
       if (bars.length < 2 || !bars.some((b) => b.value)) return;
+      const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
+      const column = source?.columns.find((x) => x.key === c.column)?.label;
+      const from = source ? `From the table ${source.title}${column ? `, column ${column}` : ''}.` : null;
+      if (c.shape === 'columns') {
+        const plotH = 86; const gap = 3; const colW = (width - gap * (bars.length - 1)) / bars.length;
+        const labelled = bars.length <= 8 ? 1 : Math.ceil(bars.length / 6);
+        ensure(plotH + 52);
+        text(c.title, 'Helvetica-Bold', 9, INK);
+        doc.moveDown(0.3);
+        const top = doc.y + 10; const base = top + plotH;
+        bars.forEach((b, i) => {
+          const x = left + i * (colW + gap);
+          const h = b.value ? Math.max(1, (Math.abs(b.value) / max) * plotH) : 0;
+          if (h) doc.rect(x, base - h, colW, h).fill(ACCENT);
+          if (bars.length <= 12) doc.font('Helvetica').fontSize(6.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), x - 6, base - h - 9, { width: colW + 12, align: 'center', lineBreak: false });
+          if (i % labelled === 0 || i === bars.length - 1) doc.font('Helvetica').fontSize(6.5).fillColor(INK2).text(pdfText(b.label), x - 10, base + 3, { width: colW + 20, align: 'center', lineBreak: false, ellipsis: true });
+        });
+        doc.moveTo(left, base).lineTo(left + width, base).lineWidth(0.5).strokeColor(MUTED).stroke();
+        doc.x = left; doc.y = base + 14;
+        if (from) text(from, 'Helvetica', 7, MUTED);
+        doc.moveDown(0.5);
+        return;
+      }
       const labelW = width * 0.32; const valueW = width * 0.16; const barW = width - labelW - valueW - 12; const rowH = 13;
-      ensure(rowH * Math.min(bars.length, 6) + 24);
+      ensure(rowH * bars.length + 34);
       text(c.title, 'Helvetica-Bold', 9, INK);
       doc.moveDown(0.2);
-      const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
       for (const b of bars) {
         ensure(rowH);
         const y = doc.y;
@@ -113,6 +136,7 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
         doc.font('Helvetica').fontSize(7.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), left + labelW + barW + 6, y + 2, { width: valueW + 6, align: 'right', lineBreak: false });
         doc.x = left; doc.y = y + rowH;
       }
+      if (from) text(from, 'Helvetica', 7, MUTED);
       doc.moveDown(0.5);
     };
 
@@ -183,7 +207,7 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       if (section.lede) text(section.lede, 'Helvetica', 8.8, INK2);
       doc.moveDown(0.3);
       if (section.figures?.length) figures(section.figures);
-      if (section.chart) chart(section.chart);
+      if (section.chart) chart(section.chart, section.tables.find((x) => x.id === section.chart!.table));
       for (const t of section.tables) table(t);
       for (const note of section.notes || []) text(`•  ${note}`, 'Helvetica', 8, INK2);
     }

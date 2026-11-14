@@ -16,6 +16,8 @@ import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/recor
 import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
+import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
+import { ANALYTICS_MAX_DAYS, isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Duty, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
@@ -67,6 +69,36 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'view_unit_dashboard', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${from}..${to}`, ip: clientIp(req) });
   res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
+}));
+
+/**
+ * A unit's analytics (Task 21, ADR-0028): one section's figures, and the records behind one of them. Who may read them,
+ * and whom they name, is the service's to decide; here the section, the window and the figure asked for are checked.
+ */
+function analyticsSection(req: Request): AnalyticsSection {
+  const section = String(req.params.section);
+  if (!isAnalyticsSection(section)) throw notFound('No such analytics section.');
+  return section;
+}
+function analyticsWindow(req: Request) {
+  const w = dashboardWindow(req);
+  // A day that is not on the calendar (2026-13-40) is refused, not read as a month the window does not have.
+  const real = (d: string) => { const t = Date.parse(`${d}T00:00:00Z`); return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === d; };
+  if (!real(w.from) || !real(w.to)) throw badRequest('Use real dates, as YYYY-MM-DD.');
+  if ((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000 > ANALYTICS_MAX_DAYS) throw badRequest(`Use a window of ${ANALYTICS_MAX_DAYS} days or fewer.`);
+  return w;
+}
+const drillQuery = z.object({ visual: z.string().trim().min(1).max(40), key: z.string().min(1).max(120), series: z.string().trim().min(1).max(40).optional() });
+
+orgRouter.get('/units/:unitId/analytics/:section', wrap((req, res) => {
+  const section = analyticsSection(req);
+  res.json(unitAnalytics(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), clientIp(req)));
+}));
+
+orgRouter.get('/units/:unitId/analytics/:section/drill', wrap((req, res) => {
+  const section = analyticsSection(req);
+  const ask = parse(drillQuery, { visual: req.query.visual, key: req.query.key, series: req.query.series || undefined });
+  res.json(unitAnalyticsDrill(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), ask, clientIp(req)));
 }));
 
 orgRouter.get('/units/:unitId/overview', wrap((req, res) => {

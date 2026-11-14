@@ -101,6 +101,11 @@ Marine for review, and is finalized; once final it changes only by amendment, wh
 `counseling_revisions` (migration 035). One rule (`counselingOptions` in `shared/counseling.ts`) says who may share,
 finalize, amend or acknowledge, and its worksheet is one structured document that the preview, the print page and
 `server/lib/pdfCounseling.ts` all draw; the PDF is never stored ([ADR-0027](ADR/0027-counseling-workflow-navmc-2795.md)).
+A unit's analytics (`GET /api/org/units/:unitId/analytics/:section` and `.../drill`) are built in
+`server/services/unitAnalytics.ts` from the report center's readers: each source record says which bar of which
+visual it counts in, and `shared/unitAnalytics.ts` adds them into figures and filters them for a drill, so a drill
+lists exactly what its figure counts. `src/components/analytics/` draws every chart, with its table and its drill
+([ADR-0028](ADR/0028-unified-analytics.md)).
 The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
 training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in

@@ -37,7 +37,7 @@ export default function ReportDocumentView({ doc, variant = 'screen' }: { doc: R
           <Heading id={`report-${s.id}`} className="report-heading">{s.heading}</Heading>
           {s.lede ? <p className="report-lede">{s.lede}</p> : null}
           {s.figures?.length ? <Figures list={s.figures} fmt={fmt} label={s.heading} /> : null}
-          {s.chart ? <Bars chart={s.chart} currency={doc.currency} /> : null}
+          {s.chart ? <Bars chart={s.chart} currency={doc.currency} source={s.tables.find((t) => t.id === s.chart!.table)} /> : null}
           {s.tables.map((t) => <Table key={t.id} table={t} currency={doc.currency} />)}
           {s.notes?.length ? <ul className="report-notes">{s.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
         </section>
@@ -91,23 +91,48 @@ function Figures({ list, fmt, label }: { list: ReportFigure[]; fmt: (f: ReportFi
   );
 }
 
-/** Bars with their labels and figures in words: the table beneath holds the same numbers in full. */
-function Bars({ chart, currency }: { chart: ReportChart; currency: string }) {
+/**
+ * A chart with its labels and figures in words, so it reads without its picture; it names the table beneath that holds
+ * the same numbers in full, and the column it draws. A figure over time stands in columns, anything else in bars.
+ */
+function Bars({ chart, currency, source }: { chart: ReportChart; currency: string; source: ReportTable | undefined }) {
   const bars = chart.bars.slice(0, 30);
   if (bars.length < 2 || !bars.some((b) => b.value)) return null;
   const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
+  const column = source?.columns.find((c) => c.key === chart.column)?.label;
+  const from = source ? <p className="report-chart-source">From the table {source.title}{column ? `, column ${column}` : ''}.</p> : null;
+  if (chart.shape === 'columns') {
+    const step = bars.length <= 8 ? 1 : Math.ceil(bars.length / 6);
+    return (
+      <figure className="report-chart report-chart-columns">
+        <figcaption className="report-chart-title">{chart.title}</figcaption>
+        <ol className="report-columns">
+          {bars.map((b, i) => (
+            <li key={`${b.label}-${i}`}>
+              <span className="sr-only">{b.label}: {formatCell(b.value, chart.kind, currency)}</span>
+              <span className="report-column-value fig" aria-hidden>{bars.length <= 12 ? formatCell(b.value, chart.kind, currency) : ''}</span>
+              <span className="report-column-track" aria-hidden><span className="report-bar report-column" style={{ height: `${b.value ? Math.max(1, (Math.abs(b.value) / max) * 100) : 0}%` }} /></span>
+              <span className="report-column-label" aria-hidden>{i % step === 0 || i === bars.length - 1 ? b.label : ''}</span>
+            </li>
+          ))}
+        </ol>
+        {from}
+      </figure>
+    );
+  }
   return (
     <figure className="report-chart">
       <figcaption className="report-chart-title">{chart.title}</figcaption>
       <ul>
-        {bars.map((b) => (
-          <li key={b.label}>
+        {bars.map((b, i) => (
+          <li key={`${b.label}-${i}`}>
             <span className="report-bar-label">{b.label}</span>
             <span className="report-bar-track" aria-hidden><span className="report-bar" style={{ width: `${b.value ? Math.max(1, (Math.abs(b.value) / max) * 100) : 0}%` }} /></span>
             <span className="report-bar-value fig">{formatCell(b.value, chart.kind, currency)}</span>
           </li>
         ))}
       </ul>
+      {from}
     </figure>
   );
 }

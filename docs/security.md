@@ -335,6 +335,30 @@ came from the same report (`sameReport`, as the import decides).
 - **Inference never passes as policy.** Every recommendation carries its source's rank, which nothing raises; a reading
   from words alone ranks as inference and nothing is built on it; the limits say when no official guidance is on file.
 
+## Unit analytics (ADR-0028)
+
+[ADR-0028](engineering/ADR/0028-unified-analytics.md) adds the Unit dashboard's casework, duty, training and personnel
+analytics and the records behind each figure (`server/services/unitAnalytics.ts`).
+
+- **Decided before anything is read.** The unit must exist (404), and the reader must view its shared records
+  (`VIEW_RECORDS`, 403). A unit beneath it is read only where the reader views its records too, so a role at position 0
+  reads its own unit. Unit Managers and Vantage staff without an approved read grant are refused; with one they read
+  what the grant's permissions show: no figures by Marine, and the roster as its Roster page shows it.
+- **Shared records only.** Cases, duty and training shared with the units read; never private entries, drafts or
+  another Unit Instance's records.
+- **Names follow `VIEW_MEMBER_DETAIL` in the record's unit.** Without it, a case's holder, a duty's or a course's
+  Marine are not named, duty load is by unit, and the training standing is counts with no list. A duty a retention
+  schedule anonymized names nobody and has no title. The Personnel section lists Marines exactly as the Roster page and
+  the personnel report do (`personnelRoster`), so its count is theirs. A drill links to a Marine only where
+  `detailUnitsFor` allows, and never to the reader themselves.
+- **Bounded.** A window of real calendar days, at most 731 of them; a drill lists at most 200 records, with the count of all; the visual, bar
+  and series are checked against the section's own (404 otherwise), and query strings are length-limited.
+- **Audited.** `view_unit_analytics` for each read and `drill_unit_analytics` for each drill (section, bar, window,
+  records listed); a drill naming Marines' duty, training or training standing also writes `list_records` per Marine,
+  deduplicated within five minutes. The browser reads each once and does not repeat it on focus or failure.
+- **Charts carry no new data.** The kit draws what these routes, the metrics routes and the report center already
+  return; the personal analysis drills from its own ledger without a request.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.

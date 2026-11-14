@@ -16,7 +16,9 @@ export interface AnalysisCounseling { date?: string | null; type?: string | null
 
 export interface Kpi { key: string; label: string; value: number; prior: number; format: 'number' | 'money' | 'percent' | 'hours'; movement: Movement; note?: string }
 export interface Share { name: string; entries: number; value: number; quantity: number; share: number; priorEntries: number; movement: Movement; outcomeRate: number }
-export interface LedgerRow { id?: string; date: string | null; title: string; category: string | null; area: string | null; quantity: number | null; unit_label: string | null; value: number | null; value_type: string | null; result: string | null; system: string | null; organization: string | null; strength: number }
+export interface LedgerRow { id?: string; date: string | null; title: string; category: string | null; area: string | null; quantity: number | null; unit_label: string | null; value: number | null; value_type: string | null; result: string | null; system: string | null; organization: string | null; strength: number
+  /** In the appendix: the month the entry counts in (its first day in the period), and whether its value adds to the headline. */
+  month?: string; summable?: boolean }
 
 export interface Analysis {
   period: { from: string; to: string; label: string }; prior: { from: string; to: string; label: string };
@@ -233,6 +235,6 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   return {
     period, prior, counts: { current: current.length, prior: previous.length }, kpis, runRate, monthly, byCategory, byArea, byValueType, bySystem, byOrganization, byUnitLabel,
     concentration, consistency, coverage, goals: goalSummary, career, quality, summary,
-    appendix: current.map((a) => ledgerRow(a, cfg)),
+    appendix: current.map((a) => ({ ...ledgerRow(a, cfg), month: monthKey(counted(a) ?? ''), summable: isSummable(a.dollar_type, cfg) && a.dollar_amount != null })),
   };
 }

@@ -108,7 +108,7 @@ export const GROUPS: NavGroup[] = [
       { to: '/reports', end: true, label: 'Packages', icon: ClipboardList, hint: 'Write a JEPES or FITREP report against the records it cites' },
       { to: '/reports/analysis', label: 'Analysis', icon: BarChart3, hint: 'What your record shows, by period' },
       { to: '/reports/library', label: 'Report library', icon: Library, hint: 'Print or file any report: yours, a Marine’s, a unit’s' },
-      { to: '/team/dashboard', label: 'Unit dashboard', icon: BarChart3, hint: 'The unit’s shared work, in figures', when: { team: 'dashboard' } },
+      { to: '/team/dashboard', label: 'Unit dashboard', icon: BarChart3, hint: 'The unit’s output, casework, duty, training and roster, in figures', when: { team: 'dashboard' } },
     ],
   },
   {

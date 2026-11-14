@@ -758,7 +758,8 @@ test('one’s own duty reported across two Unit Instances is read against each i
   leaver.token = await login('dutyleaver');
   const none = await get(leaver.token, `/api/report-center/run?${new URLSearchParams({ type: 'duty', subject: 'self', period: 'all' })}`);
   assert.equal(none.status, 200, JSON.stringify(none.body).slice(0, 300));
-  assert.deepEqual(none.body.sections.map((s: { id: string }) => s.id), ['stood']);
+  // Their own duty, and its hours by the type it was stood as (ADR-0028): no instance's configuration.
+  assert.deepEqual(none.body.sections.map((s: { id: string }) => s.id), ['stood', 'by_type']);
   assert.equal(none.body.sections[0].tables[0].rows.length, 1);
   assert.equal(none.body.summary.find((s: { label: string }) => s.label === 'Duty types in use').value, null);
   assert.ok(none.body.notes.some((n: string) => /serve in no Unit Instance/.test(n)));

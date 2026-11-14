@@ -9,6 +9,7 @@ import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from 
 import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
+import type { AnalyticsResponse, AnalyticsSection, DrillResponse } from '../../shared/unitAnalytics';
 import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
@@ -249,6 +250,11 @@ export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURICompon
 export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
 export const unitOverview = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/overview`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
+/** The unit's analytics (Task 21): one section's figures over a window, and the records behind one of them. */
+export const unitAnalytics = (id: string, section: AnalyticsSection, from: string, to: string) =>
+  api.get<AnalyticsResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}?${qs({ from, to })}`);
+export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { from: string; to: string; visual: string; key: string; series?: string | null }) =>
+  api.get<DrillResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}/drill?${qs({ from: q.from, to: q.to, visual: q.visual, key: q.key, series: q.series || undefined })}`);
 export const unitAudit = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/audit`);
 export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);
 /** "Why can they?": every grant behind someone's authority, in the units the caller manages. */

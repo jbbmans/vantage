@@ -1,14 +1,15 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, TrendingDown, Minus, FileDown } from 'lucide-react';
-import { Panel, Skeleton, EmptyState, Badge, Button } from '@/components/ui/primitives';
-import { AreaChart, BarList } from '@/components/charts';
+import { Panel, Skeleton, EmptyState, Badge, Button, Select } from '@/components/ui/primitives';
+import { clientVisual, DrillDialog, VisualView, type DrillList, type DrillTarget } from '@/components/analytics';
 import { Table, StatusBadge } from '@/components/common';
 import { keys, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
-import { categoryColor } from '../../shared/constants';
-import type { Analysis, Kpi } from '../../shared/analytics';
+import type { Analysis, Kpi, LedgerRow } from '../../shared/analytics';
+import type { DrillRecord } from '../../shared/unitAnalytics';
 import type { Movement } from '../../shared/delta';
 import { cn, humanize } from '@/lib/utils';
 
@@ -22,14 +23,52 @@ function Delta({ m, kind = 'number' }: { m: Movement; kind?: Kpi['format'] }) {
   return <span className={cn('fig inline-flex items-center gap-1 text-xs', m.direction === 'up' ? 'text-good' : m.direction === 'down' ? 'text-bad' : 'text-ink-3')}><Icon className="h-3.5 w-3.5" aria-hidden />{m.isNew ? 'new' : m.lapsed ? 'lapsed' : m.pct == null ? f(m.diff) : `${m.pct > 0 ? '+' : ''}${m.pct}%`}</span>;
 }
 
+type Measure = 'entries' | 'value';
+
+/** Which entries of the ledger a bar of the analysis counts: by the month it counts in, its area or its category. */
+function inBar(row: LedgerRow, visual: string, key: string, measure: Measure): boolean {
+  if (visual === 'trend') return row.month === key && (measure === 'entries' || Boolean(row.summable && row.value));
+  if (visual === 'area') return (row.area || 'Unassigned') === key;
+  if (visual === 'category') return (row.category || 'Other') === key;
+  return false;
+}
+
+/** The entries behind one bar, from the ledger the analysis already holds: every entry counts once, or its value. */
+function analysisDrill(a: Analysis, t: DrillTarget, measure: Measure): DrillList {
+  const money = t.visual.id === 'trend' && measure === 'value';
+  const rows = a.appendix.filter((r) => inBar(r, t.visual.id, t.bucket.key, measure));
+  const records: DrillRecord[] = rows.map((r, i) => ({
+    id: r.id || `row-${i}`, kind: 'activity', title: r.title || 'Untitled entry', detail: [r.category, r.area].filter(Boolean).join(' · ') || null,
+    date: r.date, who: null, unit: null, status: r.result ? 'Has an outcome' : 'No outcome yet', value: money ? Number(r.value) || 0 : 1, to: r.id ? `/records/${r.id}` : null,
+  }));
+  return { count: records.length, value: records.reduce((n, r) => n + r.value, 0), format: money ? 'money' : 'number', noun: 'entry', records };
+}
+
 export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; areaLabel: string; onDownload: () => void }) {
   const cfg = useMetrics();
   const { data, isPending, error } = useQuery<Analysis & { label: string; subject: string }>({ queryKey: keys.analysis(q), queryFn: () => api.reportAnalysis(q) });
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [measure, setMeasure] = useState<Measure>('entries');
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
   if (isPending) return <Skeleton className="h-96" />;
   if (error || !data) return <div className="card"><EmptyState title="Could not build the analysis" description={api.errorText(error)} /></div>;
   const a = data;
   const money = cfg.currency_label;
+  const valued = (month: string) => a.appendix.filter((r) => r.month === month && r.summable && r.value).length;
+  const trend = clientVisual({
+    id: 'trend', kind: 'columns', noun: 'entry', format: measure === 'value' ? 'money' : 'number',
+    question: measure === 'value' ? `How much ${money.toLowerCase()} was logged each month?` : 'How many entries were logged each month?',
+    note: a.monthly.length > 1 ? undefined : 'A period of one month has no trend to draw; its figure is the one month.',
+    buckets: a.monthly.map((m) => ({ key: m.month, label: m.label, values: [measure === 'value' ? m.value : m.entries], counts: [measure === 'value' ? valued(m.month) : m.entries] })),
+  });
+  const areas = clientVisual({
+    id: 'area', kind: 'bars', noun: 'entry', format: 'number', question: `Which ${areaLabel.toLowerCase()} did the work go to?`,
+    buckets: a.byArea.filter((x) => x.entries).map((x) => ({ key: x.name, label: x.name, hint: `${x.share}% · ${x.outcomeRate}% with outcome`, values: [x.entries], counts: [x.entries] })),
+  });
+  const categories = clientVisual({
+    id: 'category', kind: 'bars', noun: 'entry', format: 'number', question: 'What kind of work was it?',
+    buckets: a.byCategory.filter((c) => c.entries).map((x) => ({ key: x.name, label: x.name, hint: x.value ? formatDollars(x.value) : `${x.share}%`, values: [x.entries], counts: [x.entries] })),
+  });
   return (
     <div className="space-y-4" data-testid="analysis">
       <Panel title="Executive summary" subtitle={`${a.period.label} against ${a.prior.label}`} action={<Button size="sm" variant="primary" onClick={onDownload}><FileDown className="h-4 w-4" />Export analysis PDF</Button>}>
@@ -51,9 +90,13 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
       </Panel>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title="Activity trend" subtitle={`entries per month, dashed line is ${money.toLowerCase()}`} padded={false} bodyClassName="p-3">
-          {a.monthly.length > 1 ? <AreaChart ariaLabel="Entries per month" data={a.monthly.map((m) => ({ label: m.label, value: m.entries, secondary: Math.round(m.value) }))} secondaryLabel={money} /> : <p className="p-3 text-sm text-ink-3">A period of one month has no trend to draw.</p>}
-        </Panel>
+        <VisualView
+          className="lg:col-span-2"
+          first="Month"
+          visual={trend}
+          onDrill={setDrill}
+          actions={<Select aria-label="Measure" className="w-40" value={measure} onValueChange={(v) => setMeasure(v as Measure)} options={[{ value: 'entries', label: 'Entries' }, { value: 'value', label: money }]} />}
+        />
         <Panel title="Logging cadence">
           <dl className="space-y-1.5 text-sm">
             {([['Active days', `${a.consistency.activeDays} of ${a.consistency.spanDays}`], ['Entries per active day', String(a.consistency.entriesPerActiveDay)], ['Weeks with nothing logged', `${a.consistency.zeroWeeks} of ${a.consistency.weeks}`], ['Longest gap', `${a.consistency.longestGapDays} days`], ['Mean per week (σ)', `${a.consistency.meanPerWeek} (${a.consistency.stdevPerWeek})`], ['Busiest week', a.consistency.busiestWeek ? `${a.consistency.busiestWeek.week}: ${a.consistency.busiestWeek.entries}` : '—']] as Array<[string, string]>).map(([k, v]) => <div key={k} className="flex items-center justify-between gap-2"><dt className="text-ink-2">{k}</dt><dd className="fig text-ink">{v}</dd></div>)}
@@ -62,13 +105,11 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title={`By ${areaLabel}`}>
-          <BarList items={a.byArea.map((x) => ({ label: x.name, value: x.entries, hint: `${x.share}% · ${x.outcomeRate}% with outcome` }))} />
-          <ul className="mt-2 space-y-1 text-xs text-ink-3">{a.byArea.map((x) => <li key={x.name} className="flex justify-between"><span>{x.name}</span><Delta m={x.movement} /></li>)}</ul>
-        </Panel>
-        <Panel title="By category">
-          <BarList items={a.byCategory.filter((c) => c.entries).map((x) => ({ label: x.name, value: x.entries, hint: x.value ? formatDollars(x.value) : `${x.share}%` }))} colorFor={(l) => categoryColor(l, cfg)} />
-        </Panel>
+        <div className="space-y-2">
+          <VisualView visual={areas} onDrill={setDrill} first={areaLabel} />
+          {a.byArea.some((x) => x.priorEntries || x.entries) && <ul className="space-y-1 px-1 text-xs text-ink-3" aria-label={`Change by ${areaLabel} on ${a.prior.label}`}>{a.byArea.map((x) => <li key={x.name} className="flex justify-between"><span>{x.name}</span><Delta m={x.movement} /></li>)}</ul>}
+        </div>
+        <VisualView visual={categories} onDrill={setDrill} first="Category" />
         <Panel title={`${money} by type`}>
           {a.byValueType.some((t) => t.amount) ? <ul className="space-y-1.5 text-sm">{a.byValueType.filter((t) => t.amount || t.prior).map((t) => <li key={t.key} className="flex items-center justify-between gap-2"><span className="text-ink">{t.label}{!t.summable && <Badge className="ml-1">separate</Badge>}</span><span className="flex items-center gap-2"><span className="fig text-ink">{formatDollars(t.amount)}</span><span className="fig text-xs text-ink-3">{t.share}%</span><Delta m={t.movement} kind="money" /></span></li>)}</ul> : <p className="text-sm text-ink-3">No {money.toLowerCase()} recorded in this period.</p>}
           <p className="mt-3 text-xs text-ink-3">Top three entries carry {a.concentration.top3ValueShare}% of the headline; concentration index {formatNumber(a.concentration.hhi)}.</p>
@@ -77,10 +118,10 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title={`Largest entries by ${money.toLowerCase()}`} padded={false}>
-          <Table head={<tr><th>Date</th><th>Entry</th><th className="text-right">Amount</th></tr>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink">{e.title}<span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
+          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Amount</th></>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /><span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
         </Panel>
         <Panel title="Largest entries by actions counted" padded={false}>
-          <Table head={<tr><th>Date</th><th>Entry</th><th className="text-right">Count</th></tr>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink">{e.title}</td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
+          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Count</th></>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
         </Panel>
       </div>
 
@@ -107,11 +148,26 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
 
       <Panel title="Entry ledger" subtitle={`${a.appendix.length} completed entries in ${a.period.label}`} action={<Button size="sm" variant="ghost" onClick={() => setLedgerOpen((v) => !v)}>{ledgerOpen ? 'Hide' : 'Show all'}</Button>} padded={false}>
         {ledgerOpen ? (
-          <Table head={<tr><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></tr>} minWidth={760}>
-            {a.appendix.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink">{e.title}</td><td className="text-xs text-ink-2">{e.area}</td><td className="fig text-right text-xs">{e.quantity == null ? '' : `${formatNumber(e.quantity)} ${e.unit_label || ''}`}</td><td className="fig text-right text-xs">{e.value == null ? '' : formatDollars(e.value)}</td><td className="text-xs text-ink-2">{e.result}</td><td className="fig text-right text-xs">{e.strength}</td></tr>)}
+          <Table head={<><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></>} minWidth={760}>
+            {a.appendix.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="text-xs text-ink-2">{e.area}</td><td className="fig text-right text-xs">{e.quantity == null ? '' : `${formatNumber(e.quantity)} ${e.unit_label || ''}`}</td><td className="fig text-right text-xs">{e.value == null ? '' : formatDollars(e.value)}</td><td className="text-xs text-ink-2">{e.result}</td><td className="fig text-right text-xs">{e.strength}</td></tr>)}
           </Table>
         ) : <p className="px-4 py-3 text-sm text-ink-3">The PDF always includes the full ledger as an appendix.</p>}
       </Panel>
+      {drill && (
+        <DrillDialog
+          title={drill.bucket.label}
+          description={drill.visual.question}
+          queryKey={['analysis-drill', q, drill.visual.id, drill.bucket.key, measure]}
+          load={async () => analysisDrill(a, drill, measure)}
+          expected={drill.bucket.value}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   );
+}
+
+/** An entry's title, opening the entry where the ledger knows which one it is. */
+function EntryTitle({ row }: { row: LedgerRow }) {
+  return row.id ? <Link to={`/records/${row.id}`} className="hover:underline">{row.title}</Link> : <>{row.title}</>;
 }

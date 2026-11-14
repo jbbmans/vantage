@@ -108,12 +108,34 @@ FMRA components (`src/components/fmra/`):
 `QueryFailure` (`src/components/QueryFailure.tsx`) tells offline, signed out, denied, missing and
 server error apart, with a retry where one can help.
 
+## Charts (ADR-0028)
+
+The analytics kit (`src/components/analytics/`) draws every chart outside the FMRA components. No chart library.
+
+- **The heading is the question** the chart answers ("How long have the open cases been open?"), with one sentence
+  under it that states the answer, so the chart is never the only way to read it.
+- **Every chart has its table.** The Chart/Table switch shows the same figures in a table captioned by the question; a
+  print carries both and drops the switch. Never a chart without its table.
+- **Every counting mark opens its records.** A bar, column, tile or table cell that counts something is a button named
+  "label: value. Show the N records", reachable by keyboard; the dialog lists the records with links, says when it shows
+  the first 200, and checks that they add up to the figure.
+- **Forms.** `KpiTiles` for headline figures; `BarChart` for a distribution, a standing or an age band (stacked when a
+  bar is parts of a whole); `ColumnChart` for a figure over time (paired when two series share a unit, such as opened and
+  closed); `RateMeter` for a share. Months, weeks and reports are always columns; categories are always bars.
+- **Colour.** One series is `--accent`; a second is `--ink-3`. Status tones (`--good`, `--warn`, `--bad`) only for a
+  series that is a status (met, due soon, past due); "no record" is `--line-strong`. A legend names every series, and
+  every value is also in words, so nothing rests on colour.
+- **Values on marks** only when they fit (up to 8 columns, 4 paired); the axis labels every few months; the table holds
+  the rest.
+- **Reports** draw the same forms on paper: bars across, or columns for a figure over time, each ending "From the table
+  X, column Y."
+
 ## Patterns
 
 - **Cards** summarize something that opens: every figure links to the records behind it.
 - **Tables** compare records: the queue, workload by person, calculation inputs.
-- **Charts** only where shape matters: `LifecycleBars`, `BarList` for who holds what, `AreaChart` for
-  outcomes over time.
+- **Charts** only where shape matters, and each answers a question (see Charts below): `LifecycleBars`
+  for a case's lifecycle, the analytics kit for everything else.
 - **Gates are shown before they refuse.** A step waiting on evidence (a verification, a passed funds
   check) says so in a warning strip with a link to the step that satisfies it, and its button is
   disabled; the server enforces the same rule.

@@ -1,6 +1,33 @@
 # Progress
 
-_Updated 2026-11-13_
+_Updated 2026-11-14_
+
+## What changed (2026-11-14: unified analytics)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Every chart answers a question, opens the records it counts, and has a table that prints
+([ADR-0028](engineering/ADR/0028-unified-analytics.md), no migration).
+
+- **The Unit dashboard has five parts**: Output (what it had), Casework, Duty, Training and Personnel, kept in the
+  address (`?show=`). Each figure is headed by the question it answers (how old the open cases are, whether cases close
+  as fast as they arrive, who carries the duty load, which requirements fall behind, where the roster has gaps).
+- **Every bar opens its records.** `GET /api/org/units/:unitId/analytics/:section` and `.../drill` build the figures and
+  the drill from one list of source records (`shared/unitAnalytics.ts`), so a drill lists exactly what its figure
+  counts and adds up to it (tested for every figure of every section). Casework, training standing and the roster are
+  read through the report center's own readers, so the figures match the printed reports (tested).
+- **Who reads what**: `VIEW_RECORDS` in the unit, and in each unit beneath it that is read; names only with
+  `VIEW_MEMBER_DETAIL` in the record's unit; links only where the reader may open the record. Reads and drills are
+  audited (`view_unit_analytics`, `drill_unit_analytics`, and `list_records` for named duty or training).
+- **One chart kit** (`src/components/analytics/`) replaces `AreaChart` and `BarList`: KPI tiles, bars, columns over
+  time, a rate, each with a Chart/Table switch, keyboard drill, a summary sentence and print rules. The personal
+  analysis, the error report series and the home dashboard moved onto it; the analysis's bars open their entries.
+- **Fixed on the way**: the dashboard's outcomes by category counted an outcome once per metric it carried; a training
+  contributor linked to one's own training page whoever's it was; the analysis tables nested a row inside a row.
+- **Reports**: every chart names its table and column ("From the table X, column Y"), time series print as columns,
+  a PDF chart stays on one page, and four reports gained a chart (financial aging, training requirements met, duty
+  hours by type with a new table, personnel by unit with a new table).
+- **No chart library added.** The charts are HTML on the design tokens.
 
 ## What changed (2026-11-13: counseling and NAVMC 2795)
 

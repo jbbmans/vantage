@@ -280,7 +280,13 @@ export interface ReportTable {
 }
 
 /** Bars drawn from a table in the same section: the table is the chart's accessible alternative, and its source. */
-export interface ReportChart { title: string; kind: Extract<ColumnKind, 'number' | 'money' | 'hours' | 'percent'>; bars: Array<{ label: string; value: number }>; table: string }
+export interface ReportChart {
+  title: string; kind: Extract<ColumnKind, 'number' | 'money' | 'hours' | 'percent'>; bars: Array<{ label: string; value: number }>;
+  /** The table in the same section that holds these figures in full, and its column each bar draws (Task 21). */
+  table: string; column: string;
+  /** Columns up for a figure over time (months, weeks, reports); bars across otherwise. */
+  shape?: 'bars' | 'columns';
+}
 
 export interface ReportFigure { label: string; value: Cell; kind?: ColumnKind; hint?: string }
 

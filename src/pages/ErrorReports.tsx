@@ -6,7 +6,7 @@ import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Segmented,
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { PageShell, Table } from '@/components/common';
-import { AreaChart } from '@/components/charts';
+import { clientVisual, VisualView } from '@/components/analytics';
 import { QueryFailure } from '@/components/QueryFailure';
 import { SamplePreview, ScanNotice, type ImportSource, type Inspection } from '@/components/ImportWizard';
 import { can, useIdentity } from '@/lib/queries';
@@ -269,9 +269,12 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
       </div>
 
       {r.trend.length > 1 ? (
-        <Panel title="Open on each report" subtitle={`The last ${plural(r.trend.length, 'report')} of the series`}>
-          <AreaChart data={r.trend.map((t) => ({ label: formatDate(t.as_of, 'dd MMM'), value: t.open_count }))} format={(v) => formatNumber(v)} ariaLabel={`Open errors on each ${r.type.code} report`} />
-        </Panel>
+        <VisualView first="Report" visual={clientVisual({
+          id: 'error_trend', kind: 'columns', format: 'number', noun: 'error',
+          question: `How many errors were open on each ${r.type.code} report?`,
+          note: `The last ${plural(r.trend.length, 'report')} of the series, each as of the day it was run. Compare two reports above to list the errors behind a change.`,
+          buckets: r.trend.map((t) => ({ key: t.id, label: formatDate(t.as_of, 'dd MMM'), values: [t.open_count], counts: [t.open_count] })),
+        })} />
       ) : null}
 
       <ReportsFiled reports={r.reports} afterId={r.after.id} beforeId={r.before?.id}

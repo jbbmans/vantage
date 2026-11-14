@@ -77,14 +77,14 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const addTo = <K, V>(groups: Map<K, V[]>, key: K, item: V) => { const list = groups.get(key); if (list) list.push(item); else groups.set(key, [item]); };
 const ACRONYMS: Record<string, string> = { pme: 'PME', loa: 'LOA', mos: 'MOS', umt: 'UMT', nulo: 'NULO', ulo: 'ULO' };
 /** A stored key as words: personal_award is "Personal award", pme is "PME". */
-const words = (key: string | null | undefined): string | null => {
+export const words = (key: string | null | undefined): string | null => {
   if (!key) return null;
   const k = String(key);
   if (ACRONYMS[k.toLowerCase()]) return ACRONYMS[k.toLowerCase()];
   const s = k.replace(/_/g, ' ');
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
-const personName = (p: { rank_abbr?: string | null; first_name?: string | null; last_name?: string | null } | null | undefined) =>
+export const personName = (p: { rank_abbr?: string | null; first_name?: string | null; last_name?: string | null } | null | undefined) =>
   p ? `${p.rank_abbr || ''} ${p.first_name || ''} ${p.last_name || ''}`.replace(/\s+/g, ' ').trim() : '';
 const day = (iso: string | null | undefined) => (iso ? String(iso).slice(0, 10) : null);
 const pct = (num: number, den: number) => (den ? Math.round((num / den) * 1000) / 10 : null);
@@ -94,7 +94,7 @@ function table(id: string, title: string, columns: ReportColumn[], rows: Array<R
 }
 
 /** People by id, named as the record shows them: rank, first and last name. */
-function namesOf(ctx: AppContext, ids: Array<string | null | undefined>): Map<string, string> {
+export function namesOf(ctx: AppContext, ids: Array<string | null | undefined>): Map<string, string> {
   const unique = [...new Set(ids.filter((v): v is string => Boolean(v)))];
   if (!unique.length) return new Map();
   const rows = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (SELECT value FROM json_each(?))`)
@@ -166,7 +166,7 @@ function ownership(t: ReportTarget, table: string): { sql: string; params: unkno
   return { sql: `t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'`, params: [JSON.stringify(t.unitIds)] };
 }
 
-interface Period { from: string | null; to: string | null; label: string }
+export interface Period { from: string | null; to: string | null; label: string }
 
 function periodOf(ctx: AppContext, q: ReportQuery): Period | null {
   const fallback = REPORT_SPECS[q.type].period;
@@ -225,7 +225,7 @@ function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Buil
   const months = report.monthly.map((m) => ({ month: m.label, entries: m.entries, value: m.value, quantity: m.quantity, outcome: m.withOutcome }));
   sections.push({
     id: 'months', heading: 'Month by month',
-    chart: { title: 'Entries by month', kind: 'number', bars: months.map((m) => ({ label: m.month, value: m.entries })), table: 'months' },
+    chart: { title: 'Entries by month', kind: 'number', bars: months.map((m) => ({ label: m.month, value: m.entries })), table: 'months', column: 'entries', shape: 'columns' },
     tables: [table('months', 'Month by month', [
       { key: 'month', label: 'Month', width: 12 }, { key: 'entries', label: 'Entries', kind: 'number', width: 8 }, { key: 'value', label: cfg.currency_label, kind: 'money', width: 12 },
       { key: 'quantity', label: 'Count', kind: 'number', width: 8 }, { key: 'outcome', label: 'With an outcome', kind: 'number', width: 10 },
@@ -233,7 +233,7 @@ function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Buil
   });
   sections.push({
     id: 'categories', heading: 'By category',
-    chart: { title: 'Entries by category', kind: 'number', bars: report.byCategory.filter((c) => c.entries).map((c) => ({ label: c.name, value: c.entries })), table: 'categories' },
+    chart: { title: 'Entries by category', kind: 'number', bars: report.byCategory.filter((c) => c.entries).map((c) => ({ label: c.name, value: c.entries })), table: 'categories', column: 'entries' },
     tables: [table('categories', 'By category', shareColumns('Category'), report.byCategory.map(share), 'No entries in the period.')],
   });
   sections.push({ id: 'areas', heading: `By ${report.track === 'fitrep' ? 'FITREP' : 'JEPES'} area`, tables: [table('areas', 'By area', shareColumns('Area'), report.byArea.map(share), 'No entries in the period.')] });
@@ -327,7 +327,7 @@ function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period:
     sections: [
       {
         id: 'categories', heading: 'By category',
-        chart: { title: 'Entries by category', kind: 'number', bars: categories.map((c) => ({ label: c.name, value: c.entries })), table: 'categories' },
+        chart: { title: 'Entries by category', kind: 'number', bars: categories.map((c) => ({ label: c.name, value: c.entries })), table: 'categories', column: 'entries' },
         tables: [table('categories', 'By category', [
           { key: 'name', label: 'Category', width: 24 }, { key: 'entries', label: 'Entries', kind: 'number', width: 8 },
           { key: 'value', label: cfg.currency_label, kind: 'money', width: 12 }, { key: 'quantity', label: 'Count', kind: 'number', width: 8 },
@@ -378,6 +378,41 @@ export function standing(req: Requirement, trainings: readonly TrainingRow[], as
   return { last, due, status: 'met' };
 }
 
+/** One Marine a requirement standing is about: their name, the team they are on, and every unit they serve in. */
+export interface StandingPerson { id: string; name: string; team: string | null; units: string[] }
+export interface RequirementStanding { r: Requirement; p: StandingPerson; s: ReturnType<typeof standing> }
+
+/**
+ * Where everyone a report is about stands on each requirement of its Unit Instance that applies to them, on a day. The
+ * training report and the unit's training analytics (ADR-0028) both read it, so a standing is the same on screen and
+ * on paper. Only the training the target may read counts.
+ */
+export function requirementStandings(ctx: AppContext, t: ReportTarget, asOf: string, kind?: string | null): { orgId: string | null; requirements: Requirement[]; people: StandingPerson[]; standings: RequirementStanding[] } {
+  const own = ownership(t, 'trainings');
+  // The requirements of the Unit Instance the report is in, each where it applies to the Marines it is about.
+  const orgId = t.subject === 'self' ? primaryOrgOf(ctx, t.userId!)?.orgId ?? null : orgOfUnit(ctx, t.unitId);
+  const tree = unitTree(ctx);
+  const requirements = (orgId ? listTrainingRequirements(ctx, orgId) : []).filter((r) => r.active && (!kind || r.type === kind)) as Requirement[];
+  const reach = new Map(requirements.map((r) => [r.id, r.unit_id ? new Set(subtreeIds(ctx, r.unit_id, tree)) : null]));
+  const people: StandingPerson[] = [];
+  if (t.subject === 'unit') {
+    const members = membersAcross(ctx, t.unitIds);
+    const unitsOf = new Map<string, string[]>();
+    for (const x of ctx.db.prepare('SELECT user_id, unit_id FROM unit_members WHERE user_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(members.map((m) => m.id))) as Array<{ user_id: string; unit_id: string }>) addTo(unitsOf, x.user_id, x.unit_id);
+    for (const m of members) people.push({ id: m.id, name: personName(m), team: t.unitIds.length > 1 ? m.team : null, units: unitsOf.get(m.id) || [] });
+  } else {
+    const units = (ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ?').all(t.userId) as Array<{ unit_id: string }>).map((x) => x.unit_id);
+    people.push({ id: t.userId!, name: namesOf(ctx, [t.userId]).get(t.userId!) || '', team: null, units });
+  }
+  // Every completed course the report may read, whenever it was: a requirement met two years ago is met.
+  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
+  const byPerson = new Map<string, TrainingRow[]>();
+  for (const h of history) addTo(byPerson, h.user_id, h);
+  const applies = (r: Requirement, p: StandingPerson) => { const set = reach.get(r.id); return !set || p.units.some((u) => set.has(u)); };
+  const standings = requirements.flatMap((r) => people.filter((p) => applies(r, p)).map((p) => ({ r, p, s: standing(r, byPerson.get(p.id) || [], asOf) })));
+  return { orgId, requirements, people, standings };
+}
+
 const STANDING_LABEL: Record<string, string> = { met: 'Met', due_soon: 'Due soon', overdue: 'Past due', missing: 'No record' };
 
 function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: ReportQuery, period: Period | null): Built {
@@ -401,29 +436,9 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
     { key: 'provider', label: 'Provider', width: 14 }, { key: 'status', label: 'Status', width: 10 },
   ];
 
-  // The requirements of the Unit Instance the report is in, each where it applies to the Marines it is about.
-  const orgId = t.subject === 'self' ? primaryOrgOf(ctx, t.userId!)?.orgId ?? null : orgOfUnit(ctx, t.unitId);
-  const tree = unitTree(ctx);
-  const requirements = (orgId ? listTrainingRequirements(ctx, orgId) : []).filter((r) => r.active && (!q.kind || r.type === q.kind)) as Requirement[];
-  const reach = new Map(requirements.map((r) => [r.id, r.unit_id ? new Set(subtreeIds(ctx, r.unit_id, tree)) : null]));
-  type Person = { id: string; name: string; team: string | null; units: string[] };
-  const people: Person[] = [];
-  if (t.subject === 'unit') {
-    const members = membersAcross(ctx, t.unitIds);
-    const memberships = ctx.db.prepare('SELECT user_id, unit_id FROM unit_members WHERE user_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(members.map((m) => m.id))) as Array<{ user_id: string; unit_id: string }>;
-    for (const m of members) people.push({ id: m.id, name: personName(m), team: t.unitIds.length > 1 ? m.team : null, units: memberships.filter((x) => x.user_id === m.id).map((x) => x.unit_id) });
-  } else {
-    const units = (ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ?').all(t.userId) as Array<{ unit_id: string }>).map((x) => x.unit_id);
-    people.push({ id: t.userId!, name: namesOf(ctx, [t.userId]).get(t.userId!) || '', team: null, units });
-  }
-  // Every completed course the report may read, whenever it was: a requirement met two years ago is met.
-  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
-  const byPerson = new Map<string, TrainingRow[]>();
-  for (const h of history) addTo(byPerson, h.user_id, h);
-  const applies = (r: Requirement, p: Person) => { const set = reach.get(r.id); return !set || p.units.some((u) => set.has(u)); };
+  const { orgId, requirements, standings } = requirementStandings(ctx, t, asOf, q.kind);
   const status = q.status && TRAINING_STATUSES.some((s) => s.value === q.status) ? q.status : 'all';
 
-  const standings = requirements.flatMap((r) => people.filter((p) => applies(r, p)).map((p) => ({ r, p, s: standing(r, byPerson.get(p.id) || [], asOf) })));
   const shown = standings.filter((x) => status === 'all' || x.s.status === status);
   const unitNames = new Map<string, string>();
   const appliesTo = (r: Requirement) => {
@@ -446,6 +461,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
     });
     sections.push({
       id: 'requirements', heading: 'Against the training requirements', lede,
+      chart: { title: 'Marines who have met each requirement', kind: 'number', bars: summary.map((x) => ({ label: x.title, value: x.met })), table: 'requirements', column: 'met' },
       tables: [table('requirements', 'By requirement', [
         { key: 'title', label: 'Requirement', width: 24 }, { key: 'type', label: 'Type', width: 10 }, { key: 'applies', label: 'Applies to', width: 14 }, { key: 'recurs', label: 'Recurs', width: 10 },
         { key: 'marines', label: 'Marines', kind: 'number', width: 7 }, { key: 'met', label: 'Met', kind: 'number', width: 6 }, { key: 'due_soon', label: 'Due soon', kind: 'number', width: 7 },
@@ -506,7 +522,7 @@ function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {
   const sections: ReportSection[] = [
     {
       id: 'weeks', heading: 'Week by week',
-      chart: { title: 'Entries by week', kind: 'number', bars: d.weekly.map((w) => ({ label: formatDTG(w.week), value: w.entries })), table: 'weeks' },
+      chart: { title: 'Entries by week', kind: 'number', bars: d.weekly.map((w) => ({ label: formatDTG(w.week), value: w.entries })), table: 'weeks', column: 'entries', shape: 'columns' },
       tables: [table('weeks', 'Week by week', [
         { key: 'week', label: 'Week of', kind: 'date', width: 10 }, { key: 'entries', label: 'Entries', kind: 'number', width: 8 }, { key: 'dollars', label: cfg.currency_label, kind: 'money', width: 12 },
       ], d.weekly.map((w) => ({ week: w.week, entries: w.entries, dollars: w.dollars })), 'Nothing was shared in the period.')],
@@ -627,13 +643,32 @@ function buildPersonnel(ctx: AppContext, user: SessionUser, scope: Scope, t: Rep
     status: r.status ? ACCOUNT_STATUS[r.status] || words(r.status) : null,
   }));
   const all = roster.rows;
+  // The roster by the unit each Marine is on, from the same rows as its count: every Marine once, at their own team.
+  const units = new Map<string, { unit: string; marines: number; no_supervisor: number; no_billet: number }>();
+  for (const r of all) {
+    const key = r.assignment.unit_id || '';
+    const u = units.get(key) || { unit: r.assignment.unit_short || r.assignment.unit_name || 'No unit', marines: 0, no_supervisor: 0, no_billet: 0 };
+    u.marines += 1; if (!r.supervisor) u.no_supervisor += 1; if (!r.assignment.billet) u.no_billet += 1;
+    units.set(key, u);
+  }
+  const byUnit = [...units.values()].sort((a, b) => b.marines - a.marines || a.unit.localeCompare(b.unit));
   return {
     summary: [
       { label: 'On the roster', value: all.length, kind: 'number' }, { label: 'Supervisor named', value: all.filter((r) => r.supervisor).length, kind: 'number' },
       { label: 'No supervisor', value: all.filter((r) => !r.supervisor).length, kind: 'number' }, { label: 'No check-in date', value: all.filter((r) => !r.checked_in_on).length, kind: 'number' },
       { label: 'Holding a responsibility', value: all.filter((r) => r.responsibilities.length).length, kind: 'number' },
     ],
-    sections: [{ id: 'roster', heading: 'Roster', tables: [table('roster', 'Personnel', columns, out, 'Nobody matches these filters.')] }],
+    sections: [
+      { id: 'roster', heading: 'Roster', tables: [table('roster', 'Personnel', columns, out, 'Nobody matches these filters.')] },
+      ...(byUnit.length > 1 ? [{
+        id: 'by_unit', heading: 'Unit by unit',
+        chart: { title: 'Marines on each unit’s roster', kind: 'number' as const, bars: byUnit.map((x) => ({ label: x.unit, value: x.marines })), table: 'by_unit', column: 'marines' },
+        tables: [table('by_unit', 'By unit', [
+          { key: 'unit', label: 'Unit', width: 20 }, { key: 'marines', label: 'Marines', kind: 'number', width: 8 },
+          { key: 'no_supervisor', label: 'No supervisor', kind: 'number', width: 9 }, { key: 'no_billet', label: 'No billet', kind: 'number', width: 8 },
+        ], byUnit, 'Nobody is on the roster.')],
+      }] : []),
+    ],
     primary: 'roster',
     notes: ['Each Marine once, at their own team beneath the unit. Account status shows only for the Marines you manage.'],
     filters: status !== 'all' ? [{ label: 'Showing', value: PERSONNEL_STATUSES.find((s) => s.value === status)!.label }] : [],
@@ -650,7 +685,7 @@ function buildWorkload(ctx: AppContext, user: SessionUser, scope: Scope, t: Repo
   const sections: ReportSection[] = [
     {
       id: 'stages', heading: 'Where the open work stands',
-      chart: { title: 'Open work by stage', kind: 'number', bars: stages.map((x) => ({ label: x.stage || '', value: x.open })), table: 'stages' },
+      chart: { title: 'Open work by stage', kind: 'number', bars: stages.map((x) => ({ label: x.stage || '', value: x.open })), table: 'stages', column: 'open' },
       tables: [
         table('stages', 'By stage', [{ key: 'stage', label: 'Stage', width: 20 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }], stages, 'No open work.'),
         table('aging', 'By age', [{ key: 'age', label: 'Open for', width: 20 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }], [
@@ -837,7 +872,25 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
     });
     return out;
   };
-  const sections: ReportSection[] = [recorded, ...tallies, ...(homeless ? [] : scoringSections(base, true)), ...shownOrgs.flatMap((o) => scoringSections(scoringOf(o), false))];
+  // What kind of duty was stood: each type once, its duty, hours and approved points, so the hours chart has its figures.
+  const perType = new Map<string, { count: number; hours: number; approved: number; counted: number }>();
+  for (const d of stood) {
+    const p = perType.get(d.duty_type_id) || { count: 0, hours: 0, approved: 0, counted: 0 };
+    p.count += 1; p.hours += Number(d.hours) || 0;
+    if (d.approval_status === 'approved') { p.approved += 1; p.counted += countedPoints(d); }
+    perType.set(d.duty_type_id, p);
+  }
+  const typeRows = [...perType.entries()].map(([id, p]) => ({ type: typeNames.get(id) || 'Unknown duty type', count: p.count, hours: r2(p.hours), approved: p.approved, counted: r2(p.counted) }))
+    .sort((a, b) => b.hours - a.hours || b.count - a.count || a.type.localeCompare(b.type));
+  const byType: ReportSection[] = typeRows.length ? [{
+    id: 'by_type', heading: 'By duty type',
+    chart: { title: 'Hours by duty type', kind: 'hours', bars: typeRows.map((x) => ({ label: x.type, value: x.hours })), table: 'by_type', column: 'hours' },
+    tables: [table('by_type', 'Duty by type', [
+      { key: 'type', label: 'Duty', width: 20 }, { key: 'count', label: 'Duties', kind: 'number', width: 7 }, { key: 'hours', label: 'Hours', kind: 'hours', width: 8 },
+      { key: 'approved', label: 'Approved', kind: 'number', width: 8 }, { key: 'counted', label: 'Approved points', kind: 'number', width: 9 },
+    ], typeRows, 'No duty is recorded in the period.')],
+  }] : [];
+  const sections: ReportSection[] = [recorded, ...byType, ...tallies, ...(homeless ? [] : scoringSections(base, true)), ...shownOrgs.flatMap((o) => scoringSections(scoringOf(o), false))];
   return {
     summary: [
       { label: 'Duty stood', value: stood.length, kind: 'number' }, { label: 'Hours', value: hoursStood, kind: 'hours' },
@@ -867,7 +920,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
 
 // ——— Financial work: cases, by procedure ———
 
-interface CaseRow {
+export interface CaseRow {
   id: string; unit_id: string; title: string; reference: string | null; due_date: string | null; amount: number | null; state: string; stage: string | null;
   procedure_key: string | null; claimed_by: string | null; waiting_category: string | null; created_at: string; resolved_at: string | null;
   /** When it closed, resolved or not applicable; null while it is open. */
@@ -885,7 +938,15 @@ const CLOSED_AT = `CASE WHEN t.resolved_at IS NOT NULL THEN t.resolved_at
       AND CASE WHEN json_valid(e.body) THEN json_extract(e.body, '$.to') END IN ('resolved', 'not_applicable')), t.updated_at)
   END`;
 
-function casesOf(ctx: AppContext, t: ReportTarget, q: ReportQuery, period?: Period | null): CaseRow[] {
+/** How old an open case is, in the bands the financial report and the casework analytics both use. */
+export const CASE_AGE_BANDS: ReadonlyArray<{ key: string; label: string; test: (days: number) => boolean }> = [
+  { key: 'under_7', label: 'Under 7 days', test: (d) => d < 7 },
+  { key: 'from_7_to_30', label: '7 to 30 days', test: (d) => d >= 7 && d <= 30 },
+  { key: 'from_31_to_90', label: '31 to 90 days', test: (d) => d > 30 && d <= 90 },
+  { key: 'over_90', label: 'Over 90 days', test: (d) => d > 90 },
+];
+
+export function casesOf(ctx: AppContext, t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, period?: Pick<Period, 'from' | 'to'> | null): CaseRow[] {
   const where = [`t.unit_id IN (SELECT value FROM json_each(?))`, `t.visibility = 'unit'`, 't.deleted_at IS NULL'];
   const params: unknown[] = [JSON.stringify(t.unitIds)];
   if (q.procedure) { if (q.procedure === 'none') where.push('t.procedure_key IS NULL'); else { where.push('t.procedure_key = ?'); params.push(q.procedure); } }
@@ -896,12 +957,12 @@ function casesOf(ctx: AppContext, t: ReportTarget, q: ReportQuery, period?: Peri
   return ctx.db.prepare(`SELECT * FROM (SELECT ${CASE_COLUMNS}, ${CLOSED_AT} AS closed_at FROM work_items t WHERE ${where.join(' AND ')}) c${closedBefore}
     ORDER BY c.due_date IS NULL, c.due_date, c.created_at LIMIT ${SCAN_LIMIT}`).all(...params) as CaseRow[];
 }
-const isClosed = (c: CaseRow) => ['resolved', 'not_applicable'].includes(stageOf(c as never));
+export const isClosed = (c: CaseRow) => ['resolved', 'not_applicable'].includes(stageOf(c as never));
 const procedureOfCase = (c: CaseRow) => (c.procedure_key ? PROCEDURES[c.procedure_key] : null);
-const procedureLabel = (c: CaseRow) => procedureOfCase(c)?.short || (c.procedure_key ? c.procedure_key : 'No procedure');
-const ageOf = (c: CaseRow, at: number) => Math.max(0, Math.floor(((c.closed_at ? Date.parse(c.closed_at) : at) - Date.parse(c.created_at)) / DAY_MS));
+export const procedureLabel = (c: CaseRow) => procedureOfCase(c)?.short || (c.procedure_key ? c.procedure_key : 'No procedure');
+export const ageOf = (c: CaseRow, at: number) => Math.max(0, Math.floor(((c.closed_at ? Date.parse(c.closed_at) : at) - Date.parse(c.created_at)) / DAY_MS));
 const procedureFilter = (q: ReportQuery) => (q.procedure ? [{ label: 'Procedure', value: q.procedure === 'none' ? 'No procedure' : PROCEDURES[q.procedure]?.short || q.procedure }] : []);
-const amountOf = (list: Array<{ amount: number | null }>) => r2(list.reduce((n, c) => n + (Number(c.amount) || 0), 0));
+export const amountOf = (list: Array<{ amount: number | null }>) => r2(list.reduce((n, c) => n + (Number(c.amount) || 0), 0));
 
 function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: ReportQuery, period: Period): Built {
   const at = Date.now();
@@ -932,8 +993,7 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
       opened: list.filter((c) => openedIds.has(c.id)).length, resolved: r.length, rate: pct(r.length, inPeriod.length), days: avg(r.map((c) => ageOf(c, at))),
     };
   }).sort((a, b) => b.open - a.open || b.value - a.value);
-  const bands: Array<[string, (d: number) => boolean]> = [['Under 7 days', (d) => d < 7], ['7 to 30 days', (d) => d >= 7 && d <= 30], ['31 to 90 days', (d) => d > 30 && d <= 90], ['Over 90 days', (d) => d > 90]];
-  const aging = bands.map(([band, test]) => { const list = open.filter((c) => test(ageOf(c, at))); return { band, open: list.length, value: amountOf(list) }; });
+  const aging = CASE_AGE_BANDS.map(({ label: band, test }) => { const list = open.filter((c) => test(ageOf(c, at))); return { band, open: list.length, value: amountOf(list) }; });
   return {
     summary: [
       { label: 'Open now', value: open.length, kind: 'number' }, { label: 'Amount open', value: amountOf(open), kind: 'money' },
@@ -947,14 +1007,14 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
     sections: [
       {
         id: 'procedures', heading: 'By procedure',
-        chart: { title: 'Open cases by procedure', kind: 'number', bars: byProcedure.filter((p) => p.open).map((p) => ({ label: p.procedure, value: p.open })), table: 'procedures' },
+        chart: { title: 'Open cases by procedure', kind: 'number', bars: byProcedure.filter((p) => p.open).map((p) => ({ label: p.procedure, value: p.open })), table: 'procedures', column: 'open' },
         tables: [table('procedures', 'By procedure', [
           { key: 'procedure', label: 'Procedure', width: 14 }, { key: 'family', label: 'Kind', width: 12 }, { key: 'open', label: 'Open now', kind: 'number', width: 7 },
           { key: 'value', label: 'Amount open', kind: 'money', width: 11 }, { key: 'overdue', label: 'Overdue', kind: 'number', width: 7 }, { key: 'opened', label: 'Opened', kind: 'number', width: 7 },
           { key: 'resolved', label: 'Resolved', kind: 'number', width: 7 }, { key: 'rate', label: 'Resolution rate', kind: 'percent', width: 9 }, { key: 'days', label: 'Days to resolve', kind: 'number', width: 9 },
         ], byProcedure, 'No case was open in the period.')],
       },
-      { id: 'aging', heading: 'How old the open cases are', tables: [table('aging', 'By age', [{ key: 'band', label: 'Open for', width: 16 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }, { key: 'value', label: 'Amount', kind: 'money', width: 12 }], aging, 'No open cases.')] },
+      { id: 'aging', heading: 'How old the open cases are', chart: { title: 'Open cases by age', kind: 'number', bars: aging.map((a) => ({ label: String(a.band), value: Number(a.open) })), table: 'aging', column: 'open' }, tables: [table('aging', 'By age', [{ key: 'band', label: 'Open for', width: 16 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }, { key: 'value', label: 'Amount', kind: 'money', width: 12 }], aging, 'No open cases.')] },
     ],
     primary: 'procedures',
     notes: [
@@ -1101,7 +1161,7 @@ function buildComparisonReport(ctx: AppContext, scope: Scope, t: ReportTarget, q
       },
       {
         id: 'groups', heading: 'By error type, unit and Marine',
-        chart: { title: 'Open by error type', kind: 'number', bars: c.groups.category.filter((l) => l.open).slice(0, 12).map((l) => ({ label: l.label, value: l.open })), table: 'by_category' },
+        chart: { title: 'Open by error type', kind: 'number', bars: c.groups.category.filter((l) => l.open).slice(0, 12).map((l) => ({ label: l.label, value: l.open })), table: 'by_category', column: 'open' },
         tables: groups,
       },
       {
@@ -1114,7 +1174,7 @@ function buildComparisonReport(ctx: AppContext, scope: Scope, t: ReportTarget, q
       },
       {
         id: 'trend', heading: 'The series, report by report',
-        chart: { title: 'Open on each report', kind: 'number', bars: c.trend.map((p) => ({ label: p.as_of, value: p.open_count })), table: 'trend' },
+        chart: { title: 'Open on each report', kind: 'number', bars: c.trend.map((p) => ({ label: formatDTG(p.as_of), value: p.open_count })), table: 'trend', column: 'open', shape: 'columns' },
         tables: [
           table('trend', 'Trend', [{ key: 'as_of', label: 'As of', kind: 'date', width: 10 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }, { key: 'value', label: 'Open value', kind: 'money', width: 12 }],
             c.trend.map((p) => ({ as_of: p.as_of, open: p.open_count, value: dollars(p.open_cents) })), 'No report is filed.'),
@@ -1236,7 +1296,7 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
     const by_label = label(group).toLowerCase();
     sections.push({
       id: 'groups', heading: `By ${by_label}`,
-      chart: { title: `${ds.label} by ${by_label}`, kind: 'number', bars: groups.slice(0, 30).map((g) => ({ label: String(g.group), value: Number(g.count) })), table: 'groups' },
+      chart: { title: `${ds.label} by ${by_label}`, kind: 'number', bars: groups.slice(0, 30).map((g) => ({ label: String(g.group), value: Number(g.count) })), table: 'groups', column: 'count' },
       tables: [table('groups', `By ${by_label}`, [{ key: 'group', label: label(group), width: 22 }, { key: 'count', label: 'Records', kind: 'number', width: 8 }, ...measures], groups, 'Nothing matches.')],
     });
   }
