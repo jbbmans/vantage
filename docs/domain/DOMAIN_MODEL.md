@@ -126,6 +126,12 @@ Derived value, Recommendation, Unknown or Human decision required, every recomme
   outcomes and resolved work. Each has a definition in `shared/record.ts`, over a stated window.
 - **Personal documentation**: activities, training, awards, counseling (the existing record tables),
   and **drafts** (`record_drafts`): facts cited to events, plus wording. Owner-only.
+- **Saved form** (`form_drafts`, ADR-0030): a goal, award, training entry, task or personnel change saved to finish
+  later. It is not a record: nothing counts or lists it, and only its author reaches it. A recommendation or personnel
+  change names its Marine and unit, and its author must still act for them there to save or send it. Sent through its
+  kind's own route, it becomes the record or change in the same transaction that removes it. Kept 90 days after it was
+  last saved, unless a legal hold keeps it. The Drafts page reads it beside the drafts each kind keeps itself
+  (counselings not final, report packages, unsent correspondence, entries from work), and stores nothing.
 - **Timeline**: the person's own activities, training, awards, counselings and goals reached, newest
   first, each opening its own record. It is read from each table when asked for and never stored.
 

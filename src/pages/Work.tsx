@@ -5,6 +5,7 @@ import { Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, Sk
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { DueText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
 import { can, unitsWith, useDeleteRecord, useRestoreRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
@@ -57,7 +58,11 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
     try { await updateTask.mutateAsync({ id: t.id, patch: { status: t.status === 'completed' ? 'active' : 'completed', version: t.version } }); }
     catch (e) { toast.error(api.errorText(e)); }
   };
-  const newTask = (extra: Partial<TaskDraft> = {}) => setTaskDraft({ title: '', notes: '', status: 'planned', priority: 'medium', due_date: '', project_id: projectFilter !== 'all' ? projectFilter : null, assignee_id: null, visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null, ...extra });
+  const blankTask = (extra: Partial<TaskDraft> = {}): TaskDraft => ({ title: '', notes: '', status: 'planned', priority: 'medium', due_date: '', project_id: projectFilter !== 'all' ? projectFilter : null, assignee_id: null, visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null, ...extra });
+  const newTask = (extra: Partial<TaskDraft> = {}) => setTaskDraft(blankTask(extra));
+  // A task saved as a draft (ADR-0030) opens here from ?draft=, as the form it was saved from.
+  const taskFromDraft = (p: Record<string, unknown>) => blankTask(p as Partial<TaskDraft>);
+  const resume = useResumeDraft('task', (d) => setTaskDraft(taskFromDraft(d.payload)), { enabled: tab === 'tasks' });
   const newProject = () => setProjectDraft({ name: '', description: '', status: 'active', priority: 'medium', progress: 0, start_date: today, target_date: '', organization: '', visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null });
   const canAssign = unitsWith(identity, PERMISSIONS.CREATE_SHARED_WORK).length > 0;
   const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
@@ -77,6 +82,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
             <Select aria-label="Project filter" className="w-52" value={projectFilter} onValueChange={setProjectFilter} options={[{ value: 'all', label: 'All projects' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} />
             <label className="flex items-center gap-2 text-sm text-ink-2"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Show completed</label>
           </div>
+          <DraftStrip kind="task" onContinue={resume.open} />
           {isPending ? <Skeleton className="h-40" /> : visibleTasks.length === 0 ? <div className="card"><EmptyState icon={ListTodo} title="No open tasks" description="Tasks are the things you owe. When one is done, log it as an activity so it counts." action={<Button variant="primary" onClick={() => newTask()}>New task</Button>} /></div> : (
             <div className="space-y-4">
               {groups.filter(([, list]) => list.length).map(([label, list, tone]) => (
@@ -129,7 +135,8 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
         )
       )}
 
-      <RecordDialog<TaskDraft> store="tasks" open={Boolean(taskDraft)} onOpenChange={(o) => { if (!o) setTaskDraft(null); }} initial={taskDraft} title={taskDraft?.id ? 'Edit task' : 'New task'} noun="Task" validate={(d) => (!d.title.trim() ? 'A title is required.' : null)}
+      <RecordDialog<TaskDraft> store="tasks" open={Boolean(taskDraft)} onOpenChange={(o) => { if (!o) { setTaskDraft(null); resume.done(); } }} initial={taskDraft} title={taskDraft?.id ? 'Edit task' : 'New task'} noun="Task"
+        formDraft={{ kind: 'task', saved: resume.saved, restore: taskFromDraft, told: (d) => (d.assignee_id && d.assignee_id !== me ? nameOf(d.assignee_id) : null), onChange: resume.done }} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)}
         fields={(d, set, errors) => (
           <>
             <Field label="Title" required error={errors.title}><Input autoFocus value={d.title} onChange={onText(set, 'title')} /></Field>

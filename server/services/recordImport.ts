@@ -239,6 +239,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   counted('notifications', 'Notifications', doc.notifications, 'They stay in the export as a record of what Vantage told you.');
   counted('audit_trail', 'Audit trail', doc.audit_trail, 'The trail is the service’s record of what happened; it is never written from a file.');
   counted('drafts', 'Drafts from financial cases', doc.drafts, 'Drafts belong to the cases they were worded from.');
+  counted('saved_drafts', 'Saved forms', doc.saved_drafts, 'A form saved to finish later is not a record; it stays in the export. Finish it here as a new entry.');
   counted('record_moves', 'Record moves', doc.record_moves, 'Imported records start their own history here.');
   counted('duty_reviews', 'Duty review history', doc.duty_reviews, 'A file never approves duty: imported duty comes in submitted for review, and the decisions made on it before stay in the export.');
   counted('counseling_revisions', 'Counseling amendment history', doc.counseling_revisions, 'An imported counseling comes in as your own notes, as it reads now; what it said before each amendment stays in the export.');

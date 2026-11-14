@@ -93,6 +93,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       wording_source: 'technical', activity_id: 'technical', version: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
   },
+  form_drafts: {
+    purpose: 'A form a person saved to finish later: a goal, an award (their own, or one they would recommend a Marine for), a training entry, a task, or a change to a Marine’s assignment (ADR-0030).',
+    authority: 'Prepared by the person; one about a Marine only by someone who may act for that Marine in that unit, checked when it is saved.',
+    access: 'Its author only. No leader, reviewer, Marine or operator route reads it. Removed when sent, discarded, or 90 days after it was last saved; a legal hold keeps it, hidden from its author, until released.',
+    columns: {
+      id: 'technical', user_id: 'identifier', kind: 'technical', subject_id: 'identifier', subject_label: 'identifier', unit_id: 'employment',
+      title: 'performance', payload: 'performance', version: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
   record_lineage: {
     purpose: 'Where an entry was moved between activities, awards and training, by whom, and what it said before, so the move can be traced and undone.',
     authority: 'Voluntarily recorded by the person about their own entries; kept with the entry it describes.',

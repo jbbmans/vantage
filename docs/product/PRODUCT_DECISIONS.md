@@ -72,12 +72,27 @@ resolves only after the original condition is verified cleared with a reference.
 without a reference is refused.
 **Open.** Whether WARNING should be passable at all is SME question Q-11.
 
-## PD-009 · Drafts and career plans are the owner's alone
+## PD-009 · Drafts live with their kind; saved forms, entries from work and career plans are the owner's alone
 
-**Decision.** Accomplishment drafts and career steps have no visibility setting and no leader path.
-Only the owner's session reaches them, including in exports. Drafts separate facts, which are cited to
-events and not editable, from wording, which is editable and labelled template, AI, or the person's own.
-Nothing is sent anywhere. "Keep in my record" adds a private activity.
+**Decision.** A draft lives with its own kind (ADR-0030):
+- a counseling in its draft or review stage;
+- a report package;
+- unsent correspondence;
+- an entry drawn from work;
+- a saved form: a goal, award, training entry, task or personnel change saved to finish later.
+
+Records → Drafts reads them all and stores nothing.
+
+**Private to their owner.** Saved forms, entries from work and career steps have no visibility setting and no leader
+path. Only the owner's session reaches them, and anyone else gets 404. A saved award recommendation or personnel change
+names its Marine. That Marine never sees it and is not told of it until it is added. The author's own export includes
+their saved forms about nobody else.
+
+**Shared by their kind's rules.** A counseling shared for review, a report package about a Marine or shared with a unit,
+and correspondence shared with a unit are read by whoever their kind lets read them. The Drafts page says so on each.
+
+**Entries from work** separate facts, which are cited to events and not editable, from wording, which is editable and
+labelled template, AI, or the person's own. Nothing is sent anywhere. "Keep in my record" adds a private activity.
 
 ## PD-010 · The synthetic demo opens without a sign-in form, and nothing else changes for it
 

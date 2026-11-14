@@ -4,6 +4,7 @@ import { can, PERMISSIONS, subtreeIds, membersAcross } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
+import { draftCount } from './drafts.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
 import { PROCEDURES, progress, stepObject, actedOn } from '../../shared/procedures.ts';
 import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS } from '../../shared/record.ts';
@@ -116,7 +117,8 @@ export function summarizeItem(ctx: AppContext, row: ItemRow): AssignedItem {
 export function recordSummary(ctx: AppContext, user: SessionUser, w: Window) {
   const assigned = assignedWork(ctx, user);
   const personal = (table: string, col: string) => (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${col} BETWEEN ? AND ?`).get(user.id, w.from, w.to) as { n: number }).n;
-  const drafts = (ctx.db.prepare('SELECT COUNT(*) AS n FROM record_drafts WHERE user_id = ? AND deleted_at IS NULL AND activity_id IS NULL').get(user.id) as { n: number }).n;
+  // Every draft of theirs, wherever it is kept (ADR-0030): the Drafts page lists the same.
+  const drafts = draftCount(ctx, user.id);
   return {
     window: w,
     assigned: {
@@ -287,9 +289,13 @@ export function listDrafts(ctx: AppContext, user: SessionUser) {
     .map((r) => ({ ...r, facts: JSON.parse(r.facts || '[]') }));
 }
 
-export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope, itemId: string) {
+export function draftFromWork(ctx: AppContext, user: SessionUser, scope: Scope, itemId: string) {
   const item = ctx.db.prepare('SELECT * FROM work_items WHERE id = ? AND deleted_at IS NULL').get(itemId) as ItemRow | undefined;
-  if (!item) throw notFound('No such work item.');
+  // Only a case they can still open: someone who has left its unit cannot read its title or who else worked on it.
+  if (!item || !readable(scope, user, item)) throw notFound('No such work item.');
+  // One draft per case at a time (ADR-0030): asked again, it is the one already started, not a second copy.
+  const open = ctx.db.prepare('SELECT id FROM record_drafts WHERE user_id = ? AND work_item_id = ? AND activity_id IS NULL AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(user.id, itemId) as { id: string } | undefined;
+  if (open) return { ...draftRow(ctx, user.id, open.id), collaborators: [] as string[], existing: true };
   const events = eventsFor(ctx, itemId);
   const mine = events.filter((e) => e.actor_id === user.id);
   if (!mine.length) throw forbidden('A draft is built from your own recorded work, and you have none on this item.');
@@ -365,6 +371,8 @@ function templateWording(item: ItemRow, facts: Fact[], collaborators: string[]):
 export function updateDraft(ctx: AppContext, user: SessionUser, id: string, body: unknown) {
   const input = parse(draftUpdateSchema, body);
   const row = draftRow(ctx, user.id, id);
+  // Kept, it is an entry in the record: changed there, so the record is the only copy (ADR-0030).
+  if (row.activity_id) throw conflict('This draft is already in your record. Edit the entry there.', 'already_recorded', { activity_id: row.activity_id });
   if (input.version != null && input.version !== row.version) throw conflict('This draft changed in another window. Reload it.', 'version_conflict');
   const wordingChanged = input.wording !== undefined && input.wording !== row.wording;
   ctx.db.prepare('UPDATE record_drafts SET title = ?, wording = ?, wording_source = ?, version = version + 1, updated_at = ? WHERE id = ?')

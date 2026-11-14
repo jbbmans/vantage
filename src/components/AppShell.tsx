@@ -22,7 +22,7 @@ import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import TabBar from '@/components/TabBar';
-import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useRecordDrafts } from '@/lib/queries';
+import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
@@ -211,11 +211,12 @@ function surfaceOf(pathname: string, search: string): string {
 function useCounts(group: string | undefined): Record<Count, number> {
   const tasks = useTasks(group === 'work');
   const threads = useThreads({ state: 'awaiting_reply' }, group === 'work');
-  const drafts = useRecordDrafts(group === 'records');
+  // Every draft waiting on the person, of every kind (ADR-0030), as the Drafts page counts them.
+  const drafts = useDrafts(group === 'records');
   return {
     tasks: (tasks.data || []).filter((t: { status: string }) => t.status !== 'completed').length,
     mail: threads.data?.length ?? 0,
-    drafts: (drafts.data || []).filter((d: { activity_id: string | null }) => !d.activity_id).length,
+    drafts: drafts.data?.waiting ?? 0,
   };
 }
 

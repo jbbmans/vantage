@@ -9,6 +9,7 @@ import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
+import { consumeDraft, draftParam } from '../services/drafts.ts';
 import { issueToken } from '../auth/tokens.ts';
 import { layout } from '../services/mailLayout.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
@@ -191,8 +192,11 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const userId = String(req.params.userId);
   const body = parse(assignmentSchema, req.body);
-  const changed = changeAssignment(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, unitId, userId, body);
-  audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `${changed.join(', ') || 'no change'}${body.reason ? `; ${body.reason}` : ''}`, ip: clientIp(req) });
+  const change = () => changeAssignment(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, unitId, userId, body);
+  // A change saved as a draft is made here like any other, and its draft goes with it, in the same transaction (ADR-0030).
+  const draftId = draftParam(req.query);
+  const changed = draftId ? consumeDraft(ctx, req.user, scopeFor(ctx, req.user, req), draftId, { kind: 'personnel_change', subjectId: userId, unitId }, change) : change();
+  audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `${changed.join(', ') || 'no change'}${body.reason ? `; ${body.reason}` : ''}${draftId ? '; from saved form' : ''}`, ip: clientIp(req) });
   res.json({ ok: true, changed });
 }));
 

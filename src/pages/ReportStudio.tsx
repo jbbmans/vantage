@@ -5,8 +5,8 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, Download, ExternalLink, Fi
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText, DescriptionList, PageShell } from '@/components/common';
-import { keys, useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
+import { DateText, DescriptionList, PageShell, useParam } from '@/components/common';
+import { invalidateDomains, keys, useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
@@ -33,8 +33,9 @@ const SECTION_PROMPTS: Array<[RegExp, string]> = [
 const sectionPrompt = (heading: string) => SECTION_PROMPTS.find(([re]) => re.test(heading))?.[1] ?? 'Write what changed because of the work, in the units it was measured in.';
 
 export default function ReportStudio({ embedded }: { embedded?: boolean } = {}) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  return openId ? <Editor id={openId} onBack={() => setOpenId(null)} /> : <DraftList embedded={embedded} onOpen={setOpenId} />;
+  // The open report is in the address (?open=), so Drafts, a reload or a shared link reaches it (ADR-0030).
+  const [openId, setOpenId] = useParam('open');
+  return openId ? <Editor id={openId} onBack={() => setOpenId('')} /> : <DraftList embedded={embedded} onOpen={setOpenId} />;
 }
 
 function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedded?: boolean }) {
@@ -57,7 +58,8 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
         title: title.trim() || `${range.label} input`,
         period_start: dayKey(range.start), period_end: dayKey(range.end),
       });
-      qc.invalidateQueries({ queryKey: ['report-drafts'] });
+      // A new package is a draft waiting on its author: Drafts, the menu count and Today list it (ADR-0030).
+      invalidateDomains(qc, 'report');
       setCreating(false); setTitle('');
       onOpen(draft.id);
     } catch (e) { toast.error(api.errorText(e)); }
@@ -223,7 +225,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
       await api.saveReportRevision(id, payload);
       setNote('');
       qc.invalidateQueries({ queryKey: ['report-draft', id] });
-      qc.invalidateQueries({ queryKey: ['report-drafts'] });
+      invalidateDomains(qc, 'report');
       track('editor.session', {
         surface: 'studio',
         sections: sections.length,

@@ -106,6 +106,11 @@ A unit's analytics (`GET /api/org/units/:unitId/analytics/:section` and `.../dri
 visual it counts in, and `shared/unitAnalytics.ts` adds them into figures and filters them for a drill, so a drill
 lists exactly what its figure counts. `src/components/analytics/` draws every chart, with its table and its drill
 ([ADR-0028](ADR/0028-unified-analytics.md)).
+A draft lives with its kind: a goal, award, training entry, task or personnel change saved to finish later is a row of
+`form_drafts` (migration 037), its author's alone and read by nothing that counts or lists records; it is sent through
+its kind's own route with `?draft=`, which checks it as any new record and removes it in the same transaction
+(`consumeDraft` in `server/services/drafts.ts`). `GET /api/drafts` reads every kind of draft from where each is kept,
+on request, and stores nothing ([ADR-0030](ADR/0030-drafts-in-context.md)).
 The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
 training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in

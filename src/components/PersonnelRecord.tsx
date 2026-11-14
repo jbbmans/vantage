@@ -1,14 +1,18 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { PenLine, Plus, UserRound, History, ListChecks } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Lock, PenLine, Plus, Trash2, UserRound, History, ListChecks } from 'lucide-react';
 import { Button, Field, Input, Select, Panel, EmptyState, Badge, RoleBadge, type Tone } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, DescriptionList } from '@/components/common';
 import * as api from '@/lib/api';
+import type { DraftRef } from '@/lib/api';
+import { invalidateDomains, keys } from '@/lib/queries';
+import { DraftStrip, LeaveDialog, LostDraft, ResumedNote, lostFrom, useResumeDraft, type Lost } from '@/components/FormDrafts';
 import { formatStamp, fullName } from '@/lib/utils';
 import { formatDate } from '../../shared/metrics';
+import type { AssignmentDraftPayload, FormDraft } from '../../shared/drafts';
 import type { AccountStatus, MembershipPeriod, PersonnelAssignment, PersonnelEvent, PersonnelInstance, PersonnelPersonRef, PersonnelRecordResponse } from '../../shared/types';
 
 /** Plain words for why a membership period began or ended (server/services/membership.ts). */
@@ -87,6 +91,10 @@ export interface AssignmentTarget {
   supervisor: PersonnelPersonRef | null;
   checked_in_on: string | null;
   billets: PersonnelInstance['billets'];
+  /** The draft of a change to it this form opens from (ADR-0030). */
+  saved?: FormDraft | null;
+  /** After a draft of it is saved, sent or discarded. */
+  onDraft?: () => void;
 }
 
 /**
@@ -95,6 +103,7 @@ export interface AssignmentTarget {
  */
 export function AssignmentDialog({ target, onClose, onSaved }: { target: AssignmentTarget | null; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const qc = useQueryClient();
   const listId = useId();
   const [billet, setBillet] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
@@ -103,12 +112,36 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
   const [checkedIn, setCheckedIn] = useState('');
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'draft' | null>(null);
+  // A change saved as a draft (ADR-0030): the draft it was opened from, as last read, beside the form and never in it.
+  const savedRef = useRef<DraftRef | null>(null);
+  const [lost, setLost] = useState<Lost | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [inPlace, setInPlace] = useState(false);
+  const [baseline, setBaseline] = useState('');
+  const fill = (t: AssignmentTarget, changes: AssignmentDraftPayload['changes'] = {}, supervisorLabel?: string | null) => {
+    const a = t.assignment;
+    const has = (f: string) => Object.prototype.hasOwnProperty.call(changes, f);
+    const listedBillet = has('billet_id') ? t.billets.find((b) => b.id === changes.billet_id) : undefined;
+    const b = listedBillet ? listedBillet.title : has('billet') ? String(changes.billet ?? '') : a.billet || '';
+    const s = has('assignment_start') ? String(changes.assignment_start ?? '') : a.assignment_start || '';
+    const e = has('assignment_end') ? String(changes.assignment_end ?? '') : a.assignment_end || '';
+    const sup = has('supervisor_id') ? (changes.supervisor_id ? { id: String(changes.supervisor_id), first_name: '', last_name: supervisorLabel || 'The supervisor you chose', rank_abbr: null } : null) : t.supervisor;
+    const c = has('checked_in_on') ? String(changes.checked_in_on ?? '') : t.checked_in_on || '';
+    const r = has('reason') ? String(changes.reason ?? '') : '';
+    setBillet(b); setPicked(listedBillet?.id ?? null); setStart(s); setEnd(e); setSupervisor(sup); setCheckedIn(c); setReason(r);
+    setBaseline(JSON.stringify([b, listedBillet?.id ?? null, s, e, sup?.id ?? null, c, r]));
+  };
+  // Built once each time it is opened, from the assignment as it was then and the draft's changes, if it came from one:
+  // the page reading the record again never puts back what was typed.
   useEffect(() => {
     if (!target) return;
-    const a = target.assignment;
-    setBillet(a.billet || ''); setPicked(null); setStart(a.assignment_start || ''); setEnd(a.assignment_end || '');
-    setSupervisor(target.supervisor); setCheckedIn(target.checked_in_on || ''); setReason(''); setErrors({});
+    const saved = target.saved;
+    const p = saved?.payload as unknown as AssignmentDraftPayload | undefined;
+    fill(target, p?.changes, p?.supervisor_label);
+    savedRef.current = saved ? { id: saved.id, version: saved.version } : null;
+    setErrors({}); setLost(null); setLeaving(false); setInPlace(false);
   }, [target]);
   const options = useMemo(() => (target?.billets || []).filter((b) => !b.unit_id || b.unit_id === target?.assignment.unit_id), [target]);
   // A title that is on the unit's list fills that billet; anything else is kept as typed, off the list. The command's list
@@ -116,8 +149,13 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
   // one the Marine holds, and a save that changes only a date never swaps one for the other.
   const matches = options.filter((b) => b.title.trim().toLowerCase() === billet.trim().toLowerCase());
   const listed = matches.find((b) => b.id === (picked ?? target?.assignment.billet_id)) ?? matches[0];
-  const save = async () => {
-    if (!target) return;
+  const resumed = Boolean(target?.saved);
+  // A draft its author may no longer send is theirs to read and discard.
+  const blocked = Boolean(target?.saved?.blocked);
+  const dirty = JSON.stringify([billet, picked, start, end, supervisor?.id ?? null, checkedIn, reason]) !== baseline;
+  /** What this form changes, against the assignment as the page read it when the form opened. */
+  const changes = (): Record<string, unknown> => {
+    if (!target) return {};
     const a = target.assignment;
     const payload: Record<string, unknown> = {};
     const text = billet.trim();
@@ -126,23 +164,98 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
     if ((end || null) !== a.assignment_end) payload.assignment_end = end || null;
     if ((supervisor?.id ?? null) !== (target.supervisor?.id ?? null)) payload.supervisor_id = supervisor?.id ?? null;
     if ((checkedIn || null) !== target.checked_in_on) payload.checked_in_on = checkedIn || null;
-    if (!Object.keys(payload).length) { toast.info('Nothing changed.'); onClose(); return; }
-    if (reason.trim()) payload.reason = reason.trim();
-    setBusy(true); setErrors({});
-    try {
-      const r = await api.updateMembership(a.unit_id, target.userId, payload);
-      toast.success(savedSentence(r.changed, target.name));
-      onSaved(); onClose();
-    } catch (e) {
-      if (e instanceof api.ApiError && e.fieldErrors) setErrors(e.fieldErrors);
-      toast.error(api.errorText(e));
-    } finally { setBusy(false); }
+    return payload;
   };
+  // Drafts, the menu count and the record overview count it (ADR-0030).
+  const draftsChanged = (id?: string) => { invalidateDomains(qc, 'draft'); if (id) qc.removeQueries({ queryKey: keys.formDraft(id) }); target?.onDraft?.(); };
+  const close = () => { setLeaving(false); onClose(); };
+  const askToClose = () => { if (busy) return; if (dirty) setLeaving(true); else close(); };
+  const saveDraft = async () => {
+    if (!target) return;
+    const payload = changes();
+    if (!Object.keys(payload).length) { toast.info('Change something before saving it as a draft.'); setLeaving(false); return; }
+    if (reason.trim()) payload.reason = reason.trim();
+    const body = { changes: payload, ...(payload.supervisor_id && supervisor ? { supervisor_label: fullName(supervisor) } : {}) };
+    setBusy('draft');
+    try {
+      const ref = savedRef.current;
+      const saved = ref
+        ? await api.updateFormDraft(ref.id, { payload: body, version: ref.version })
+        : await api.createFormDraft({ kind: 'personnel_change', subject_id: target.userId, unit_id: target.assignment.unit_id, payload: body });
+      savedRef.current = { id: saved.id, version: saved.version };
+      // Opened again, it is this version, not the one read before.
+      qc.setQueryData(keys.formDraft(saved.id), saved);
+      draftsChanged();
+      toast.success('Saved to Drafts. Only you can see it, and nothing changes until you save it.');
+      close();
+    } catch (e) {
+      const l = savedRef.current ? lostFrom(e) : null;
+      // From the leave check too: it closes, so the form says what happened.
+      if (l) { setLost(l); setLeaving(false); }
+      else { if (e instanceof api.ApiError && e.fieldErrors) setErrors(e.fieldErrors); toast.error(api.errorText(e)); }
+    } finally { setBusy(null); }
+  };
+  const discardDraft = async () => {
+    const ref = savedRef.current;
+    if (!ref) return;
+    try { await api.discardFormDraft(ref.id); toast.success('Draft discarded.'); }
+    catch (e) { if (lostFrom(e)?.why !== 'gone') { toast.error(api.errorText(e)); return; } toast.info('That draft was already sent or discarded.'); }
+    savedRef.current = null;
+    draftsChanged(ref.id);
+    close();
+  };
+  const save = async (withDraft = true) => {
+    if (!target) return;
+    const a = target.assignment;
+    const payload = changes();
+    if (!Object.keys(payload).length) {
+      // A drafted change someone else already made: say so, and offer to let the draft go.
+      if (withDraft && savedRef.current) { setInPlace(true); return; }
+      toast.info('Nothing changed.'); close(); return;
+    }
+    if (reason.trim()) payload.reason = reason.trim();
+    const ref = withDraft ? savedRef.current : null;
+    setBusy('save'); setErrors({});
+    try {
+      const r = await api.updateMembership(a.unit_id, target.userId, payload, ref);
+      toast.success(savedSentence(r.changed, target.name));
+      if (ref) { savedRef.current = null; draftsChanged(ref.id); }
+      onSaved(); close();
+    } catch (e) {
+      const l = ref ? lostFrom(e) : null;
+      if (l) setLost(l);
+      else {
+        if (e instanceof api.ApiError && e.fieldErrors) setErrors(e.fieldErrors);
+        toast.error(api.errorText(e));
+      }
+    } finally { setBusy(null); }
+  };
+  // What moved since the draft was saved: each field the draft changes whose value then is not its value now.
+  const drift = useMemo(() => {
+    const was = (target?.saved?.payload as unknown as AssignmentDraftPayload | undefined)?.was;
+    if (!target || !was) return [];
+    const a = target.assignment;
+    const now: Record<string, unknown> = { billet: a.billet, billet_id: a.billet_id, assignment_start: a.assignment_start, assignment_end: a.assignment_end, supervisor_id: target.supervisor?.id ?? null, checked_in_on: target.checked_in_on, primary: Boolean(a.is_primary) };
+    return [...new Set(Object.entries(was).filter(([f, v]) => f in now && (v ?? null) !== (now[f] ?? null)).map(([f]) => DRIFT_WORDS[f]).filter(Boolean))];
+  }, [target]);
   return (
-    <Dialog open={Boolean(target)} onOpenChange={(o) => { if (!o) onClose(); }} size="md"
+    <>
+    <Dialog open={Boolean(target)} onOpenChange={(o) => { if (!o) askToClose(); }} size="md"
       title={target ? `${target.name}’s billet and assignment` : ''}
       description={target ? `In ${target.unitLabel}. Leave a field empty to clear it. Their history keeps what it said before.` : ''}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={save} loading={busy}>Save</Button></>}>
+      footer={<>
+        <span className="mr-auto basis-full text-xs text-ink-3 sm:basis-auto">Save draft keeps it to you and changes nothing. Save changes their assignment now, and their history records it.</span>
+        {resumed && <Button variant="ghost" onClick={() => setDiscarding(true)} disabled={Boolean(busy)}><Trash2 className="h-4 w-4" />Discard draft</Button>}
+        <Button variant="ghost" onClick={askToClose} disabled={Boolean(busy)}>Cancel</Button>
+        <Button onClick={saveDraft} loading={busy === 'draft'} disabled={blocked || busy === 'save'}><Lock className="h-3.5 w-3.5" aria-hidden />Save draft</Button>
+        <Button variant="primary" onClick={() => save()} loading={busy === 'save'} disabled={blocked || busy === 'draft'}>Save</Button>
+      </>}>
+      {resumed && !lost && <ResumedNote blocked={target?.saved?.blocked} />}
+      {resumed && drift.length > 0 && !lost && <p role="note" className="mb-3 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/[.06] px-3 py-2 text-xs text-ink-2"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden /><span>Since you saved this draft, someone changed their {listWords(drift)}. The form shows your draft; check it against their record before you save.</span></p>}
+      {inPlace && <div role="alert" className="mb-3 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink-2"><p>This change is already in place: their record says what your draft says.</p><div className="mt-2 flex gap-2"><Button size="sm" onClick={discardDraft}>Discard the draft</Button><Button size="sm" variant="ghost" onClick={() => setInPlace(false)}>Keep it</Button></div></div>}
+      {lost && <LostDraft lost={lost} busy={Boolean(busy)} addLabel="Save the change now" onAddNew={() => { savedRef.current = null; setLost(null); save(false); }} onSaveNew={() => { savedRef.current = null; setLost(null); saveDraft(); }}
+        onLoadNewer={(d) => { const p = d.payload as unknown as AssignmentDraftPayload; if (target) fill(target, p.changes, p.supervisor_label); savedRef.current = { id: d.id, version: d.version }; setLost(null); }}
+        onKeepMine={(d) => { if (d && savedRef.current) savedRef.current = { id: d.id, version: d.version }; setLost(null); toast.info('Kept what you have here. Saving replaces the copy saved elsewhere.'); }} />}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Billet" className="sm:col-span-2" error={errors.billet_id || errors.billet} hint={options.length ? 'Choose one from the unit’s billet list, or type a title that is not on it.' : 'This unit lists no billets yet; type a title.'}>
           <Input autoFocus maxLength={80} list={options.length ? listId : undefined} value={billet} onChange={(e) => setBillet(e.target.value)} placeholder="Budget analyst" />
@@ -161,8 +274,15 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
         <Field label="Why (optional)" error={errors.reason} hint="Kept with the change in their history"><Input maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="PCS orders" /></Field>
       </div>
     </Dialog>
+    <LeaveDialog open={leaving} resumed={resumed} noun="change" saving={busy === 'draft'} canSave={!blocked} onStay={() => setLeaving(false)} onSave={saveDraft} onLeave={close} />
+    <ConfirmDialog open={discarding} onOpenChange={setDiscarding} title="Discard this draft?" confirmLabel="Discard"
+      body="It is removed and cannot be brought back. Nothing was changed on their record, so nobody is affected." onConfirm={discardDraft} />
+    </>
   );
 }
+
+const DRIFT_WORDS: Record<string, string> = { billet: 'billet', billet_id: 'billet', assignment_start: 'assignment start', assignment_end: 'assignment end', supervisor_id: 'supervisor', checked_in_on: 'check-in date', primary: 'primary unit' };
+const listWords = (w: string[]) => (w.length === 1 ? w[0] : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`);
 
 /** A functional responsibility carried beside the billet: Safety NCO, Voting Assistance Officer. It grants nothing. */
 export function ResponsibilityDialog({ target, onClose, onSaved }: { target: { userId: string; name: string; unitId: string; unitLabel: string } | null; onClose: () => void; onSaved: () => void }) {
@@ -214,6 +334,15 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
   const [adding, setAdding] = useState<{ userId: string; name: string; unitId: string; unitLabel: string } | null>(null);
   const [ending, setEnding] = useState<{ id: string; title: string } | null>(null);
   const editTarget = (inst: PersonnelInstance, a: PersonnelAssignment): AssignmentTarget => ({ userId: person.id, name, assignment: a, unitLabel: unitName(a), supervisor: inst.supervisor, checked_in_on: inst.checked_in_on, billets: inst.billets });
+  // A change to their assignment saved as a draft (ADR-0030) opens here from ?draft=, over the assignment as it is now.
+  const resume = useResumeDraft('personnel_change', (d, done) => {
+    for (const inst of record.instances) {
+      const a = inst.assignments.find((x) => x.unit_id === d.unit_id && x.canManage);
+      if (a) { setEditing({ ...editTarget(inst, a), saved: d, onDraft: done }); return; }
+    }
+    toast.info('You can no longer change that assignment. The draft is in Drafts, where you can read it and discard it.');
+    done();
+  }, { subjectId: person.id, quiet: true, enabled: !record.self });
   const end = async () => {
     if (!ending) return;
     try { await api.endResponsibility(ending.id); toast.success(`${ending.title} ended for ${name}.`); onChanged(); } catch (e) { toast.error(api.errorText(e)); }
@@ -243,6 +372,7 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="min-w-0 space-y-4 lg:col-span-2">
+        {!record.self && <DraftStrip kind="personnel_change" subjectId={person.id} onContinue={resume.open} className="card overflow-hidden border border-dashed border-line-strong p-0" />}
         {!record.instances.length && <div className="card"><EmptyState icon={UserRound} title="Not assigned to a unit" description={record.self ? 'Ask a leader for an invitation or a join code.' : 'They serve in no unit you can see.'} /></div>}
         {record.instances.map((inst) => (
           <Panel key={inst.org_id} title={record.instances.length > 1 ? `Assignment in ${inst.org_name}` : 'Assignment'} subtitle={inst.team ? `Their team: ${inst.team.label}` : undefined} padded={false}>
@@ -349,7 +479,7 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
         )}
       </div>
 
-      <AssignmentDialog target={editing} onClose={() => setEditing(null)} onSaved={onChanged} />
+      <AssignmentDialog target={editing} onClose={() => { setEditing(null); resume.done(); }} onSaved={onChanged} />
       <ResponsibilityDialog target={adding} onClose={() => setAdding(null)} onSaved={onChanged} />
       <ConfirmDialog open={Boolean(ending)} onOpenChange={(o) => { if (!o) setEnding(null); }} title={ending ? `End ${ending.title} for ${name}?` : ''} confirmLabel="End it"
         body="It stays in their record as ended today, with your name." onConfirm={end} />

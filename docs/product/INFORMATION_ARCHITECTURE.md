@@ -71,7 +71,8 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Cards and dashboards | Today and the Records overview each answer one question; Packages and Analysis overlap (both read the record for evaluation input) | Left in place, named consistently | Reports and printable output: Task 14; unified analytics: Task 21 |
 | Tables | Wide tables scroll inside their card; no page scrolled sideways at 390px except Help, after its keyboard line grew | Help's keyboard line fixed | Personnel tables: done in Task 11 (the roster is a list on a phone); performance and responsive pass: Task 25 |
 | Duplicate workflows | Two ways in for awards and training (an activity, or its own record) | Settled by Task 9's move suggestions; Find your way points to the right place | — |
-| Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: Task 26; duty records: Task 17; drafts: Task 23 |
+| Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: Task 26; duty records: Task 17 |
+| Drafts | Records → Drafts held only entries drawn from work; a goal, award, training entry, task or billet change had no draft, and closing its form lost the text | Each form saves a draft in context and asks before closing with unsaved text; each page lists its own drafts; Records → Drafts lists every kind, each opening where it is finished, and says who else can read it; Today shows the newest; the menu counts what waits on you | Done in Task 23 (ADR-0030) |
 
 ## Retired paths
 

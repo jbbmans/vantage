@@ -1109,6 +1109,33 @@ CREATE TABLE IF NOT EXISTS record_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_record_drafts_user ON record_drafts(user_id, updated_at DESC);
 
+-- A form its author saved to finish later (ADR-0030, migration 037): a goal, an award (their own, or one they recommend a
+-- Marine for), a training entry, a task, or a change to a Marine's assignment. It is not a record: nothing counts it,
+-- nobody else reads it, and nothing is told of it. Sent, it goes through its kind's own route, which removes it in the
+-- same transaction; it is also removed when discarded, or 90 days after it was last saved. A legal hold on its author,
+-- on its Marine or on the instance keeps it: discarded or sent while held, it is hidden (deleted_at) and removed once the
+-- hold is released. subject_id and unit_id name the Marine and the unit for the two kinds that are about someone else,
+-- checked when it is saved (subject_label is how that Marine was named then).
+CREATE TABLE IF NOT EXISTS form_drafts (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('goal', 'award', 'training', 'task', 'personnel_change')),
+  subject_id    TEXT REFERENCES users(id),
+  subject_label TEXT CHECK (subject_label IS NULL OR length(subject_label) <= 200),
+  unit_id       TEXT REFERENCES units(id),
+  title         TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 300),
+  payload       TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload) AND json_type(payload) = 'object' AND length(CAST(payload AS BLOB)) <= 32768),
+  version       INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  deleted_at    TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  CHECK ((subject_id IS NULL) = (unit_id IS NULL)),
+  CHECK (subject_id IS NULL OR (kind IN ('award', 'personnel_change') AND subject_id <> user_id)),
+  CHECK (kind <> 'personnel_change' OR subject_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_form_drafts_user ON form_drafts(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_form_drafts_saved ON form_drafts(updated_at);
+
 -- An entry its owner moved from one record type to another (ADR-0015): an activity that was an award, a course or a duty
 -- (ADR-0023), or back. The row as it stood before the move is kept whole in snapshot, so nothing the new type has no field for is lost,
 -- and an undo puts it back exactly. Its rows go when the record they lead to is destroyed.

@@ -126,6 +126,11 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   const contributions = db.prepare('SELECT id, work_item_id, unit_id, kind, step, subject_id, body, supersedes_id, occurred_at, created_at FROM work_events WHERE actor_id = ? ORDER BY created_at').all(userId) as Row[];
   const drafts = db.prepare('SELECT * FROM record_drafts WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
+  // The forms they saved to finish later (ADR-0030), each as they left it. One about another Marine, an award they would
+  // recommend or a change to an assignment, stays in Vantage with its Marine's unit, as a report package about them does:
+  // what a leader drafts about a Marine is not carried out in the leader's own copy.
+  const savedDrafts = (db.prepare('SELECT id, kind, title, payload, version, created_at, updated_at FROM form_drafts WHERE user_id = ? AND subject_id IS NULL AND deleted_at IS NULL ORDER BY created_at').all(userId) as Row[])
+    .map((r) => { let payload: unknown = {}; try { payload = JSON.parse(String(r.payload)); } catch { /* kept as saved */ } return { ...r, payload }; });
   const careerSteps = db.prepare('SELECT * FROM career_steps WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
   const careerProfile = db.prepare('SELECT * FROM career_profiles WHERE user_id = ?').get(userId) as Row | undefined;
   // Their entries' moves between record types, with what each said before (ADR-0015).
@@ -145,9 +150,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
-    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews, counseling_revisions: counselingRevisions,
+    contributions, drafts, saved_drafts: savedDrafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews, counseling_revisions: counselingRevisions,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, saved_drafts: savedDrafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
   };
   const archive = selection.all ? full : narrowExport(full, selection);
   const _files: Array<Row & { content: Buffer }> = attachments
@@ -175,7 +180,7 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
     format: full.format, version: full.version, exported_at: full.exported_at, instance: full.instance, sections: sel.keys,
     owner: { id: full.profile.id, username: full.profile.username, first_name: full.profile.first_name, last_name: full.profile.last_name },
     ...(sel.profile ? { profile: full.profile, readiness: full.readiness } : {}),
-    ...(account ? { units: full.units, memberships: full.memberships, membership_history: full.membership_history, roles: full.roles, notifications: full.notifications, comments: full.comments, audit_trail: full.audit_trail, ai_usage: full.ai_usage, email_log: full.email_log, maradmin_state: full.maradmin_state, contributions: full.contributions, drafts: full.drafts, record_moves: full.record_moves, security: full.security } : {}),
+    ...(account ? { units: full.units, memberships: full.memberships, membership_history: full.membership_history, roles: full.roles, notifications: full.notifications, comments: full.comments, audit_trail: full.audit_trail, ai_usage: full.ai_usage, email_log: full.email_log, maradmin_state: full.maradmin_state, contributions: full.contributions, drafts: full.drafts, saved_drafts: full.saved_drafts, record_moves: full.record_moves, security: full.security } : {}),
     ...(sel.personnel ? { personnel: full.personnel } : {}),
     ...(career ? { career } : {}),
     records, attachments,
@@ -253,6 +258,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     entries.push({ name: 'email-log.csv', data: rowsToCsv(archive.email_log.map(flat)) });
     entries.push({ name: 'contributions.csv', data: rowsToCsv(archive.contributions.map(flat)) });
     entries.push({ name: 'drafts.csv', data: rowsToCsv(archive.drafts.map(flat)) });
+    entries.push({ name: 'saved-drafts.csv', data: rowsToCsv(((archive as { saved_drafts?: Row[] }).saved_drafts ?? []).map(flat)) });
     entries.push({ name: 'record-moves.csv', data: rowsToCsv(archive.record_moves.map(flat)) });
   }
   if ('duty_reviews' in archive && (archive.duty_reviews as Row[]).length) entries.push({ name: 'duty-reviews.csv', data: rowsToCsv((archive.duty_reviews as Row[]).map(flat)) });

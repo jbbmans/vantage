@@ -30,7 +30,7 @@ test('a leader corrects a billet and removes a Marine from the unit, told what f
   await row.getByRole('button', { name: `Change ${last}’s billet` }).click();
   const billet = page.getByRole('dialog', { name: /billet/ });
   await billet.getByLabel('Billet').fill('Disbursing Clerk');
-  await billet.getByRole('button', { name: 'Save' }).click();
+  await billet.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Billet saved' })).toBeVisible();
   await expect(row).toContainText('Disbursing Clerk');
 

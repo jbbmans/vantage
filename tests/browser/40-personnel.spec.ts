@@ -56,7 +56,7 @@ test('a leader sets a billet, supervisor and check-in, changes two Marines at on
   await expect(dialog.getByLabel('Supervisor')).toHaveValue(/Boletz/);
   await dialog.getByLabel('Checked in').fill('2026-10-01');
   await dialog.getByLabel('Why (optional)').fill('Reported aboard');
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await toast(page, 'Billet, supervisor and check-in saved');
   await expect(rowA).toContainText(title);
   await expect(rowA).toContainText('Boletz');
@@ -159,7 +159,7 @@ test('a Unit Manager manages the roster without opening a record, and a Marine r
   await um.getByRole('button', { name: `Change ${last}’s assignment in G8` }).click();
   const dialog = um.getByRole('dialog', { name: /billet and assignment/ });
   await dialog.getByLabel('Assignment start').fill('2026-10-01');
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await toast(um, 'Assignment start saved');
   expect((await um.request.get(`/api/org/team/${marine.id}`)).status(), 'their records stay closed').toBe(403);
   await umContext.close();
@@ -237,13 +237,13 @@ test('a bulk move offers only teams in the roster’s view, and of two billets w
   await expect(dialog.getByLabel('Billet', { exact: true })).toHaveValue(title);
   await expect(dialog.getByRole('combobox', { name: 'Which billet' })).toContainText('every unit');
   await dialog.getByLabel('Checked in').fill('2026-10-20');
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await toast(page, 'Check-in saved');
   expect(await billetNow()).toBe(everyUnit);
   await row.getByRole('button', { name: `Change ${last}’s billet` }).click();
   await dialog.getByRole('combobox', { name: 'Which billet' }).click();
   await page.getByRole('option', { name: `${title} · only LS${tag}` }).click();
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await toast(page, 'Billet saved');
   expect(await billetNow()).toBe(onlyLeft);
 });

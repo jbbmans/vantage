@@ -12,6 +12,7 @@ import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalo
 import type { AnalyticsResponse, AnalyticsSection, DrillResponse } from '../../shared/unitAnalytics';
 import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
 import type { CourseEntry, CourseLookup, CourseSourceRecord } from '../../shared/courses';
+import type { DraftsResponse, FormDraft, FormDraftKind } from '../../shared/drafts';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
@@ -165,7 +166,10 @@ export const listRecords = <S extends Store>(store: S, params: Record<string, st
   return api.get<Array<RecordRows[S]>>(`/records/${store}${qs ? `?${qs}` : ''}`);
 };
 export const getRecord = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}`);
-export const createRecord = (store: Store, data: unknown) => api.post(`/records/${store}`, data);
+/** A form sent from its saved draft names it, and the version its sender read, so its route removes it (ADR-0030). */
+export type DraftRef = { id: string; version: number };
+const fromDraft = (d?: DraftRef | null) => (d ? `?draft=${encodeURIComponent(d.id)}&draft_version=${d.version}` : '');
+export const createRecord = (store: Store, data: unknown, draft?: DraftRef | null) => api.post(`/records/${store}${fromDraft(draft)}`, data);
 export const updateRecord = (store: Store, id: string, patch: unknown) => api.put(`/records/${store}/${encodeURIComponent(id)}`, patch);
 export const deleteRecord = (store: Store, id: string) => api.del(`/records/${store}/${encodeURIComponent(id)}`);
 export const restoreRecord = (store: Store, id: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/restore`);
@@ -212,7 +216,7 @@ export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/$
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
-export const updateMembership = (unitId: string, userId: string, payload: unknown) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`, payload);
+export const updateMembership = (unitId: string, userId: string, payload: unknown, draft?: DraftRef | null) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}${fromDraft(draft)}`, payload);
 // Personnel records (ADR-0017).
 export const personnelRoster = (unitId: string) => api.get<PersonnelRosterResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel`);
 export const personnelRecord = (userId: string) => api.get<PersonnelRecordResponse>(`/org/team/${encodeURIComponent(userId)}/personnel`);
@@ -574,6 +578,12 @@ export const draftFromWork = (workItemId: string) => api.post('/record/drafts/fr
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);
 export const saveDraftToRecord = (id: string) => api.post(`/record/drafts/${encodeURIComponent(id)}/save`);
 export const deleteDraft = (id: string) => api.del(`/record/drafts/${encodeURIComponent(id)}`);
+// Every draft of the person's, wherever it is kept, and the forms they save to finish later (ADR-0030).
+export const allDrafts = () => api.get<DraftsResponse>('/drafts');
+export const formDraft = (id: string) => api.get<FormDraft>(`/drafts/forms/${encodeURIComponent(id)}`);
+export const createFormDraft = (body: { kind: FormDraftKind; subject_id?: string | null; unit_id?: string | null; payload: Record<string, unknown> }) => api.post<FormDraft>('/drafts/forms', body);
+export const updateFormDraft = (id: string, body: { payload: Record<string, unknown>; version: number }) => api.put<FormDraft>(`/drafts/forms/${encodeURIComponent(id)}`, body);
+export const discardFormDraft = (id: string) => api.del(`/drafts/forms/${encodeURIComponent(id)}`);
 export const career = () => api.get('/record/career');
 export const saveCareerProfile = (body: Record<string, unknown>) => api.put('/record/career/profile', body);
 export const createCareerStep = (body: Record<string, unknown>) => api.post('/record/career/steps', body);

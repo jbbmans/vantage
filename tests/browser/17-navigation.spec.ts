@@ -1,8 +1,9 @@
 import { test, expect, type Locator } from '@playwright/test';
 import { ensureSetup, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
-// A group's page labels, without the "G X" hint the rail shows beside a hovered page.
-const listed = (list: Locator) => expect.poll(async () => (await list.getByRole('link').allInnerTexts()).map((l) => l.trim().replace(/\s*G [A-Z]$/, '')));
+// A group's page labels, without the "G X" hint the rail shows beside a hovered page, or the count beside one
+// (Drafts counts what is waiting on you).
+const listed = (list: Locator) => expect.poll(async () => (await list.getByRole('link').allInnerTexts()).map((l) => l.trim().replace(/\s*G [A-Z]$/, '').replace(/\s+\d+$/, '')));
 
 test('old addresses, from bookmarks, emails and notifications, land on the page that took their place', async ({ page, request }) => {
   await ensureSetup(request);

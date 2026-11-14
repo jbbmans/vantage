@@ -48,7 +48,7 @@ export default function IdleGuard({ onSignOut }: { onSignOut: () => void }) {
     <Dialog open={open} onOpenChange={(o) => { if (!o) stay(); }} title="Still there?" size="sm"
       description="Vantage signs you out after a period with no activity, as systems holding personnel records must."
       footer={<><Button variant="ghost" onClick={onSignOut}>Sign out</Button><Button loading={busy} onClick={stay}>Stay signed in</Button></>}>
-      <p className="text-sm text-ink-2">You will be signed out in <span className="fig font-semibold text-ink">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>. Unsaved text and temporary Quick Log drafts are cleared when you sign out. Save your work before leaving.</p>
+      <p className="text-sm text-ink-2">You will be signed out in <span className="fig font-semibold text-ink">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>. Saved drafts stay. Unsaved text, including unsent Quick Log text, is cleared when you sign out. Save your work before leaving.</p>
       {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
     </Dialog>
   );

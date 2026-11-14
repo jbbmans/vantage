@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
+import { Bell, Building2, CalendarClock, CheckCircle2, FilePen, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarChart, clientVisual } from '@/components/analytics';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -9,11 +9,12 @@ import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkRow } from '@/components/work';
 import {
-  useAssignedWork, useCareer, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
+  useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
   useSavePrefs, useTasks, useTrack, useWorkload,
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
+import { DRAFT_KIND_LABELS } from '../../shared/drafts';
 import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { goalPace } from '../../shared/metricEngine';
@@ -95,6 +96,7 @@ export default function Dashboard() {
         <div className="space-y-4">
           <QuickCapture />
           <PickUp />
+          <DraftsToday />
           <Changes />
           <PersonalPanel summary={summary.data} />
         </div>
@@ -120,6 +122,28 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
       <p className="border-b border-line px-4 py-3 text-sm text-ink-2">You are not holding anything. These are open to claim; claiming puts one on your list at once.</p>
       {body}
     </div>
+  );
+}
+
+/** What the person started and has not finished, of every kind (ADR-0030): the newest three, each where it is finished. */
+function DraftsToday() {
+  const { data } = useDrafts();
+  const items = (data?.items || []).filter((d) => d.waiting).slice(0, 3);
+  if (!items.length) return null;
+  return (
+    <Panel title="Your drafts" subtitle="Started and not finished" padded={false}
+      action={<Link to="/record/drafts" className="text-xs text-accent hover:underline">All {data!.waiting} in Drafts</Link>}>
+      <ul className="divide-y divide-line">
+        {items.map((d) => (
+          <li key={d.key}>
+            <Link to={d.source === 'form' && !d.can_submit ? `/record/drafts?read=${encodeURIComponent(d.id)}` : d.href} className="flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2">
+              <FilePen className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
+              <span className="min-w-0 flex-1"><span className="block truncate text-ink">{d.title}</span><span className="block text-2xs text-ink-3">{DRAFT_KIND_LABELS[d.kind].one}{d.about ? ` · for ${d.about}` : ''} · saved {timeAgo(d.updated_at)}</span></span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
