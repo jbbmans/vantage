@@ -8,6 +8,7 @@ import { passwordProblem } from './password.ts';
 import { parseTime, TIME_HINT } from './timeframe.ts';
 import { SCORING_CONDITIONS } from './dutyScoring.ts';
 import { cleanDescription, isEvidenceKind, type EvidenceKind } from './attachments.ts';
+import { CEUS_MAX, COURSE_CODE_MAX, cleanCourseCode, courseKey } from './courses.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -136,6 +137,19 @@ export const goalSchema = z.object({
   completed_at: optDate,
 });
 
+/**
+ * A course code as a person enters it (ADR-0029): kept cleaned and in upper case. What of the training it verifies is the
+ * server's to work out against an approved source's catalog, never a request's: nothing here says verified or manual.
+ */
+const courseCode = z.string().max(COURSE_CODE_MAX * 4).nullish().transform((v, ctx) => {
+  if (v === undefined) return undefined;
+  const code = cleanCourseCode(v ?? '');
+  if (!code) return null;
+  if (code.length > COURSE_CODE_MAX) { ctx.addIssue({ code: 'custom', message: `Keep it under ${COURSE_CODE_MAX} characters.` }); return z.NEVER; }
+  if (!courseKey(code)) { ctx.addIssue({ code: 'custom', message: 'A course code has letters or digits.' }); return z.NEVER; }
+  return code;
+});
+
 export const trainingSchema = z.object({
   title: text(300).trim().min(1, 'Required.'),
   date: optDate,
@@ -145,6 +159,8 @@ export const trainingSchema = z.object({
   provider: optText(200),
   status: optEnum(TRAINING_STATUS),
   notes: optText(4000),
+  course_code: courseCode,
+  ceus: optNumber(0, CEUS_MAX),
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),

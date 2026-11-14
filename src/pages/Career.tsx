@@ -5,6 +5,7 @@ import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, NumberI
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, bestMatch, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
@@ -23,6 +24,7 @@ import { formatDate, formatNumber } from '../../shared/metrics';
 import { formatTimeframe } from '../../shared/timeframe';
 import { PERMISSIONS } from '../../shared/permissions';
 import type { Award, Counseling, Training } from '../../shared/types';
+import type { CourseEntry } from '../../shared/courses';
 import { counselorWritten } from '../../shared/counseling';
 import { formatStamp, humanize, todayIso } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
@@ -40,22 +42,38 @@ type AwardRow = Award & { recorded_by?: string | null; recorder_name?: string };
 /** A leader's recommendation: an award somebody entered for the Marine it is about. */
 const recordedByOther = (r: { user_id: string; recorded_by?: string | null }) => Boolean(r.recorded_by && r.recorded_by !== r.user_id);
 
-interface TrainingDraft extends TimeframeDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
+interface TrainingDraft extends TimeframeDraft, CourseDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface AwardDraft { id?: string; version?: number; name: string; period_start: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
-export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', ...timeframeDraft({ date: todayIso() }), type: 'course', hours: '', provider: '', status: 'completed', notes: '', visibility: v, unit_id: unit });
+export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', ...timeframeDraft({ date: todayIso() }), type: 'course', hours: '', provider: '', status: 'completed', notes: '', course_code: '', ceus: '', visibility: v, unit_id: unit });
+/** A training as its form edits it: what it says, never what the server worked out about it. */
+export const trainingDraft = (t: Training): TrainingDraft => ({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', course_code: t.course_code || '', ceus: t.ceus ?? '' });
 export const emptyAward = (v: 'private' | 'unit', unit: string | null): AwardDraft => ({ name: '', period_start: '', date: todayIso(), type: 'personal_award', status: 'planned', recommending_official: '', approving_authority: '', citation: '', notes: '', submitted_at: '', approved_at: '', presented_at: '', visibility: v, unit_id: unit });
 
 export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
+  // The course code is looked up in the approved catalogs in use (ADR-0029); each value it can verify is marked.
+  const lookup = useCourseLookup(d.course_code);
+  const verified = lookup.state === 'done' && lookup.result ? bestMatch(d, lookup.result.matches)?.verified ?? [] : null;
+  const use = (m: CourseEntry) => {
+    set('course_code', m.code); set('title', m.name);
+    if (m.provider) set('provider', m.provider);
+    if (m.hours != null) set('hours', m.hours);
+    if (m.ceus != null) set('ceus', m.ceus);
+  };
   return (
     <>
-      <Field label="Title" required error={errors.title}><Input autoFocus value={d.title} onChange={onText(set, 'title')} placeholder="Sergeants Course (distance)" /></Field>
+      <Field label={<>Course code<CourseMark field="code" value={d.course_code} verified={verified} /></>} hint="optional" error={errors.course_code}>
+        <Input autoFocus value={d.course_code} onChange={onText(set, 'course_code')} maxLength={160} placeholder="CDET 8010" autoComplete="off" />
+      </Field>
+      <CourseLookupPanel d={d} lookup={lookup} onUse={use} />
+      <Field label={<>Title<CourseMark field="title" value={d.title} verified={verified} /></>} required error={errors.title}><Input value={d.title} onChange={onText(set, 'title')} placeholder="Sergeants Course (distance)" /></Field>
       <TimeframeFields table="trainings" d={d} set={set} errors={errors}
         extra={<Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={TRAINING_STATUS.map((t) => ({ value: t, label: humanize(t) }))} /></Field>} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Type"><Select value={d.type} onValueChange={(v) => set('type', v)} options={TRAINING_TYPES.map((t) => ({ value: t, label: t === 'pme' ? 'PME' : humanize(t) }))} /></Field>
-        <Field label="Hours" error={errors.hours}><NumberInput value={d.hours} onChange={onText(set, 'hours')} /></Field>
-        <Field label="Provider" className="col-span-2"><Input value={d.provider} onChange={onText(set, 'provider')} placeholder="MarineNet, CDET, college…" /></Field>
+        <Field label={<>Hours<CourseMark field="hours" value={d.hours} verified={verified} /></>} error={errors.hours}><NumberInput value={d.hours} onChange={onText(set, 'hours')} /></Field>
+        <Field label={<>Provider<CourseMark field="provider" value={d.provider} verified={verified} /></>}><Input value={d.provider} onChange={onText(set, 'provider')} placeholder="MarineNet, CDET, college…" /></Field>
+        <Field label={<>CEUs<CourseMark field="ceus" value={d.ceus} verified={verified} /></>} hint="continuing education units" error={errors.ceus}><NumberInput value={d.ceus} onChange={onText(set, 'ceus')} /></Field>
       </div>
       <Field label="Notes"><Textarea rows={2} value={d.notes} onChange={onText(set, 'notes')} /></Field>
       <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
@@ -142,6 +160,8 @@ export default function Career({ section }: { section: CareerSection }) {
   }, [openId, counselings, awards, trainings, tab, navigate]);
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t) => n + (Number(t.hours) || 0), 0), [trainings]);
+  // Continuing education units, where a training says them (ADR-0029): counted beside the hours, never into them.
+  const ceus = useMemo(() => (trainings || []).reduce((n: number, t) => n + (Number(t.ceus) || 0), 0), [trainings]);
   // As the server decides (canEdit in server/authz/records.ts): an award a leader recorded is never its subject's to
   // change, and its recorder may change it while it is shared with the unit they hold Counsel members in.
   const canEditRow = (r: any) => {
@@ -173,14 +193,14 @@ export default function Career({ section }: { section: CareerSection }) {
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
-        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}`} to={tab === 'training' ? undefined : '/career/training'} />
+        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}${ceus ? ` · ${formatNumber(ceus)} CEUs` : ''}`} to={tab === 'training' ? undefined : '/career/training'} />
         <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} to={tab === 'awards' ? undefined : '/career/awards'} />
         <Stat label="Counselings" value={(counselings || []).length} hint={awaitingMe ? `${awaitingMe === 1 ? 'one awaits' : `${awaitingMe} await`} your acknowledgement` : myDrafts ? `${myDrafts} you wrote ${myDrafts === 1 ? 'is' : 'are'} not final yet` : 'up to date'} tone={awaitingMe ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table minWidth={720} head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-24">Evidence</th><th className="w-28">Status</th><th className="w-44"></th></>}>
-          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
+          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{(t.provider || t.course_code) && <span className="block text-xs text-ink-3"><CourseCodeText row={t} />{t.course_code && t.provider ? ' · ' : ''}{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining(trainingDraft(t))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 
@@ -225,6 +245,7 @@ export default function Career({ section }: { section: CareerSection }) {
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
         {view?.kind === 'award' && view.row.user_id === me && recordedByOther(view.row) && <p className="mt-3 text-xs text-ink-3">{view.row.recorder_name || 'A leader'} recorded this award for you, so only they can change it. Ask them if something needs correcting.</p>}
         {view?.kind === 'training' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', view.row.type === 'pme' ? 'PME' : humanize(view.row.type)], ['Hours', view.row.hours != null ? formatNumber(view.row.hours) : null], ['Provider', view.row.provider], ['Notes', view.row.notes ? <span className="whitespace-pre-wrap">{view.row.notes}</span> : null]]} />}
+        {view?.kind === 'training' && <TrainingCourse row={view.row} />}
         {/* Files go where an entry moves (ADR-0015), so an award or a course shows the files it holds. */}
         {(view?.kind === 'award' || view?.kind === 'training') && <div className="mt-4"><Attachments table={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} canEdit={canEditRow(view.row)} /></div>}
         {(view?.kind === 'award' || view?.kind === 'training') && <RecordLineage store={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} onUndone={goTo} className="mt-4" />}

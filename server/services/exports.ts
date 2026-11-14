@@ -26,6 +26,8 @@ export const EXPORT_TABLES = [
   'unit_billets', 'duty_types', 'training_requirements', 'duty_scoring_policies',
   // Each Marine's personnel record in each Unit Instance, and its history (ADR-0017).
   'personnel_records', 'personnel_responsibilities', 'personnel_events',
+  // Approved course sources and every catalog applied for them (ADR-0029): before the trainings verified against them.
+  'course_sources', 'course_catalog_loads', 'course_catalog_entries',
   ...RECORD_TABLE_NAMES,
   // Each duty's review history (ADR-0024): a moved service keeps who decided what, when and why. After the duties it hangs on.
   'duty_reviews',
@@ -128,6 +130,11 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       // The audit log is append-only (ADR-0013). Only here, loading a fresh instance, is it emptied: the archive brings
       // its own chain in place of this host's first-run entries. Its triggers are back before this commits.
       dropAuditAppendOnlyTriggers(ctx.db);
+      // So are the triggers that keep other rows from ever being removed: append-only records, filed error reports, case
+      // guidance, approved course sources and applied catalogs (ADR-0021, 0022, 0029). A fresh instance's operator may have
+      // put one on file before loading the archive, which replaces it. They go back exactly as they were before this commits.
+      const keepers = ctx.db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name <> 'audit_log' AND sql LIKE '%BEFORE DELETE ON%' AND sql LIKE '%RAISE(ABORT%'").all() as Array<{ name: string; sql: string }>;
+      for (const t of keepers) ctx.db.exec(`DROP TRIGGER "${t.name.replace(/"/g, '""')}"`);
       const hostMeta = ctx.db.prepare(`SELECT key, value FROM meta WHERE key IN (${HOST_META.map(() => '?').join(',')})`).all(...HOST_META) as Array<{ key: string; value: string }>;
       for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
@@ -172,6 +179,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       else ctx.db.prepare("DELETE FROM meta WHERE key = 'timeframe_violations'").run();
       timeframeTriggers(ctx.db);
       auditAppendOnlyTriggers(ctx.db);
+      for (const t of keepers) ctx.db.exec(t.sql);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
     })();

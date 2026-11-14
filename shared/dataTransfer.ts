@@ -113,6 +113,12 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
     who: 'Members who can share work with the unit.', routes: ['POST /api/work/sources', 'POST /api/work/imports/preview', 'POST /api/work/imports'], restores: 'Adds or updates work, planned first.',
   },
   {
+    id: 'course_catalog', kind: 'data', label: 'Course catalog', format: 'Spreadsheet (.xlsx or .csv) an approved source publishes',
+    holds: 'Courses by code, with their name, provider, hours, CEUs and what the source says of them. No one’s records.',
+    who: 'Vantage Administrators with Service settings.', routes: ['POST /api/platform/course-sources/:id/import'],
+    restores: 'Staged, looked at, then applied; the catalog it replaces is kept (ADR-0029).',
+  },
+  {
     id: 'email_import', kind: 'data', label: 'Saved email', format: '.eml message', holds: 'One message and its attachments, filed with a unit’s correspondence.',
     who: 'Members who can share correspondence with the unit.', routes: ['POST /api/correspondence/messages/import'], restores: 'Files the message.',
   },

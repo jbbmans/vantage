@@ -1,5 +1,6 @@
 import type { AppContext } from '../context.ts';
 import { RECORD_TABLE_NAMES, getRecord, hydrate, withGoalProgress } from './records.ts';
+import { withCourseDetail } from './courses.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { canRead } from '../authz/records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
@@ -76,6 +77,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   for (const r of records.awards ?? []) if (r.recorded_by && r.recorded_by !== userId) r.recorder_label = personLabel(ctx, r.recorded_by);
   for (const r of records.counselings ?? []) if (r.user_id !== userId) r.subject_label = personLabel(ctx, r.user_id);
   for (const r of records.duties ?? []) withDutyLabels(ctx, r, userId);
+  // What each training's course values were verified against travels with it, as its page shows it (ADR-0029).
+  if (records.trainings) records.trainings = withCourseDetail(ctx, records.trainings);
   const recordIds = new Map<string, Set<string>>();
   for (const [table, rows] of Object.entries(records)) recordIds.set(table, new Set(rows.map((r) => String(r.id))));
 
@@ -372,6 +375,7 @@ export function buildRecordExport(ctx: AppContext, table: ImportTable, row: Row,
   if (table === 'counselings' && row.counselor_id && row.counselor_id !== row.user_id) record.counselor_label = personLabel(ctx, row.counselor_id);
   if (table === 'awards' && row.recorded_by && row.recorded_by !== row.user_id) record.recorder_label = personLabel(ctx, row.recorded_by);
   if (table === 'duties') withDutyLabels(ctx, record, String(row.user_id));
+  if (table === 'trainings') Object.assign(record, withCourseDetail(ctx, [record])[0]);
   const doc = { format: RECORD_FORMAT, version: VERSION, exported_at: now(), table, record, attachments: meta };
   const stem = `vantage-${TABLE_LABELS[table].one.replace(/\s+/g, '-')}-${String(row.id).slice(0, 8)}`;
   const csv = `\uFEFF${rowsToCsv([{ ...sheetRow(table, record), ...extraColumns(table, record) }], [...sheetHeaders(table), ...extraHeaders(table)])}`;

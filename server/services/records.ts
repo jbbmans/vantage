@@ -12,6 +12,7 @@ import { periodClause } from './timeframes.ts';
 import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
 import { assertFinalizable, finalizedColumns, tellFinal, withCounselingDetail } from './counselings.ts';
+import { courseColumns, rechecksCourse, withCourseDetail } from './courses.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -66,7 +67,8 @@ export const TABLES: Record<RecordTable, TableSpec> = {
       'metric_id', 'direction', 'baseline_value', 'aggregation', 'filters', 'measure_scope', 'completed_at'],
     json: ['filters'], shareFlag: PERMISSIONS.CREATE_SHARED_GOALS, memberReadable: true, assignee: true, orderBy: 't.period_end IS NULL, t.period_end, t.created_at DESC',
   },
-  trainings: { fields: ['date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'type', 'hours', 'provider', 'status', 'notes'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
+  // What of a course an approved source's catalog verifies is the server's to work out (courses.ts), never these fields (ADR-0029).
+  trainings: { fields: ['date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'type', 'hours', 'provider', 'status', 'notes', 'course_code', 'ceus'], json: ['course_verified'], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   awards: { fields: ['period_start', 'date', 'name', 'type', 'status', 'recommending_official', 'approving_authority', 'citation', 'notes', 'submitted_at', 'approved_at', 'presented_at'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   counselings: { fields: ['date', 'type', 'counselor_name', 'summary', 'strengths', 'improvements', 'goals_set', 'follow_up_date'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, counselor: true, orderBy: 't.date DESC, t.created_at DESC' },
   // A duty's length, conditions and score are the server's to work out (duties.ts), never these fields (ADR-0023).
@@ -128,7 +130,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
   if (table === 'duties') return withDutyNames(ctx, user.id, hydrated, scope);
-  if (table === 'trainings') return withEvidenceCounts(ctx, hydrated);
+  if (table === 'trainings') return withCourseDetail(ctx, withEvidenceCounts(ctx, hydrated));
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -184,7 +186,8 @@ export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppCont
 function readBack(ctx: AppContext, table: RecordTable, id: string, viewerId: string) {
   const row = getRecord(ctx, table, id)!;
   return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : table === 'duties' ? withDutyNames(ctx, viewerId, [row])[0] as typeof row
-    : table === 'counselings' ? withCounselingDetail(ctx, viewerId, [row])[0] as typeof row : row;
+    : table === 'counselings' ? withCounselingDetail(ctx, viewerId, [row])[0] as typeof row
+    : table === 'trainings' ? withCourseDetail(ctx, withEvidenceCounts(ctx, [row]))[0] as typeof row : row;
 }
 
 export function getRecord(ctx: AppContext, table: RecordTable, id: string, { includeDeleted = false } = {}) {
@@ -392,6 +395,8 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'duties') assertDutyWords(data);
   const derived = table === 'duties' ? dutyColumns(ctx, { ...data, unit_id: unitId }, { typeChanged: true }) : null;
   if (derived) data.conditions = derived.conditions;
+  // What of a course the catalogs verify, from what the training holds (ADR-0029).
+  const course = table === 'trainings' ? courseColumns(ctx, data) : null;
 
   const id = newId();
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
@@ -416,6 +421,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     vals.push(user.id, now(), 'pending');
     for (const [k, v] of Object.entries(derived)) if (k !== 'conditions') { cols.push(k); vals.push(v); }
   }
+  if (course) for (const [k, v] of Object.entries(course)) { cols.push(k); vals.push(v); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
     cols.push(f);
@@ -507,11 +513,15 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // Not scored again, its conditions are the ones it has: the same claims, beside the weekend and overnight its times give.
   if (derived) data.conditions = derived.conditions;
   else if (table === 'duties') delete data.conditions;
+  // A course is checked against the catalogs again when what it is checked by changes (ADR-0029); otherwise what was
+  // verified, and when, stays.
+  const course = table === 'trainings' && rechecksCourse(row as Record<string, unknown>, data) ? courseColumns(ctx, { ...row, ...given }) : null;
 
   const sets = ['updated_at = ?', 'version = version + 1'];
   const vals: unknown[] = [now()];
   if (scopeChanged) { sets.push('visibility = ?', 'unit_id = ?'); vals.push(finalVisibility, finalUnit); }
   if (derived) for (const [k, v] of Object.entries(derived)) if (k !== 'conditions') { sets.push(`${k} = ?`); vals.push(v); }
+  if (course) for (const [k, v] of Object.entries(course)) { sets.push(`${k} = ?`); vals.push(v); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
     sets.push(`${f} = ?`);

@@ -4,6 +4,7 @@ import type { ProgressResult } from './metricEngine.ts';
 import type { PermissionKey, RoleTemplate } from './permissions.ts';
 import type { DutyScoringBasis } from './duty.ts';
 import type { DutyReviewOptions } from './dutyReview.ts';
+import type { CourseProvenance, Verifiable } from './courses.ts';
 
 export interface Rank { id: string; grade: string; abbr: string; name: string; tier: string; sort: number }
 
@@ -73,6 +74,14 @@ export interface Training extends BaseRecord, Timeframed {
   status: string; notes: string | null;
   /** How many files of evidence it holds (ADR-0025), on a list the reader could open them from. */
   evidence_count?: number;
+  /** The course it was, and its continuing education units (ADR-0029). */
+  course_code?: string | null;
+  ceus?: number | null;
+  /** Which values an approved catalog verified, and when; worked out by the server, never sent. */
+  course_verified?: Verifiable[] | null;
+  course_verified_at?: string | null;
+  /** The catalog entry those values were verified against, when one was. Anything else filled in is manual. */
+  course?: CourseProvenance;
 }
 
 export interface Award extends BaseRecord {

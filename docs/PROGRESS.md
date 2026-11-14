@@ -2,6 +2,36 @@
 
 _Updated 2026-11-14_
 
+## What changed (2026-11-14: course lookup)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word. No approved MCeLE source has been
+named, so none is registered: every course value stays manual until a Vantage Administrator registers one.
+
+A training's course code is looked up only in the catalog of a source approved for Vantage, and each value says whether it
+is verified or manual ([ADR-0029](engineering/ADR/0029-course-lookup.md), migration 036).
+
+- **Vantage fetches nothing and scrapes nothing.** A Vantage Administrator with Service settings registers an approved
+  source with the reference of its approval, who approved it and when, then loads the catalog file it publishes (.xlsx,
+  .csv or .tsv) with the day it is as of. Sources are never edited; they are withdrawn with a reason.
+- **A catalog is staged first.** It is scanned and read by column name. Every row it leaves out is listed with a reason.
+  It is compared with the catalog in use (added, changed, unchanged, no longer listed) and answers nothing until it is
+  applied. Only the file that was shown can be applied, and only within 24 hours. A replaced catalog is kept.
+- **The server decides what is verified**, on every write: create, edit, a move into Training, and an import. A value is
+  verified when it is what the current catalog lists for the code. Anything else filled in is manual. Nothing a request
+  or a file sends can mark a value verified.
+- **The training form** opens on Course code. It shows the catalog's listing, fills the form from it on request, and
+  marks each field Verified or Manual. A training shows which values were verified, against which catalog and when.
+  It also shows what the catalog says of the course: description, category, requirements, ranks and MOS.
+- **CEUs** are recorded on a training, and the training page sums them beside the hours.
+- **Requirements** are also met by a training with the requirement's course code.
+- **Exports** carry Course Code, CEUs, Verified and Verified Against.
+- **Retention**: an anonymized training no longer says what a catalog verified, and no longer links to the listing.
+- **Fixed on the way**: an instance archive could not be restored into a fresh host whose operator had put case guidance
+  on file. The triggers that keep rows are now lifted for the restore and put back exactly as they were.
+- **Admin console**: a new Course sources section lets a Vantage Administrator register a source, load and apply a
+  catalog, browse it, and withdraw a source. Every step is audited, and the other administrators who hold Service
+  settings are told.
+
 ## What changed (2026-11-14: unified analytics)
 
 **Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.

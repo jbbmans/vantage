@@ -424,6 +424,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       end_time: 'employment', ongoing: 'employment', title: 'employment', type: 'employment',
       hours: 'employment', provider: 'employment', status: 'employment', notes: 'employment', version: 'technical', frozen_at: 'technical',
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+      // The course it was, and which of its values an approved catalog verified, against which entry and when (ADR-0029).
+      course_code: 'employment', ceus: 'employment', course_entry_id: 'technical', course_verified: 'technical', course_verified_at: 'technical',
     },
   },
   awards: {
@@ -617,6 +619,34 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'technical', org_id: 'technical', authority: 'none', issue: 'none', section: 'none', text: 'performance', citation: 'performance', approved_by: 'identifier',
       effective_on: 'technical', work_item_id: 'technical', unit_id: 'employment', cause: 'performance', supersedes_id: 'technical', recorded_by: 'identifier',
       recorded_at: 'technical', retired_at: 'technical', retired_by: 'identifier', retired_reason: 'performance',
+    },
+  },
+  course_sources: {
+    purpose: 'The authoritative sources whose published course catalogs verify course values on trainings, with the authorization that approves each for Vantage.',
+    authority: 'Registered by Vantage Administrators who hold Service settings, naming the approving document and who approved it. Never changed or removed, withdrawn with a reason; every change audited (ADR-0029).',
+    access: 'Vantage Administrators. A training verified against a source names it to whoever may read the training. Not about a person.',
+    columns: {
+      id: 'technical', name: 'none', authority: 'none', approval_reference: 'none', approved_by: 'identifier', approved_on: 'technical', notes: 'none',
+      recorded_by: 'identifier', recorded_at: 'technical', withdrawn_at: 'technical', withdrawn_by: 'identifier', withdrawn_reason: 'none',
+    },
+  },
+  course_catalog_loads: {
+    purpose: 'Each catalog file loaded for a source: the day its data is as of, its hash and size, what it was found to hold, and when it was applied and replaced. The file itself is not kept.',
+    authority: 'Loaded and applied by Vantage Administrators who hold Service settings; every step audited (ADR-0029).',
+    access: 'Vantage Administrators. Not about a person.',
+    columns: {
+      id: 'technical', source_id: 'technical', status: 'technical', as_of: 'technical', file_name: 'none', file_sha256: 'technical', byte_size: 'technical',
+      entry_count: 'technical', preview: 'none', staged_by: 'identifier', staged_at: 'technical', applied_by: 'identifier', applied_at: 'technical',
+      superseded_at: 'technical', discarded_at: 'technical',
+    },
+  },
+  course_catalog_entries: {
+    purpose: 'One course as a source’s catalog lists it: code, name, provider, description, hours, CEUs, category, requirements and the ranks and MOSs it names. Kept once applied, so a training verified against it can say what the source said.',
+    authority: 'Published by the approved source; loaded by Vantage Administrators (ADR-0029).',
+    access: 'Everyone signed in, by course code. Not about a person.',
+    columns: {
+      id: 'technical', load_id: 'technical', line: 'technical', code: 'none', code_key: 'technical', name: 'none', provider: 'none', description: 'none',
+      hours: 'none', ceus: 'none', category: 'none', requirements: 'none', ranks: 'none', mos: 'none',
     },
   },
   report_definitions: {

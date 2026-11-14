@@ -27,6 +27,8 @@ import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { pruneStagedImports } from './services/recordImport.ts';
+import { pruneStagedCatalogs } from './services/courseCatalog.ts';
+import { STAGED_CATALOG_HOURS } from '../shared/courses.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { reportCenterRouter } from './routes/reportCenter.ts';
@@ -357,7 +359,7 @@ export function createApp(ctx: AppContext) {
   const json = express.json({ limit: '4mb' });
   // Paths whose body is a file, taken in by the route itself once it has decided who is asking. A file sent to a record
   // (ADR-0025) is one of them whatever type it is declared as, so a body declared as JSON is not read here first.
-  const RAW_BODY_PATHS = /^\/api\/(?:(?:admin|platform)\/import\/?$|work\/sources\/?$|correspondence\/messages\/import\/?$|me\/imports\/?$|records\/[^/]+\/[^/]+\/attachments\/?$)/i;
+  const RAW_BODY_PATHS = /^\/api\/(?:(?:admin|platform)\/import\/?$|work\/sources\/?$|correspondence\/messages\/import\/?$|me\/imports\/?$|records\/[^/]+\/[^/]+\/attachments\/?$|platform\/course-sources\/[^/]+\/import\/?$)/i;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
@@ -567,6 +569,7 @@ export function startSchedulers(ctx: AppContext) {
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
   every('record_import_prune', 'Import prune', 60 * 60_000, () => { const expired = pruneStagedImports(ctx); if (expired) console.log(`${now()} released the files of ${expired} imports left waiting past ${ctx.config.recordImports.stagedHours} hours`); });
+  every('course_catalog_prune', 'Course catalog prune', 60 * 60_000, () => { const discarded = pruneStagedCatalogs(ctx); if (discarded) console.log(`${now()} discarded ${discarded} course catalogs left waiting past ${STAGED_CATALOG_HOURS} hours`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {
     const run = every('maradmins', 'MARADMIN refresh', 5 * 60_000, () => syncMaradmins(ctx));

@@ -14,6 +14,7 @@ import { assertDutyWords, dutyColumns, dutyCandidates } from './duties.ts';
 import { audit } from './audit.ts';
 import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { courseColumns } from './courses.ts';
 import { newId, now } from '../lib/ids.ts';
 
 /**
@@ -157,6 +158,8 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
   // An award its owner moves in is theirs; an activity moved in is one its owner has said is work they did.
   if (to === 'awards') created.recorded_by = user.id;
   if (to === 'activities') { created.fingerprint = activityFingerprint(row.user_id, data as never); created.kind_confirmed_at = at; }
+  // A course moved in is checked against the catalogs as a new training is (ADR-0029): what it holds decides, never a correction.
+  if (to === 'trainings') Object.assign(created, courseColumns(ctx, data));
 
   const snapshot = JSON.stringify(rawRow(ctx, from, id));
   let lineageId = '';

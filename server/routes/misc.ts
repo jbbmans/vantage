@@ -27,6 +27,8 @@ import { now } from '../lib/ids.ts';
 import { isoDay, zonedNow } from '../lib/clock.ts';
 import { listItems } from '../services/work.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { lookupCourse } from '../services/courses.ts';
+import { COURSE_CODE_MAX, cleanCourseCode } from '../../shared/courses.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
@@ -278,6 +280,11 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
     throw error;
   }
 }));
+
+// What a course code is listed as in the current catalogs of approved sources (Task 22, ADR-0029). Course details are no
+// one's record and name no one, so anyone signed in may look one up; Vantage fetches nothing to answer.
+const lookupQuery = z.object({ code: z.string().max(COURSE_CODE_MAX * 4).transform((v) => cleanCourseCode(v)).pipe(z.string().min(1, 'Enter a course code.').max(COURSE_CODE_MAX)) });
+miscRouter.get('/courses/lookup', wrap((req, res) => res.json(lookupCourse(req.ctx, parse(lookupQuery, req.query).code))));
 
 miscRouter.get('/maradmins', wrap(async (req, res) => {
   const ctx = req.ctx;

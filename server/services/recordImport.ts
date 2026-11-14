@@ -25,6 +25,7 @@ import { parseDelimited, MAX_IMPORT_COLUMNS } from '../../shared/csv.ts';
 import { prefsSchema, profileSchema, readinessSchema, type RecordTable } from '../../shared/schemas.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { screenImport } from '../../shared/duplicates.ts';
+import { cleanCourseCode } from '../../shared/courses.ts';
 import { isDrawnFromWork, isMovableTable, kindText, movedFields, recordKindOf } from '../../shared/recordKinds.ts';
 import {
   IMPORT_TABLES, PERSONAL_FORMAT, PROFILE_COLUMNS, READINESS_COLUMNS, RECORD_COLUMNS, RECORD_FORMAT, DELETED_AT_HEADER,
@@ -62,6 +63,11 @@ const NEVER_FROM_FILE = ['id', 'user_id', 'assignee_id', 'counselor_id', 'record
  * Instance, and the duty comes in submitted for review.
  */
 const DUTY_FROM_SERVER = [...DUTY_REVIEW_COLUMNS, 'calculated_points', 'scoring_version', 'scoring_policy_id', 'scoring_basis', 'hours', 'days', 'overnight', 'multi_day'];
+/**
+ * What a training never takes from a file (ADR-0029): what its course values were verified against. A file says what a
+ * course is called, and the server checks that against the approved catalogs in use, as it does for one typed in.
+ */
+const TRAINING_FROM_SERVER = ['course_entry_id', 'course_verified', 'course_verified_at', 'course'];
 /** A duty's review is never put back from a snapshot (ADR-0024): an undo restores what the duty says, not where it stands. */
 const DUTY_REVIEW_STATE = new Set<string>(DUTY_REVIEW_COLUMNS);
 
@@ -474,6 +480,11 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
     if (correction) record = { ...record, ...correction.values };
     for (const k of NEVER_FROM_FILE) delete record[k];
     if (as === 'duties') for (const k of DUTY_FROM_SERVER) delete record[k];
+    if (as === 'trainings') {
+      for (const k of TRAINING_FROM_SERVER) delete record[k];
+      // As a training keeps it, so "cdet 8010" in a sheet is the "CDET 8010" it already holds, not a change.
+      if (typeof record.course_code === 'string') record.course_code = cleanCourseCode(record.course_code) || null;
+    }
     // A link to a project is kept only to the project this import brings in (or finds here) for it.
     delete record.project_id;
     if (c.vantage && c.sourceProject && (as === 'activities' || as === 'tasks')) record.project_id = projectIds.get(c.sourceProject) ?? null;

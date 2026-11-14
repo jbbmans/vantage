@@ -156,7 +156,7 @@ export const PLATFORM_PERMISSION_LIST = [
   { key: 'platform.view', label: 'Open the Vantage Administrator console', hint: 'See the service’s health and the Unit Instances on it.' },
   { key: 'platform.orgs', label: 'Unit Instances', hint: 'Create, rename, suspend and restore Unit Instances, and name the first Lead Unit Manager of one that has none, never yourself. Not their data.' },
   { key: 'platform.managers', label: 'Unit Manager assignment', hint: 'Add and remove Lead Unit Managers and Unit Managers in any Unit Instance, never yourself. Its Lead Unit Managers are told each time. Not its data.' },
-  { key: 'platform.settings', label: 'Platform settings', hint: 'The service’s name, sign-in announcement, feature flags, and the official policy and system guidance the case diagnoser cites in every Unit Instance.' },
+  { key: 'platform.settings', label: 'Platform settings', hint: 'The service’s name, sign-in announcement and feature flags; the official policy and system guidance the case diagnoser cites in every Unit Instance; and the approved course sources whose catalogs verify course values.' },
   { key: 'platform.maintenance', label: 'Controlled maintenance', hint: 'Start and end maintenance mode, with a reason, and run the database maintenance tasks. Every step is audited.' },
   { key: 'platform.accounts', label: 'Account support', hint: 'Find an account and help it sign in: unlock, sign out, temporary password, reset a second factor.' },
   { key: 'platform.staff', label: 'Vantage staff', hint: 'Grant and remove platform roles, never your own.' },

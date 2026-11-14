@@ -814,7 +814,82 @@ test('035 makes every counseling already written final at revision 1, adds its a
     assert.deepEqual((db.prepare('PRAGMA table_info(counselings)').all() as Array<{ name: string }>).map((c) => c.name), columns);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM counseling_revisions').get() as { n: number }).n, 1);
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
-    assert.equal(SCHEMA_VERSION, 35);
+    db.close();
+  } finally { cleanup(); }
+});
+
+test('036 adds a course code, CEUs and what an approved catalog verified to trainings, and the course sources, and changes no training', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const KEPT = 'id, user_id, unit_id, visibility, date, end_date, start_time, end_time, ongoing, title, type, hours, provider, status, notes, version, frozen_at, deleted_at, created_at, updated_at';
+  let before: unknown[] = [];
+  const { path, cleanup } = atVersion(35, (db) => {
+    // The database as it was before 036: trainings with no course code, CEUs or provenance, and no course sources.
+    db.pragma('foreign_keys = OFF');
+    db.exec('DROP TABLE course_catalog_entries; DROP TABLE course_catalog_loads; DROP TABLE course_sources;');
+    db.exec(`CREATE TABLE trainings_pre (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), unit_id TEXT REFERENCES units(id),
+      visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')), date TEXT, end_date TEXT,
+      start_time TEXT CHECK (start_time IS NULL OR start_time GLOB '[01][0-9]:[0-5][0-9]' OR start_time GLOB '2[0-3]:[0-5][0-9]'),
+      end_time TEXT CHECK (end_time IS NULL OR end_time GLOB '[01][0-9]:[0-5][0-9]' OR end_time GLOB '2[0-3]:[0-5][0-9]'),
+      ongoing INTEGER NOT NULL DEFAULT 0 CHECK (ongoing IN (0, 1)), title TEXT NOT NULL, type TEXT, hours REAL, provider TEXT,
+      status TEXT NOT NULL DEFAULT 'completed', notes TEXT, version INTEGER NOT NULL DEFAULT 1, frozen_at TEXT, deleted_at TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    db.exec('DROP TABLE trainings');
+    db.exec('ALTER TABLE trainings_pre RENAME TO trainings');
+    db.pragma('foreign_keys = ON');
+    db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run('u1', 'u1', 'x', 'Ana', 'Diaz', at, at);
+    const t = db.prepare('INSERT INTO trainings (id, user_id, visibility, date, title, type, hours, provider, status, notes, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    t.run('t-pme', 'u1', 'private', '2026-03-01', 'Sergeants Course (CDET 8010)', 'pme', 40, 'MarineNet', 'completed', null, 3, null, at, at);
+    t.run('t-cert', 'u1', 'private', '2026-04-01', 'Security+', 'certification', null, 'CompTIA', 'completed', 'Renewed.', 1, null, at, at);
+    t.run('t-gone', 'u1', 'private', '2026-05-01', 'Deleted course', null, 2, null, 'completed', null, 1, at, at, at);
+    before = db.prepare(`SELECT ${KEPT} FROM trainings ORDER BY id`).all().map((r) => ({ ...(r as object) }));
+  });
+  try {
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 36 && m.name === '036_course_lookup'));
+    const columns = (db.prepare('PRAGMA table_info(trainings)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns.slice(-5), ['course_code', 'ceus', 'course_entry_id', 'course_verified', 'course_verified_at'], 'added last, in the order a new database has them');
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    assert.deepEqual(columns, (fresh.prepare('PRAGMA table_info(trainings)').all() as Array<{ name: string }>).map((c) => c.name), 'an upgraded database and a new one have the same training columns in the same order');
+    fresh.close();
+
+    // Every training is kept exactly as it was, with no course code, CEUs or verification nobody recorded.
+    assert.deepEqual(db.prepare(`SELECT ${KEPT} FROM trainings ORDER BY id`).all().map((r) => ({ ...(r as object) })), before);
+    assert.equal(before.length, 3);
+    assert.deepEqual(db.prepare('SELECT DISTINCT course_code, ceus, course_entry_id, course_verified, course_verified_at FROM trainings').all().map((r) => ({ ...(r as object) })),
+      [{ course_code: null, ceus: null, course_entry_id: null, course_verified: null, course_verified_at: null }]);
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_trainings_course_entry'").get());
+    for (const table of ['course_sources', 'course_catalog_loads', 'course_catalog_entries']) assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, 0, table);
+
+    // The checks a new database has are on the upgraded one.
+    assert.throws(() => db.prepare(`UPDATE trainings SET course_code = '${'X'.repeat(41)}' WHERE id = 't-pme'`).run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE trainings SET ceus = -1 WHERE id = 't-pme'").run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE trainings SET course_verified = '{}' WHERE id = 't-pme'").run(), /CHECK constraint/);
+    assert.throws(() => db.prepare("UPDATE trainings SET course_entry_id = 'nothing', course_verified = '[]', course_verified_at = ? WHERE id = 't-pme'").run(at), /FOREIGN KEY/);
+    // Provenance is all or none: an entry, the list and the time together.
+    db.prepare("INSERT INTO course_sources (id, name, authority, approval_reference, approved_by, approved_on, recorded_by, recorded_at) VALUES ('s1', 'MarineNet', 'TECOM', 'Memo 1', 'Director', '2026-10-01', 'u1', ?)").run(at);
+    db.prepare("INSERT INTO course_catalog_loads (id, source_id, status, as_of, file_name, file_sha256, byte_size, entry_count, preview, staged_by, staged_at, applied_by, applied_at) VALUES ('l1', 's1', 'current', '2026-10-01', 'c.csv', ?, 10, 1, '{}', 'u1', ?, 'u1', ?)").run('a'.repeat(64), at, at);
+    db.prepare("INSERT INTO course_catalog_entries (id, load_id, line, code, code_key, name, hours) VALUES ('e1', 'l1', 2, 'CDET 8010', 'CDET8010', 'Sergeants Course', 40)").run();
+    assert.throws(() => db.prepare("UPDATE trainings SET course_entry_id = 'e1' WHERE id = 't-pme'").run(), /CHECK constraint/);
+    db.prepare(`UPDATE trainings SET course_code = 'CDET 8010', course_entry_id = 'e1', course_verified = '["code","hours"]', course_verified_at = ? WHERE id = 't-pme'`).run(at);
+    // What a catalog listed is never changed, and an applied one is never removed.
+    assert.throws(() => db.prepare("UPDATE course_catalog_entries SET name = 'Other' WHERE id = 'e1'").run(), /never changed/);
+    assert.throws(() => db.prepare("DELETE FROM course_catalog_entries WHERE id = 'e1'").run(), /kept/);
+    assert.throws(() => db.prepare("UPDATE course_catalog_loads SET status = 'staged' WHERE id = 'l1'").run(), /never back/);
+    assert.throws(() => db.prepare("UPDATE course_sources SET authority = 'Other' WHERE id = 's1'").run(), /never changed/);
+    assert.throws(() => db.prepare("DELETE FROM course_sources WHERE id = 's1'").run(), /never removed/);
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    db.close();
+
+    // A second boot adds nothing and clears nothing.
+    db = openDatabase(path);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 36).length, 1);
+    assert.deepEqual((db.prepare('PRAGMA table_info(trainings)').all() as Array<{ name: string }>).map((c) => c.name), columns);
+    assert.equal((db.prepare("SELECT course_entry_id FROM trainings WHERE id = 't-pme'").get() as { course_entry_id: string }).course_entry_id, 'e1');
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.equal(SCHEMA_VERSION, 36);
     db.close();
   } finally { cleanup(); }
 });

@@ -393,7 +393,7 @@ function buildTraining(r: Reading): Built {
     sources,
     notes: [
       sourceNote(r),
-      ...(orgId ? ['A requirement is met by a completed course with its title, or with its course code in the title.'] : ['Not in a Unit Instance, so no training requirements apply.']),
+      ...(orgId ? ['A requirement is met by a completed course with its title, with its course code, or with its course code in the title.'] : ['Not in a Unit Instance, so no training requirements apply.']),
       ...(r.detail ? [] : [`${NO_DETAIL} The standing shows counts only.`]),
     ],
   };
