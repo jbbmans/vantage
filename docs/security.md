@@ -351,7 +351,9 @@ analytics and the records behind each figure (`server/services/unitAnalytics.ts`
   listed under a number, never their account id, which the roster would put a name to. A duty a retention
   schedule anonymized names nobody and has no title. The Personnel section lists Marines exactly as the Roster page and
   the personnel report do (`personnelRoster`), so its count is theirs. A drill links to a Marine only where
-  `detailUnitsFor` allows, and never to the reader themselves.
+  `detailUnitsFor` allows, never to the reader themselves or a deactivated account, and to a case only for a member of
+  its unit (`readable()`). A Marine who trained is named by the courses the reader may see by name, and only those are
+  added to their line.
 - **Bounded.** A window of real calendar days, at most 731 of them; a drill lists at most 200 records, with the count of all; the visual, bar
   and series are checked against the section's own (404 otherwise), and query strings are length-limited.
 - **Audited.** `view_unit_analytics` for each read and `drill_unit_analytics` for each drill (section, bar, window,

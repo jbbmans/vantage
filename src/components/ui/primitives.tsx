@@ -87,7 +87,7 @@ export function Field({ label, hint, error, children, className, required }: { l
 }
 
 export interface SelectOption { value: string; label: string; disabled?: boolean }
-export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; id?: string }) {
+export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; 'aria-describedby'?: string; id?: string }) {
   // Radix renders an empty value as the placeholder, so an explicit "any" option ('' value) supplies that text.
   const empty = options.find((o) => typeof o !== 'string' && o.value === '') as SelectOption | undefined;
   const shown = empty?.label ?? placeholder;
@@ -186,7 +186,7 @@ export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: stri
   return to ? <a href={to} onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('vantage:navigate', { detail: to })); }} className="block h-full">{body}</a> : body;
 }
 
-export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
+export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string; id?: string; controls?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
   const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const move = (from: number, key: string) => {
     let next: number | null = null;
@@ -202,7 +202,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
       {options.map((o, i) => {
         const active = o.value === value;
         return (
-          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
+          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(var(--shadow-rgb)/.08)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}

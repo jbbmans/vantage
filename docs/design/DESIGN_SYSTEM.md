@@ -113,18 +113,26 @@ server error apart, with a retry where one can help.
 The analytics kit (`src/components/analytics/`) draws every chart outside the FMRA components. No chart library.
 
 - **The heading is the question** the chart answers ("How long have the open cases been open?"), with one sentence
-  under it that states the answer, so the chart is never the only way to read it.
-- **Every chart has its table.** The Chart/Table switch shows the same figures in a table captioned by the question; a
-  print carries both and drops the switch. Never a chart without its table.
-- **Every counting mark opens its records.** A bar, column, tile or table cell that counts something is a button named
-  "label: value. Show the N records", reachable by keyboard; the dialog lists the records with links, says when it shows
-  the first 200, and checks that they add up to the figure.
+  under it that states the answer, so the chart is never the only way to read it. Where the question is about some
+  series ("Which requirements are falling behind?"), the sentence names the bar with the most of them; where each bar is
+  a level on its day (errors open on a report), it gives the latest and how it moved, and never adds them up.
+- **Every framed chart has its table.** The Chart/Table switch (tabs with their panels) shows the same figures in a table
+  captioned by the question, its first column named for what a bar is ("Open for", "Requirement"); a print carries both
+  and drops the switch. A short list of bars in a panel (the home dashboard's "Who holds what") has no switch: each bar
+  is already its label, value and detail in words.
+- **A counting mark opens its records where there are records to list.** A bar, column, tile or table cell that counts
+  records is a button named "label: value. Show the N records", reachable by keyboard and with a visible focus ring; the
+  dialog lists the records with links, says when it shows the first 200, and checks that they add up to the figure. A
+  figure with nothing to list to this reader (an error report's series, the training standing without member detail, the
+  home dashboard's holders) is an image named the same way, with no dead button. Paired columns have no "All": opened
+  and closed added together count no record.
 - **Forms.** `KpiTiles` for headline figures; `BarChart` for a distribution, a standing or an age band (stacked when a
   bar is parts of a whole); `ColumnChart` for a figure over time (paired when two series share a unit, such as opened and
-  closed); `RateMeter` for a share. Months, weeks and reports are always columns; categories are always bars.
+  closed); `RateMeter` for a share. On the Unit dashboard, the analysis and in the reports named in ADR-0028, months,
+  weeks and reports are columns; categories are bars.
 - **Colour.** One series is `--accent`; a second is `--ink-3`. Status tones (`--good`, `--warn`, `--bad`) only for a
-  series that is a status (met, due soon, past due); "no record" is `--line-strong`. A legend names every series, and
-  every value is also in words, so nothing rests on colour.
+  series that is a status (met, due soon, past due); "no record" is `--ink-3` hatched, so it stands out from the empty
+  track. A legend names every series, and every value is also in words, so nothing rests on colour.
 - **Values on marks** only when they fit (up to 8 columns, 4 paired); the axis labels every few months; the table holds
   the rest.
 - **Reports** draw the same forms on paper: bars across, or columns for a figure over time, each ending "From the table

@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { drawMark } from './pdfMark.ts';
-import { LANDSCAPE_COLUMNS, formatCell, isRightAligned, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable } from '../../shared/reportCatalog.ts';
+import { LANDSCAPE_COLUMNS, chartBars, formatCell, isRightAligned, labelledColumn, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable } from '../../shared/reportCatalog.ts';
 
 /**
  * A report document as a printed PDF (ADR-0020): the cover block with what it is, whom it is about, the unit, the period,
@@ -97,16 +97,20 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
 
     // ——— Charts, each with its labels and figures; the table below holds the same numbers in full ———
     // A chart is kept on one page, and says which table and column it draws. A figure over time stands in columns.
+    const COLUMN_PLOT = 86; const BAR_ROW = 13;
+    const drawn = (c: ReportChart) => { const { bars } = chartBars(c); return bars.length >= 2 && bars.some((b) => b.value); };
+    // The height a chart takes, its title and source line included, so a section's heading is kept with it.
+    const chartHeight = (c: ReportChart) => (!drawn(c) ? 0 : c.shape === 'columns' ? COLUMN_PLOT + 52 : BAR_ROW * chartBars(c).bars.length + 34);
     const chart = (c: ReportChart, source: ReportTable | undefined) => {
-      const bars = c.bars.slice(0, 30);
-      if (bars.length < 2 || !bars.some((b) => b.value)) return;
+      const { bars, left: cut } = chartBars(c);
+      if (!drawn(c)) return;
       const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
       const column = source?.columns.find((x) => x.key === c.column)?.label;
-      const from = source ? `From the table ${source.title}${column ? `, column ${column}` : ''}.` : null;
+      const more = cut ? ` ${c.shape === 'columns' ? `The latest ${bars.length}` : `The first ${bars.length}`} of ${c.bars.length} are drawn; the table holds them all.` : '';
+      const from = source ? `From the table ${source.title}${column ? `, column ${column}` : ''}.${more}` : null;
       if (c.shape === 'columns') {
-        const plotH = 86; const gap = 3; const colW = (width - gap * (bars.length - 1)) / bars.length;
-        const labelled = bars.length <= 8 ? 1 : Math.ceil(bars.length / 6);
-        ensure(plotH + 52);
+        const plotH = COLUMN_PLOT; const gap = Math.min(3, (width / bars.length) * 0.3); const colW = (width - gap * (bars.length - 1)) / bars.length;
+        ensure(chartHeight(c));
         text(c.title, 'Helvetica-Bold', 9, INK);
         doc.moveDown(0.3);
         const top = doc.y + 10; const base = top + plotH;
@@ -115,7 +119,7 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
           const h = b.value ? Math.max(1, (Math.abs(b.value) / max) * plotH) : 0;
           if (h) doc.rect(x, base - h, colW, h).fill(ACCENT);
           if (bars.length <= 12) doc.font('Helvetica').fontSize(6.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), x - 6, base - h - 9, { width: colW + 12, align: 'center', lineBreak: false });
-          if (i % labelled === 0 || i === bars.length - 1) doc.font('Helvetica').fontSize(6.5).fillColor(INK2).text(pdfText(b.label), x - 10, base + 3, { width: colW + 20, align: 'center', lineBreak: false, ellipsis: true });
+          if (labelledColumn(i, bars.length)) doc.font('Helvetica').fontSize(6.5).fillColor(INK2).text(pdfText(b.label), x - 10, base + 3, { width: colW + 20, align: 'center', lineBreak: false, ellipsis: true });
         });
         doc.moveTo(left, base).lineTo(left + width, base).lineWidth(0.5).strokeColor(MUTED).stroke();
         doc.x = left; doc.y = base + 14;
@@ -123,8 +127,8 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
         doc.moveDown(0.5);
         return;
       }
-      const labelW = width * 0.32; const valueW = width * 0.16; const barW = width - labelW - valueW - 12; const rowH = 13;
-      ensure(rowH * bars.length + 34);
+      const labelW = width * 0.32; const valueW = width * 0.16; const barW = width - labelW - valueW - 12; const rowH = BAR_ROW;
+      ensure(chartHeight(c));
       text(c.title, 'Helvetica-Bold', 9, INK);
       doc.moveDown(0.2);
       for (const b of bars) {
@@ -201,7 +205,10 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       figures(report.summary);
     }
     for (const section of report.sections) {
-      ensure(90);
+      // The heading, its lede and the chart under it start on one page where they fit on one (a chart taller than a page
+      // starts its own).
+      const lead = 90 + (section.chart && !section.figures?.length ? chartHeight(section.chart) : 0);
+      ensure(lead > bottom() - doc.page.margins.top ? 90 : lead);
       doc.moveDown(0.5);
       text(section.heading, 'Helvetica-Bold', 13, INK);
       if (section.lede) text(section.lede, 'Helvetica', 8.8, INK2);

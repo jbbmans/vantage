@@ -13,6 +13,31 @@ const weekKey = (dateStr: string) => {
   return d.toISOString().slice(0, 10);
 };
 
+const WEEK_MS = 7 * 86_400_000;
+/** Ten years of weeks. A longer window lists only the weeks with entries, as the report always did. */
+const MAX_FILLED_WEEKS = 522;
+
+/**
+ * Every week of the window, a week with nothing shared at zero, so a series over time shows its quiet weeks rather than
+ * closing them up. A window with no start (the report's "All time") starts at the first week with an entry. A week not
+ * yet begun is not a quiet week: the weeks stop at this one, or at the window's end if sooner, and never before a week
+ * that holds an entry. Nothing shared at all is no weeks.
+ */
+function everyWeek(byWeek: Map<string, { entries: number; dollars: number }>, from: string, to: string, today: string) {
+  if (!byWeek.size) return [];
+  const keys = [...byWeek.keys()].sort();
+  const last = keys[keys.length - 1];
+  const stop = weekKey(to < today ? to : today);
+  const at = (week: string) => Date.parse(`${week}T00:00:00Z`);
+  const start = at(from > '1970-01-01' ? weekKey(from) : keys[0]);
+  const end = at(last > stop ? last : stop);
+  const row = (week: string) => { const w = byWeek.get(week); return { week, entries: w?.entries || 0, dollars: Math.round((w?.dollars || 0) * 100) / 100 }; };
+  if ((end - start) / WEEK_MS >= MAX_FILLED_WEEKS) return keys.map(row);
+  const out: Array<{ week: string; entries: number; dollars: number }> = [];
+  for (let t = start; t <= end; t += WEEK_MS) out.push(row(new Date(t).toISOString().slice(0, 10)));
+  return out;
+}
+
 export function unitDashboard(ctx: AppContext, unitId: string, from: string, to: string, { includeMembers = true } = {}) {
   const db = ctx.db;
   const unitIds = subtreeIds(ctx, unitId);
@@ -96,7 +121,7 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
     },
     by_category: Object.entries(byCategory).map(([category, v]) => ({ category, ...v })).sort((a, b) => b.entries - a.entries),
     by_area: Object.entries(byArea).map(([area, entries]) => ({ area, entries })).sort((a, b) => b.entries - a.entries),
-    weekly: [...byWeek.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([week, v]) => ({ week, ...v })),
+    weekly: everyWeek(byWeek, from, to, todayIso),
     by_team: unitIds.length > 1 ? unitIds.filter((id, i) => i > 0 || byTeam.has(id)).map((id) => {
       const unit = db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(id) as { name: string; short_name: string | null };
       const t = byTeam.get(id);

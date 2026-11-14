@@ -9,6 +9,8 @@
  * Pure: the server builds the records, the browser draws the figures. Nothing here reads a database or a clock.
  */
 
+import { formatDollars, formatDollarsExact, formatNumber } from './metrics.ts';
+
 export const ANALYTICS_SECTIONS = ['work', 'duty', 'training', 'personnel'] as const;
 export type AnalyticsSection = (typeof ANALYTICS_SECTIONS)[number];
 export const isAnalyticsSection = (v: unknown): v is AnalyticsSection => (ANALYTICS_SECTIONS as readonly unknown[]).includes(v);
@@ -42,6 +44,13 @@ export interface VisualSpec {
   note?: string;
   /** False when the records behind it may not be listed to this reader: it shows counts and no drill. */
   drill?: boolean;
+  /** What one bar is, as its table's first column is headed ("Open for", "Requirement"). Columns are months unless said. */
+  axis?: string;
+  /** The series the question is about ("Which requirements are falling behind?": past due and no record). The summary
+   * names the bar with the most of them, not the largest bar. */
+  lead?: string[];
+  /** Each bar is a level on its day (errors open on a report), not an amount in it, so the bars are never added up. */
+  level?: boolean;
 }
 
 export const ONE_SERIES: VisualSeries = { key: 'all', label: 'All', tone: 'accent' };
@@ -83,11 +92,15 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 /** The figures of every visual from the section's records. Bars of a fixed visual keep their order and their zeros. */
 export function tally<R>(specs: readonly VisualSpec[], sources: ReadonlyArray<SourceRecord<R>>): Visual[] {
-  const byVisual = new Map<string, Membership[]>();
-  for (const s of sources) for (const m of s.in) {
-    const list = byVisual.get(m.visual);
-    if (list) list.push(m); else byVisual.set(m.visual, [m]);
-  }
+  // Each membership keeps the record it came from, so a record in two series of one bar (a case opened and closed in the
+  // same month) is one record of that bar, as its drill lists it.
+  const byVisual = new Map<string, Array<{ m: Membership; src: number }>>();
+  sources.forEach((s, src) => {
+    for (const m of s.in) {
+      const list = byVisual.get(m.visual);
+      if (list) list.push({ m, src }); else byVisual.set(m.visual, [{ m, src }]);
+    }
+  });
   return specs.map((spec) => {
     const series = spec.series?.length ? spec.series : [ONE_SERIES];
     const at = new Map(series.map((s, i) => [s.key, i]));
@@ -97,13 +110,17 @@ export function tally<R>(specs: readonly VisualSpec[], sources: ReadonlyArray<So
       values: series.map(() => 0), counts: series.map(() => 0), value: 0, count: 0,
     });
     for (const k of spec.keys || []) buckets.set(k.key, blank(k.key, k.label, k));
-    for (const m of byVisual.get(spec.id) || []) {
+    const seen = new Set<string>();
+    const once = (id: string) => (seen.has(id) ? false : (seen.add(id), true));
+    for (const { m, src } of byVisual.get(spec.id) || []) {
       const i = at.get(m.series ?? series[0].key);
       // A membership in a series or a fixed bar the visual does not draw is a mistake in its section, not a figure.
       if (i == null) continue;
       if (!buckets.has(m.key)) { if (spec.keys) continue; buckets.set(m.key, blank(m.key, m.label ?? m.key)); }
       const b = buckets.get(m.key)!;
-      b.values[i] += m.value; b.counts[i] += 1; b.value += m.value; b.count += 1;
+      b.values[i] += m.value; b.value += m.value;
+      if (once(`${src}\u0000${m.key}\u0000${i}`)) b.counts[i] += 1;
+      if (once(`${src}\u0000${m.key}`)) b.count += 1;
     }
     const list = [...buckets.values()].map((b) => ({ ...b, values: b.values.map(round), value: round(b.value) }));
     if (!spec.keys) list.sort((a, b) => b.value - a.value || b.count - a.count || a.label.localeCompare(b.label));
@@ -122,9 +139,11 @@ export function drillOf<R>(sources: ReadonlyArray<SourceRecord<R>>, visual: stri
       if (series && (m.series ?? ONE_SERIES.key) !== series) continue;
       value += m.value; hit = true;
     }
-    if (hit) records.push({ record: s.record, value: round(value) });
+    if (hit) records.push({ record: s.record, value });
   }
-  return { records, value: round(records.reduce((n, r) => n + r.value, 0)) };
+  // Added up before rounding, as the figure is, so the drill's total is the figure's to the cent.
+  const value = round(records.reduce((n, r) => n + r.value, 0));
+  return { records: records.map((r) => ({ ...r, value: round(r.value) })), value };
 }
 
 /** A visual's rate: the first bar of the total, or null when there is nothing to divide by. */
@@ -132,6 +151,62 @@ export function rateOf(v: Pick<Visual, 'buckets'>): { done: number; of: number; 
   const done = v.buckets[0]?.value ?? 0;
   const of = v.buckets.reduce((n, b) => n + b.value, 0);
   return { done, of, percent: of ? Math.round((done / of) * 1000) / 10 : null };
+}
+
+// ——— Words ———
+
+/** A figure in words: a count, dollars, hours, a share or days. */
+export function formatFigure(value: number, format: FigureFormat, exact = false): string {
+  if (format === 'money') return exact ? formatDollarsExact(value) : formatDollars(value);
+  if (format === 'hours') return `${formatNumber(value)} h`;
+  if (format === 'percent') return `${formatNumber(value)}%`;
+  if (format === 'days') return `${formatNumber(value)} ${value === 1 ? 'day' : 'days'}`;
+  return formatNumber(value);
+}
+
+/** A noun for a count: "1 case", "3 duties", "2 Marines". */
+export function counted(n: number, noun: string): string {
+  const many = /[^aeiou]y$/.test(noun) ? `${noun.slice(0, -1)}ies` : /(s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`;
+  return `${formatNumber(n)} ${n === 1 ? noun : many}`;
+}
+
+const valueOf = (v: Visual, b: Bucket, i?: number) => formatFigure(i == null ? b.value : b.values[i], b.format || v.format);
+const multi = (v: Visual) => v.series.length > 1;
+const largest = (v: Visual) => v.buckets.reduce<Bucket | null>((top, b) => (!top || b.value > top.value ? b : top), null);
+
+/** The figure in one sentence, so a reader who does not look at the chart still has its point. */
+export function summaryOf(v: Visual): string {
+  if (v.kind === 'kpis') return '';
+  if (v.kind === 'rate') {
+    const r = rateOf(v);
+    if (r.percent == null) return 'Nothing to count yet.';
+    return `${r.percent}%: ${formatNumber(r.done)} of ${counted(r.of, v.noun)} ${(v.buckets[0]?.label || '').toLowerCase()}.`.replace(/ \.$/, '.');
+  }
+  if (!v.count) return 'Nothing to show in this window.';
+  if (v.level && v.buckets.length) {
+    // A level on each day is never added up: the latest, and how it moved from the first.
+    const a = v.buckets[0]; const z = v.buckets.at(-1)!;
+    if (a === z) return `${formatFigure(z.value, v.format)} on ${z.label}.`;
+    const move = z.value === a.value ? 'the same as' : z.value < a.value ? 'down from' : 'up from';
+    return `${formatFigure(z.value, v.format)} on ${z.label}, ${move} ${formatFigure(a.value, v.format)} on ${a.label}.`;
+  }
+  if (v.lead?.length && multi(v)) {
+    // The question is about some of the series (past due, no record): name the bar with the most of them.
+    const at = v.series.map((s, i) => (v.lead!.includes(s.key) ? i : -1)).filter((i) => i >= 0);
+    const of = (b: Bucket) => at.reduce((n, i) => n + b.values[i], 0);
+    const top = v.buckets.reduce<Bucket | null>((t, b) => (of(b) > (t ? of(t) : 0) ? b : t), null);
+    const what = at.map((i) => v.series[i].label.toLowerCase()).join(' or ');
+    return top ? `${top.label} has the most at ${what}: ${formatFigure(of(top), v.format)} of ${valueOf(v, top)}.` : `None at ${what}.`;
+  }
+  if (v.kind === 'columns') {
+    const first = v.buckets[0]?.label; const last = v.buckets.at(-1)?.label;
+    const span = first && last && first !== last ? `from ${first} to ${last}` : first ? `in ${first}` : '';
+    if (multi(v)) return `${v.series.map((s, i) => `${s.label} ${formatFigure(v.buckets.reduce((n, b) => n + b.values[i], 0), v.format)}`).join(', ')}, ${span}.`;
+    const top = largest(v)!;
+    return `${formatFigure(v.value, v.format)} ${span}; the most was ${top.label}, at ${formatFigure(top.value, v.format)}.`;
+  }
+  const top = largest(v)!;
+  return `${top.label} is the largest, at ${valueOf(v, top)} of ${formatFigure(v.value, v.format)}.`;
 }
 
 // ——— Months ———

@@ -10,7 +10,7 @@ import ReportDocumentView from '@/components/ReportDocumentView';
 import { PageShell, PeriodSelect } from '@/components/common';
 import { can, useIdentity, useMetrics, useTeam } from '@/lib/queries';
 import { usePlace } from '@/lib/place';
-import { cn } from '@/lib/utils';
+import { cn, formatRange } from '@/lib/utils';
 import * as api from '@/lib/api';
 import { PERMISSIONS } from '../../shared/permissions';
 import { EVAL_AREAS, TRAINING_TYPES } from '../../shared/constants';
@@ -40,7 +40,22 @@ function cleanParams(form: Params, spec: ReportSpec): Params {
   if ((form.subject === 'unit' || form.subject === 'member') && form.unit_id) out.unit_id = form.unit_id;
   const keys = spec.filters.flatMap((f) => (f === 'sort' ? ['sort', 'direction'] : [f]));
   for (const k of keys) if (form[k]) out[k] = form[k];
+  // A window carried from the Unit dashboard (from and to) stands in for the period until a period is chosen.
+  if (spec.filters.includes('period') && windowIn(form)) { out.from = form.from; out.to = form.to; }
   return out;
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const windowIn = (form: Params) => Boolean(form.from && form.to && DAY.test(form.from) && DAY.test(form.to) && form.from <= form.to);
+
+// The dashboard's windows are the last N days, so a saved report keeps the rolling period that matches, never the dates
+// of the day it was saved. The 180-day window matches none, so it is saved only once a period is chosen.
+const ROLLING: Record<number, string> = { 30: 'last30', 90: 'last90', 365: 'last12', 366: 'last12' };
+function savable(params: Params): Params | null {
+  if (!params.from || !params.to) return params;
+  const { from, to, ...rest } = params;
+  const period = ROLLING[Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1];
+  return period ? { ...rest, period } : null;
 }
 
 /**
@@ -104,6 +119,7 @@ export default function ReportLibrary() {
     catch (e) { toast.error(api.errorText(e)); }
   };
   const params = cleanParams(f, spec);
+  const saveParams = savable(params);
   const doc = run.data;
   const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: FILE_LABEL[fmt][0], hint: FILE_LABEL[fmt][1], url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
   const print = () => { window.open(`/reports/print?${new URLSearchParams({ ...ran!, autoprint: '1' })}`, '_blank', 'noopener'); };
@@ -142,7 +158,11 @@ export default function ReportLibrary() {
               ) : null}
               {f.subject === 'member' ? <Field label="Marine"><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
               {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it"><Select value={f.unit_id} onValueChange={(v) => setForm((p) => ({ ...p, unit_id: v, error_type: '', snapshot: '', against: '' }))} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
-              {spec.filters.includes('period') ? <Field label="Period"><PeriodSelect value={f.period} onChange={(v) => set('period', v)} /></Field> : null}
+              {spec.filters.includes('period') ? (
+                <Field label="Period" hint={windowIn(f) ? `${formatRange(f.from, f.to)}, the dates in this page's link. Choose a period to replace them.` : undefined}>
+                  <PeriodSelect value={windowIn(f) ? '' : f.period} placeholder={windowIn(f) ? 'Dates in the link' : undefined} onChange={(v) => setForm((p) => ({ ...p, period: v, from: '', to: '' }))} />
+                </Field>
+              ) : null}
               {spec.filters.includes('track') ? <Field label="Evaluation"><Select value={f.track || 'auto'} onValueChange={(v) => set('track', v === 'auto' ? '' : v)} options={[{ value: 'auto', label: 'By rank' }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} /></Field> : null}
               {spec.filters.includes('category') ? <Field label="Category"><Select value={f.category} onValueChange={(v) => set('category', v)} options={[{ value: '', label: 'Every category' }, ...metrics.categories.map((c) => ({ value: c.name, label: c.name }))]} /></Field> : null}
               {spec.filters.includes('area') ? <Field label="Area"><Select value={f.area} onValueChange={(v) => set('area', v)} options={[{ value: '', label: 'Every area' }, ...EVAL_AREAS.map((a) => ({ value: a, label: a }))]} /></Field> : null}
@@ -198,8 +218,9 @@ export default function ReportLibrary() {
             <p className="mt-3 text-xs text-ink-3">{spec.needs}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => go(params)} loading={run.isFetching} disabled={!subjects.length || (f.subject === 'member' && !f.user_id) || (f.subject === 'unit' && !f.unit_id)}><Play className="h-4 w-4" aria-hidden />Run report</Button>
-              <Button onClick={() => setSaving(true)}><BookmarkPlus className="h-4 w-4" aria-hidden />Save these choices</Button>
+              <Button onClick={() => setSaving(true)} disabled={!saveParams}><BookmarkPlus className="h-4 w-4" aria-hidden />Save these choices</Button>
             </div>
+            {!saveParams ? <p className="mt-2 text-xs text-ink-3" role="note">To save these choices, choose a period: a saved report keeps a period, not the dates in the link.</p> : null}
           </Panel>
 
           {!ran ? <div className="card"><EmptyState icon={FileText} title="Choose a report and run it" description="It shows here as it prints: its title, whom it is about, the period, the filters, then its figures and tables." /></div>
@@ -216,7 +237,7 @@ export default function ReportLibrary() {
               )}
         </div>
       </div>
-      <SaveDialog open={saving} onOpenChange={setSaving} type={type} params={params} units={units.filter((u) => can(identity, PERMISSIONS.VIEW_RECORDS, u.id) && identity?.unitIds.includes(u.id))} defaultUnit={f.subject === 'unit' ? f.unit_id : ''}
+      <SaveDialog open={saving && Boolean(saveParams)} onOpenChange={setSaving} type={type} params={saveParams || params} units={units.filter((u) => can(identity, PERMISSIONS.VIEW_RECORDS, u.id) && identity?.unitIds.includes(u.id))} defaultUnit={f.subject === 'unit' ? f.unit_id : ''}
         onSaved={() => qc.invalidateQueries({ queryKey: ['report-center', 'definitions'] })} />
     </PageShell>
   );

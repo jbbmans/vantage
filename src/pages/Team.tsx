@@ -77,7 +77,10 @@ export default function Team({ section }: { section: TeamSection }) {
   const shown: TeamSection = allowed.has(section) ? section : 'overview';
   const [messaging, setMessaging] = useState(false);
   const [dashboardShow] = useParam('show', 'output');
+  const [dashboardDays] = useParam('days', DEFAULT_WINDOW);
   const report = shown === 'dashboard' ? DASHBOARD_REPORTS[isDashboardShow(dashboardShow) ? dashboardShow : 'output'] : SECTION_REPORTS[shown];
+  // From the dashboard, the report covers the window on screen, so its figures are the dashboard's (the roster stands on today).
+  const printWindow = shown === 'dashboard' && dashboardShow !== 'personnel' ? lastDays(windowOf(dashboardDays)) : null;
   // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
   if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
@@ -92,7 +95,7 @@ export default function Team({ section }: { section: TeamSection }) {
     <div className="page">
       <PageHeader eyebrow={section === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={section === 'overview' ? where || 'Personnel' : SECTION_LABELS[section]} lede={missing ? undefined : SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
-        {!missing && unit && report && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
+        {!missing && unit && report && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit, ...(printWindow || {}) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       {isPending ? <Skeleton className="h-64" /> : missing ? (
@@ -500,6 +503,10 @@ const DASHBOARD_SHOWS: Array<{ value: DashboardShow; label: string }> = [
   { value: 'output', label: 'Output' }, { value: 'work', label: 'Casework' }, { value: 'duty', label: 'Duty' }, { value: 'training', label: 'Training' }, { value: 'personnel', label: 'Personnel' },
 ];
 const isDashboardShow = (v: string): v is DashboardShow => DASHBOARD_SHOWS.some((s) => s.value === v);
+// The dashboard's window, kept in the address (?days=) so "Print or file" and a shared link carry it.
+const WINDOWS = [{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }];
+const DEFAULT_WINDOW = '90';
+const windowOf = (v: string) => (WINDOWS.some((w) => w.value === v) ? v : DEFAULT_WINDOW);
 // The report each part of the dashboard prints as, so "Print or file" carries what is on screen.
 const DASHBOARD_REPORTS: Record<DashboardShow, ReportType> = { output: 'unit', work: 'financial', duty: 'duty', training: 'training', personnel: 'personnel' };
 const SHOW_LEDES: Record<AnalyticsSection, string> = {
@@ -513,14 +520,15 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const toast = useToast();
   const [show, setShow] = useParam('show', 'output');
   const shown: DashboardShow = isDashboardShow(show) ? show : 'output';
-  const [days, setDays] = useState('90');
+  const [asked, setDays] = useParam('days', DEFAULT_WINDOW);
+  const days = windowOf(asked);
   const { from, to } = useMemo(() => lastDays(days), [days]);
   const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS} />
-        {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} />}
+        {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={WINDOWS} />}
         <span className="text-xs text-ink-3">{shown === 'output' ? `Shared entries only · ${formatRange(from, to)}` : shown === 'personnel' ? 'As of today' : formatRange(from, to)}</span>
         {canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}
       </div>

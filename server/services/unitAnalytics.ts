@@ -3,7 +3,7 @@ import { forbidden, notFound } from '../lib/errors.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { audit, auditListedRecords } from './audit.ts';
-import { PERMISSIONS, can, detailUnitsFor, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
+import { PERMISSIONS, can, detailUnitsFor, isMember, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
 import { getUnit } from './org.ts';
 import { periodClause } from './timeframes.ts';
 import { personnelRoster } from './personnelRecords.ts';
@@ -118,7 +118,7 @@ function buildWork(r: Reading): Built {
     },
     {
       id: 'work_age', question: 'How long have the open cases been open?', kind: 'bars', format: 'number', noun: 'case',
-      keys: CASE_AGE_BANDS.map((b) => ({ key: b.key, label: b.label })), note: 'Every case open today, counted from the day it was opened.',
+      keys: CASE_AGE_BANDS.map((b) => ({ key: b.key, label: b.label })), axis: 'Open for', note: 'Every case open today, counted from the day it was opened.',
     },
     {
       id: 'work_flow', question: 'Are cases being closed as fast as they arrive?', kind: 'columns', format: 'number', noun: 'case', keys: months,
@@ -130,11 +130,11 @@ function buildWork(r: Reading): Built {
       note: 'The amount each resolved case records, in the month it was resolved. A case does not say what kind of amount it holds.',
     },
     {
-      id: 'work_stage', question: 'Where are the open cases waiting?', kind: 'bars', format: 'number', noun: 'case',
+      id: 'work_stage', question: 'Where are the open cases waiting?', kind: 'bars', format: 'number', noun: 'case', axis: 'Stage',
       keys: OPEN_STAGES.map((s) => ({ key: s, label: STAGE_LABEL[s] })),
     },
     {
-      id: 'work_rate', question: 'How many of the window’s cases were resolved?', kind: 'rate', format: 'number', noun: 'case',
+      id: 'work_rate', question: 'How many of the window’s cases were resolved?', kind: 'rate', format: 'number', noun: 'case', axis: 'Cases',
       keys: [{ key: 'resolved', label: 'Resolved in the window' }, { key: 'not_resolved', label: 'Not resolved in it' }],
       note: 'Of the cases open on any day of the window, those resolved in it: the financial report’s resolution rate.',
     },
@@ -167,7 +167,8 @@ function buildWork(r: Reading): Built {
         drill: {
           id: c.id, kind: 'case', title: c.title, detail: [procedureLabel(c), c.reference].filter(Boolean).join(' · ') || null, date: created,
           who: r.detailIn.has(c.unit_id) && c.claimed_by ? holders.get(c.claimed_by) || null : null, unit: r.unitName(c.unit_id),
-          status: STAGE_LABEL[stageOf(c as never)] || null, to: `/work/items/${encodeURIComponent(c.id)}`,
+          // A shared case opens to a member of its unit (readable() in work.ts); a reader above it counts it but cannot open it.
+          status: STAGE_LABEL[stageOf(c as never)] || null, to: isMember(r.scope, c.unit_id) ? `/work/items/${encodeURIComponent(c.id)}` : null,
         },
         user_id: null, unit_id: c.unit_id, table: null, named: false,
       },
@@ -221,17 +222,17 @@ function buildDuty(r: Reading): Built {
       ],
     },
     {
-      id: 'duty_load', question: r.detail ? 'Who is carrying the duty load?' : 'Which units are carrying the duty load?', kind: 'bars', format: 'hours', noun: 'duty',
+      id: 'duty_load', question: r.detail ? 'Who is carrying the duty load?' : 'Which units are carrying the duty load?', kind: 'bars', format: 'hours', noun: 'duty', axis: r.detail ? 'Marine' : 'Unit',
       note: r.detail ? 'Hours of duty each Marine stood in the window. Counts show what was recorded, not effort.' : `Hours of duty stood in each unit in the window. ${NO_DETAIL}`,
     },
-    { id: 'duty_type', question: 'What duty is being stood?', kind: 'bars', format: 'number', noun: 'duty', note: 'Duty in the window, by the duty type the Unit Instance set.' },
+    { id: 'duty_type', question: 'What duty is being stood?', kind: 'bars', format: 'number', noun: 'duty', axis: 'Duty type', note: 'Duty in the window, by the duty type the Unit Instance set.' },
     { id: 'duty_months', question: 'How many hours of duty each month?', kind: 'columns', format: 'hours', noun: 'duty', keys: months, note: 'A duty across a month’s end counts in the first month of the window it touches.' },
     {
       id: 'duty_wait', question: 'How long has duty waited for review?', kind: 'bars', format: 'number', noun: 'duty',
-      keys: WAIT_BANDS.map((b) => ({ key: b.key, label: b.label })), note: 'Duty awaiting review today, counted from the day it was submitted.',
+      keys: WAIT_BANDS.map((b) => ({ key: b.key, label: b.label })), axis: 'Waited', note: 'Duty awaiting review today, counted from the day it was submitted.',
     },
     {
-      id: 'duty_rate', question: 'How much of the window’s duty is approved?', kind: 'rate', format: 'number', noun: 'duty',
+      id: 'duty_rate', question: 'How much of the window’s duty is approved?', kind: 'rate', format: 'number', noun: 'duty', axis: 'Duty',
       keys: [{ key: 'approved', label: 'Approved' }, { key: 'not_approved', label: 'Awaiting review, returned or rejected' }],
     },
   ];
@@ -312,22 +313,24 @@ function buildTraining(r: Reading): Built {
       keys: [{ key: 'courses', label: 'Courses in the window' }, { key: 'hours', label: 'Training hours', format: 'hours' }, { key: 'marines', label: 'Marines who trained', noun: 'Marine' }],
     },
     {
-      id: 'training_rate', question: 'Are Marines current on required training?', kind: 'rate', format: 'number', noun: 'standing', drill: r.detail,
+      id: 'training_rate', question: 'Are Marines current on required training?', kind: 'rate', format: 'number', noun: 'standing', drill: r.detail, axis: 'Standing',
       keys: [{ key: 'current', label: 'Met or due soon' }, { key: 'behind', label: 'Past due or no record' }],
       note: `Each Marine against each requirement that applies to them, today. Due soon is due again within ${DUE_SOON_DAYS} days.`,
     },
     {
       id: 'training_standing', question: 'Which requirements are falling behind?', kind: 'bars', format: 'number', noun: 'Marine', drill: r.detail,
-      keys: requirements.map((q) => ({ key: q.id, label: q.title })), series: STANDING_SERIES,
+      keys: requirements.map((q) => ({ key: q.id, label: q.title })), series: STANDING_SERIES, axis: 'Requirement', lead: ['overdue', 'missing'],
       note: 'No record means no such course was shared, not that none was taken.',
     },
     { id: 'training_months', question: 'How many training hours each month?', kind: 'columns', format: 'hours', noun: 'course', keys: months, note: 'A course across a month’s end counts in the first month of the window it touches.' },
-    { id: 'training_type', question: 'What kinds of training?', kind: 'bars', format: 'number', noun: 'course' },
+    { id: 'training_type', question: 'What kinds of training?', kind: 'bars', format: 'number', noun: 'course', axis: 'Type' },
   ];
 
   const sources: Array<SourceRecord<Source>> = [];
   // Marines who trained are Marines, each once, with what they did in the window: the drill lists them, not a course.
-  const trained = new Map<string, { unit_id: string; courses: number; hours: number }>();
+  // A Marine is named where the reader opens member records in a unit of one of their courses, and then only those
+  // courses are added to their line, so a course listed unnamed is never tied to them.
+  const trained = new Map<string, { unit_id: string; courses: number; hours: number; seen: { unit_id: string; courses: number; hours: number } | null }>();
   for (const t of rows) {
     const hours = Number(t.hours) || 0;
     const m: Membership[] = [
@@ -335,8 +338,13 @@ function buildTraining(r: Reading): Built {
       { visual: 'training_months', key: monthOf(t.date, r.from), value: hours },
       { visual: 'training_type', key: t.type || 'none', label: words(t.type) || 'No type', value: 1 },
     ];
-    const mine = trained.get(t.user_id) || { unit_id: t.unit_id, courses: 0, hours: 0 };
-    mine.courses += 1; mine.hours += hours; trained.set(t.user_id, mine);
+    const mine = trained.get(t.user_id) || { unit_id: t.unit_id, courses: 0, hours: 0, seen: null };
+    mine.courses += 1; mine.hours += hours;
+    if (r.detailIn.has(t.unit_id)) {
+      mine.seen ??= { unit_id: t.unit_id, courses: 0, hours: 0 };
+      mine.seen.courses += 1; mine.seen.hours += hours;
+    }
+    trained.set(t.user_id, mine);
     const who = r.detailIn.has(t.unit_id) ? names.get(t.user_id) || null : null;
     sources.push({
       record: {
@@ -349,8 +357,9 @@ function buildTraining(r: Reading): Built {
   // A Marine the reader may not see by name is listed under a number, not their account id, which the roster would name.
   let unnamed = 0;
   const unnamedId = () => `unnamed-${++unnamed}`;
-  for (const [id, x] of trained) {
-    const who = r.detailIn.has(x.unit_id) ? names.get(id) || null : null;
+  for (const [id, all] of trained) {
+    const who = all.seen ? names.get(id) || null : null;
+    const x = who ? all.seen! : all;
     sources.push({
       record: {
         drill: { id: who ? id : unnamedId(), kind: 'marine', title: who || 'A Marine', detail: `${plural(x.courses, 'course')} · ${hoursText(x.hours)}`, date: null, who: null, unit: r.unitName(x.unit_id), status: null, to: null },
@@ -400,7 +409,8 @@ function buildPersonnel(r: Reading): Built {
   const grades = new Map<string, { label: string; sort: number }>();
   for (const p of roster) {
     const key = p.rank_grade || 'none';
-    if (!grades.has(key)) grades.set(key, { label: p.rank_grade ? `${p.rank_grade}${p.rank_abbr ? ` (${p.rank_abbr})` : ''}` : 'No grade recorded', sort: p.rank_grade ? p.rank_sort ?? 0 : -1 });
+    // A grade holds more than one rank (E-8 is MSgt and 1stSgt), so its bar is the grade alone.
+    if (!grades.has(key)) grades.set(key, { label: p.rank_grade || 'No grade recorded', sort: p.rank_grade ? p.rank_sort ?? 0 : -1 });
   }
   const specs: VisualSpec[] = [
     {
@@ -411,11 +421,11 @@ function buildPersonnel(r: Reading): Built {
       ],
     },
     {
-      id: 'people_grade', question: 'What grades make up the unit?', kind: 'bars', format: 'number', noun: 'Marine',
+      id: 'people_grade', question: 'What grades make up the unit?', kind: 'bars', format: 'number', noun: 'Marine', axis: 'Grade',
       keys: [...grades.entries()].sort((a, b) => b[1].sort - a[1].sort).map(([key, g]) => ({ key, label: g.label })),
     },
-    { id: 'people_team', question: 'How are Marines spread across the teams?', kind: 'bars', format: 'number', noun: 'Marine', note: 'Each Marine once, on their own team beneath the unit.' },
-    { id: 'people_mos', question: 'Which MOSs does the unit hold?', kind: 'bars', format: 'number', noun: 'Marine' },
+    { id: 'people_team', question: 'How are Marines spread across the teams?', kind: 'bars', format: 'number', noun: 'Marine', axis: 'Team', note: 'Each Marine once, on their own team beneath the unit.' },
+    { id: 'people_mos', question: 'Which MOSs does the unit hold?', kind: 'bars', format: 'number', noun: 'Marine', axis: 'MOS' },
   ];
   const sources: Array<SourceRecord<Source>> = roster.map((p) => {
     const m: Membership[] = [
@@ -472,7 +482,9 @@ export function unitAnalyticsDrill(ctx: AppContext, user: SessionUser, scope: Sc
   const shown = found.records.slice(0, DRILL_LIMIT);
   // A link to a Marine's record only where the reader may open it, as the member page decides (detailUnitsFor).
   const openable = new Map<string, boolean>();
-  const opens = (id: string) => { if (!openable.has(id)) openable.set(id, id !== user.id && detailUnitsFor(ctx, scope, id).length > 0); return openable.get(id)!; };
+  // A deactivated account's page is no Marine's to open (the member page answers 404), as the roster does not link it.
+  const active = (id: string) => Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ? AND active = 1').get(id));
+  const opens = (id: string) => { if (!openable.has(id)) openable.set(id, id !== user.id && active(id) && detailUnitsFor(ctx, scope, id).length > 0); return openable.get(id)!; };
   const records: DrillRecord[] = shown.map(({ record, value }) => ({
     ...record.drill, value,
     to: record.drill.to ?? (record.named && record.user_id && opens(record.user_id) ? `/team/${encodeURIComponent(record.user_id)}` : null),

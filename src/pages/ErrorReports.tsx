@@ -270,7 +270,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
 
       {r.trend.length > 1 ? (
         <VisualView first="Report" visual={clientVisual({
-          id: 'error_trend', kind: 'columns', format: 'number', noun: 'error',
+          id: 'error_trend', kind: 'columns', format: 'number', noun: 'error', level: true,
           question: `How many errors were open on each ${r.type.code} report?`,
           note: `The last ${plural(r.trend.length, 'report')} of the series, each as of the day it was run. Compare two reports above to list the errors behind a change.`,
           buckets: r.trend.map((t) => ({ key: t.id, label: formatDate(t.as_of, 'dd MMM'), values: [t.open_count], counts: [t.open_count] })),

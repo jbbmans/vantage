@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PERIOD_OPTIONS, formatDollarsExact, formatNumber, type PeriodKey } from './metrics.ts';
+import { PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
 
 /**
  * The reports Vantage prints and files (Task 14, ADR-0020): what each answers, whom it may be about, the filters it
@@ -233,7 +233,7 @@ export const LANDSCAPE_COLUMNS = 8;
 
 // ——— The filters, as the route reads them and the library writes them ———
 
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-10-29.');
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-10-29.').refine(isCalendarDay, 'Use a date on the calendar, like 2026-10-29.');
 const id = z.string().trim().max(64);
 
 export const reportQuerySchema = z.object({
@@ -286,6 +286,25 @@ export interface ReportChart {
   table: string; column: string;
   /** Columns up for a figure over time (months, weeks, reports); bars across otherwise. */
   shape?: 'bars' | 'columns';
+}
+
+/** The most a chart draws: 30 bars across (the largest first, as the table lists them), or the latest 60 columns. */
+export const CHART_LIMIT = { bars: 30, columns: 60 } as const;
+
+/**
+ * What a chart draws, on screen, in print and in the PDF alike: its bars, and how many it left out (the table holds
+ * them all). A figure over time keeps its latest columns, so a long period still ends today.
+ */
+export function chartBars(c: Pick<ReportChart, 'bars' | 'shape'>): { bars: ReportChart['bars']; left: number } {
+  const limit = c.shape === 'columns' ? CHART_LIMIT.columns : CHART_LIMIT.bars;
+  const bars = c.shape === 'columns' ? c.bars.slice(-limit) : c.bars.slice(0, limit);
+  return { bars, left: c.bars.length - bars.length };
+}
+
+/** Which columns carry a label: every one when few, else every few and the last, never two crowding at the end. */
+export function labelledColumn(i: number, n: number): boolean {
+  const step = n <= 8 ? 1 : Math.ceil(n / 6);
+  return i === n - 1 || (i % step === 0 && n - 1 - i >= step / 2);
 }
 
 export interface ReportFigure { label: string; value: Cell; kind?: ColumnKind; hint?: string }

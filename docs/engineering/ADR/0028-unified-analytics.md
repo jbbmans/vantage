@@ -45,8 +45,9 @@ lets every bar be a real button, and adds no dependency, bundle weight or supply
 `shared/unitAnalytics.ts` is pure. A section reads its source records once; each record says which bar of which visual
 it counts in, under which series, with what value (its *memberships*). `tally` adds memberships into figures; `drillOf`
 filters the same memberships to one bar. A figure and its drill are one list, so **a drill lists exactly the records its
-figure counts, and their values add up to it**. Fixed bars (age bands, months, statuses) keep their order and zeros;
-others sort by size.
+figure counts, and their values add up to it**: a record in two series of one bar (a case opened and closed in the same
+month) is one record of that bar, and values are added before they are rounded, in the figure and the drill alike. Fixed
+bars (age bands, months, statuses) keep their order and zeros; others sort by size.
 
 ### 3. Four sections of the Unit dashboard
 
@@ -67,10 +68,16 @@ the count and total of all). Sections:
   report's (tested).
 - **Duty counts as ADR-0024 says**: approved duty, at its approved points. Awaiting review is all pending duty whenever
   stood.
-- **The window** is the dashboard's (30 to 365 days; the server refuses more than 731, or a day not on the calendar). An entry across the window's
-  edge counts in it (ADR-0018), and in a month series in the first month it touches. Personnel stands on today.
-- The dashboard's section is in the address (`?show=work`), and "Print or file" opens the report that section is
-  (financial, duty, training, personnel; Output stays the unit report).
+- **The window** is the dashboard's (30 to 365 days; the server refuses more than 731). A day not on the calendar
+  (2026-02-30) is refused here, on the dashboard and in the report center, never read as another day or answered with a
+  server error. An entry across the window's edge counts in it (ADR-0018), and in a month series in the first month it
+  touches. Personnel stands on today.
+- The dashboard's section and window are in the address (`?show=work&days=365`), and "Print or file" opens the report
+  that section is (financial, duty, training, personnel; Output stays the unit report) for the window on screen, so the
+  printed figures are the dashboard's. The report library shows those dates (named as the link's, in the Period
+  field's description and placeholder) until a period is chosen. Saving keeps the rolling period that matches (30 days,
+  90 days, the last 12 months), never the dates of the day it was saved; the 180-day window matches none, so it is saved
+  only once a period is chosen. Personnel stands on today and carries no window.
 
 ### 4. Who may read what
 
@@ -86,8 +93,11 @@ the count and total of all). Sections:
   retention schedule anonymized names nobody and has no title. The Personnel section is the roster, read with
   `personnelRoster` as the Roster page and the personnel report read it, so it lists Marines as they do and its count is
   theirs (a deactivated account only for whoever manages it).
-- **A drill links to a record only where the reader may open it**: a case at `/work/items/:id`; a Marine at
-  `/team/:id` only where `detailUnitsFor` says they may, and never themselves.
+- **A drill links to a record only where the reader may open it**: a case at `/work/items/:id` to a member of its unit,
+  as `readable()` opens a shared case (a leader above it counts it but does not open it); a Marine at `/team/:id` only
+  where `detailUnitsFor` says they may, never themselves and never a deactivated account (its page answers 404).
+- A Marine who trained is named by the courses the reader may see by name, and only those are added to their line; a
+  Marine not named is listed under a number. A grade's bar is the grade alone (E-8 is MSgt and 1stSgt).
 - **Audited**: `view_unit_analytics` for every read (section and window), `drill_unit_analytics` for every drill
   (visual, bar, window, records listed). A drill that names Marines' duty, training or training standing also writes
   `list_records` for each Marine (deduplicated within five minutes, as lists are).
@@ -98,8 +108,15 @@ the count and total of all). Sections:
 paired, over time), `RateMeter`, in a `FigureFrame` whose heading is the question, with a one-sentence summary, a
 Chart/Table switch (`FigureTable`, the accessible alternative, captioned by the question), and a source note.
 
-- **Every counting bar, column, tile and table cell is a button** named with its label, value and what it opens ("Under
-  7 days: 3. Show the 3 cases"), reachable by keyboard; a figure that cannot drill is an image named the same way.
+- **Every counting bar, column, tile and table cell is a button** named with its label, value, any qualifying hint and
+  what it opens ("Under 7 days: 3. Show the 3 cases"), reachable by keyboard with a visible focus ring; a figure that
+  cannot drill is an image named the same way.
+- **The switch is tabs with their panels** (`aria-controls`, `role="tabpanel"`), and every framed visual has its table,
+  rates included. A table's first column is named for what a bar is (`axis`: "Open for", "Requirement", "Month"). Paired
+  columns (opened and closed) have no "All": added together they count no record.
+- **The summary answers the question.** Where the question is about some series (`lead`: past due and no record), it
+  names the bar with the most of them; where each bar is a level on its day (`level`: errors open on each report), it
+  gives the latest and how it moved, and never adds the levels up.
 - **`DrillDialog`** lists the records: title, detail, whom (where named), unit, status, date, value and a link; says
   "first 200 of N" when cut; and checks the sum against the figure, saying so if it does not match. Its read is
   audited, so it is made once while open and not repeated on focus or failure.
@@ -125,11 +142,18 @@ Chart/Table switch (`FigureTable`, the accessible alternative, captioned by the 
 - `ReportChart` names its source table **and column** (`column`), and may be `shape: 'columns'` for a figure over time.
   On screen, in print and in the PDF a chart ends "From the table X, column Y." A test checks that every chart's table
   is in its section, the column is in that table, and every bar's figure is in that column.
-- Time series draw as columns: the individual report's months, the unit report's weeks, the comparison's reports.
+- Time series draw as columns: the individual report's months, the unit report's weeks, the comparison's reports. The
+  unit report's weeks are every week of the period up to this one, a quiet week at zero, so its gaps show; a week not
+  yet begun is not a quiet week, and a window longer than ten years lists only its weeks with entries
+  (`server/services/dashboard.ts`). The months of "All time" start at the first month with an entry, and a series of
+  months keeps its latest 121.
+- One rule for what a chart draws, on screen and in the PDF (`chartBars`): the first 30 bars, or the latest 60 columns so
+  a long period still ends today, and the source line says how many the table holds when it is cut. Column labels never
+  crowd the last one (`labelledColumn`).
 - New charts: the financial report's open cases by age; the training report's Marines who met each requirement; the
   duty report's hours by duty type (a new "By duty type" section and table); the personnel report's Marines on each
   unit's roster (a new "Unit by unit" section, when there is more than one unit).
-- The PDF keeps a chart on one page where it fits.
+- The PDF keeps a chart on one page where it fits, and a section's heading on the page of its chart (tested).
 
 ## Alternatives considered
 
@@ -144,6 +168,8 @@ Chart/Table switch (`FigureTable`, the accessible alternative, captioned by the 
 ## Not done here
 
 - No analytics for awards, counseling or goals: the Output section and the report center cover them.
+- The custom report grouped by month still draws bars, newest first, with every month labelled; making it columns would
+  need its quiet months filled as the unit report's weeks now are.
 - A position-0 role now reads only its own unit's analytics while the dashboard's Output and the report center still
   read the subtree on the root check. Aligning those is a change to ADR-0020's rule and is left for John.
 - Performance history across periods (the spec's "performance history") is the individual report and the personal

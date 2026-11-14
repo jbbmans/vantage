@@ -25,6 +25,7 @@ import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
+import { isCalendarDay } from '../../shared/metrics.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
@@ -41,6 +42,8 @@ function dashboardWindow(req: Request) {
   const to = String(req.query.to || zonedDay(zoneOf(req.ctx, req.user)));
   const from = String(req.query.from || zonedDay(zoneOf(req.ctx, req.user), -89));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  // A day that is not on the calendar (2026-13-40) is refused, not read as a month the window does not have.
+  if (!isCalendarDay(from) || !isCalendarDay(to)) throw badRequest('Use real dates, as YYYY-MM-DD.');
   return { from, to };
 }
 
@@ -82,10 +85,8 @@ function analyticsSection(req: Request): AnalyticsSection {
 }
 function analyticsWindow(req: Request) {
   const w = dashboardWindow(req);
-  // A day that is not on the calendar (2026-13-40) is refused, not read as a month the window does not have.
-  const real = (d: string) => { const t = Date.parse(`${d}T00:00:00Z`); return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === d; };
-  if (!real(w.from) || !real(w.to)) throw badRequest('Use real dates, as YYYY-MM-DD.');
-  if ((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000 > ANALYTICS_MAX_DAYS) throw badRequest(`Use a window of ${ANALYTICS_MAX_DAYS} days or fewer.`);
+  // Both days are in the window, so 2026-01-01 to 2026-01-31 is 31 days.
+  if ((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000 + 1 > ANALYTICS_MAX_DAYS) throw badRequest(`Use a window of ${ANALYTICS_MAX_DAYS} days or fewer.`);
   return w;
 }
 const drillQuery = z.object({ visual: z.string().trim().min(1).max(40), key: z.string().min(1).max(120), series: z.string().trim().min(1).max(40).optional() });

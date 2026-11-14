@@ -33,12 +33,25 @@ test('casework: each figure answers a question, opens the cases it counts, and h
   await page.getByRole('tab', { name: 'Casework' }).click();
   await expect(page).toHaveURL(/show=work/);
   await expect(page.getByRole('link', { name: 'Print or file' })).toHaveAttribute('href', /type=financial/);
+  // The window is in the address, and "Print or file" carries it, so the printed report covers what is on screen.
+  await page.getByRole('combobox', { name: 'Window' }).click();
+  await page.getByRole('option', { name: 'Last year' }).click();
+  await expect(page).toHaveURL(/days=365/);
+  const href = await page.getByRole('link', { name: 'Print or file' }).getAttribute('href');
+  const carried = new URL(href!, 'http://x').searchParams;
+  expect(carried.get('from'), 'from a year ago').toBe(await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() - 364); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }));
+  expect(carried.get('to')).toBeTruthy();
   const aging = page.getByRole('figure', { name: 'How long have the open cases been open?' });
   await expect(aging).toBeVisible();
   await expect(page.getByRole('figure', { name: 'Are cases being closed as fast as they arrive?' })).toBeVisible();
 
-  // A headline figure opens the cases behind it, and each case opens.
-  await page.getByRole('button', { name: /^Open now: \d+\. Show the \d+ cases?$/ }).click();
+  // A headline figure is a button with a visible focus ring, and opens the cases behind it; each case opens.
+  const openNow = page.getByRole('button', { name: /^Open now: \d+\. Show the \d+ cases?$/ });
+  await openNow.focus();
+  await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+  await expect(openNow).toBeFocused();
+  expect(await openNow.evaluate((el) => getComputedStyle(el).boxShadow), 'a focused tile shows its ring').toMatch(/inset/);
+  await openNow.click();
   const list = page.getByRole('dialog', { name: 'Open now' });
   await expect(list).toBeVisible();
   await expect(list).toContainText('Where does the casework stand?');
@@ -57,11 +70,25 @@ test('casework: each figure answers a question, opens the cases it counts, and h
   await expect(under7).toBeHidden();
   await expect(bar).toBeFocused();
 
-  // The same figures as a table, which the chart's question names.
-  await aging.getByRole('tab', { name: 'Table' }).click();
+  // The same figures as a table, which the chart's question names; the tab controls its panel.
+  const tableTab = aging.getByRole('tab', { name: 'Table' });
+  await tableTab.click();
+  const panel = page.locator(`#${await tableTab.getAttribute('aria-controls')}`);
+  await expect(panel).toHaveAttribute('role', 'tabpanel');
   const table = aging.getByRole('table', { name: 'How long have the open cases been open?' });
   await expect(table).toBeVisible();
+  await expect(panel.getByRole('table')).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Open for' })).toBeVisible();
   await expect(table.getByRole('rowheader', { name: 'Over 90 days' })).toBeVisible();
+  // Opened and closed are not parts of a whole: their table has no "All".
+  const flow = page.getByRole('figure', { name: 'Are cases being closed as fast as they arrive?' });
+  await flow.getByRole('tab', { name: 'Table' }).click();
+  await expect(flow.getByRole('columnheader', { name: 'Month' })).toBeVisible();
+  await expect(flow.getByRole('columnheader', { name: 'All' })).toHaveCount(0);
+  // A rate has its table too.
+  const rate = page.getByRole('figure', { name: 'How many of the window’s cases were resolved?' });
+  await rate.getByRole('tab', { name: 'Table' }).click();
+  await expect(rate.getByRole('table')).toBeVisible();
   await aging.getByRole('tab', { name: 'Chart' }).click();
   await expect(table).toBeHidden();
 
@@ -91,11 +118,38 @@ test('duty, training and personnel each answer their questions, in both themes a
   await page.getByRole('tab', { name: 'Training' }).click();
   await expect(page.getByRole('heading', { name: 'How much training is being done?' })).toBeVisible();
   await expect(page.getByRole('figure', { name: 'How many training hours each month?' })).toBeVisible();
+  // Printed, the training report covers the dashboard's 90 days, not its own default of 12 months.
+  await page.getByRole('link', { name: 'Print or file' }).click();
+  await expect(page).toHaveURL(/type=training.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}/);
+  await expect(page.getByText(/the dates in this page's link\. Choose a period to replace them\./)).toBeVisible();
+  // The hint is the Period control's description, so a screen reader hears it on focus.
+  const period = page.getByRole('combobox', { name: 'Period' });
+  const described = await period.getAttribute('aria-describedby');
+  expect(described).toBeTruthy();
+  await expect(page.locator(`[id="${described!.split(' ')[0]}"]`)).toContainText('Choose a period to replace them.');
+  // A saved report keeps the rolling period that matches the dashboard's 90 days, never that day's dates.
+  let saved: { params?: Record<string, string> } = {};
+  await page.route('**/api/report-center/definitions', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    saved = route.request().postDataJSON();
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'saved-in-test' }) });
+  });
+  await page.getByRole('button', { name: 'Save these choices' }).click();
+  const save = page.getByRole('dialog', { name: 'Save these choices' });
+  await save.getByRole('textbox', { name: 'Name' }).fill('Training, as on the dashboard');
+  await save.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(save).toBeHidden();
+  expect(saved.params).toMatchObject({ period: 'last90' });
+  expect(saved.params).not.toHaveProperty('from');
+  expect(saved.params).not.toHaveProperty('to');
+  await page.unroute('**/api/report-center/definitions');
+  await page.goBack();
 
   await page.getByRole('tab', { name: 'Personnel' }).click();
   await expect(page.getByRole('heading', { name: 'Who is on the roster, and where are the gaps?' })).toBeVisible();
-  // The roster stands on today, so it has no window.
+  // The roster stands on today, so it has no window, and its report is printed as of today.
   await expect(page.getByRole('combobox', { name: 'Window' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Print or file' })).not.toHaveAttribute('href', /from=/);
   await page.getByRole('button', { name: /^On the roster: \d+\. Show the \d+ Marines?$/ }).click();
   const roster = page.getByRole('dialog', { name: 'On the roster' });
   // One's own row is listed and not linked: one's own record is not opened from a roster.

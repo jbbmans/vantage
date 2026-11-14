@@ -6,8 +6,10 @@ import { Button, EmptyState, Segmented, Skeleton } from '@/components/ui/primiti
 import { Dialog } from '@/components/ui/Dialog';
 import { QueryFailure } from '@/components/QueryFailure';
 import { cn } from '@/lib/utils';
-import { formatDate, formatDollars, formatDollarsExact, formatNumber } from '../../../shared/metrics';
-import { rateOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
+import { formatDate, formatNumber } from '../../../shared/metrics';
+import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
+
+export { counted, formatFigure, summaryOf };
 
 /**
  * The analytics kit (Task 21, ADR-0028): KPI tiles, bars, columns over time and a rate, each in a frame that asks its
@@ -16,23 +18,13 @@ import { rateOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTo
  * it reads in both themes and every palette, prints in colour, and needs no chart library.
  */
 
-export function formatFigure(value: number, format: FigureFormat, exact = false): string {
-  if (format === 'money') return exact ? formatDollarsExact(value) : formatDollars(value);
-  if (format === 'hours') return `${formatNumber(value)} h`;
-  if (format === 'percent') return `${formatNumber(value)}%`;
-  if (format === 'days') return `${formatNumber(value)} ${value === 1 ? 'day' : 'days'}`;
-  return formatNumber(value);
-}
-
-/** A noun for a count: "1 case", "3 duties", "2 Marines". */
-export function counted(n: number, noun: string): string {
-  const many = /[^aeiou]y$/.test(noun) ? `${noun.slice(0, -1)}ies` : /(s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`;
-  return `${formatNumber(n)} ${n === 1 ? noun : many}`;
-}
-
-/** Series colours come from the theme: the signal colour and a neutral for data, status tones only for a status. */
+/**
+ * Series colours come from the theme: the signal colour and a neutral for data, status tones only for a status. Muted
+ * (no record) is hatched in the muted ink, so it stands out from the empty track at 3:1 and does not read as nothing.
+ */
 const TONE: Record<SeriesTone, string> = {
-  accent: 'rgb(var(--accent))', neutral: 'rgb(var(--ink-3))', good: 'rgb(var(--good))', warn: 'rgb(var(--warn))', bad: 'rgb(var(--bad))', muted: 'rgb(var(--line-strong))',
+  accent: 'rgb(var(--accent))', neutral: 'rgb(var(--ink-3))', good: 'rgb(var(--good))', warn: 'rgb(var(--warn))', bad: 'rgb(var(--bad))',
+  muted: 'repeating-linear-gradient(135deg, rgb(var(--ink-3)) 0 2px, rgb(var(--ink-3) / .45) 2px 5px)',
 };
 
 /** One figure to list the records of: a bar, or one series of it. */
@@ -44,28 +36,6 @@ const drillable = (v: Visual, onDrill: OnDrill | undefined, count: number): onDr
 const multi = (v: Visual) => v.series.length > 1;
 const parts = (v: Visual, b: Bucket) => v.series.map((s, i) => `${s.label} ${valueOf(v, b, i)}`).join(', ');
 const showRecords = (v: Visual, n: number, b?: Bucket) => `Show the ${counted(n, b?.noun || v.noun)}`;
-const largest = (v: Visual) => v.buckets.reduce<Bucket | null>((top, b) => (!top || b.value > top.value ? b : top), null);
-
-/** The figure in one sentence, so a reader who does not look at the chart still has its point. */
-export function summaryOf(v: Visual): string {
-  if (v.kind === 'kpis') return '';
-  if (v.kind === 'rate') {
-    const r = rateOf(v);
-    if (r.percent == null) return 'Nothing to count yet.';
-    return `${r.percent}%: ${formatNumber(r.done)} of ${counted(r.of, v.noun)} ${(v.buckets[0]?.label || '').toLowerCase()}.`.replace(/ \.$/, '.');
-  }
-  if (!v.count) return 'Nothing to show in this window.';
-  if (v.kind === 'columns') {
-    const first = v.buckets[0]?.label; const last = v.buckets.at(-1)?.label;
-    const span = first && last && first !== last ? `from ${first} to ${last}` : first ? `in ${first}` : '';
-    if (multi(v)) return `${v.series.map((s, i) => `${s.label} ${formatFigure(v.buckets.reduce((n, b) => n + b.values[i], 0), v.format)}`).join(', ')}, ${span}.`;
-    const top = largest(v)!;
-    return `${formatFigure(v.value, v.format)} ${span}; the most was ${top.label}, at ${formatFigure(top.value, v.format)}.`;
-  }
-  const top = largest(v)!;
-  return `${top.label} is the largest, at ${valueOf(v, top)} of ${formatFigure(v.value, v.format)}.`;
-}
-
 /**
  * A chart in its frame. The question is its heading; the switch shows the same figures as a table, and a print carries
  * both. `empty` stands in for the chart and the table when there is nothing to draw.
@@ -85,15 +55,15 @@ export function FigureFrame({ question, summary, note, chart, table, empty, acti
         {(actions || (table && !empty)) ? (
           <span className="no-print flex shrink-0 items-center gap-2">
             {actions}
-            {table && !empty ? <Segmented size="sm" label="Show as" value={view} onChange={setView} options={[{ value: 'chart', label: 'Chart' }, { value: 'table', label: 'Table' }]} /> : null}
+            {table && !empty ? <Segmented size="sm" label="Show as" value={view} onChange={setView} options={[{ value: 'chart', label: 'Chart', id: `${id}-tab-chart`, controls: `${id}-chart` }, { value: 'table', label: 'Table', id: `${id}-tab-table`, controls: `${id}-table` }]} /> : null}
           </span>
         ) : null}
       </figcaption>
       <div className="px-4 pb-4 pt-3 sm:px-5">
         {empty ?? (
           <>
-            <div className={cn(view === 'table' && 'chart-off')}>{chart}</div>
-            {table ? <div className={cn('chart-table', view === 'chart' && 'chart-off')}>{table}</div> : null}
+            <div id={`${id}-chart`} {...(table ? { role: 'tabpanel', 'aria-labelledby': `${id}-tab-chart` } : {})} className={cn(view === 'table' && 'chart-off')}>{chart}</div>
+            {table ? <div id={`${id}-table`} role="tabpanel" aria-labelledby={`${id}-tab-table`} className={cn('chart-table', view === 'chart' && 'chart-off')}>{table}</div> : null}
           </>
         )}
         {note ? <p className="mt-3 text-xs leading-relaxed text-ink-3">{note}</p> : null}
@@ -220,7 +190,7 @@ export function KpiTiles({ visual, onDrill }: { visual: Visual; onDrill?: OnDril
           </>
         );
         return drillable(visual, onDrill, b.count)
-          ? <button key={b.key} type="button" className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2" aria-label={`${b.label}: ${valueOf(visual, b)}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
+          ? <button key={b.key} type="button" className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2" aria-label={`${b.label}: ${valueOf(visual, b)}${b.hint ? `, ${b.hint}` : ''}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
           : <div key={b.key} className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5">{body}</div>;
       })}
     </div>
@@ -228,7 +198,9 @@ export function KpiTiles({ visual, onDrill }: { visual: Visual; onDrill?: OnDril
 }
 
 /** The figures of a visual as a table: the chart's alternative, and what a print carries under it. */
-export function FigureTable({ visual, onDrill, first = 'Bar' }: { visual: Visual; onDrill?: OnDrill; first?: string }) {
+export function FigureTable({ visual, onDrill, first }: { visual: Visual; onDrill?: OnDrill; first?: string }) {
+  // Paired columns (opened and closed) are not parts of a whole: adding them counts no record, so they have no "All".
+  const whole = !(visual.kind === 'columns' && multi(visual));
   const cell = (b: Bucket, i: number | null) => {
     const count = i == null ? b.count : b.counts[i];
     const text = i == null ? valueOf(visual, b) : valueOf(visual, b, i);
@@ -242,9 +214,9 @@ export function FigureTable({ visual, onDrill, first = 'Bar' }: { visual: Visual
         <caption className="sr-only">{visual.question}</caption>
         <thead>
           <tr className="border-b border-line-strong text-left [&>th]:table-head [&>th]:px-2.5 [&>th]:py-1.5">
-            <th scope="col">{first}</th>
+            <th scope="col">{first || visual.axis || (visual.kind === 'columns' ? 'Month' : 'Bar')}</th>
             {multi(visual) ? visual.series.map((s) => <th key={s.key} scope="col" className="text-right">{s.label}</th>) : null}
-            <th scope="col" className="text-right">{multi(visual) ? 'All' : 'Figure'}</th>
+            {whole ? <th scope="col" className="text-right">{multi(visual) ? 'All' : 'Figure'}</th> : null}
             <th scope="col" className="text-right">Records</th>
           </tr>
         </thead>
@@ -253,7 +225,7 @@ export function FigureTable({ visual, onDrill, first = 'Bar' }: { visual: Visual
             <tr key={b.key}>
               <th scope="row" className="text-left font-normal text-ink">{b.label}</th>
               {multi(visual) ? visual.series.map((s, i) => <td key={s.key} className="fig text-right">{cell(b, i)}</td>) : null}
-              <td className="fig text-right font-medium">{cell(b, null)}</td>
+              {whole ? <td className="fig text-right font-medium">{cell(b, null)}</td> : null}
               <td className="fig text-right text-ink-3">{formatNumber(b.count)}</td>
             </tr>
           ))}
@@ -284,7 +256,7 @@ export function VisualView({ visual, onDrill, className, first, actions }: { vis
       summary={summaryOf(visual)}
       note={note || undefined}
       chart={chart}
-      table={visual.kind === 'rate' ? undefined : <FigureTable visual={visual} onDrill={onDrill} first={first} />}
+      table={<FigureTable visual={visual} onDrill={onDrill} first={first} />}
       actions={actions}
       empty={nothing ? <p className="py-6 text-center text-sm text-ink-3">Nothing to show in this window.</p> : undefined}
     />
@@ -351,7 +323,8 @@ export function DrillDialog({ title, description, queryKey, load, expected, onCl
                     );
                   })}
                 </ul>
-                {d.count === d.records.length && Math.abs(sum - (expected ?? d.value)) > 0.005 ? (
+                {/* Each record is shown to the cent, so their sum may differ from the figure by those roundings, and no more. */}
+                {d.count === d.records.length && Math.abs(sum - (expected ?? d.value)) > 0.005 * (d.records.length + 1) ? (
                   <p className="flex items-start gap-2 text-xs text-warn"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />These records add to {formatFigure(sum, d.format, true)}, which does not match the figure. Report this.</p>
                 ) : null}
               </div>

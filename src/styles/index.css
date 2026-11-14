@@ -239,6 +239,8 @@
 
   .hairline-grid { @apply gap-px overflow-hidden rounded-xl bg-surface; box-shadow: 0 0 0 1px rgb(var(--line)); }
   .hairline-grid > * { @apply bg-surface; box-shadow: 0 0 0 1px rgb(var(--line)); }
+  /* The hairline is a shadow, which would hide the focus ring: a focused tile draws its ring inside, past the clip. */
+  .hairline-grid > :focus-visible { box-shadow: inset 0 0 0 2px rgb(var(--accent) / .6); }
 
   /* DOCUMENT surfaces: set like something that will be printed and signed. */
   .doc-body { @apply font-serif text-[15px] leading-[1.75] text-ink; }

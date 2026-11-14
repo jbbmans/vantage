@@ -6,7 +6,7 @@ import { addMonths } from '../../server/services/reportCenter.ts';
 import { REDACTED } from '../../shared/constants.ts';
 import { PROCEDURE_LIST } from '../../shared/procedures.ts';
 import {
-  ANALYTICS_SECTIONS, drillOf, monthKeys, monthOf, rateOf, tally,
+  ANALYTICS_SECTIONS, drillOf, monthKeys, monthOf, rateOf, summaryOf, tally,
   type AnalyticsResponse, type DrillResponse, type SourceRecord, type Visual,
 } from '../../shared/unitAnalytics.ts';
 
@@ -133,6 +133,38 @@ test('the figure engine: a figure is the sum of its records, and its drill lists
   assert.equal(rateOf({ buckets: [] }).percent, null, 'nothing to divide by is no rate, not 0 %');
   assert.equal(monthOf('2026-01-03', '2026-02-10'), '2026-02', 'a record begun before the window counts in its first month');
   assert.equal(monthKeys('2026-11-20', '2027-01-02').map((k) => k.label).join(', '), 'Nov 2026, Dec 2026, Jan 2027');
+
+  // A case opened and closed in the same month is one case of that month, in each series and in the bar.
+  const both: Array<SourceRecord<string>> = [
+    { record: 'd', in: [{ visual: 'f', key: '2026-02', series: 'opened', value: 1 }, { visual: 'f', key: '2026-02', series: 'closed', value: 1 }] },
+    { record: 'e', in: [{ visual: 'f', key: '2026-02', series: 'opened', value: 1 }] },
+  ];
+  const [flow] = tally([{ id: 'f', question: 'Q', kind: 'columns', format: 'number', noun: 'case', keys: monthKeys('2026-02-01', '2026-02-28'), series: [{ key: 'opened', label: 'Opened', tone: 'accent' }, { key: 'closed', label: 'Closed', tone: 'neutral' }] }], both);
+  assert.deepEqual([flow.buckets[0].values, flow.buckets[0].counts, flow.buckets[0].count], [[2, 1], [2, 1], 2], 'two cases in February, not three');
+  assert.equal(drillOf(both, 'f', '2026-02').records.length, flow.buckets[0].count, 'and its drill lists the same two');
+
+  // Values are added before they are rounded, in the figure and in its drill alike.
+  const thirds: Array<SourceRecord<string>> = ['p', 'q', 'r'].map((record) => ({ record, in: [{ visual: 'h', key: 'oct', value: 1.333 }] }));
+  const [hours] = tally([{ id: 'h', question: 'Q', kind: 'bars', format: 'hours', noun: 'course' }], thirds);
+  const listed = drillOf(thirds, 'h', 'oct');
+  assert.equal(hours.buckets[0].value, 4);
+  assert.equal(listed.value, hours.buckets[0].value, 'the drill’s total is the figure');
+  assert.deepEqual(listed.records.map((x) => x.value), [1.33, 1.33, 1.33], 'each record shown to the cent');
+
+  // The sentence under a chart answers its question. Levels on their days are never added up.
+  const reports: Array<SourceRecord<string>> = [['r1', 120], ['r2', 110], ['r3', 90]].map(([record, n]) => ({ record: String(record), in: [{ visual: 'e', key: String(record), label: `report ${record}`, value: Number(n) }] }));
+  const [level] = tally([{ id: 'e', question: 'How many errors were open on each report?', kind: 'columns', format: 'number', noun: 'error', level: true, keys: [{ key: 'r1', label: '01 Jul' }, { key: 'r2', label: '01 Aug' }, { key: 'r3', label: '01 Sep' }] }], reports);
+  assert.equal(summaryOf(level), '90 on 01 Sep, down from 120 on 01 Jul.', 'never 320, which no report had open');
+  // A question about some series names the bar with the most of them, not the largest bar.
+  const standing: Array<SourceRecord<string>> = [
+    ...Array.from({ length: 20 }, (_, i) => ({ record: `a${i}`, in: [{ visual: 's', key: 'cyber', series: 'met', value: 1 }] })),
+    ...Array.from({ length: 5 }, (_, i) => ({ record: `b${i}`, in: [{ visual: 's', key: 'dts', series: 'overdue', value: 1 }] })),
+  ];
+  const series = [{ key: 'met', label: 'Met', tone: 'good' as const }, { key: 'overdue', label: 'Past due', tone: 'bad' as const }, { key: 'missing', label: 'No record', tone: 'muted' as const }];
+  const [behind] = tally([{ id: 's', question: 'Which requirements are falling behind?', kind: 'bars', format: 'number', noun: 'Marine', series, lead: ['overdue', 'missing'], keys: [{ key: 'cyber', label: 'Cyber Awareness' }, { key: 'dts', label: 'DTS Approving Official' }] }], standing);
+  assert.equal(summaryOf(behind), 'DTS Approving Official has the most at past due or no record: 5 of 5.');
+  const [current] = tally([{ id: 's', question: 'Which requirements are falling behind?', kind: 'bars', format: 'number', noun: 'Marine', series, lead: ['overdue', 'missing'], keys: [{ key: 'cyber', label: 'Cyber Awareness' }] }], standing.slice(0, 20));
+  assert.equal(summaryOf(current), 'None at past due or no record.');
 });
 
 test('every figure in every section lists exactly the records it counts', async () => {
@@ -153,6 +185,12 @@ test('every figure in every section lists exactly the records it counts', async 
           assert.equal(listed.count, b.counts[i], `${v.id} ${b.key} ${s.key}: the drill lists what the figure counts`);
           assert.equal(listed.value, b.values[i], `${v.id} ${b.key} ${s.key}: and its records add up to it`);
           assert.equal(Math.round(listed.records.reduce((n, r) => n + r.value, 0) * 100) / 100, b.values[i]);
+        }
+        if (v.series.length > 1 && b.count) {
+          // The whole bar, every series of it: each record once.
+          const whole = (await drill(op.token, 'G8', section, { visual: v.id, key: b.key })).body as DrillResponse;
+          assert.equal(whole.count, b.count, `${v.id} ${b.key}: the bar lists each of its records once`);
+          assert.equal(whole.value, b.value);
         }
       }
     }
@@ -175,8 +213,18 @@ test('casework: the figures the financial report prints, and nothing private', a
   assert.equal(bucketOf(now, 'amount_open').value, figure('Amount open'));
   assert.equal(rateOf(visualOf(work, 'work_rate')).percent, figure('Resolution rate'), 'the same resolution rate on screen and on paper');
   const open = (await drill(op.token, 'G8', 'work', { visual: 'work_now', key: 'open' })).body as DrillResponse;
-  assert.ok(open.records.every((r) => r.to === `/work/items/${encodeURIComponent(r.id)}`), 'each case opens');
   assert.ok(!open.records.some((r) => r.title === 'Private draft case'));
+  // A case links only where it opens: to a member of its unit (readable() in work.ts). G8's leaders count FISCAL's cases
+  // but are not its members, so those are listed without a link, and each link given opens.
+  assert.equal(open.count, 4);
+  for (const r of open.records) {
+    const opened = (await get(op.token, `/api/work/items/${encodeURIComponent(r.id)}`)).status;
+    if (r.to) { assert.equal(r.to, `/work/items/${encodeURIComponent(r.id)}`); assert.equal(opened, 200, `${r.title} opens`); }
+    else assert.equal(opened, 403, `${r.title} is listed without a link because it does not open`);
+  }
+  assert.ok(open.records.some((r) => r.title === 'ULO 9009' && r.to), 'G8’s own case opens');
+  const sncoView = (await drill(ftl.token, 'G8', 'work', { visual: 'work_now', key: 'open' })).body as DrillResponse;
+  assert.ok(sncoView.records.filter((r) => r.unit === 'FISCAL').every((r) => r.to === null), 'nor for another G8 reader');
 });
 
 test('duty: approved points only, anonymized duty named by nobody, and names only with member detail', async () => {
@@ -196,6 +244,13 @@ test('duty: approved points only, anonymized duty named by nobody, and names onl
   const marines = (await drill(ftl.token, 'G8', 'duty', { visual: 'duty_load', key: `marine:${marine.id}` })).body as DrillResponse;
   assert.equal(marines.count, 2);
   assert.ok(marines.records.every((r) => /Rivera/.test(r.who || '') && r.to === `/team/${marine.id}`), 'named, and opens the Marine');
+  // A deactivated account keeps its duty, but its page answers 404, so it is not linked (as the roster does not link it).
+  app.ctx.db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(marine.id);
+  try {
+    const gone = (await drill(ftl.token, 'G8', 'duty', { visual: 'duty_load', key: `marine:${marine.id}` })).body as DrillResponse;
+    assert.equal(gone.count, 2);
+    assert.ok(gone.records.every((r) => r.to === null), 'no link to a deactivated Marine');
+  } finally { app.ctx.db.prepare('UPDATE users SET active = 1 WHERE id = ?').run(marine.id); }
 
   const plain = await analytics(nco.token, 'G8', 'duty');
   assert.equal(plain.status, 200);
@@ -253,6 +308,10 @@ test('personnel: the roster by grade, team and MOS, each Marine once', async () 
   const now = visualOf(people, 'people_now');
   const roster = (await get(op.token, '/api/org/units/G8/personnel')).body.rows as Array<{ id: string }>;
   assert.equal(bucketOf(now, 'marines').value, roster.length, 'the personnel roster’s count');
+  const report = await get(op.token, `/api/report-center/run?${new URLSearchParams({ type: 'personnel', subject: 'unit', unit_id: 'G8' })}`);
+  assert.equal(report.status, 200, JSON.stringify(report.body));
+  assert.equal(bucketOf(now, 'marines').value, report.body.summary.find((f: { label: string }) => f.label === 'On the roster')?.value, 'and the personnel report’s');
+  assert.ok(visualOf(people, 'people_grade').buckets.every((b) => /^(E|W|O)-\d+$|^No grade recorded$/.test(b.label)), 'a grade’s bar is the grade: it holds more than one rank');
   assert.equal(visualOf(people, 'people_team').value, roster.length, 'each Marine on one team');
   const fiscal = (await drill(op.token, 'G8', 'personnel', { visual: 'people_team', key: 'FISCAL' })).body as DrillResponse;
   assert.ok(fiscal.records.some((r) => r.id === marine.id && r.to === `/team/${marine.id}`));
@@ -281,6 +340,8 @@ test('who may read them: a unit one views the records of, in its own Unit Instan
   assert.equal((await analytics(op.token, 'G8', 'work', 'from=2026-02-30&to=2026-03-10')).status, 400, 'a day not on the calendar');
   assert.equal((await analytics(op.token, 'G8', 'work', `from=${D}&to=${FROM}`)).status, 400, 'from after to');
   assert.equal((await analytics(op.token, 'G8', 'work', `from=${dayAfter(D, -800)}&to=${D}`)).status, 400, 'no more than two years');
+  assert.equal((await analytics(op.token, 'G8', 'work', `from=${dayAfter(D, -730)}&to=${D}`)).status, 200, '731 days, both ends counted');
+  assert.equal((await analytics(op.token, 'G8', 'work', `from=${dayAfter(D, -731)}&to=${D}`)).status, 400, 'and not 732');
   assert.equal((await drill(op.token, 'G8', 'work', { visual: 'nope', key: 'open' })).status, 404);
   assert.equal((await drill(op.token, 'G8', 'work', { visual: 'work_flow', key: '1999-01' })).status, 404);
   assert.equal((await drill(op.token, 'G8', 'work', { visual: 'work_flow', key: D.slice(0, 7), series: 'stolen' })).status, 404);
@@ -313,4 +374,28 @@ test('every read and every drill is in the audit trail, and so is a list of othe
   const refused = lastSeq();
   await analytics(g1lead.token, 'G8', 'work');
   assert.ok(!auditSince(refused).some((e) => e.action === 'view_unit_analytics'), 'a refusal is not recorded as a read');
+});
+
+test('a Marine who trained is named by the courses the reader may see by Marine, and only those are added to their line', async () => {
+  // A reader of G8's records who opens member records in FISCAL only: the Marine's FISCAL course is theirs to see by
+  // name, a newer one shared with G8 is not.
+  app.ctx.db.prepare("INSERT INTO roles (id, unit_id, key, name, permissions, position, created_at) VALUES ('FISCAL:detail', 'FISCAL', 'detail', 'Detail', ?, 0, ?)")
+    .run(PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL, new Date().toISOString());
+  const split = await app.register('split');
+  await enroll(app, op.token, 'G8', split.id, 'nco');
+  await enroll(app, op.token, 'FISCAL', split.id, 'detail');
+  split.token = await login('split');
+  const at = new Date().toISOString();
+  app.ctx.db.prepare("INSERT INTO trainings (id, user_id, unit_id, title, type, hours, date, status, visibility, created_at, updated_at) VALUES ('t-split', ?, 'G8', 'Records management', 'course', 6, ?, 'completed', 'unit', ?, ?)")
+    .run(marine.id, dayAfter(D, -5), at, at);
+  try {
+    const trainers = (await drill(split.token, 'G8', 'training', { visual: 'training_now', key: 'marines' })).body as DrillResponse;
+    const rivera = trainers.records.find((r) => /Rivera/.test(r.title));
+    assert.ok(rivera, JSON.stringify(trainers.records));
+    assert.equal(rivera!.id, marine.id);
+    assert.equal(rivera!.detail, '1 course · 4 h', 'the FISCAL course only: the G8 one is listed unnamed, so it is not added to their line');
+    assert.equal(rivera!.unit, 'FISCAL');
+    const courses = (await drill(split.token, 'G8', 'training', { visual: 'training_now', key: 'courses' })).body as DrillResponse;
+    assert.equal(courses.records.find((r) => r.title === 'Records management')?.who, null, 'the G8 course names nobody to this reader');
+  } finally { app.ctx.db.prepare("UPDATE trainings SET deleted_at = ? WHERE id = 't-split'").run(at); }
 });

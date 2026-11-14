@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { formatCell, isRightAligned, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable, type ReportColumn } from '../../shared/reportCatalog';
+import { chartBars, formatCell, isRightAligned, labelledColumn, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable, type ReportColumn } from '../../shared/reportCatalog';
 
 /**
  * One report document, drawn as the PDF draws it (ADR-0020): what it is, about whom, for what period, with which
@@ -96,13 +96,13 @@ function Figures({ list, fmt, label }: { list: ReportFigure[]; fmt: (f: ReportFi
  * the same numbers in full, and the column it draws. A figure over time stands in columns, anything else in bars.
  */
 function Bars({ chart, currency, source }: { chart: ReportChart; currency: string; source: ReportTable | undefined }) {
-  const bars = chart.bars.slice(0, 30);
+  const { bars, left } = chartBars(chart);
   if (bars.length < 2 || !bars.some((b) => b.value)) return null;
   const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
   const column = source?.columns.find((c) => c.key === chart.column)?.label;
-  const from = source ? <p className="report-chart-source">From the table {source.title}{column ? `, column ${column}` : ''}.</p> : null;
+  const cut = left ? ` ${chart.shape === 'columns' ? `The latest ${bars.length}` : `The first ${bars.length}`} of ${chart.bars.length} are drawn; the table holds them all.` : '';
+  const from = source ? <p className="report-chart-source">From the table {source.title}{column ? `, column ${column}` : ''}.{cut}</p> : null;
   if (chart.shape === 'columns') {
-    const step = bars.length <= 8 ? 1 : Math.ceil(bars.length / 6);
     return (
       <figure className="report-chart report-chart-columns">
         <figcaption className="report-chart-title">{chart.title}</figcaption>
@@ -112,7 +112,7 @@ function Bars({ chart, currency, source }: { chart: ReportChart; currency: strin
               <span className="sr-only">{b.label}: {formatCell(b.value, chart.kind, currency)}</span>
               <span className="report-column-value fig" aria-hidden>{bars.length <= 12 ? formatCell(b.value, chart.kind, currency) : ''}</span>
               <span className="report-column-track" aria-hidden><span className="report-bar report-column" style={{ height: `${b.value ? Math.max(1, (Math.abs(b.value) / max) * 100) : 0}%` }} /></span>
-              <span className="report-column-label" aria-hidden>{i % step === 0 || i === bars.length - 1 ? b.label : ''}</span>
+              <span className="report-column-label" aria-hidden>{labelledColumn(i, bars.length) ? b.label : ''}</span>
             </li>
           ))}
         </ol>
