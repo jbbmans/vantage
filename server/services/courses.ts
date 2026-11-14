@@ -9,7 +9,8 @@
  */
 import type { AppContext } from '../context.ts';
 import { now } from '../lib/ids.ts';
-import { bestListing, cleanCourseCode, courseKey, isVerifiable, type CourseEntry, type CourseLookup, type CourseProvenance, type CourseValues, type Verifiable } from '../../shared/courses.ts';
+import { REDACTED } from '../../shared/constants.ts';
+import { bestListing, cleanCourseCode, courseKey, isVerifiable, sameCourseInputs, type CourseEntry, type CourseLookup, type CourseProvenance, type CourseValues, type Verifiable } from '../../shared/courses.ts';
 
 interface EntryRow {
   id: string; load_id: string; code: string; code_key: string; name: string; provider: string | null; description: string | null;
@@ -59,11 +60,12 @@ const NONE: CourseColumns = { course_entry_id: null, course_verified: null, cour
  */
 export function courseColumns(ctx: AppContext, record: CourseValues | Record<string, unknown>): CourseColumns {
   const values = record as CourseValues;
+  // An anonymized training is verified against nothing: a listing's name and provider would stand beside its redacted
+  // title and say what it was (ADR-0029 §5). Its owner typing a title again is a new value, and is checked as one.
+  if (values.title === REDACTED) return NONE;
   const best = bestListing(values, currentListings(ctx, values.course_code).map(entryOf));
   return best ? { course_entry_id: best.entry.entry_id, course_verified: JSON.stringify(best.verified), course_verified_at: now() } : NONE;
 }
-
-const COURSE_INPUTS = ['course_code', 'title', 'provider', 'hours', 'ceus'] as const;
 
 /**
  * Whether an edit is checked against the catalogs again: when it changes the course code or a value a catalog can verify,
@@ -72,9 +74,8 @@ const COURSE_INPUTS = ['course_code', 'title', 'provider', 'hours', 'ceus'] as c
  * day it was checked stay verified as of that day, even after a later catalog lists other hours.
  */
 export function rechecksCourse(row: Record<string, unknown>, data: Record<string, unknown>): boolean {
-  const changed = COURSE_INPUTS.some((k) => data[k] !== undefined && (data[k] ?? null) !== (row[k] ?? null));
-  const code = data.course_code === undefined ? row.course_code : data.course_code;
-  return changed || (Boolean(code) && !row.course_entry_id);
+  const after = { ...row, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) };
+  return !sameCourseInputs(row, after) || (Boolean(after.course_code) && !row.course_entry_id);
 }
 
 /** The verified list as it is stored: a JSON list, or one hydrate already read. Anything else verifies nothing. */

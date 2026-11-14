@@ -624,7 +624,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   course_sources: {
     purpose: 'The authoritative sources whose published course catalogs verify course values on trainings, with the authorization that approves each for Vantage.',
     authority: 'Registered by Vantage Administrators who hold Service settings, naming the approving document and who approved it. Never changed or removed, withdrawn with a reason; every change audited (ADR-0029).',
-    access: 'Vantage Administrators. A training verified against a source names it to whoever may read the training. Not about a person.',
+    access: 'Vantage staff who can open the console (platform.view) read it; Vantage Administrators who hold Service settings change it. A training verified against a source names it to whoever may read the training. Not about a person.',
     columns: {
       id: 'technical', name: 'none', authority: 'none', approval_reference: 'none', approved_by: 'identifier', approved_on: 'technical', notes: 'none',
       recorded_by: 'identifier', recorded_at: 'technical', withdrawn_at: 'technical', withdrawn_by: 'identifier', withdrawn_reason: 'none',
@@ -633,7 +633,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   course_catalog_loads: {
     purpose: 'Each catalog file loaded for a source: the day its data is as of, its hash and size, what it was found to hold, and when it was applied and replaced. The file itself is not kept.',
     authority: 'Loaded and applied by Vantage Administrators who hold Service settings; every step audited (ADR-0029).',
-    access: 'Vantage Administrators. Not about a person.',
+    access: 'Vantage staff who can open the console (platform.view) read it; Vantage Administrators who hold Service settings load, apply and discard. Not about a person.',
     columns: {
       id: 'technical', source_id: 'technical', status: 'technical', as_of: 'technical', file_name: 'none', file_sha256: 'technical', byte_size: 'technical',
       entry_count: 'technical', preview: 'none', staged_by: 'identifier', staged_at: 'technical', applied_by: 'identifier', applied_at: 'technical',

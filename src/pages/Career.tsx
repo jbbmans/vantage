@@ -5,7 +5,7 @@ import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, NumberI
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
-import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, bestMatch, useCourseLookup, type CourseDraft } from '@/components/Course';
+import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, courseMarks, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
@@ -47,13 +47,17 @@ interface AwardDraft { id?: string; version?: number; name: string; period_start
 
 export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', ...timeframeDraft({ date: todayIso() }), type: 'course', hours: '', provider: '', status: 'completed', notes: '', course_code: '', ceus: '', visibility: v, unit_id: unit });
 /** A training as its form edits it: what it says, never what the server worked out about it. */
-export const trainingDraft = (t: Training): TrainingDraft => ({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', course_code: t.course_code || '', ceus: t.ceus ?? '' });
+export const trainingDraft = (t: Training): TrainingDraft => ({
+  ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', course_code: t.course_code || '', ceus: t.ceus ?? '',
+  // What it held of its course when opened, and what was verified then: an edit that keeps those values keeps that (ADR-0029). The server ignores it.
+  saved_course: { values: { course_code: t.course_code, title: t.title, provider: t.provider, hours: t.hours, ceus: t.ceus }, course: t.course ?? null },
+});
 export const emptyAward = (v: 'private' | 'unit', unit: string | null): AwardDraft => ({ name: '', period_start: '', date: todayIso(), type: 'personal_award', status: 'planned', recommending_official: '', approving_authority: '', citation: '', notes: '', submitted_at: '', approved_at: '', presented_at: '', visibility: v, unit_id: unit });
 
 export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
   // The course code is looked up in the approved catalogs in use (ADR-0029); each value it can verify is marked.
   const lookup = useCourseLookup(d.course_code);
-  const verified = lookup.state === 'done' && lookup.result ? bestMatch(d, lookup.result.matches)?.verified ?? [] : null;
+  const { verified, kept } = courseMarks(d, lookup);
   const use = (m: CourseEntry) => {
     set('course_code', m.code); set('title', m.name);
     if (m.provider) set('provider', m.provider);
@@ -65,7 +69,7 @@ export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: 
       <Field label={<>Course code<CourseMark field="code" value={d.course_code} verified={verified} /></>} hint="optional" error={errors.course_code}>
         <Input autoFocus value={d.course_code} onChange={onText(set, 'course_code')} maxLength={160} placeholder="CDET 8010" autoComplete="off" />
       </Field>
-      <CourseLookupPanel d={d} lookup={lookup} onUse={use} />
+      <CourseLookupPanel d={d} lookup={lookup} onUse={use} kept={kept} />
       <Field label={<>Title<CourseMark field="title" value={d.title} verified={verified} /></>} required error={errors.title}><Input value={d.title} onChange={onText(set, 'title')} placeholder="Sergeants Course (distance)" /></Field>
       <TimeframeFields table="trainings" d={d} set={set} errors={errors}
         extra={<Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={TRAINING_STATUS.map((t) => ({ value: t, label: humanize(t) }))} /></Field>} />
@@ -193,7 +197,7 @@ export default function Career({ section }: { section: CareerSection }) {
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
-        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}${ceus ? ` · ${formatNumber(ceus)} CEUs` : ''}`} to={tab === 'training' ? undefined : '/career/training'} />
+        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}${ceus ? ` · ${formatNumber(ceus)} ${ceus === 1 ? 'CEU' : 'CEUs'}` : ''}`} to={tab === 'training' ? undefined : '/career/training'} />
         <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} to={tab === 'awards' ? undefined : '/career/awards'} />
         <Stat label="Counselings" value={(counselings || []).length} hint={awaitingMe ? `${awaitingMe === 1 ? 'one awaits' : `${awaitingMe} await`} your acknowledgement` : myDrafts ? `${myDrafts} you wrote ${myDrafts === 1 ? 'is' : 'are'} not final yet` : 'up to date'} tone={awaitingMe ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}

@@ -26,6 +26,9 @@ export function CourseSources({ canEdit }: { canEdit: boolean }) {
   const [withdrawing, setWithdrawing] = useState<CourseSourceRecord | null>(null);
   const [loading, setLoading] = useState<CourseSourceRecord | null>(null);
   const [browsing, setBrowsing] = useState<{ source: CourseSourceRecord; load: CatalogLoadRecord } | null>(null);
+  // Each dialog opens empty: a new key on every opening, so nothing typed or chosen before is left in it.
+  const [round, setRound] = useState(0);
+  const opening = () => setRound((r) => r + 1);
   const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'course-sources'] });
   const act = async (label: string, fn: () => Promise<unknown>) => {
     try { await withSudo(fn); toast.success(label); refresh(); return true; } catch (e) { toast.error(api.errorText(e)); return false; }
@@ -37,12 +40,12 @@ export function CourseSources({ canEdit }: { canEdit: boolean }) {
   return (
     <div className="space-y-5">
       <Panel title="In use" subtitle="A course code on a training is looked up in the catalog applied for each of these. A value is verified only when it is what that catalog lists; anything else is kept as manual."
-        action={canEdit ? <Button size="sm" variant="primary" onClick={() => setRegistering(true)}><Plus className="h-4 w-4" />Register a source</Button> : undefined}>
+        action={canEdit ? <Button size="sm" variant="primary" onClick={() => { opening(); setRegistering(true); }}><Plus className="h-4 w-4" />Register a source</Button> : undefined}>
         {!live.length ? (
           <EmptyState title="No approved source" description="Until one is registered and its catalog applied, every course value on a training is manual. Register a source only with the document that approves it for Vantage; never a list found online." />
         ) : (
           <div className="space-y-4">{live.map((s) => (
-            <SourceCard key={s.id} source={s} canEdit={canEdit} onLoad={() => setLoading(s)} onWithdraw={() => setWithdrawing(s)} onBrowse={(load) => setBrowsing({ source: s, load })}
+            <SourceCard key={s.id} source={s} canEdit={canEdit} onLoad={() => { opening(); setLoading(s); }} onWithdraw={() => { opening(); setWithdrawing(s); }} onBrowse={(load) => setBrowsing({ source: s, load })}
               onApply={(load) => act('Applied. Lookups answer from it now; the catalog it replaced is kept.', () => api.platformApplyCatalog(s.id, load.id, load.file_sha256))}
               onDiscard={(load) => act('Discarded. Nothing was answered from it.', () => api.platformDiscardCatalog(s.id, load.id))} />
           ))}</div>
@@ -53,11 +56,11 @@ export function CourseSources({ canEdit }: { canEdit: boolean }) {
           <div className="space-y-4">{withdrawn.map((s) => <SourceCard key={s.id} source={s} canEdit={false} onBrowse={(load) => setBrowsing({ source: s, load })} />)}</div>
         </Panel>
       )}
-      <RegisterDialog open={registering} onClose={() => setRegistering(false)}
+      <RegisterDialog key={`register-${round}`} open={registering} onClose={() => setRegistering(false)}
         onSave={async (body) => { if (await act('Registered. Load its catalog to start verifying courses.', () => api.platformRegisterCourseSource(body))) setRegistering(false); }} />
-      <WithdrawDialog source={withdrawing} onClose={() => setWithdrawing(null)}
+      <WithdrawDialog key={`withdraw-${round}`} source={withdrawing} onClose={() => setWithdrawing(null)}
         onWithdraw={async (reason) => { if (withdrawing && await act('Withdrawn. It is kept with your reason.', () => api.platformWithdrawCourseSource(withdrawing.id, reason))) setWithdrawing(null); }} />
-      <LoadDialog source={loading} onClose={() => setLoading(null)}
+      <LoadDialog key={`load-${round}`} source={loading} onClose={() => setLoading(null)}
         onLoad={async (file, asOf) => { if (loading && await act('Read. Look at what it would change, then apply it.', () => api.platformStageCatalog(loading.id, file, asOf))) setLoading(null); }} />
       <BrowseDialog target={browsing} onClose={() => setBrowsing(null)} />
     </div>
@@ -89,7 +92,7 @@ function SourceCard({ source: s, canEdit, onLoad, onWithdraw, onBrowse, onApply,
             <Button size="xs" variant="ghost" onClick={() => onBrowse(s.current!)}>Browse</Button></p>
         ) : <p className="text-ink-3">No catalog applied yet: it answers no lookup.</p>}
         {s.history.length > 0 && (
-          <details className="mt-2"><summary className="cursor-pointer text-xs text-ink-3">Earlier catalogs ({s.history.length})</summary>
+          <details className="mt-2"><summary className="cursor-pointer text-xs text-ink-3">Earlier catalogs ({formatNumber(s.history_total)}{s.history_total > s.history.length ? `, the latest ${formatNumber(s.history.length)} shown` : ''})</summary>
             <ul className="mt-1 space-y-1 text-xs text-ink-3">{s.history.map((h) => (
               <li key={h.id}>As of {h.as_of}: {count(h.courses, 'course')}, {h.file_name}, applied {formatStamp(h.applied_at)}, replaced {formatStamp(h.superseded_at)}. <Button size="xs" variant="ghost" onClick={() => onBrowse(h)}>Browse</Button></li>
             ))}</ul>
@@ -178,7 +181,7 @@ function LoadDialog({ source, onClose, onLoad }: { source: CourseSourceRecord | 
       description="The file the source publishes, as it publishes it. Vantage reads it, scans it and shows what it would change; it answers lookups only once you apply it."
       footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button variant="primary" disabled={!file || !asOf || tooLarge} onClick={() => { if (file) onLoad(file, asOf); }}>Read it</Button></>}>
       <div className="space-y-3">
-        <Field label="Catalog file" required hint={`.xlsx or .csv, up to ${MAX_CATALOG_BYTES / 1_048_576} MB and ${formatNumber(MAX_CATALOG_ROWS)} courses`} error={tooLarge ? 'That file is too large.' : null}>
+        <Field label="Catalog file" required hint={`.xlsx, .csv or .tsv, up to ${MAX_CATALOG_BYTES / 1_048_576} MB and ${formatNumber(MAX_CATALOG_ROWS)} courses`} error={tooLarge ? 'That file is too large.' : null}>
           <Input type="file" accept=".xlsx,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </Field>
         <Field label="Catalog as of" required hint="the day the source's data is as of"><Input type="date" max={todayIso()} value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
@@ -200,7 +203,7 @@ function BrowseDialog({ target, onClose }: { target: { source: CourseSourceRecor
   const data = query.data;
   return (
     <Dialog open={Boolean(target)} onOpenChange={(o) => { if (!o) close(); }} size="xl" title={target ? `${target.source.name}, catalog as of ${target.load.as_of}` : ''}
-      description={target ? `${formatNumber(target.load.courses)} courses from ${target.load.file_name}${target.load.status === 'staged' ? ', not applied yet' : target.load.status === 'superseded' ? ', since replaced' : ''}.` : undefined}>
+      description={target ? `${count(target.load.courses, 'course')} from ${target.load.file_name}${target.load.status === 'staged' ? ', not applied yet' : target.load.status === 'superseded' ? ', since replaced' : ''}.` : undefined}>
       <div className="space-y-3">
         <Field label="Find a course" hint="by code or name"><Input value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} maxLength={200} /></Field>
         {query.isPending ? <Skeleton className="h-40" /> : query.isError ? <p className="text-sm text-bad">{api.errorText(query.error)}</p> : !data?.entries.length ? <EmptyState title="No course matches" /> : (

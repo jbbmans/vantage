@@ -100,7 +100,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   platform('POST', '/case-guidance/:id/retire', 'platform.settings', writes('official_guidance_retired'), 'Never removed; a reason is required.'),
   platform('POST', '/course-sources', 'platform.settings', writes('course_source_registered'), 'Names the authorization that approves the source for Vantage. Never edited; the other Vantage Administrators who hold Service settings are told.'),
   platform('POST', '/course-sources/:id/withdraw', 'platform.settings', writes('course_source_withdrawn'), 'Never removed; a reason is required. What was verified against it stays verified and says the source was withdrawn.'),
-  platform('POST', '/course-sources/:id/import', 'platform.settings', writes('course_catalog_staged', 'upload_rejected'), 'Reads, scans and counts a catalog file the source publishes. Nothing answers from it until it is applied.'),
+  platform('POST', '/course-sources/:id/import', 'platform.settings', [...writes('course_catalog_staged'), ...sealed('enterprise', 'upload_rejected')], 'Reads, scans and counts a catalog file the source publishes. Nothing answers from it until it is applied.'),
   platform('POST', '/course-sources/:id/loads/:loadId/apply', 'platform.settings', writes('course_catalog_applied'), 'Only the file the page showed (its hash). The catalog it replaces is kept.'),
   platform('POST', '/course-sources/:id/loads/:loadId/discard', 'platform.settings', writes('course_catalog_discarded'), 'Only a file not yet applied.'),
   platform('POST', '/email/check', 'platform.email', writes('email_setup_checked')),

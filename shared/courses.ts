@@ -28,6 +28,9 @@ export const CATALOG_LIMITS = { name: 300, provider: 200, description: 4000, cat
 export const VERIFIABLE = ['code', 'title', 'provider', 'hours', 'ceus'] as const;
 export type Verifiable = (typeof VERIFIABLE)[number];
 export const VERIFIABLE_LABELS: Record<Verifiable, string> = { code: 'Course code', title: 'Title', provider: 'Provider', hours: 'Hours', ceus: 'CEUs' };
+/** The same names inside a sentence: "Verified: course code, title, CEUs". */
+export const VERIFIABLE_WORDS: Record<Verifiable, string> = { code: 'course code', title: 'title', provider: 'provider', hours: 'hours', ceus: 'CEUs' };
+export const verifiedWords = (list: readonly Verifiable[]) => list.map((v) => VERIFIABLE_WORDS[v]).join(', ');
 export const isVerifiable = (v: unknown): v is Verifiable => typeof v === 'string' && (VERIFIABLE as readonly string[]).includes(v);
 
 // Characters a person never means to type into a code or a value: controls, zero-width and direction marks.
@@ -119,6 +122,19 @@ export function verifiedValues(values: CourseValues, entry: Pick<CourseEntry, 'c
   return out;
 }
 
+const numberOrNull = (v: unknown) => (v === null || v === undefined || String(v).trim() === '' ? null : Number(v));
+const sameNumberOrNone = (a: unknown, b: unknown) => { const x = numberOrNull(a), y = numberOrNull(b); return x === null || y === null ? x === y : x === y || Math.abs(x - y) < 1e-9; };
+
+/**
+ * Whether two versions of a training hold the same course values, as a catalog compares them: the same course code, text
+ * that reads the same once spacing is ignored, the same numbers. An edit that keeps them keeps what was verified, and when
+ * (the server's rechecksCourse); the form says so rather than guessing from the catalogs in use.
+ */
+export function sameCourseInputs(a: CourseValues, b: CourseValues): boolean {
+  return courseKey(a.course_code) === courseKey(b.course_code) && cleanLine(a.title) === cleanLine(b.title) && cleanLine(a.provider) === cleanLine(b.provider)
+    && sameNumberOrNone(a.hours, b.hours) && sameNumberOrNone(a.ceus, b.ceus);
+}
+
 /**
  * The listing a training's values are verified against, of those its course code has in the catalogs in use: the one that
  * matches the most of them, the first (the newest catalog) when two match as many. The server stores it; the form shows it.
@@ -156,8 +172,10 @@ export interface CourseSourceRecord {
   withdrawn_reason: string | null;
   current: CatalogLoadRecord | null;
   staged: CatalogLoadRecord | null;
-  /** Earlier catalogs, newest first: what trainings verified against them still name. */
+  /** Earlier catalogs, newest first, the latest of them: what trainings verified against them still name. */
   history: CatalogLoadRecord[];
+  /** How many earlier catalogs there are in all. */
+  history_total: number;
 }
 
 export type CatalogLoadStatus = 'staged' | 'current' | 'superseded' | 'discarded';

@@ -106,11 +106,11 @@ test('an approved catalog verifies a Marine’s course code and what it lists; a
   await expect(form.getByRole('textbox', { name: /^Title/ })).toHaveValue(course);
   await expect(code).toHaveValue(`${tag} 8010`);
   for (const field of ['Title', 'Provider']) await expect(form.getByRole('textbox', { name: new RegExp(`^${field}`) })).toHaveAccessibleName(new RegExp(`${field} Verified`));
-  await expect(form).toContainText('course code, title, provider, hours, ceus would be verified');
+  await expect(form).toContainText('course code, title, provider, hours, CEUs would be verified');
   // What they change from the listing is theirs: manual.
   await form.getByRole('textbox', { name: /^Provider/ }).fill('MarineNet');
   await expect(form.getByRole('textbox', { name: /^Provider/ })).toHaveAccessibleName(/Provider Manual/);
-  await expect(form).toContainText('course code, title, hours, ceus would be verified');
+  await expect(form).toContainText('course code, title, hours, CEUs would be verified');
   // Tall enough that no field scrolls out of the dialog: axe reads a label scrolled out of sight as no label.
   await marine.setViewportSize({ width: 1280, height: 1600 });
   expect(await axeDialog(marine), 'a training form with a course looked up').toEqual([]);
@@ -124,7 +124,7 @@ test('an approved catalog verifies a Marine’s course code and what it lists; a
   await row.getByRole('button', { name: course }).click();
   const view = marine.getByRole('dialog', { name: course });
   const provenance = view.getByTestId('course-provenance');
-  await expect(provenance).toContainText('Verified: course code, title, hours, ceus');
+  await expect(provenance).toContainText('Verified: course code, title, hours, CEUs');
   await expect(provenance).toContainText(`Against ${name}`);
   await expect(provenance).toContainText('Manual: provider.');
   await expect(view).toContainText('What the catalog says');
@@ -132,6 +132,20 @@ test('an approved catalog verifies a Marine’s course code and what it lists; a
   expect(await axe(marine), 'a training with its course verified').toEqual([]);
   await marine.setViewportSize({ width: 390, height: 844 });
   await noSidewaysScroll(marine, 'a training with its course at 390px');
+  await marine.keyboard.press('Escape');
+
+  // Opened again, it says what saving keeps: what was verified, not a fresh guess. Changing a value checks it again.
+  await marine.setViewportSize({ width: 1280, height: 900 });
+  await marine.getByRole('row').filter({ hasText: course }).getByRole('button', { name: 'Edit' }).click();
+  const edit = marine.getByRole('dialog', { name: 'Edit training' });
+  await expect(edit).toContainText(`saving keeps what was verified against ${name}`);
+  await expect(edit).toContainText(': course code, title, hours, CEUs.');
+  await expect(edit.getByRole('textbox', { name: /^Provider/ })).toHaveAccessibleName(/Provider Manual/);
+  await expect(edit.getByRole('textbox', { name: /^Title/ })).toHaveAccessibleName(/Title Verified/);
+  await edit.getByRole('textbox', { name: /^Title/ }).fill(`${course} (resident)`);
+  await expect(edit).not.toContainText('saving keeps what was verified');
+  await expect(edit.getByRole('textbox', { name: /^Title/ })).toHaveAccessibleName(/Title Manual/);
+  await expect(edit).toContainText('course code, hours, CEUs would be verified');
   await marine.keyboard.press('Escape');
 
   // A code no catalog lists is kept, and every value is manual.

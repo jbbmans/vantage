@@ -349,7 +349,12 @@ test('anonymizing a training under a retention schedule leaves nothing that says
   assert.equal(after.course_code, 'MCI 0100', 'a course code counts a course, not a Marine');
   assert.equal(after.hours, 20);
   assert.deepEqual([after.course_entry_id, after.course_verified, after.course_verified_at], [null, null, null], 'no listing shows its name beside the redacted title');
-  assert.equal((await get(marine.token, `/api/records/trainings/${shared.body.id}`)).body.course, undefined);
+  const kept = (await get(marine.token, `/api/records/trainings/${shared.body.id}`)).body;
+  assert.equal(kept.course, undefined);
+  // Edited afterwards, it is not linked to a listing again: its code would match, but its title is no one's now.
+  const edited = await put(marine.token, `/api/records/trainings/${shared.body.id}`, { ...kept, hours: 21 });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.deepEqual([training(shared.body.id).course_entry_id, training(shared.body.id).course_verified], [null, null], 'an anonymized training is never verified again');
 });
 
 test('an instance archive loads into a fresh host whose operator registered a source, and its catalogs stay kept', async () => {
@@ -374,4 +379,32 @@ test('an instance archive loads into a fresh host whose operator registered a so
     // Every trigger the host had is back, as it was.
     assert.deepEqual(fresh.ctx.db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name").all(), triggers);
   } finally { await fresh.close(); }
+});
+
+test('reading a catalog: a tab-separated file with commas in it, a clash that repeats its first wording, and the history count', async () => {
+  const made = await post(op.token, '/api/platform/course-sources', { ...SOURCE, name: 'Reading checks catalog' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  // Tab-separated, with commas in its values: read on its tabs, whatever its name says.
+  const tsv = ['Course Code\tCourse Title\tDescription\tHours', 'RD 1\tReading, writing\tCommas, many, of them\t3', 'RD 2\tSecond\tOne, two\t1,200', ''].join('\n');
+  const staged = await stage(op.token, id, tsv, 'catalog.csv');
+  assert.equal(staged.status, 201, JSON.stringify(staged.body));
+  assert.equal(staged.body.staged.preview.courses, 2);
+  assert.equal(staged.body.staged.preview.left_out, 0, JSON.stringify(staged.body.staged.preview.problems));
+  const listed = (await get(op.token, `/api/platform/course-sources/${id}/loads/${staged.body.staged.id}/entries`)).body.entries as Array<Record<string, any>>;
+  assert.deepEqual(listed.map((e) => [e.code, e.name, e.description, e.hours]), [['RD 1', 'Reading, writing', 'Commas, many, of them', 3], ['RD 2', 'Second', 'One, two', 1200]]);
+  // A clash is left out on every line it is on, the repeat of the first wording too.
+  const clash = ['Code,Name', 'CL 1,First wording', 'CL-1,Second wording', 'cl 1,First wording', 'OK 1,Fine', ''].join('\n');
+  const read = await stage(op.token, id, clash);
+  assert.equal(read.status, 201, JSON.stringify(read.body));
+  assert.equal(read.body.staged.preview.courses, 1);
+  assert.deepEqual(read.body.staged.preview.problems.map((x: { line: number }) => x.line).sort(), [2, 3, 4]);
+  // Every catalog it replaced is counted, though only the latest are listed.
+  const apply = async (load: { id: string; file_sha256: string }) => assert.equal((await post(op.token, `/api/platform/course-sources/${id}/loads/${load.id}/apply`, { file_sha256: load.file_sha256 })).status, 200);
+  for (let i = 0; i < 23; i++) await apply((await stage(op.token, id, `Code,Name\nHX ${i},Course ${i}\n`)).body.staged);
+  const record = ((await get(op.token, '/api/platform/course-sources')).body.sources as Array<Record<string, any>>).find((x) => x.id === id)!;
+  assert.equal(record.history_total, 22);
+  assert.ok(record.history.length < 22 && record.history.length > 0, `${record.history.length} listed`);
+  assert.equal(record.history[0].as_of, '2026-10-01');
+  assert.equal((await post(op.token, `/api/platform/course-sources/${id}/withdraw`, { reason: 'Only for this check.' })).status, 200);
 });

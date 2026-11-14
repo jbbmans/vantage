@@ -79,9 +79,10 @@ export function listCourseSources(ctx: AppContext, only?: string): CourseSourceR
   if (!sources.length) return [];
   // The catalog in use and the one waiting, and the latest catalogs each replaced: only as many as are shown.
   const loads = ctx.db.prepare(`SELECT * FROM (
-      SELECT l.*, ROW_NUMBER() OVER (PARTITION BY l.source_id, l.status ORDER BY COALESCE(l.applied_at, l.staged_at) DESC, l.id) AS nth
+      SELECT l.*, ROW_NUMBER() OVER (PARTITION BY l.source_id, l.status ORDER BY COALESCE(l.applied_at, l.staged_at) DESC, l.id) AS nth,
+        COUNT(*) OVER (PARTITION BY l.source_id, l.status) AS of_status
       FROM course_catalog_loads l WHERE l.status IN ('staged', 'current', 'superseded') AND (? IS NULL OR l.source_id = ?)
-    ) WHERE status <> 'superseded' OR nth <= ? ORDER BY COALESCE(applied_at, staged_at) DESC, id`).all(only ?? null, only ?? null, HISTORY_SHOWN) as LoadRow[];
+    ) WHERE status <> 'superseded' OR nth <= ? ORDER BY COALESCE(applied_at, staged_at) DESC, id`).all(only ?? null, only ?? null, HISTORY_SHOWN) as Array<LoadRow & { of_status: number }>;
   const who = namesOf(ctx, [...sources.flatMap((s) => [s.recorded_by, s.withdrawn_by]), ...loads.flatMap((l) => [l.staged_by, l.applied_by])]);
   return sources.map((s) => {
     const own = loads.filter((l) => l.source_id === s.id);
@@ -94,6 +95,7 @@ export function listCourseSources(ctx: AppContext, only?: string): CourseSourceR
       current: current ? loadRecord(current, who) : null,
       staged: staged ? loadRecord(staged, who) : null,
       history: own.filter((l) => l.status === 'superseded').map((l) => loadRecord(l, who)),
+      history_total: own.find((l) => l.status === 'superseded')?.of_status ?? 0,
     };
   });
 }
@@ -169,14 +171,28 @@ function sheetsOf(buffer: Buffer, filename: string, contentType: string): Array<
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer).replace(/^\uFEFF/, ''); }
   catch { throw badRequest('That file is not UTF-8 text. Save it from Excel as "CSV UTF-8", or load the workbook (.xlsx) itself.'); }
   if (text.includes('\u0000')) throw badRequest('That file is not a text file. Load the catalog as a workbook (.xlsx) or a CSV.');
-  // Tab-separated when the lines the header is searched in hold more tabs than commas (a title row above it may hold neither).
-  const head = text.split(/\r?\n/, HEADER_SEARCH_ROWS).join('\n');
-  const delimiter = (head.split('\t').length > head.split(',').length ? '\t' : ',') as ',' | '\t';
+  const delimiter = delimiterOf(text, filename, contentType);
   try { return [{ name: null, matrix: parseDelimited(text, delimiter, { maxRows: MAX_CATALOG_ROWS + HEADER_SEARCH_ROWS }), truncated: false }]; }
   catch (e) {
     if (/limited to/.test((e as Error).message)) throw badRequest(ROW_LIMIT_MESSAGE, { code: 'too_many_rows' });
     throw badRequest((e as Error).message);
   }
+}
+
+/**
+ * Tabs or commas: tabs for a file named or sent as tab-separated; otherwise the one that splits a line the header is
+ * searched in into a course code and a name column (prose in the rows below may hold more commas than a TSV has tabs),
+ * and failing that the one the lines hold more of.
+ */
+function delimiterOf(text: string, filename: string, contentType: string): ',' | '\t' {
+  if (/\.tsv$/i.test(filename) || /tab-separated/i.test(contentType)) return '\t';
+  const head = text.split(/\r?\n/, HEADER_SEARCH_ROWS).join('\n');
+  for (const delimiter of [',', '\t'] as const) {
+    let rows: string[][];
+    try { rows = parseDelimited(head, delimiter, { maxRows: HEADER_SEARCH_ROWS }); } catch { continue; }
+    if (rows.some((r) => { const { index } = columnsOf(r.slice(0, MAX_IMPORT_COLUMNS).map((h) => String(h ?? ''))); return index.code !== undefined && index.name !== undefined; })) return delimiter;
+  }
+  return head.split('\t').length > head.split(',').length ? '\t' : ',';
 }
 
 /** Which column fills which value: the first column whose header Vantage reads for it. */
@@ -250,7 +266,8 @@ export function readCatalog(buffer: Buffer, filename: string, contentType: strin
   const { index, named, ignored } = columnsOf(chosen.headers);
   const problems: CatalogProblem[] = [];
   const byKey = new Map<string, ParsedEntry>();
-  const clashing = new Map<string, number[]>();
+  const linesOf = new Map<string, number[]>();
+  const clashing = new Set<string>();
   let rows = 0;
   chosen.matrix.slice(chosen.header + 1).forEach((cells, i) => {
     if (!cells.some((c) => String(c ?? '').trim() !== '')) return;
@@ -258,15 +275,16 @@ export function readCatalog(buffer: Buffer, filename: string, contentType: strin
     const line = chosen!.header + i + 2;
     const read = readEntry(cells, index, line);
     if (!('code_key' in read)) { problems.push(read); return; }
+    linesOf.set(read.code_key, [...(linesOf.get(read.code_key) ?? []), line]);
     const before = byKey.get(read.code_key);
     if (!before) { byKey.set(read.code_key, read); return; }
     // The same course listed again with the same values is the same listing. Listed again otherwise, the file does not
-    // say which is right, so neither is read.
-    if (sameEntry(before, read)) return;
-    clashing.set(read.code_key, [...(clashing.get(read.code_key) ?? [before.line]), line]);
+    // say which is right, so none of its rows is read, and each is said to be left out.
+    if (!sameEntry(before, read)) clashing.add(read.code_key);
   });
   if (rows > MAX_CATALOG_ROWS) throw badRequest(ROW_LIMIT_MESSAGE, { code: 'too_many_rows' });
-  for (const [key, lines] of clashing) {
+  for (const key of clashing) {
+    const lines = linesOf.get(key)!;
     const first = byKey.get(key)!;
     byKey.delete(key);
     for (const line of lines) problems.push({ line, code: first.code, reason: `This course code is listed on lines ${lines.join(', ')} with different values; none of them was read.` });
@@ -294,7 +312,7 @@ export async function stageCatalog(ctx: AppContext, actor: SessionUser, sourceId
   if (backup) throw badRequest(backup, { code: 'infrastructure_file' });
   // Scanned as any upload is, before it is read; a rejected file is never kept, and the entry holds what the scanner found.
   try { await scanUpload(ctx.config.intake, buffer, filename); }
-  catch (e) { if (e instanceof MalwareRejected) audit(ctx, { actor_id: actor.id, action: 'upload_rejected', entity: 'course_catalog_loads', detail: `course catalog rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip }); throw e; }
+  catch (e) { if (e instanceof MalwareRejected) audit(ctx, { actor_id: actor.id, action: 'upload_rejected', category: 'enterprise', entity: 'course_catalog_loads', detail: `course catalog rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip }); throw e; }
   const read = readCatalog(buffer, filename, input.contentType);
   if (!read.entries.length) {
     throw badRequest(`No course in that file could be read${read.problems.length ? `: line ${read.problems[0].line}, ${read.problems[0].reason}` : '.'}`, { code: 'empty_catalog', problems: read.problems.slice(0, 20) });
