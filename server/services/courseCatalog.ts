@@ -184,12 +184,16 @@ function sheetsOf(buffer: Buffer, filename: string, contentType: string): Array<
  * searched in into a course code and a name column (prose in the rows below may hold more commas than a TSV has tabs),
  * and failing that the one the lines hold more of.
  */
+const CLASH_LINES_NAMED = 10;
+
 function delimiterOf(text: string, filename: string, contentType: string): ',' | '\t' {
   if (/\.tsv$/i.test(filename) || /tab-separated/i.test(contentType)) return '\t';
   const head = text.split(/\r?\n/, HEADER_SEARCH_ROWS).join('\n');
   for (const delimiter of [',', '\t'] as const) {
     let rows: string[][];
-    try { rows = parseDelimited(head, delimiter, { maxRows: HEADER_SEARCH_ROWS }); } catch { continue; }
+    // A quoted cell running past the lines read is closed, so the header above it is still found.
+    try { rows = parseDelimited(head, delimiter, { maxRows: HEADER_SEARCH_ROWS }); }
+    catch { try { rows = parseDelimited(`${head}"`, delimiter, { maxRows: HEADER_SEARCH_ROWS }); } catch { continue; } }
     if (rows.some((r) => { const { index } = columnsOf(r.slice(0, MAX_IMPORT_COLUMNS).map((h) => String(h ?? ''))); return index.code !== undefined && index.name !== undefined; })) return delimiter;
   }
   return head.split('\t').length > head.split(',').length ? '\t' : ',';
@@ -275,7 +279,8 @@ export function readCatalog(buffer: Buffer, filename: string, contentType: strin
     const line = chosen!.header + i + 2;
     const read = readEntry(cells, index, line);
     if (!('code_key' in read)) { problems.push(read); return; }
-    linesOf.set(read.code_key, [...(linesOf.get(read.code_key) ?? []), line]);
+    const seen = linesOf.get(read.code_key);
+    if (seen) seen.push(line); else linesOf.set(read.code_key, [line]);
     const before = byKey.get(read.code_key);
     if (!before) { byKey.set(read.code_key, read); return; }
     // The same course listed again with the same values is the same listing. Listed again otherwise, the file does not
@@ -287,7 +292,10 @@ export function readCatalog(buffer: Buffer, filename: string, contentType: strin
     const lines = linesOf.get(key)!;
     const first = byKey.get(key)!;
     byKey.delete(key);
-    for (const line of lines) problems.push({ line, code: first.code, reason: `This course code is listed on lines ${lines.join(', ')} with different values; none of them was read.` });
+    // One reason for every line of the code, naming the first few lines it is on.
+    const listed = lines.length > CLASH_LINES_NAMED ? `${lines.slice(0, CLASH_LINES_NAMED).join(', ')} and ${(lines.length - CLASH_LINES_NAMED).toLocaleString('en-US')} more` : lines.join(', ');
+    const reason = `This course code is listed on lines ${listed} with different values; none of them was read.`;
+    for (const line of lines) problems.push({ line, code: first.code, reason });
   }
   problems.sort((a, b) => a.line - b.line);
   const entries = [...byKey.values()].sort((a, b) => a.line - b.line);

@@ -6,7 +6,8 @@ import { runDisposition, saveSchedule } from '../../server/services/retention.ts
 import { standing } from '../../server/services/reportCenter.ts';
 import { exportInstance, importInstance } from '../../server/services/exports.ts';
 import { writeWorkbook } from '../../server/lib/workbook.ts';
-import { verifiedValues } from '../../shared/courses.ts';
+import { bestListing, sameCourseInputs, verifiedValues } from '../../shared/courses.ts';
+import { REDACTED } from '../../shared/constants.ts';
 
 /**
  * Course lookup (Task 22, ADR-0029): a course code on a training is looked up only in the current catalog of an approved
@@ -179,8 +180,19 @@ test('a training is verified only where it is what the catalog lists; nothing a 
   const forged = await post(marine.token, '/api/records/trainings', { title: 'Something else', course_verified: ['title'] });
   assert.deepEqual(training(forged.body.id), { course_code: null, ceus: null, course_entry_id: null, course_verified: null, course_verified_at: null });
 
-  // The form shows the rule the server stores.
-  assert.deepEqual(verifiedValues({ course_code: 'cdet8010', title: 'Sergeants Course Distance Education Program', hours: '40' }, { code: 'CDET 8010', name: 'Sergeants Course Distance Education Program', provider: 'CDET', hours: 40, ceus: 4 }), ['code', 'title', 'hours']);
+  // The form shows the rule the server stores, reading numbers as the record schemas do ("1,200" is 1200).
+  const listing = { code: 'CDET 8010', name: 'Sergeants Course Distance Education Program', provider: 'CDET', hours: 40, ceus: 4 };
+  assert.deepEqual(verifiedValues({ course_code: 'cdet8010', title: 'Sergeants Course Distance Education Program', hours: '40' }, listing), ['code', 'title', 'hours']);
+  assert.deepEqual(verifiedValues({ course_code: 'CDET 8010', title: 'x', hours: '1,200' }, { ...listing, hours: 1200 }), ['code', 'hours']);
+  assert.equal(sameCourseInputs({ course_code: 'CDET 8010', title: 'T', hours: 1200, ceus: null }, { course_code: 'cdet-8010', title: ' T ', hours: '1,200', ceus: '' }), true);
+  assert.equal(sameCourseInputs({ course_code: 'CDET 8010', title: 'T', hours: 12 }, { course_code: 'CDET 8010', title: 'T', hours: '12.5' }), false);
+  // An anonymized training is verified against nothing, by the form as by the server.
+  assert.equal(bestListing({ course_code: 'CDET 8010', title: REDACTED, hours: 40, ceus: 4 }, [listing]), null);
+
+  // A save refused because the training changed meanwhile sends the newer version back with what it says was verified.
+  const stale = await put(marine.token, `/api/records/trainings/${exact.body.id}`, { ...exact.body, notes: 'From an old copy.', version: exact.body.version - 1 });
+  assert.equal(stale.status, 409, JSON.stringify(stale.body));
+  assert.equal(stale.body.current.course.entry.source.name, SOURCE.name);
 
   // An edit that changes nothing a catalog checks keeps what was verified, and when.
   const at = training(exact.body.id).course_verified_at;
@@ -386,19 +398,30 @@ test('reading a catalog: a tab-separated file with commas in it, a clash that re
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const id = made.body.id as string;
   // Tab-separated, with commas in its values: read on its tabs, whatever its name says.
-  const tsv = ['Course Code\tCourse Title\tDescription\tHours', 'RD 1\tReading, writing\tCommas, many, of them\t3', 'RD 2\tSecond\tOne, two\t1,200', ''].join('\n');
+  const tsv = ['Course Code\tCourse Title\tDescription\tHours', 'RD 1\tReading, writing\tCommas, many, of, them, here, and, there\t3', 'RD 2\tSecond\tOne, two, three, four\t1,200', ''].join('\n');
+  assert.ok(tsv.split(',').length > tsv.split('\t').length, 'more commas than tabs: counting them alone would read it as a CSV');
   const staged = await stage(op.token, id, tsv, 'catalog.csv');
   assert.equal(staged.status, 201, JSON.stringify(staged.body));
   assert.equal(staged.body.staged.preview.courses, 2);
   assert.equal(staged.body.staged.preview.left_out, 0, JSON.stringify(staged.body.staged.preview.problems));
   const listed = (await get(op.token, `/api/platform/course-sources/${id}/loads/${staged.body.staged.id}/entries`)).body.entries as Array<Record<string, any>>;
-  assert.deepEqual(listed.map((e) => [e.code, e.name, e.description, e.hours]), [['RD 1', 'Reading, writing', 'Commas, many, of them', 3], ['RD 2', 'Second', 'One, two', 1200]]);
+  assert.deepEqual(listed.map((e) => [e.code, e.name, e.description, e.hours]), [['RD 1', 'Reading, writing', 'Commas, many, of, them, here, and, there', 3], ['RD 2', 'Second', 'One, two, three, four', 1200]]);
+  // A quoted cell running past the first lines does not hide the header above it.
+  const long = ['Course Code\tCourse Title\tDescription', `QC 1\tQuoted\t"${Array.from({ length: 12 }, (_, i) => `line ${i}, with, commas`).join('\n')}"`, ''].join('\n');
+  const quoted = await stage(op.token, id, long, 'catalog.txt', '2026-10-01', 'text/plain');
+  assert.equal(quoted.status, 201, JSON.stringify(quoted.body));
+  assert.equal(quoted.body.staged.preview.courses, 1);
   // A clash is left out on every line it is on, the repeat of the first wording too.
   const clash = ['Code,Name', 'CL 1,First wording', 'CL-1,Second wording', 'cl 1,First wording', 'OK 1,Fine', ''].join('\n');
   const read = await stage(op.token, id, clash);
   assert.equal(read.status, 201, JSON.stringify(read.body));
   assert.equal(read.body.staged.preview.courses, 1);
   assert.deepEqual(read.body.staged.preview.problems.map((x: { line: number }) => x.line).sort(), [2, 3, 4]);
+  // Listed many times, every line is left out, and the reason names the first few.
+  const many = ['Code,Name', ...Array.from({ length: 14 }, (_, i) => `MX 1,Wording ${i % 2}`), 'OK 2,Fine', ''].join('\n');
+  const repeated = (await stage(op.token, id, many)).body.staged.preview;
+  assert.equal(repeated.left_out, 14);
+  assert.match(repeated.problems[0].reason, /lines 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 4 more with different values/);
   // Every catalog it replaced is counted, though only the latest are listed.
   const apply = async (load: { id: string; file_sha256: string }) => assert.equal((await post(op.token, `/api/platform/course-sources/${id}/loads/${load.id}/apply`, { file_sha256: load.file_sha256 })).status, 200);
   for (let i = 0; i < 23; i++) await apply((await stage(op.token, id, `Code,Name\nHX ${i},Course ${i}\n`)).body.staged);

@@ -9,7 +9,6 @@
  */
 import type { AppContext } from '../context.ts';
 import { now } from '../lib/ids.ts';
-import { REDACTED } from '../../shared/constants.ts';
 import { bestListing, cleanCourseCode, courseKey, isVerifiable, sameCourseInputs, type CourseEntry, type CourseLookup, type CourseProvenance, type CourseValues, type Verifiable } from '../../shared/courses.ts';
 
 interface EntryRow {
@@ -60,9 +59,8 @@ const NONE: CourseColumns = { course_entry_id: null, course_verified: null, cour
  */
 export function courseColumns(ctx: AppContext, record: CourseValues | Record<string, unknown>): CourseColumns {
   const values = record as CourseValues;
-  // An anonymized training is verified against nothing: a listing's name and provider would stand beside its redacted
-  // title and say what it was (ADR-0029 §5). Its owner typing a title again is a new value, and is checked as one.
-  if (values.title === REDACTED) return NONE;
+  // An anonymized training is verified against nothing (bestListing): a listing's name and provider would stand beside
+  // its redacted title and say what it was (ADR-0029 §5). Its owner typing a title again is a new value, and is checked as one.
   const best = bestListing(values, currentListings(ctx, values.course_code).map(entryOf));
   return best ? { course_entry_id: best.entry.entry_id, course_verified: JSON.stringify(best.verified), course_verified_at: now() } : NONE;
 }

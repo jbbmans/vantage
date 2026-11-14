@@ -10,6 +10,8 @@
  * Kept free of the validation library: the browser imports it (see shared/courseSchemas.ts for request bodies).
  */
 
+import { REDACTED } from './constants.ts';
+
 /** The longest course code a training or a catalog holds, as a training requirement's (ADR-0012). */
 export const COURSE_CODE_MAX = 40;
 /** The most CEUs a training or a catalog entry holds. */
@@ -100,9 +102,11 @@ export interface CourseProvenance {
 export interface CourseValues { course_code?: unknown; title?: unknown; provider?: unknown; hours?: unknown; ceus?: unknown }
 
 const sameText = (a: unknown, b: unknown) => { const x = cleanLine(a); return x !== '' && x === cleanLine(b); };
+/** A number as a form or a request gives it, read as the record schemas read it ("1,200" is 1200, "$40" is 40). */
+const toNumber = (v: unknown) => (typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')));
 const sameNumber = (a: unknown, b: unknown) => {
   if (a === null || a === undefined || a === '' || b === null || b === undefined) return false;
-  const x = Number(a), y = Number(b);
+  const x = toNumber(a), y = toNumber(b);
   return Number.isFinite(x) && Number.isFinite(y) && Math.abs(x - y) < 1e-9;
 };
 
@@ -122,7 +126,7 @@ export function verifiedValues(values: CourseValues, entry: Pick<CourseEntry, 'c
   return out;
 }
 
-const numberOrNull = (v: unknown) => (v === null || v === undefined || String(v).trim() === '' ? null : Number(v));
+const numberOrNull = (v: unknown) => (v === null || v === undefined || String(v).trim() === '' ? null : toNumber(v));
 const sameNumberOrNone = (a: unknown, b: unknown) => { const x = numberOrNull(a), y = numberOrNull(b); return x === null || y === null ? x === y : x === y || Math.abs(x - y) < 1e-9; };
 
 /**
@@ -140,6 +144,8 @@ export function sameCourseInputs(a: CourseValues, b: CourseValues): boolean {
  * matches the most of them, the first (the newest catalog) when two match as many. The server stores it; the form shows it.
  */
 export function bestListing<E extends Pick<CourseEntry, 'code' | 'name' | 'provider' | 'hours' | 'ceus'>>(values: CourseValues, listings: readonly E[]): { entry: E; verified: Verifiable[] } | null {
+  // An anonymized training is verified against nothing: a listing's name would stand beside its redacted title (ADR-0029 §5).
+  if (cleanLine(values.title) === REDACTED) return null;
   let best: { entry: E; verified: Verifiable[] } | null = null;
   for (const entry of listings) {
     const verified = verifiedValues(values, entry);

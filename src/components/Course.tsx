@@ -94,7 +94,7 @@ export function CourseLookupPanel({ d, lookup, onUse, kept = null }: { d: Course
   if (lookup.state === 'idle') return note ?? <p className="text-xs text-ink-3">Enter the course code to look it up in the approved catalogs. Without one, every value is kept as entered (manual).</p>;
   const current = lookup.state === 'done' && courseKey(lookup.code) === courseKey(d.course_code);
   if (lookup.state === 'failed') return <div className="space-y-1">{note}<p className="text-xs text-bad" role="alert">{lookup.error} Vantage checks the course code again when it saves.</p></div>;
-  if (!current || !lookup.result) return <div className="space-y-1">{note}<p className="text-xs text-ink-3" role="status">Looking up {d.course_code.trim()}…</p></div>;
+  if (!current || !lookup.result) return <div className="space-y-1">{note}<p className="text-xs text-ink-3" role="status">Looking up {String(d.course_code ?? '').trim()}…</p></div>;
   const r = lookup.result;
   if (!r.sources) return <div className="space-y-1">{note}<p className="text-xs text-ink-3" role="status">No approved course source has a catalog in use, so nothing can be verified now.{kept ? '' : ' What you enter is kept as manual.'}</p></div>;
   if (!r.matches.length) return <div className="space-y-1">{note}<p className="text-xs text-ink-3" role="status">No approved catalog lists {r.code}.{kept ? '' : ' What you enter is kept as manual.'}</p></div>;

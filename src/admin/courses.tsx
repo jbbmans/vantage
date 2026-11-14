@@ -165,7 +165,7 @@ function WithdrawDialog({ source, onClose, onWithdraw }: { source: CourseSourceR
   return (
     <Dialog open={Boolean(source)} onOpenChange={(o) => { if (!o) close(); }} size="sm" title={`Withdraw ${source?.name ?? 'this source'}`}
       description="Its catalog stops answering lookups and verifies nothing new. What was verified against it stays verified, and says the source was withdrawn and why."
-      footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button variant="danger" disabled={!reason.trim()} onClick={() => { onWithdraw(reason.trim()); setReason(''); }}>Withdraw it</Button></>}>
+      footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button variant="danger" disabled={!reason.trim()} onClick={() => onWithdraw(reason.trim())}>Withdraw it</Button></>}>
       <Field label="Why" required><Input maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
     </Dialog>
   );

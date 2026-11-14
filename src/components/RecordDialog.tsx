@@ -15,7 +15,7 @@ type Problem = string | { message: string; fieldErrors: Record<string, string> }
  */
 export interface SaveAction<T> { label: string; done: string; variant?: 'primary' | 'default'; patch?: Partial<T>; check?: (draft: T) => Problem; then?: (saved: any) => Promise<any> }
 
-export default function RecordDialog<T extends Record<string, any>>({ store, open, onOpenChange, initial, title, noun, fields, size = 'md', validate, onSaved, actions, note }: {
+export default function RecordDialog<T extends Record<string, any>>({ store, open, onOpenChange, initial, title, noun, fields, size = 'md', validate, onSaved, actions, note, fromCurrent }: {
   store: Store; open: boolean; onOpenChange: (o: boolean) => void; initial: T | null; title: string; noun: string; size?: 'sm' | 'md' | 'lg';
   fields: (draft: T, set: (k: keyof T & string, v: unknown) => void, errors: Record<string, string>) => React.ReactNode;
   /** What stops the save, in words, or with the fields it is about (a timeframe out of order marks its end date). */
@@ -24,6 +24,8 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
   actions?: Array<SaveAction<T>>;
   /** A line beside the buttons: what saving does. */
   note?: React.ReactNode;
+  /** The newest copy of the record, after a conflict, as this form edits it (null columns as empty fields). It is given the server's row. */
+  fromCurrent?: (current: never) => Partial<T>;
 }) {
   const toast = useToast();
   const create = useCreateRecord(store);
@@ -91,7 +93,7 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
           : <Button variant="primary" onClick={() => save()} loading={busy}>{draft.id ? 'Save changes' : `Add ${noun.toLowerCase()}`}</Button>}</>}>
         <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); save(); }}>{fields(draft, set, errors)}<button type="submit" className="hidden" aria-hidden /></form>
       </Dialog>
-      <ConflictDialog conflict={conflict} onClose={() => setConflict(null)} onOverwrite={() => { const v = conflict.version; setConflict(null); save(v, pending.current); }} onReload={() => { setDraft({ ...draft, ...conflict }); setConflict(null); }} />
+      <ConflictDialog conflict={conflict} onClose={() => setConflict(null)} onOverwrite={() => { const v = conflict.version; setConflict(null); save(v, pending.current); }} onReload={() => { setDraft({ ...draft, ...(fromCurrent ? fromCurrent(conflict as never) : conflict) }); setConflict(null); }} />
     </>
   );
 }

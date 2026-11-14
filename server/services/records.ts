@@ -537,16 +537,18 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const resubmits = table === 'duties' && row.approval_status === 'returned';
   if (resubmits) { sets.push(...RESUBMIT_SETS); vals.push(vals[0]); }
   const expected = data.version as number | undefined;
+  // The newer version, as a read of it gives it: a training with what it says was verified, so a form loaded from it keeps that.
+  const newest = () => (table === 'trainings' ? withCourseDetail(ctx, [getRecord(ctx, table, id)!])[0] : getRecord(ctx, table, id));
   let result;
   let tellReviewer: (() => void) | null = null;
   try {
     ctx.db.transaction(() => {
       if (expected !== undefined) {
         result = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ? AND version = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id, expected);
-        if (result.changes === 0) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: getRecord(ctx, table, id) });
+        if (result.changes === 0) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: newest() });
       } else {
         const changed = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id).changes;
-        if (resubmits && !changed) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: getRecord(ctx, table, id) });
+        if (resubmits && !changed) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: newest() });
       }
       if (resubmits) tellReviewer = resubmittedByCorrection(ctx, user, row, finalUnit as string, String(vals[0]), ip);
     })();

@@ -63,7 +63,8 @@ Reading the file:
 - **One sheet is read.** In a workbook, the first visible sheet with a code column and a name column is the catalog.
   Hidden sheets are not read, and a long sheet that is not the catalog does not stop it.
 - **Repeats are resolved.** A course listed twice the same way is kept once. A course listed twice differently is left
-  out entirely, with the reason on every line it is on, because Vantage cannot know which listing is right.
+  out entirely, with the reason on every line it is on (naming the first ten lines), because Vantage cannot know which
+  listing is right.
 - **Tabs or commas.** A .tsv file, or one sent as tab-separated, is read on its tabs. Otherwise the separator is the one
   whose first lines give a code column and a name column, so a tab-separated file with commas in its descriptions is
   read correctly whatever it is named.
@@ -103,7 +104,7 @@ request schema. An import strips them, and with them a file's "Verified" and "Ve
   "CDET 8010").
 - **Title and provider** match when they read the same once spacing is ignored. Case is the source's, so "sergeants
   course" is not "Sergeants Course".
-- **Hours and CEUs** match when they are the same number.
+- **Hours and CEUs** match when they are the same number, read as the record schemas read it ("1,200" is 1200).
 - A value the entry does not list is never verified.
 
 **Choosing the listing.** Only the current catalog of a source that has not been withdrawn is used. When two sources list
@@ -129,7 +130,8 @@ source and its as-of date. They are never copied into the training.
   a screen reader ("Title Verified"). A line says what would be verified if the training were saved as it reads.
   Editing a training whose course values are unchanged, the form shows what saving keeps (what was verified, against
   which catalog and when) rather than what the catalogs in use would verify now. While a code is being looked up, no
-  value is marked.
+  value is marked. A save refused because the training changed meanwhile sends the newer version back with what it says
+  was verified, so loading it keeps the same rule.
 - **The training.** A training's page shows which values were verified, against which source and catalog, when, and
   which are manual. It also shows what the catalog says of the course. The same appears on a Marine's page for someone
   who reads it, in the record route, in the personal export (JSON) and in the record export.
@@ -142,8 +144,9 @@ source and its as-of date. They are never copied into the training.
   rules. This applies to report standing and unit analytics, which share `standing()`.
 - **Retention.** Anonymizing a training removes what it says a catalog verified, and its link to the catalog's listing.
   Otherwise the listing's name and provider would stand beside the redacted title. Its course code, hours and CEUs stay:
-  they count a course, not a Marine. A training whose title was redacted is never verified again, even when it is
-  edited later.
+  they count a course, not a Marine. While its title is the redaction, it is verified against nothing, even when it is
+  edited later, and the form marks every value manual (`bestListing`, shared by both). A title its owner types again is
+  a new value, and is checked as one.
 - **Instance archive.** Restoring an archive into a fresh host empties the host's tables. The triggers that keep rows
   from being removed are lifted while it does and put back exactly as they were before it commits. These are the course
   tables' triggers and the earlier append-only records' (work events, error reports, case guidance). Before this, a

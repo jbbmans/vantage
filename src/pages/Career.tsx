@@ -230,7 +230,7 @@ export default function Career({ section }: { section: CareerSection }) {
         </Table></div>
       ))}
 
-      <RecordDialog<TrainingDraft> store="trainings" open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
+      <RecordDialog<TrainingDraft> store="trainings" fromCurrent={trainingDraft} open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
       <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))}
         fields={(d, set, errors) => (
           <>
