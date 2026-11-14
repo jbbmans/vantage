@@ -233,6 +233,13 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
             ctx.db.prepare('UPDATE duties SET points_override_reason = ? WHERE points_override_reason IS NOT NULL AND id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
             ctx.db.prepare('UPDATE duty_reviews SET reason = ? WHERE reason IS NOT NULL AND duty_id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
           }
+          // A training's title and provider are gone, so it no longer says what a catalog verified, nor points to the
+          // catalog's listing, whose name and provider would show beside them what they said (ADR-0029). Its course code,
+          // hours and CEUs stay, as its type does: they count a course, not a Marine.
+          if (table === 'trainings') {
+            ctx.db.prepare(`UPDATE trainings SET course_entry_id = NULL, course_verified = NULL, course_verified_at = NULL
+              WHERE course_entry_id IS NOT NULL AND id IN (SELECT value FROM json_each(?))`).run(JSON.stringify(ids));
+          }
           // What a counseling said before each amendment, and why it was amended, go with its words (ADR-0027). Which
           // revision, who amended it, when and which fields stay.
           if (table === 'counselings') {

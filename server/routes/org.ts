@@ -13,6 +13,7 @@ import { issueToken } from '../auth/tokens.ts';
 import { layout } from '../services/mailLayout.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/records.ts';
+import { withCourseDetail } from '../services/courses.ts';
 import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
@@ -532,7 +533,8 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties'), scope) as unknown as Duty[];
   // How much evidence each training holds (ADR-0025), where this reader could open it: the files are theirs to list and
   // open by the same rule (canRead), so a count is never given for a training whose files would be refused.
-  const trainings = scoped<Training>('trainings');
+  // Each says what its course values were verified against (ADR-0029): catalog entries name no one.
+  const trainings = withCourseDetail(ctx, scoped<Record<string, unknown>>('trainings')) as unknown as Training[];
   const evidence = new Map(withEvidenceCounts(ctx, trainings.filter((t) => canRead(scope, req.user.id, t as unknown as RecordRow)) as unknown as Array<Record<string, unknown>>).map((t) => [String(t.id), t.evidence_count]));
   // A counseling still in draft is its counselor's alone; one shared for review is the Marine's to read too; the unit
   // reads a counseling once it is final (ADR-0027).

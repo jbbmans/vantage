@@ -7,6 +7,7 @@ import { sessionStands } from '../auth/sessions.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead, unfinalized } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
+import { withCourseDetail } from '../services/courses.ts';
 import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
 import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
 import { attachmentDetailsSchema } from '../../shared/schemas.ts';
@@ -69,7 +70,9 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw
     : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw
-    : table === 'counselings' ? withCounselingDetail(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw : raw;
+    : table === 'counselings' ? withCounselingDetail(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw
+    // A training says what its course values were verified against, if anything (ADR-0029).
+    : table === 'trainings' ? withCourseDetail(req.ctx, [raw])[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   // A record an import brought in says so, and by whose word (ADR-0019); a duty a retention schedule anonymized says it
   // was imported, and names nobody (ADR-0023 §8).

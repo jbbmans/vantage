@@ -340,7 +340,16 @@ CREATE TABLE IF NOT EXISTS trainings (
   frozen_at  TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  -- The course code its person entered and the CEUs it earned (Task 22, ADR-0029, migration 036). What of it an approved
+  -- source's catalog verifies is the server's to work out on every write, never a request's or a file's: the catalog
+  -- entry it was checked against, which of its values matched that entry (a JSON list of code, title, provider, hours
+  -- and ceus) and when. Anything else filled in is manual. Its index (idx_trainings_course_entry) is migration 036's.
+  course_code        TEXT CHECK (course_code IS NULL OR length(course_code) BETWEEN 1 AND 40),
+  ceus               REAL CHECK (ceus IS NULL OR (ceus >= 0 AND ceus <= 1000)),
+  course_entry_id    TEXT REFERENCES course_catalog_entries(id),
+  course_verified    TEXT CHECK (course_verified IS NULL OR (json_valid(course_verified) AND json_type(course_verified) = 'array')),
+  course_verified_at TEXT CHECK ((course_verified_at IS NULL) = (course_entry_id IS NULL) AND (course_verified_at IS NULL) = (course_verified IS NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_trainings_user ON trainings(user_id);
 CREATE INDEX IF NOT EXISTS idx_trainings_unit ON trainings(unit_id, visibility);
@@ -1683,3 +1692,98 @@ BEGIN SELECT RAISE(ABORT, 'a retired guidance entry stays retired'); END;
 CREATE TRIGGER IF NOT EXISTS case_guidance_append_only_delete BEFORE DELETE ON case_guidance
 FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
 BEGIN SELECT RAISE(ABORT, 'guidance on file is never removed: retire it'); END;
+
+-- Approved authoritative sources of course details (Task 22, ADR-0029, migration 036). A Vantage Administrator registers
+-- one with the authorization that approves it for Vantage, and loads the catalog it publishes; Vantage fetches nothing
+-- and keeps no course list of its own. Service-wide: a course is the same course in every Unit Instance. Never edited or
+-- removed: a source is withdrawn with a reason, and from then on nothing is verified against it.
+CREATE TABLE IF NOT EXISTS course_sources (
+  id                 TEXT PRIMARY KEY,
+  name               TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+  -- Who publishes it, and the document, memo or ticket that approves it for Vantage, with who approved it and when.
+  authority          TEXT NOT NULL CHECK (length(authority) BETWEEN 1 AND 200),
+  approval_reference TEXT NOT NULL CHECK (length(approval_reference) BETWEEN 1 AND 300),
+  approved_by        TEXT NOT NULL CHECK (length(approved_by) BETWEEN 1 AND 200),
+  approved_on        TEXT NOT NULL,
+  notes              TEXT CHECK (notes IS NULL OR length(notes) <= 1000),
+  recorded_by        TEXT NOT NULL REFERENCES users(id),
+  recorded_at        TEXT NOT NULL,
+  withdrawn_at       TEXT,
+  withdrawn_by       TEXT REFERENCES users(id),
+  withdrawn_reason   TEXT,
+  CHECK ((withdrawn_at IS NULL) = (withdrawn_by IS NULL) AND (withdrawn_at IS NULL) = (withdrawn_reason IS NULL))
+);
+-- Two sources in use never share a name, so a training's "verified against" names one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_course_sources_name ON course_sources(lower(name)) WHERE withdrawn_at IS NULL;
+CREATE TRIGGER IF NOT EXISTS course_sources_recorded BEFORE UPDATE OF id, name, authority, approval_reference, approved_by, approved_on, notes, recorded_by, recorded_at ON course_sources FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'an approved course source is never changed: withdraw it and register it again'); END;
+CREATE TRIGGER IF NOT EXISTS course_sources_withdrawn BEFORE UPDATE OF withdrawn_at, withdrawn_by, withdrawn_reason ON course_sources FOR EACH ROW WHEN OLD.withdrawn_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'a withdrawn course source stays withdrawn'); END;
+CREATE TRIGGER IF NOT EXISTS course_sources_append_only_delete BEFORE DELETE ON course_sources
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN SELECT RAISE(ABORT, 'an approved course source is never removed: withdraw it'); END;
+
+-- Each catalog file a Vantage Administrator loaded for a source: staged (read, scanned and counted, waiting to be applied),
+-- current (what lookups answer from), superseded by a later one, or discarded. The file itself is not kept: its hash, its
+-- size, the day its data is as of and what it was found to hold are (preview, shared/courses.ts CatalogPreview).
+CREATE TABLE IF NOT EXISTS course_catalog_loads (
+  id            TEXT PRIMARY KEY,
+  source_id     TEXT NOT NULL REFERENCES course_sources(id),
+  status        TEXT NOT NULL CHECK (status IN ('staged', 'current', 'superseded', 'discarded')),
+  as_of         TEXT NOT NULL,
+  file_name     TEXT NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
+  file_sha256   TEXT NOT NULL CHECK (length(file_sha256) = 64),
+  byte_size     INTEGER NOT NULL CHECK (byte_size > 0),
+  entry_count   INTEGER NOT NULL CHECK (entry_count >= 0),
+  preview       TEXT NOT NULL CHECK (json_valid(preview)),
+  staged_by     TEXT NOT NULL REFERENCES users(id),
+  staged_at     TEXT NOT NULL,
+  applied_by    TEXT REFERENCES users(id),
+  applied_at    TEXT,
+  superseded_at TEXT,
+  discarded_at  TEXT,
+  CHECK ((applied_at IS NULL) = (applied_by IS NULL)),
+  CHECK ((status IN ('current', 'superseded')) = (applied_at IS NOT NULL)),
+  CHECK ((status = 'superseded') = (superseded_at IS NOT NULL)),
+  CHECK ((status = 'discarded') = (discarded_at IS NOT NULL))
+);
+-- A source answers from one catalog at a time, and waits on one staged file at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_course_catalog_current ON course_catalog_loads(source_id) WHERE status = 'current';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_course_catalog_staged ON course_catalog_loads(source_id) WHERE status = 'staged';
+CREATE TRIGGER IF NOT EXISTS course_catalog_loads_recorded BEFORE UPDATE OF id, source_id, as_of, file_name, file_sha256, byte_size, entry_count, preview, staged_by, staged_at ON course_catalog_loads FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a catalog load is never changed: load the file again'); END;
+CREATE TRIGGER IF NOT EXISTS course_catalog_loads_status BEFORE UPDATE OF status ON course_catalog_loads FOR EACH ROW
+WHEN NOT (NEW.status = OLD.status OR (OLD.status = 'staged' AND NEW.status IN ('current', 'discarded')) OR (OLD.status = 'current' AND NEW.status = 'superseded'))
+BEGIN SELECT RAISE(ABORT, 'a catalog goes from staged to current or discarded, and from current to superseded, never back'); END;
+CREATE TRIGGER IF NOT EXISTS course_catalog_loads_append_only_delete BEFORE DELETE ON course_catalog_loads
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN SELECT RAISE(ABORT, 'a catalog load is never removed'); END;
+
+-- One course as a catalog load lists it: its code as the source writes it, the code as it is matched (letters and digits,
+-- upper case, shared/courses.ts courseKey), and the values the source gives. Never changed. Kept while its load is or was
+-- current, so a training verified against it can always say what the source said; removed only with a staged load that
+-- is discarded, which nothing was ever verified against.
+CREATE TABLE IF NOT EXISTS course_catalog_entries (
+  id           TEXT PRIMARY KEY,
+  load_id      TEXT NOT NULL REFERENCES course_catalog_loads(id),
+  line         INTEGER NOT NULL CHECK (line >= 1),
+  code         TEXT NOT NULL CHECK (length(code) BETWEEN 1 AND 40),
+  code_key     TEXT NOT NULL CHECK (length(code_key) BETWEEN 1 AND 40),
+  name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 300),
+  provider     TEXT CHECK (provider IS NULL OR length(provider) <= 200),
+  description  TEXT CHECK (description IS NULL OR length(description) <= 4000),
+  hours        REAL CHECK (hours IS NULL OR (hours >= 0 AND hours <= 10000)),
+  ceus         REAL CHECK (ceus IS NULL OR (ceus >= 0 AND ceus <= 1000)),
+  category     TEXT CHECK (category IS NULL OR length(category) <= 100),
+  requirements TEXT CHECK (requirements IS NULL OR length(requirements) <= 2000),
+  ranks        TEXT CHECK (ranks IS NULL OR length(ranks) <= 500),
+  mos          TEXT CHECK (mos IS NULL OR length(mos) <= 500)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_course_catalog_entries_code ON course_catalog_entries(load_id, code_key);
+CREATE INDEX IF NOT EXISTS idx_course_catalog_entries_lookup ON course_catalog_entries(code_key);
+CREATE TRIGGER IF NOT EXISTS course_catalog_entries_recorded BEFORE UPDATE ON course_catalog_entries FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a catalog entry is never changed: load the catalog again'); END;
+CREATE TRIGGER IF NOT EXISTS course_catalog_entries_kept BEFORE DELETE ON course_catalog_entries
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+  AND COALESCE((SELECT status FROM course_catalog_loads WHERE id = OLD.load_id), 'staged') <> 'staged'
+BEGIN SELECT RAISE(ABORT, 'a catalog entry is kept once its catalog was applied'); END;

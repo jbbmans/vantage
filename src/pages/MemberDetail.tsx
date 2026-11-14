@@ -12,6 +12,7 @@ import { AwardFields, emptyAward, evidenceCount } from '@/pages/Career';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingStatus, counselingDraft, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { counselorWritten } from '../../shared/counseling';
 import { Attachments } from '@/components/Attachments';
+import { CourseCodeText, TrainingCourse } from '@/components/Course';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { can, canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
@@ -164,7 +165,7 @@ export default function MemberDetail() {
       {tab === 'career' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Awards" padded={false}>{!records.awards.length ? <EmptyState title="No shared awards" /> : <ul>{records.awards.map((a) => <li key={a.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{a.name}</span><span className="block text-xs text-ink-3"><TimeframeText table="awards" row={a} /> · {humanize(a.type)}</span></span><StatusBadge value={a.status} /></li>)}</ul>}</Panel>
-          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span className="min-w-0">{t.evidence_count != null ? <button type="button" className="block text-left font-medium text-ink hover:underline" onClick={() => setTrainingView(t)}>{t.title}</button> : <span className="block text-ink">{t.title}</span>}<span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="shrink-0 text-right text-xs text-ink-3"><span className="fig block">{t.hours ? `${t.hours} h` : ''}</span>{t.evidence_count != null && <span className="block">Evidence: {evidenceCount(t.evidence_count)}</span>}</span></li>)}</ul>}</Panel>
+          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span className="min-w-0">{t.evidence_count != null ? <button type="button" className="block text-left font-medium text-ink hover:underline" onClick={() => setTrainingView(t)}>{t.title}</button> : <span className="block text-ink">{t.title}</span>}<span className="block text-xs text-ink-3"><TimeframeText table="trainings" row={t} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.course_code ? <> · <CourseCodeText row={t} /></> : null}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="shrink-0 text-right text-xs text-ink-3"><span className="fig block">{t.hours ? `${t.hours} h` : ''}</span>{t.evidence_count != null && <span className="block">Evidence: {evidenceCount(t.evidence_count)}</span>}</span></li>)}</ul>}</Panel>
         </div>
       )}
 
@@ -200,6 +201,7 @@ export default function MemberDetail() {
       {/* A shared training, with the evidence it holds (ADR-0025): opened by whoever reads the unit's shared records. */}
       <Dialog open={Boolean(trainingViewed)} onOpenChange={(o) => { if (!o) setTrainingView(null); }} title={trainingViewed?.title ?? ''} description={trainingViewed ? formatTimeframe('trainings', trainingViewed, { pattern: 'd MMMM yyyy' }) || undefined : undefined} size="lg">
         {trainingViewed && <DescriptionList items={[['Status', <StatusBadge value={trainingViewed.status} />], ['Type', trainingViewed.type === 'pme' ? 'PME' : humanize(trainingViewed.type)], ['Hours', trainingViewed.hours != null ? formatNumber(trainingViewed.hours) : null], ['Provider', trainingViewed.provider], ['Notes', trainingViewed.notes ? <span className="whitespace-pre-wrap">{trainingViewed.notes}</span> : null]]} />}
+        {trainingViewed && <TrainingCourse row={trainingViewed} />}
         {trainingViewed && <div className="mt-4"><Attachments table="trainings" id={trainingViewed.id} canEdit={!trainingViewed.frozen_at && (trainingViewed.user_id === identity?.user.id || can(identity, PERMISSIONS.MANAGE_RECORDS, trainingViewed.unit_id))} /></div>}
       </Dialog>
       <Dialog open={Boolean(profile)} onOpenChange={(o) => { if (!o) setProfile(null); }} title={`Edit ${person.last_name}'s profile`} description="Rank changes notify the Marine. Email and password stay theirs." size="sm" footer={<><Button variant="ghost" onClick={() => setProfile(null)}>Cancel</Button><Button variant="primary" onClick={saveProfile}>Save</Button></>}>

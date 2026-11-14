@@ -454,6 +454,27 @@ const MIGRATIONS: Migration[] = [
       instanceBoundaryTriggers(db);
     },
   },
+  {
+    id: 36,
+    name: '036_course_lookup',
+    // Course lookup (Task 22, ADR-0029). A training gains the course code its person enters and the CEUs it earned, and
+    // what of it an approved source's catalog verified: the entry it was checked against, which values matched and when.
+    // A database that had the trainings table before these columns gets them here, with the checks schema.sql gives a new
+    // one, last and in its order. Every training already written has no course code and nothing verified: its values are
+    // what its person typed, and nothing is guessed from a title. The approved sources, their catalogs and their entries
+    // come from schema.sql, which is safe to replay; they are the service's, not a Unit Instance's, so no boundary trigger
+    // is needed. No row is removed or reshaped.
+    run: (db) => {
+      const have = columnsOf(db, 'trainings');
+      if (!have.has('course_code')) db.exec('ALTER TABLE trainings ADD COLUMN course_code TEXT CHECK (course_code IS NULL OR length(course_code) BETWEEN 1 AND 40)');
+      if (!have.has('ceus')) db.exec('ALTER TABLE trainings ADD COLUMN ceus REAL CHECK (ceus IS NULL OR (ceus >= 0 AND ceus <= 1000))');
+      if (!have.has('course_entry_id')) db.exec('ALTER TABLE trainings ADD COLUMN course_entry_id TEXT REFERENCES course_catalog_entries(id)');
+      if (!have.has('course_verified')) db.exec(`ALTER TABLE trainings ADD COLUMN course_verified TEXT CHECK (course_verified IS NULL OR (json_valid(course_verified) AND json_type(course_verified) = 'array'))`);
+      if (!have.has('course_verified_at')) db.exec('ALTER TABLE trainings ADD COLUMN course_verified_at TEXT CHECK ((course_verified_at IS NULL) = (course_entry_id IS NULL) AND (course_verified_at IS NULL) = (course_verified IS NULL))');
+      // A staged catalog that is discarded removes its entries; the index keeps that from reading every training.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_trainings_course_entry ON trainings(course_entry_id)');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

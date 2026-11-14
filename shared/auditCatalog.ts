@@ -125,6 +125,8 @@ const ENTERPRISE = [
   'instance_feature_withheld', 'instance_feature_restored',
   // Official policy and system guidance the case diagnoser cites for every Unit Instance (ADR-0022).
   'official_guidance_added', 'official_guidance_retired',
+  // Approved course sources and the catalogs loaded for them, which verify course values on trainings (ADR-0029).
+  'course_source_registered', 'course_source_withdrawn', 'course_catalog_staged', 'course_catalog_applied', 'course_catalog_discarded',
   // Data: backups, archives, restores and the integrity of the trail.
   'backup', 'instance_export', 'instance_import', 'database_restored', 'database_replaced', 'platform_audit_exported',
   'case_history_anchor', 'case_history_anchor_requested', 'audit_chain_anchored', 'audit_anchor_verified',

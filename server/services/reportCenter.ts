@@ -29,6 +29,7 @@ import { AGE_BASIS_LABELS, FLAG_LABELS, NO_OWNER, STANDING_LABELS, type ErrorFig
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyStatus } from '../../shared/dutyScoring.ts';
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty.ts';
 import { countedPoints, isOverridden } from '../../shared/dutyReview.ts';
+import { courseKey } from '../../shared/courses.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
   REPORT_ROW_LIMIT, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, primaryTable, reportFileName, reportQuerySchema, tableMatrix,
@@ -344,7 +345,7 @@ function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period:
 // ——— Training: what was completed, and where each Marine stands against the requirements ———
 
 export interface Requirement { id: string; title: string; type: string; course_code: string | null; interval_months: number | null; unit_id: string | null }
-export interface TrainingRow { user_id: string; title: string; status: string | null; date: string | null; end_date: string | null }
+export interface TrainingRow { user_id: string; title: string; status: string | null; date: string | null; end_date: string | null; course_code?: string | null }
 
 const norm = (s: string | null | undefined) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -359,15 +360,17 @@ export function addMonths(iso: string, months: number): string {
 const addDays = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 
 /**
- * Where one Marine stands on one requirement on a day: the latest completed course that is it (by title, or by its course
- * code in the course's title) on or before the day, and when it is due again. Only training the report may read counts,
+ * Where one Marine stands on one requirement on a day: the latest completed course that is it (by title, by the course
+ * code the training names, or by the course code in its title) on or before the day, and when it is due again. Course
+ * codes match as letters and digits, so "CDET 8010" is "cdet-8010" (ADR-0029). Only training the report may read counts,
  * so "No record" means none was shared, never that the Marine did not train.
  */
 export function standing(req: Requirement, trainings: readonly TrainingRow[], asOf: string): { last: string | null; due: string | null; status: 'met' | 'due_soon' | 'overdue' | 'missing' } {
   const title = norm(req.title);
   const code = norm(req.course_code);
+  const key = courseKey(req.course_code);
   const done = trainings
-    .filter((x) => (x.status || 'completed') === 'completed' && (norm(x.title) === title || (code && norm(x.title).includes(code))))
+    .filter((x) => (x.status || 'completed') === 'completed' && (norm(x.title) === title || (code && norm(x.title).includes(code)) || (key && courseKey(x.course_code) === key)))
     .map((x) => x.end_date || x.date).filter((d): d is string => Boolean(d) && d! <= asOf).sort();
   const last = done.at(-1) ?? null;
   if (!last) return { last: null, due: null, status: 'missing' };
@@ -405,7 +408,7 @@ export function requirementStandings(ctx: AppContext, t: ReportTarget, asOf: str
     people.push({ id: t.userId!, name: namesOf(ctx, [t.userId]).get(t.userId!) || '', team: null, units });
   }
   // Every completed course the report may read, whenever it was: a requirement met two years ago is met.
-  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
+  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date, t.course_code FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
   const byPerson = new Map<string, TrainingRow[]>();
   for (const h of history) addTo(byPerson, h.user_id, h);
   const applies = (r: Requirement, p: StandingPerson) => { const set = reach.get(r.id); return !set || p.units.some((u) => set.has(u)); };
@@ -499,7 +502,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
     primary: !orgId ? 'courses' : t.subject === 'unit' && !t.detail ? 'requirements' : 'standing',
     notes: [
       sourceNote(ctx, t),
-      'A requirement is met by a completed course with its title, or with its course code in the title. No record means no such course was shared, not that none was taken.',
+      'A requirement is met by a completed course with its title, with its course code, or with its course code in the title. No record means no such course was shared, not that none was taken.',
       ...(t.subject === 'unit' && !t.detail ? [NO_DETAIL] : []),
     ],
     filters: [

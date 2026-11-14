@@ -49,6 +49,9 @@ import { endMaintenance, maintenanceState, runMaintenanceTask, startMaintenance 
 import { featureFlags } from '../services/featureFlags.ts';
 import { addEnterpriseGuidance, enterpriseGuidance, retireEnterpriseGuidance } from '../services/caseGuidance.ts';
 import { guidanceInputSchema, retireSchema, type GuidanceInput } from '../../shared/caseGuidance.ts';
+import { applyCatalog, browseCatalog, discardCatalog, listCourseSources, registerCourseSource, stageCatalog, withdrawCourseSource } from '../services/courseCatalog.ts';
+import { applyCatalogSchema, browseCatalogQuery, courseSourceSchema, stageCatalogQuery, withdrawSourceSchema } from '../../shared/courseSchemas.ts';
+import { MAX_CATALOG_BYTES } from '../../shared/courses.ts';
 import { instanceFlagStatus, isInstanceFlag, setInstanceFlag } from '../services/instanceFlags.ts';
 import { instanceOperations, operationsSummary } from '../services/instanceOperations.ts';
 import { restoreStatus, reviewUpgrade } from '../services/recovery.ts';
@@ -178,6 +181,32 @@ platformRouter.post('/case-guidance', requirePlatform('platform.settings'), wrap
 }));
 platformRouter.post('/case-guidance/:id/retire', requirePlatform('platform.settings'), wrap((req, res) => {
   res.json(retireEnterpriseGuidance(req.ctx, req.user, String(req.params.id), parse(retireSchema, req.body).reason, ip(req)));
+}));
+
+// Approved course sources and their catalogs (Task 22, ADR-0029): what a course code on a training is verified against.
+// Registering a source names the authorization that approves it; a catalog file is staged, looked at, then applied.
+platformRouter.get('/course-sources', requirePlatform('platform.view'), wrap((req, res) => res.json({ sources: listCourseSources(req.ctx) })));
+platformRouter.post('/course-sources', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.status(201).json(registerCourseSource(req.ctx, req.user, parse(courseSourceSchema, req.body), ip(req)));
+}));
+platformRouter.post('/course-sources/:id/withdraw', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.json(withdrawCourseSource(req.ctx, req.user, String(req.params.id), parse(withdrawSourceSchema, req.body).reason, ip(req)));
+}));
+// The file is read only once the caller is known to hold the permission: the body parser comes after the check.
+platformRouter.post('/course-sources/:id/import', requirePlatform('platform.settings'), express.raw({ type: () => true, limit: MAX_CATALOG_BYTES }), wrap(async (req, res) => {
+  const { as_of } = parse(stageCatalogQuery, req.query);
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const filename = String(req.get('x-filename') || 'catalog').slice(0, 255);
+  res.status(201).json(await stageCatalog(req.ctx, req.user, String(req.params.id), { buffer, filename, contentType: String(req.get('content-type') || ''), as_of }, ip(req)));
+}));
+platformRouter.post('/course-sources/:id/loads/:loadId/apply', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.json(applyCatalog(req.ctx, req.user, String(req.params.id), String(req.params.loadId), parse(applyCatalogSchema, req.body).file_sha256, ip(req)));
+}));
+platformRouter.post('/course-sources/:id/loads/:loadId/discard', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.json(discardCatalog(req.ctx, req.user, String(req.params.id), String(req.params.loadId), ip(req)));
+}));
+platformRouter.get('/course-sources/:id/loads/:loadId/entries', requirePlatform('platform.view'), wrap((req, res) => {
+  res.json(browseCatalog(req.ctx, String(req.params.id), String(req.params.loadId), parse(browseCatalogQuery, req.query)));
 }));
 
 platformRouter.get('/flags', requirePlatform('platform.view'), wrap((req, res) => res.json({ ...featureFlags(req.ctx), instances: instanceFlagStatus(req.ctx) })));

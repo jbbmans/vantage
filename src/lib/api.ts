@@ -11,6 +11,7 @@ import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/r
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type { AnalyticsResponse, AnalyticsSection, DrillResponse } from '../../shared/unitAnalytics';
 import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
+import type { CourseEntry, CourseLookup, CourseSourceRecord } from '../../shared/courses';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
@@ -361,6 +362,18 @@ export const platformFlags = () => api.get('/platform/flags');
 export const platformCaseGuidance = () => api.get('/platform/case-guidance');
 export const platformAddCaseGuidance = (body: unknown) => api.post('/platform/case-guidance', body);
 export const platformRetireCaseGuidance = (id: string, reason: string) => api.post(`/platform/case-guidance/${enc(id)}/retire`, { reason });
+// Approved course sources and their catalogs (ADR-0029): registered with their authorization, staged, looked at, applied.
+export const platformCourseSources = () => api.get<{ sources: CourseSourceRecord[] }>('/platform/course-sources');
+export const platformRegisterCourseSource = (body: unknown) => api.post<CourseSourceRecord>('/platform/course-sources', body);
+export const platformWithdrawCourseSource = (id: string, reason: string) => api.post<CourseSourceRecord>(`/platform/course-sources/${enc(id)}/withdraw`, { reason });
+export const platformStageCatalog = (id: string, file: File, asOf: string) =>
+  request<CourseSourceRecord>('POST', `/platform/course-sources/${enc(id)}/import?${qs({ as_of: asOf })}`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': file.name.replace(/[^\x20-\x7e]/g, '_').slice(0, 255) } });
+export const platformApplyCatalog = (id: string, loadId: string, fileSha: string) => api.post<CourseSourceRecord>(`/platform/course-sources/${enc(id)}/loads/${enc(loadId)}/apply`, { file_sha256: fileSha });
+export const platformDiscardCatalog = (id: string, loadId: string) => api.post<CourseSourceRecord>(`/platform/course-sources/${enc(id)}/loads/${enc(loadId)}/discard`);
+export const platformCatalogEntries = (id: string, loadId: string, q: string, offset = 0) =>
+  api.get<{ entries: CourseEntry[]; total: number; offset: number; limit: number }>(`/platform/course-sources/${enc(id)}/loads/${enc(loadId)}/entries?${qs({ q, offset })}`);
+/** What a course code is listed as in the approved catalogs in use. Vantage fetches nothing to answer. */
+export const lookupCourse = (code: string, signal?: AbortSignal) => request<CourseLookup>('GET', `/courses/lookup?${qs({ code })}`, undefined, { signal });
 /** Each Unit Instance's version, schema, last upgrade, health, backup and restore (ADR-0014). */
 export const platformInstanceOperations = () => api.get('/platform/instances/operations');
 export const platformReviewUpgrade = (id: string, note: string) => api.post(`/platform/upgrades/${enc(id)}/review`, { note });

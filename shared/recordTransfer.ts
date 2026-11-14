@@ -9,6 +9,7 @@ import { timeframeProblems, isTimeframed, TIMEFRAMES } from './timeframe.ts';
 import { SCORING_CONDITIONS } from './dutyScoring.ts';
 import { DUTY_STATUSES } from './duty.ts';
 import { goalSchema } from './schemas.ts';
+import { VERIFIABLE_LABELS, courseSourceLabel, type CourseProvenance } from './courses.ts';
 
 /**
  * What a person's records look like outside Vantage, and how they come back in (ADR-0019). One registry for the personal
@@ -168,6 +169,12 @@ export const RECORD_COLUMNS: Record<ImportTable, TransferColumn[]> = {
     { key: 'hours', header: 'Hours', aliases: ['Credit Hours', 'Duration (hours)'], kind: 'number' },
     { key: 'provider', header: 'Provider', aliases: ['School', 'Institution', 'Issuer', 'Issued By', 'Organization'] },
     { key: 'status', header: 'Status', kind: 'enum', values: TRAINING_STATUS, synonyms: { done: 'completed', complete: 'completed', inprogress: 'in_progress', enrolled: 'in_progress', planned: 'scheduled' } },
+    // The course it was (ADR-0029). Which values an approved catalog verified, and which catalog, are the server's to work
+    // out on import as on entry: written so the file says it, never read back.
+    { key: 'course_code', header: 'Course Code', aliases: ['Course Number', 'Course ID', 'Course No'] },
+    { key: 'ceus', header: 'CEUs', aliases: ['CEU', 'Continuing Education Units'], kind: 'number' },
+    { key: 'course_verified', header: 'Verified', kind: 'list', labels: VERIFIABLE_LABELS, exportOnly: true },
+    { key: 'course_source', header: 'Verified Against', exportOnly: true },
     VISIBILITY, NOTES, UNIT,
   ],
   awards: [
@@ -496,6 +503,11 @@ export function sheetRow(table: ImportTable, row: Record<string, unknown>): Reco
   }
   // Still going: "Present" in End Date and Yes in Ongoing, as an activity's (ADR-0018).
   if (table === 'trainings' && ongoingOf(row)) { out['End Date'] = 'Present'; out.Ongoing = 'Yes'; }
+  // The catalog its course values were verified against, and whether that source has since been withdrawn (ADR-0029).
+  if (table === 'trainings') {
+    const course = row.course as CourseProvenance | undefined;
+    out['Verified Against'] = course?.entry ? `${courseSourceLabel(course.entry)}${course.entry.withdrawn_at ? ' (source since withdrawn)' : ''}` : '';
+  }
   out[DELETED_AT_HEADER] = row.deleted_at ?? '';
   return out;
 }
