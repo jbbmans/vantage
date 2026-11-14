@@ -31,7 +31,7 @@ What main held before this Task (at `8862e95`):
 
 No online interface to an MCeLE system is approved for Vantage, so Vantage calls none and scrapes nothing.
 
-A Vantage Administrator holding **Service settings** (`platform.settings`) **registers an approved source** with:
+A Vantage Administrator holding **Platform settings** (`platform.settings`) **registers an approved source** with:
 - its name;
 - who publishes it;
 - the reference of the document, memo or ticket that approves it for Vantage;
@@ -159,11 +159,11 @@ source and its as-of date. They are never copied into the training.
 | Action | Who | Audit |
 |---|---|---|
 | Read sources, catalogs, entries | Vantage staff with Open the console (`platform.view`) | console read |
-| Register, withdraw a source; load, apply, discard a catalog | Service settings (`platform.settings`), with a recent sign-in confirmation | `course_source_registered`, `course_source_withdrawn`, `course_catalog_staged`, `course_catalog_applied`, `course_catalog_discarded`; a refused file `upload_rejected` |
+| Register, withdraw a source; load, apply, discard a catalog | Platform settings (`platform.settings`), with a recent sign-in confirmation | `course_source_registered`, `course_source_withdrawn`, `course_catalog_staged`, `course_catalog_applied`, `course_catalog_discarded`; a refused file `upload_rejected` |
 | Look up a course code | anyone signed in | none (reference data) |
 | Course code, CEUs on a training | whoever may write the training | the training's own write |
 
-The other Vantage Administrators who hold Service settings are told when a source is registered or withdrawn, and when
+The other Vantage Administrators who hold Platform settings are told when a source is registered or withdrawn, and when
 a catalog is applied. The person who did it is not told.
 
 ## Consequences

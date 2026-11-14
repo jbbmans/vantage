@@ -115,7 +115,7 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
   {
     id: 'course_catalog', kind: 'data', label: 'Course catalog', format: 'Spreadsheet (.xlsx or .csv) an approved source publishes',
     holds: 'Courses by code, with their name, provider, hours, CEUs and what the source says of them. No one’s records.',
-    who: 'Vantage Administrators with Service settings.', routes: ['POST /api/platform/course-sources/:id/import'],
+    who: 'Vantage Administrators with Platform settings.', routes: ['POST /api/platform/course-sources/:id/import'],
     restores: 'Staged, looked at, then applied; the catalog it replaces is kept (ADR-0029).',
   },
   {

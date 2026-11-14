@@ -90,7 +90,7 @@ test('before any source, a lookup answers nothing and a training is manual', asy
   assert.equal((await post(marine.token, '/api/records/trainings', { title: 'x', ceus: 1001 })).status, 400);
 });
 
-test('only Vantage Administrators with Service settings register a source, with its authorization; nobody edits one', async () => {
+test('only Vantage Administrators with Platform settings register a source, with its authorization; nobody edits one', async () => {
   for (const who of [support, auditor, marine, g1lead]) assert.equal((await post(who.token, '/api/platform/course-sources', SOURCE)).status, 403);
   assert.equal((await get(auditor.token, '/api/platform/course-sources')).status, 200, 'Vantage staff who view the service read them');
   assert.equal((await get(marine.token, '/api/platform/course-sources')).status, 403);
@@ -107,7 +107,7 @@ test('only Vantage Administrators with Service settings register a source, with 
   assert.equal(entries('course_source_registered').length, 1);
   assert.match(entries('course_source_registered')[0].detail, /G-8 memo 1500/);
   const told = app.ctx.db.prepare("SELECT title FROM notifications WHERE user_id = ? AND action_url = '/admin/courses'").all(admin.id) as Array<{ title: string }>;
-  assert.equal(told.length, 1, 'the other Vantage Administrators who hold Service settings are told');
+  assert.equal(told.length, 1, 'the other Vantage Administrators who hold Platform settings are told');
   assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND action_url = '/admin/courses'").get(op.id) as { n: number }).n, 0, 'not the one who did it');
   assert.throws(() => app.ctx.db.prepare("UPDATE course_sources SET approval_reference = 'other' WHERE id = ?").run(source), /never changed/);
   assert.throws(() => app.ctx.db.prepare('DELETE FROM course_sources WHERE id = ?').run(source), /never removed/);

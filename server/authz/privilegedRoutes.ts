@@ -98,7 +98,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   platform('POST', '/maradmins/sync', 'platform.settings', writes('sync_maradmins')),
   platform('POST', '/case-guidance', 'platform.settings', writes('official_guidance_added'), 'Official policy or official system guidance only, cited. Replacing an entry retires it in the same step.'),
   platform('POST', '/case-guidance/:id/retire', 'platform.settings', writes('official_guidance_retired'), 'Never removed; a reason is required.'),
-  platform('POST', '/course-sources', 'platform.settings', writes('course_source_registered'), 'Names the authorization that approves the source for Vantage. Never edited; the other Vantage Administrators who hold Service settings are told.'),
+  platform('POST', '/course-sources', 'platform.settings', writes('course_source_registered'), 'Names the authorization that approves the source for Vantage. Never edited; the other Vantage Administrators who hold Platform settings are told.'),
   platform('POST', '/course-sources/:id/withdraw', 'platform.settings', writes('course_source_withdrawn'), 'Never removed; a reason is required. What was verified against it stays verified and says the source was withdrawn.'),
   platform('POST', '/course-sources/:id/import', 'platform.settings', [...writes('course_catalog_staged'), ...sealed('enterprise', 'upload_rejected')], 'Reads, scans and counts a catalog file the source publishes. Nothing answers from it until it is applied.'),
   platform('POST', '/course-sources/:id/loads/:loadId/apply', 'platform.settings', writes('course_catalog_applied'), 'Only the file the page showed (its hash). The catalog it replaces is kept.'),

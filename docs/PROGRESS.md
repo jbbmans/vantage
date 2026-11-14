@@ -10,7 +10,7 @@ named, so none is registered: every course value stays manual until a Vantage Ad
 A training's course code is looked up only in the catalog of a source approved for Vantage, and each value says whether it
 is verified or manual ([ADR-0029](engineering/ADR/0029-course-lookup.md), migration 036).
 
-- **Vantage fetches nothing and scrapes nothing.** A Vantage Administrator with Service settings registers an approved
+- **Vantage fetches nothing and scrapes nothing.** A Vantage Administrator with Platform settings registers an approved
   source with the reference of its approval, who approved it and when, then loads the catalog file it publishes (.xlsx,
   .csv or .tsv) with the day it is as of. Sources are never edited; they are withdrawn with a reason.
 - **A catalog is staged first.** It is scanned and read by column name. Every row it leaves out is listed with a reason.
