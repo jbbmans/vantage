@@ -86,6 +86,8 @@ export function readableDraft(ctx: AppContext, user: SessionUser, scope: Scope, 
  * A report placed in a unit carries only records from that unit's Unit Instance, or records placed in no unit
  * (ADR-0008). Someone who leads a Marine in two organizations cannot carry one's records into the other's report.
  */
+/** A counseling is cited once it is final (ADR-0027): a draft is its counselor's working copy, not yet the Marine's record. */
+const settled = (row: { stage?: unknown }) => row.stage === undefined || row.stage === 'final';
 const citable = (ctx: AppContext, draft: ReportDraft, row: { unit_id?: unknown }) =>
   !draft.unit_id || !row.unit_id || sameInstance(ctx, draft.unit_id, String(row.unit_id));
 
@@ -120,7 +122,7 @@ export function availableSources(ctx: AppContext, user: SessionUser, scope: Scop
       `SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${dateCol} >= ? AND ${dateCol} <= ? ORDER BY ${dateCol} DESC LIMIT 400`
     ).all(draft.subject_id, draft.period_start, draft.period_end) as Array<Record<string, unknown>>;
     for (const row of rows) {
-      if (!canRead(scope, user.id, row as never) || !citable(ctx, draft, row)) continue;
+      if (!canRead(scope, user.id, row as never) || !citable(ctx, draft, row) || !settled(row)) continue;
       out.push(snapshotOf(table, row));
     }
   }
@@ -202,6 +204,7 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       if (!canRead(scope, user.id, row as never)) throw forbidden('This report cites a record you cannot read.');
       if (String(row.user_id) !== draft.subject_id) throw badRequest('A report can only cite records belonging to the person it is about.');
       if (!citable(ctx, draft, row)) throw forbidden('This report cites a record from another Unit Instance.', 'cross_instance');
+      if (!settled(row)) throw badRequest('A report cites only a final counseling. This one is still a draft.');
       cited.push(row);
       const actual = Number(row.version) || 1;
       if (actual !== Number(ref.version)) {

@@ -145,8 +145,12 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
 - **Award and recognition** (`awards`, by `type`). `recorded_by` names who entered it: the person, or the
   leader who recommended them. A recommendation is its recorder's and the chain's to change, never its
   subject's. The official copy of an award is in iAPS and MOL.
-- **Counseling** (`counselings`): one a counselor recorded is theirs to correct until it is
-  acknowledged, never its subject's. The person's own notes are theirs.
+- **Counseling** (`counselings`, ADR-0027): one a counselor writes is a draft only they see, may be
+  shared with its Marine for review, and is finalized with the particulars its worksheet prints. Once
+  final it changes only by amendment (its counselor, or a records manager of its unit), which keeps the
+  text it replaced in `counseling_revisions` and asks the Marine to acknowledge the new text. Never its
+  subject's to change. The person's own notes are theirs and always final. It prints, and downloads as a
+  PDF, as a worksheet in the layout of NAVMC 2795 Appendix A, drawn from the record and never stored.
 - **Timeframe** (ADR-0018): when a record happened. Activities and training have a start (`date`), an end
   (`end_date`, none for a single day), optional times (`start_time`, `end_time`, wall-clock HH:MM) and
   `ongoing` (begun, no end yet). An award has its date (the day it was given, and the end of the period it

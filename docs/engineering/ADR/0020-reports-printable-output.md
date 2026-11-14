@@ -137,7 +137,8 @@ draws a file:
 A Vantage Administrator sets one line printed on every report, on screen, at the top and foot of every printed and PDF
 page, and in every file (runtime `reportMarking`, Identity panel of the Vantage Administrator console, one line, never
 blank). It defaults to "Working paper", what the analysis PDF already said, and the analysis PDF now prints the line
-set. The JEPES and FITREP input PDF prints no handling line, as before. **The wording MCEN requires for these reports
+set. The counseling worksheet ([ADR-0027](0027-counseling-workflow-navmc-2795.md)) prints it too, on its print page and its PDF,
+which reuse this ADR's print page frame and PDF pieces. The JEPES and FITREP input PDF prints no handling line, as before. **The wording MCEN requires for these reports
 (for example a CUI marking) is MCEN's to give;** Vantage only prints what is set.
 
 ### 7. Printing

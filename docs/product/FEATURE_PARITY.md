@@ -21,7 +21,7 @@ with the reason.
 | Correspondence (threads, .eml import, M365 connector) | Work → Correspondence, item page | KEEP | Connector routes are closed in the synthetic demo. | `15-correspondence`, `correspondence.test.ts` |
 | Records / activities (list, filters, CSV import/export, recycle bin, detail) | Record → Your entries; `/records/:id` | KEEP | Moved under Record. `/records` and `/activities` redirect with their query. | `02-records`, `17-navigation` |
 | Goals (typed, automatic or by hand) | `/goals` | KEEP | Unchanged. | `typedGoals.test.ts`, `22-demo` |
-| Career: training, awards, counseling | Career tabs | KEEP | Unchanged. | `02-records`, `04-team` |
+| Career: training, awards, counseling | Career tabs | KEEP | Training and awards unchanged. Counseling gains a draft, a review by its Marine, finalization, amendment history and a NAVMC 2795 worksheet to preview, print and download as a PDF (Task 20, ADR-0027). | `02-records`, `04-team`, `49-counseling` |
 | Career: plan and next steps | Career → Plan and next steps | new | Owner-only steps with source and date checked; unchecked sources are marked "Not verified". | `record.test.ts`, `22-demo` |
 | Readiness (JEPES pillars, FITREP coverage) | Career → Readiness | KEEP | Moved under Career; `/readiness` redirects. | `17-navigation` |
 | Record: assigned work, contributions, drafts | Record → Overview, Contributions, Drafts | new | Claiming is shown at once but is not credit; contributions come from the work's own history; drafts are private. | `record.test.ts`, `22-demo` |

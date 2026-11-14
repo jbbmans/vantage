@@ -1,3 +1,4 @@
+import { COUNSELING_STAGES } from './counseling.ts';
 import { z } from 'zod';
 import {
   EVAL_AREAS, ACTIVITY_STATUS, WORK_STATUS, PRIORITIES, GOAL_TYPES, GOAL_STATUS, GOAL_METRICS,
@@ -202,6 +203,11 @@ export const counselingSchema = z.object({
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),
+  /**
+   * Where a counseling a leader writes for a Marine starts (ADR-0027): a draft, shared with the Marine for review, or
+   * final. Read only when it is written; afterwards its workflow moves it. A Marine's own notes are always final.
+   */
+  stage: z.enum(COUNSELING_STAGES, { error: 'Choose draft, review or final.' }).optional(),
 });
 
 /** A time of day a record must have: a duty's start and end (ADR-0023). */

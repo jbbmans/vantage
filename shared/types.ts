@@ -1,3 +1,4 @@
+import type { CounselingOptions, CounselingStage } from './counseling.ts';
 import type { Visibility } from './constants.ts';
 import type { ProgressResult } from './metricEngine.ts';
 import type { PermissionKey, RoleTemplate } from './permissions.ts';
@@ -115,8 +116,14 @@ export interface Counseling extends BaseRecord {
   date: string | null; type: string; counselor_id: string | null; counselor_name: string | null;
   summary: string; strengths: string | null; improvements: string | null; goals_set: string | null;
   follow_up_date: string | null; acknowledged_at: string | null;
+  /** Its workflow (ADR-0027): a draft, shared with its Marine for review, or final; which text it is; who finalized it. */
+  stage: CounselingStage; revision: number; finalized_at: string | null; finalized_by: string | null;
   /** Sent when the reader is not the person counseled. */
   subject_name?: string;
+  /** Who counseled, to anyone but its counselor. */
+  counselor_display?: string;
+  /** What the reader may do with its workflow, as it stands: the rule the server enforces. */
+  workflow?: CounselingOptions;
 }
 
 export interface Readiness {

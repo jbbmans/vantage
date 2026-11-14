@@ -138,7 +138,7 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
         from, to: nowDay,
         activities: sharedActivities(ctx, subjectId, unitId, from, queryEnd, 120),
         goals: withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL LIMIT 20`).all(subjectId, subjectId, unitId) as GoalRow[]).map(goalView),
-        prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND (visibility = 'unit' OR counselor_id = ?) ORDER BY date DESC LIMIT 5`).all(subjectId, unitId, user.id),
+        prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND stage = 'final' AND (visibility = 'unit' OR counselor_id = ?) ORDER BY date DESC LIMIT 5`).all(subjectId, unitId, user.id),
       };
     }
     case 'personal_review':

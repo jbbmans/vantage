@@ -37,6 +37,7 @@ const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const ReportLibrary = lazy(() => import('@/pages/ReportLibrary'));
 const PrintReport = lazy(() => import('@/pages/PrintReport'));
+const PrintCounseling = lazy(() => import('@/pages/PrintCounseling'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
@@ -226,6 +227,8 @@ function AppRoutes() {
     <Routes>
       {/* A report laid out for paper prints without the app around it (ADR-0020). */}
       <Route path="reports/print" element={<Screen><PrintReport /></Screen>} />
+      {/* A counseling's worksheet laid out for paper, the same way (ADR-0027). */}
+      <Route path="career/counseling/:id/print" element={<Screen><PrintCounseling /></Screen>} />
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
         <Route path="work" element={<Here />} />

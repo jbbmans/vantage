@@ -46,12 +46,23 @@ function categoryFor(ctx: AppContext, entry: AuditEntry): AuditCategory | null {
   return null;
 }
 
+/**
+ * Whom an entry is about. A counseling draft is its counselor's alone (ADR-0027 §1): what anyone does to one while it is
+ * a draft stays in the trail, but not under its Marine, so their access log and personal export never show it exists.
+ */
+function subjectOf(ctx: AppContext, entry: AuditEntry): string | null {
+  const subject = entry.subject_id ?? null;
+  if (!subject || entry.entity !== 'counselings' || !entry.entity_id) return subject;
+  const c = ctx.db.prepare('SELECT stage FROM counselings WHERE id = ?').get(entry.entity_id) as { stage: string | null } | undefined;
+  return c?.stage === 'draft' ? null : subject;
+}
+
 export function audit(ctx: AppContext, entry: AuditEntry) {
   const { db, config, chainKey } = ctx;
   const category = categoryFor(ctx, entry);
   const row = {
     id: newId(), actor_id: entry.actor_id ?? null, action: entry.action, entity: entry.entity ?? null, entity_id: entry.entity_id ?? null,
-    subject_id: entry.subject_id ?? null, unit_id: entry.unit_id ?? null, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
+    subject_id: subjectOf(ctx, entry), unit_id: entry.unit_id ?? null, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
     ip: entry.ip ?? null, at: now(),
     org_id: entry.org_id ?? (entry.unit_id ? ((db.prepare('SELECT org_id FROM units WHERE id = ?').get(entry.unit_id) as { org_id: string | null } | undefined)?.org_id ?? null) : null),
     category,
@@ -86,7 +97,8 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
 export function auditListedRecords(ctx: AppContext, actorId: string, table: string, rows: ReadonlyArray<Record<string, unknown>>, ip?: string | null) {
   const foreign = new Map<string, { subject: string; unit: string | null; count: number }>();
   for (const r of rows) {
-    if (r.user_id === actorId) continue;
+    // A counseling draft in the list is the reader's own working paper, not yet the Marine's (ADR-0027 §1).
+    if (r.user_id === actorId || r.stage === 'draft') continue;
     const key = `${r.user_id}|${r.unit_id || ''}`;
     const entry = foreign.get(key) || { subject: String(r.user_id), unit: (r.unit_id as string | null) || null, count: 0 };
     entry.count += 1; foreign.set(key, entry);

@@ -62,15 +62,16 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   counselings: {
-    purpose: 'Counseling given or received, including acknowledgement, so the conversation has a dated record both sides can see.',
-    authority: 'Recorded under the counseling policy the unit operates by. Directly about a named person and treated as the most sensitive record here.',
-    access: 'The subject and the counselor. Private counselings are never readable by other leaders or by the owner through the app.',
+    purpose: 'Counseling given or received, including acknowledgement, so the conversation has a dated record both sides can see. A counseling a leader writes is drafted, may be shared with its Marine to review, and is finalized; afterwards it changes only by an amendment that keeps what it replaced (ADR-0027).',
+    authority: 'Recorded under the counseling policy the unit operates by. Directly about a named person and treated as the most sensitive record here. Its worksheet follows NAVMC 2795 (USMC User’s Guide to Counseling), which keeps counseling documentation between the senior and the junior.',
+    access: 'The subject and the counselor. A draft is its counselor’s alone, and one shared for review its counselor’s and its Marine’s. Private counselings are never readable by other leaders or by the owner through the app.',
     columns: {
       id: 'technical', user_id: 'identifier', unit_id: 'employment', counselor_id: 'identifier',
       date: 'performance', type: 'performance', counselor_name: 'identifier', summary: 'performance',
       strengths: 'performance', improvements: 'performance', goals_set: 'performance', follow_up_date: 'performance',
       acknowledged_at: 'performance', visibility: 'none', frozen_at: 'technical', deleted_at: 'technical',
       created_at: 'technical', updated_at: 'technical', version: 'technical',
+      stage: 'performance', revision: 'technical', finalized_at: 'technical', finalized_by: 'identifier', particulars: 'identifier',
     },
   },
   work_events: {
@@ -459,6 +460,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'technical', duty_id: 'technical', unit_id: 'employment', actor_id: 'identifier', event: 'performance', from_status: 'performance', to_status: 'performance',
       reason: 'performance', calculated_points: 'performance', approved_points: 'performance', scoring_version: 'technical', override: 'performance',
       by_owner: 'technical', created_at: 'technical',
+    },
+  },
+  counseling_revisions: {
+    purpose: 'A counseling’s amendment history (Task 20, ADR-0027): what a final counseling said before each amendment, with who amended it, when, why, which fields changed, and whether its Marine had acknowledged the text replaced.',
+    authority: 'The counseling it belongs to; written with the amendment it records and kept as written. Every amendment is also in the audit trail, by the names of the fields it changed.',
+    access: 'Whoever may read the counseling. Its words and reasons are redacted when a retention schedule anonymizes the counseling, and it is destroyed with the counseling.',
+    columns: {
+      id: 'technical', counseling_id: 'technical', unit_id: 'employment', revision: 'technical', content: 'performance', finalized_at: 'technical',
+      acknowledged_at: 'performance', amended_by: 'identifier', reason: 'performance', changed: 'technical', created_at: 'technical',
     },
   },
   attachments: {

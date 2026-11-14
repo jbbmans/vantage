@@ -63,7 +63,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   const records: Record<string, Row[]> = {};
   for (const table of RECORD_TABLE_NAMES) {
-    const where = table === 'counselings' ? '(user_id = ? OR counselor_id = ?)' : table === 'tasks' || table === 'goals' ? '(user_id = ? OR assignee_id = ?)' : 'user_id = ?';
+    // A counseling about the Marine is theirs once it is final; one they wrote, draft or final, is theirs to keep (ADR-0027).
+    const where = table === 'counselings' ? "((user_id = ? AND stage = 'final') OR counselor_id = ?)" : table === 'tasks' || table === 'goals' ? '(user_id = ? OR assignee_id = ?)' : 'user_id = ?';
     const params = where.includes('OR') ? [userId, userId] : [userId];
     let rows = (db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY created_at DESC`).all(...params) as Row[]).map((r) => hydrate(r, table as RecordTable)!);
     if (table === 'goals') rows = withGoalProgress(ctx, rows as never) as Row[];
@@ -129,6 +130,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   // What reviewers decided about the duty they stood, and why (ADR-0024).
   const dutyReviews = dutyReviewHistory(ctx, records.duties ?? [], userId);
+  const counselingRevisions = counselingRevisionHistory(ctx, records.counselings ?? [], userId);
 
   const counts = Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length]));
   const full = {
@@ -140,7 +142,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
-    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews,
+    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews, counseling_revisions: counselingRevisions,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
     counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
   };
@@ -155,7 +157,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
  * The export cut down to the categories chosen: each record type's rows in them, the attachments on those rows, and the
  * other datasets only when chosen. It says what it holds in `sections`, so an import knows what a missing dataset means.
  */
-function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; duty_reviews: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
+function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; duty_reviews: Row[]; counseling_revisions: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
   const records: Record<string, Row[]> = {};
   for (const [table, rows] of Object.entries(full.records)) {
     const chosen = sel.tables.get(table as ImportTable);
@@ -176,6 +178,8 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
     records, attachments,
     // A duty's review history goes where the duty goes (ADR-0024).
     ...(records.duties ? { duty_reviews: full.duty_reviews.filter((v) => kept.has(`duties:${String(v.duty_id)}`)) } : {}),
+    // So does a counseling's amendment history (ADR-0027).
+    ...(records.counselings ? { counseling_revisions: full.counseling_revisions.filter((v) => kept.has(`counselings:${String(v.counseling_id)}`)) } : {}),
   };
   out.counts = { ...Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length])), attachments: attachments.length, ...(career ? { career_steps: career.steps.length } : {}) };
   return out as T;
@@ -249,6 +253,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     entries.push({ name: 'record-moves.csv', data: rowsToCsv(archive.record_moves.map(flat)) });
   }
   if ('duty_reviews' in archive && (archive.duty_reviews as Row[]).length) entries.push({ name: 'duty-reviews.csv', data: rowsToCsv((archive.duty_reviews as Row[]).map(flat)) });
+  if ('counseling_revisions' in archive && (archive.counseling_revisions as Row[]).length) entries.push({ name: 'counseling-revisions.csv', data: rowsToCsv((archive.counseling_revisions as Row[]).map(flat)) });
   for (const f of _files) entries.push({ name: attachmentPath(f), data: f.content as Buffer, modified: new Date(String(f.created_at)) });
   return { buffer: buildZip(entries), filename: `vantage-${safeName(owner)}-${stamp}${'sections' in archive ? '-selected' : ''}.zip`, counts: archive.counts };
 }
@@ -283,6 +288,21 @@ function dutyReviewHistory(ctx: AppContext, duties: Row[], userId: string): Row[
   const rows = ctx.db.prepare(`SELECT id, duty_id, actor_id, event, from_status, to_status, reason, calculated_points, approved_points, scoring_version, override, created_at
                                FROM duty_reviews WHERE duty_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid`).all(JSON.stringify(own.map((d) => String(d.id)))) as Row[];
   return rows.map(({ actor_id, ...r }) => ({ ...r, actor: actor_id === userId ? 'me' : anonymized.has(String(r.duty_id)) ? null : personLabel(ctx, actor_id) }));
+}
+
+/**
+ * The amendment history of the counselings in the export (ADR-0027): what each said before each amendment, who amended
+ * it (by name, never id; "me" for the exporter), when and why. Kept as written; anonymized ones carry the retention notice.
+ */
+function counselingRevisionHistory(ctx: AppContext, counselings: Row[], userId: string): Row[] {
+  if (!counselings.length) return [];
+  const rows = ctx.db.prepare(`SELECT id, counseling_id, revision, content, finalized_at, acknowledged_at, amended_by, reason, changed, created_at
+                               FROM counseling_revisions WHERE counseling_id IN (SELECT value FROM json_each(?)) ORDER BY counseling_id, revision`).all(JSON.stringify(counselings.map((c) => String(c.id)))) as Row[];
+  return rows.map(({ amended_by, content, ...r }) => {
+    let parsed: unknown = content;
+    try { parsed = JSON.parse(String(content)); } catch { /* the retention notice, kept as it is */ }
+    return { ...r, content: parsed, amended_by: amended_by === userId ? 'me' : personLabel(ctx, String(amended_by)) };
+  });
 }
 
 /**

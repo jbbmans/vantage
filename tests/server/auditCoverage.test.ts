@@ -342,17 +342,30 @@ test('made-up addresses under a console’s own guard are one refusal, not one e
 });
 
 test('amending a counseling names the fields that changed, never what they say', async () => {
-  const created = await post(op.token, '/api/records/counselings', { user_id: marine.id, type: 'monthly', date: '2026-09-01', summary: 'Solid month.', visibility: 'unit', unit_id: 'G8' });
+  // While it is a draft its counselor edits it; the trail names the fields, not their words.
+  const created = await post(op.token, '/api/records/counselings', { user_id: marine.id, type: 'monthly', date: '2026-09-01', summary: 'Solid month.', visibility: 'unit', unit_id: 'G8', stage: 'draft' });
   assert.equal(created.status, 201, JSON.stringify(created.body));
-  const edited = await app.call('PUT', `/api/records/counselings/${created.body.id}`, { token: op.token, body: { summary: 'SECRET-REVISION', goals_set: 'Lead the close-out', type: 'monthly' } });
+  assert.equal(last('create')!.detail, 'counseling draft');
+  const edited = await app.call('PUT', `/api/records/counselings/${created.body.id}`, { token: op.token, body: { summary: 'SECRET-REVISION', goals_set: 'Lead the close-out', type: 'monthly', version: created.body.version } });
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   const entry = last('counseling_amended')!;
   assert.equal(entry.entity_id, created.body.id);
-  assert.equal(entry.subject_id, marine.id);
+  assert.equal(entry.subject_id, null, 'a draft is its counselor’s alone: the entry does not name its Marine (ADR-0027)');
   assert.equal(entry.category, 'user');
   assert.equal(entry.detail, 'counselor edit; changed: summary, goals_set', 'only the fields that changed, by name');
   assert.ok(!app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'edit' AND entity_id = ?").get(created.body.id), 'not the generic edit');
-  assert.ok(!(app.ctx.db.prepare('SELECT detail FROM audit_log').all() as Array<{ detail: string | null }>).some((r) => r.detail?.includes('SECRET-REVISION')));
+
+  // Once final it changes only by an amendment (ADR-0027): the trail names the revision and the fields, and the reason
+  // stays in the counseling's own history, not the audit log.
+  const final = await post(op.token, `/api/records/counselings/${created.body.id}/finalize`, { version: edited.body.version });
+  assert.equal(final.status, 200, JSON.stringify(final.body));
+  assert.equal(last('counseling_finalized')!.detail, 'from draft; revision 1');
+  const amended = await post(op.token, `/api/records/counselings/${created.body.id}/amend`, { version: final.body.version, summary: 'SECRET-AMENDMENT', reason: 'SECRET-REASON' });
+  assert.equal(amended.status, 200, JSON.stringify(amended.body));
+  assert.equal(last('counseling_amended')!.detail, 'counselor amendment; revision 2; changed: summary');
+  assert.equal(last('counseling_amended')!.subject_id, marine.id, 'a final counseling is its Marine’s record: the trail names them');
+  const details = (app.ctx.db.prepare('SELECT detail FROM audit_log').all() as Array<{ detail: string | null }>).map((r) => r.detail ?? '');
+  assert.ok(!details.some((d) => /SECRET-(REVISION|AMENDMENT|REASON)/.test(d)), 'no word of the counseling or the reason in the trail');
 });
 
 test('a unit role edit names the permissions added and removed; Unit Instance roles are named by key', async () => {

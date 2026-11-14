@@ -27,6 +27,7 @@ import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
 import { withDutyNames } from '../services/duties.ts';
+import { withCounselingDetail } from '../services/counselings.ts';
 import { addResponsibility, assignmentSchema, bulkPersonnel, bulkSchema, changeAssignment, endResponsibility, personnelAccess, personnelRecord, personnelRoster, profileUnitsFor, responsibilitySchema, supervisorCandidates, withPersonnelNote } from '../services/personnelRecords.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 
@@ -500,9 +501,11 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   // open by the same rule (canRead), so a count is never given for a training whose files would be refused.
   const trainings = scoped<Training>('trainings');
   const evidence = new Map(withEvidenceCounts(ctx, trainings.filter((t) => canRead(scope, req.user.id, t as unknown as RecordRow)) as unknown as Array<Record<string, unknown>>).map((t) => [String(t.id), t.evidence_count]));
-  const counselings = isSelf
-    ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id) as Counseling[]
-    : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units) as Counseling[];
+  // A counseling still in draft is its counselor's alone; one shared for review is the Marine's to read too; the unit
+  // reads a counseling once it is final (ADR-0027).
+  const counselings = withCounselingDetail(ctx, req.user.id, isSelf
+    ? ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (stage <> 'draft' OR counselor_id = user_id OR counselor_id IS NULL) ORDER BY date DESC`).all(id) as Array<Record<string, unknown>>
+    : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}) AND stage = 'final')) ORDER BY date DESC`).all(id, req.user.id, ...units) as Array<Record<string, unknown>>, scope) as unknown as Counseling[];
   const rawGoals = isSelf
     ? ctx.db.prepare('SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL').all(id, id)
     : ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);

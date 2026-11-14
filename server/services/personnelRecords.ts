@@ -315,8 +315,8 @@ function recordCounts(ctx: AppContext, userId: string, units: string[] | null, r
     education: count(`SELECT COUNT(*) AS n FROM trainings WHERE user_id = ? AND deleted_at IS NULL AND type = 'education' ${shared}`),
     awards: count(`SELECT COUNT(*) AS n FROM awards WHERE user_id = ? AND deleted_at IS NULL ${shared}`),
     counselings: units
-      ? (ctx.db.prepare("SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))))").get(userId, readerId, JSON.stringify(units)) as { n: number }).n
-      : count('SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL'),
+      ? (ctx.db.prepare("SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND stage = 'final' AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))))").get(userId, readerId, JSON.stringify(units)) as { n: number }).n
+      : count("SELECT COUNT(*) AS n FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND stage = 'final'"),
     duty: count(`SELECT COUNT(*) AS n FROM duties WHERE user_id = ? AND deleted_at IS NULL ${shared}`),
     activities: count(`SELECT COUNT(*) AS n FROM activities WHERE user_id = ? AND deleted_at IS NULL ${shared}`),
     goals: (ctx.db.prepare(`SELECT COUNT(*) AS n FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ${shared}`).get(userId, userId, ...args) as { n: number }).n,

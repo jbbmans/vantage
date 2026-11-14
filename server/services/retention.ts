@@ -53,7 +53,8 @@ const IDENTIFYING: Record<string, string[]> = {
   activities: ['title', 'result', 'notes'],
   trainings: ['title', 'provider', 'notes'],
   awards: ['citation', 'notes', 'recommending_official', 'approving_authority'],
-  counselings: ['summary', 'strengths', 'improvements', 'goals_set', 'counselor_name'],
+  // Its particulars name the Marine and the counselor as they stood when it was finalized (ADR-0027).
+  counselings: ['summary', 'strengths', 'improvements', 'goals_set', 'counselor_name', 'particulars'],
   goals: ['title', 'description'],
   tasks: ['title', 'notes'],
   projects: ['name', 'description'],
@@ -231,6 +232,11 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
             const list = JSON.stringify(ids);
             ctx.db.prepare('UPDATE duties SET points_override_reason = ? WHERE points_override_reason IS NOT NULL AND id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
             ctx.db.prepare('UPDATE duty_reviews SET reason = ? WHERE reason IS NOT NULL AND duty_id IN (SELECT value FROM json_each(?))').run(REDACTED, list);
+          }
+          // What a counseling said before each amendment, and why it was amended, go with its words (ADR-0027). Which
+          // revision, who amended it, when and which fields stay.
+          if (table === 'counselings') {
+            ctx.db.prepare('UPDATE counseling_revisions SET content = ?, reason = ? WHERE counseling_id IN (SELECT value FROM json_each(?))').run(REDACTED, REDACTED, JSON.stringify(ids));
           }
         }
         if (fileIds.length) files = ctx.db.prepare('DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(fileIds)).changes;

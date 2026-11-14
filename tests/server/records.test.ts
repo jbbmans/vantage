@@ -134,8 +134,8 @@ test('counselings: leaders with COUNSEL record for members; members acknowledge'
   const recorded = (await app.call('GET', '/api/records/counselings', { token: nguyen.token })).body.find((r: any) => r.id === c.body.id);
   assert.match(recorded.subject_name, /Rivera/, 'the counselor sees whom it was for');
   assert.equal((await app.call('GET', '/api/records/counselings', { token: outsider.token })).body.length, 0);
-  assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: nguyen.token })).status, 403);
-  const ack = await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token });
+  assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: nguyen.token, body: { version: c.body.version } })).status, 403);
+  const ack = await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token, body: { version: c.body.version } });
   assert.equal(ack.status, 200);
   assert.ok(ack.body.acknowledged_at);
   const denied = await app.call('POST', '/api/records/counselings', { token: rivera.token, body: { user_id: nguyen.id, summary: 'Reverse counseling' } });
@@ -361,14 +361,20 @@ test('shared goals count only unit-visible work; private goals see everything', 
 });
 
 test('the counseled Marine can acknowledge a leader-recorded counseling but not rewrite or delete it', async () => {
-  const c = await app.call('POST', '/api/records/counselings', { token: nguyen.token, body: { user_id: rivera.id, type: 'monthly', date: '2026-09-02', summary: 'Recorded by the SNCO.', visibility: 'unit' } });
+  // Its counselor corrects it while it is a draft (ADR-0027), then finalizes it.
+  const c = await app.call('POST', '/api/records/counselings', { token: nguyen.token, body: { user_id: rivera.id, type: 'monthly', date: '2026-09-02', summary: 'Recorded by the SNCO.', visibility: 'unit', stage: 'draft' } });
   assert.equal(c.status, 201);
-  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: rivera.token, body: { summary: 'Rewritten by the subject', version: c.body.version } })).status, 403);
-  assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: rivera.token })).status, 403);
-  const corrected = await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor before acknowledgement', version: c.body.version } });
+  const corrected = await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor before it was final', version: c.body.version } });
   assert.equal(corrected.status, 200);
-  assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token })).status, 200);
-  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Rewritten after acknowledgement', version: corrected.body.version + 1 } })).status, 403);
+  const final = await app.call('POST', `/api/records/counselings/${c.body.id}/finalize`, { token: nguyen.token, body: { version: corrected.body.version } });
+  assert.equal(final.status, 200, JSON.stringify(final.body));
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: rivera.token, body: { summary: 'Rewritten by the subject', version: final.body.version } })).status, 403);
+  assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: rivera.token })).status, 403);
+  // Final, it is not rewritten in place or deleted, even by its counselor: it is amended.
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Rewritten once final', version: final.body.version } })).status, 403);
+  assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: nguyen.token })).status, 403);
+  assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token, body: { version: final.body.version } })).status, 200);
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Rewritten after acknowledgement', version: final.body.version + 1 } })).status, 403);
   assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: nguyen.token })).status, 403);
 });
 

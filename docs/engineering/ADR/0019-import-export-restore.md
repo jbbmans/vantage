@@ -40,7 +40,7 @@ record's download and the Your data page all read it, so a column the export wri
 | Activities, volunteer service, FM work | `activities` (by category; FM work by its `work:` fingerprint) | ✓ |
 | Awards and recognition | `awards` | ✓ |
 | Training, PME, education, certifications, qualifications | `trainings` (by `type`) | ✓ |
-| Counselings, goals, projects, tasks, career plan | their own tables | ✓ |
+| Counselings, goals, projects, tasks, career plan | their own tables; a counseling's amendment history in `counseling_revisions` ([ADR-0027](0027-counseling-workflow-navmc-2795.md)) | ✓; a counseling as the Marine's own notes, as it reads now, its history left in the file |
 | Attachments | `attachments`, in a ZIP | ✓ onto the record they came with |
 | Duty | `duties` (Task 17, ADR-0023) | ✓ as duty, the type matched in the importer's Unit Instance; review, points and length never from a file |
 | Duty review history | `duty_reviews` (Task 18, ADR-0024) | kept in the file, people by name; never imported, and an import's undo never restores a review |

@@ -55,6 +55,8 @@ const USER = [
   'comment_removed_by_moderator', 'export', 'export_csv', 'export_pdf', 'team_message',
   // An entry its owner moved to the record type it belongs in, and a move undone (ADR-0015).
   'record_moved', 'record_move_undone', 'record_kind_confirmed',
+  // A counseling's workflow (ADR-0027): a draft shared with its Marine and taken back, finalized, and printed.
+  'counseling_shared', 'counseling_withdrawn', 'counseling_finalized', 'print_counseling',
   // A duty's review (ADR-0024): each decision, each change to its approved points, each time it went back for review.
   'duty_approved', 'duty_returned', 'duty_rejected', 'duty_resubmitted', 'duty_reopened', 'duty_points_changed',
   // One's own records brought in from a file, and one record downloaded (ADR-0019).

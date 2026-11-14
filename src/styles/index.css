@@ -406,6 +406,48 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
 .report-table-note, .report-empty { margin: 0.25rem 0 0; font-size: 0.75rem; font-style: italic; color: rgb(var(--ink-3)); }
 .report-notes { margin: 0.25rem 0 0; padding-left: 1.1rem; list-style: disc; font-size: 0.8rem; color: rgb(var(--ink-2)); }
 .report-notes li + li { margin-top: 0.2rem; }
+/* A counseling's worksheet (ADR-0027), in the layout of NAVMC 2795 Appendix A: labelled boxes, then its blocks, then the
+   two signature lines. The PDF draws the same document; this is how the preview and the print page lay it out. */
+.cw-head { margin-bottom: 0.75rem; }
+.cw-eyebrow { margin: 0; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(var(--ink-3)); }
+.cw-title { margin: 0.2rem 0 0; font-size: 1.25rem; font-weight: 700; line-height: 1.2; }
+.cw-sub { margin: 0.15rem 0 0; font-size: 0.8rem; color: rgb(var(--ink-2)); }
+.cw-band { margin: 0 0 0.75rem; border: 1px solid rgb(var(--bad) / 0.45); border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; color: rgb(var(--bad)); }
+.cw-grid { margin: 0 0 0.25rem; }
+.cw-row { display: grid; grid-template-columns: var(--cw-cols, 1fr); }
+.cw-cell { min-width: 0; border: 1px solid rgb(var(--line-strong)); margin: 0 -1px -1px 0; padding: 0.25rem 0.4rem 0.35rem; }
+.cw-label { display: block; font-size: 0.6rem; font-weight: 700; color: rgb(var(--ink-2)); }
+.cw-value { display: block; min-height: 1.1em; font-size: 0.85rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.cw-aside { margin: 0.35rem 0 0.75rem; font-size: 0.7rem; font-style: italic; color: rgb(var(--ink-3)); }
+.cw-block { margin: 0 0 0.75rem; border-bottom: 1px solid rgb(var(--line-strong)); padding-bottom: 0.5rem; }
+.cw-block-head { margin: 0 0 0.35rem; background: rgb(var(--surface-2)); padding: 0.2rem 0.4rem; font-size: 0.78rem; font-weight: 700; break-after: avoid; }
+.cw-part { margin: 0.25rem 0 0.1rem; font-size: 0.72rem; font-weight: 700; color: rgb(var(--ink-2)); }
+.cw-text { margin: 0 0 0.25rem; font-size: 0.875rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cw-empty { margin: 0; font-size: 0.8rem; font-style: italic; color: rgb(var(--ink-3)); }
+.cw-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1.75rem 0 1rem; break-inside: avoid; }
+.cw-sign { display: flex; flex-direction: column; gap: 0.1rem; border-top: 1px solid rgb(var(--ink)); padding-top: 0.25rem; min-width: 0; }
+.cw-sign strong { font-size: 0.72rem; }
+.cw-sign span { font-size: 0.85rem; overflow-wrap: anywhere; }
+.cw-sign small { font-size: 0.7rem; color: rgb(var(--ink-3)); }
+.cw-amendments { margin: 0; padding: 0; list-style: none; }
+.cw-amendments li { break-inside: avoid; }
+.cw-notes { margin: 0.75rem 0 0; padding-left: 1rem; font-size: 0.7rem; color: rgb(var(--ink-2)); }
+.cw-foot { margin: 0.25rem 0 0; font-size: 0.65rem; color: rgb(var(--ink-3)); overflow-wrap: anywhere; }
+.report-print-sheet.cw-sheet { max-width: 8.5in; }
+@media (max-width: 480px) {
+  .cw-row { grid-template-columns: 1fr 1fr; }
+  .cw-signs { grid-template-columns: 1fr; }
+}
+@media print {
+  .cw { font-size: 9.5pt; }
+  .cw-title { font-size: 14pt; }
+  .cw-text { font-size: 10pt; }
+  .cw-row { grid-template-columns: var(--cw-cols, 1fr); }
+  .cw-signs { grid-template-columns: 1fr 1fr; }
+  .cw-band { color: #9f1d22 !important; border-color: #9f1d22 !important; }
+  .cw-block-head { background: #f3f4f6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
 /* The print page: a sheet on screen, the page itself on paper. */
 .report-print-page { min-height: 100dvh; background: rgb(var(--canvas)); }
 .report-print-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid rgb(var(--line)); background: rgb(var(--surface)); padding: 0.5rem 1rem; }

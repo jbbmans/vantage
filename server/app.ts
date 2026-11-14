@@ -188,7 +188,7 @@ function inlineScriptHashes(distDir: string): string[] {
 }
 
 /** Every path the application serves a page at; a sign-in link sent before a move still finds it. */
-const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|governance|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$/;
+const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|governance|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$|^\/career\/counseling\/[^/]+\/print\/?$/;
 const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
 const ADMIN_PATH = /^\/admin(?:\/.*)?$/;
 /** What every console page calls: signing in, the person's identity, ranks. */

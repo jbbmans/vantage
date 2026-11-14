@@ -5,7 +5,7 @@ import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } fr
 import { requireAuth } from '../auth/middleware.ts';
 import { sessionStands } from '../auth/sessions.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
-import { canEdit, canRead } from '../authz/records.ts';
+import { canEdit, canRead, unfinalized } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
 import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
@@ -22,6 +22,11 @@ import { buildRecordExport } from '../services/personalExport.ts';
 import { importedFrom } from '../services/recordImport.ts';
 import { withDutyNames, isAnonymizedDuty } from '../services/duties.ts';
 import { dutyReviewHistory, reviewDuty } from '../services/dutyReview.ts';
+import {
+  acknowledgeCounseling, amendCounseling, counselingRevisions, counselingWorksheet, finalizeCounseling, mayManageCounselingFiles,
+  shareCounseling, withCounselingDetail, withdrawCounseling, worksheetFileName,
+} from '../services/counselings.ts';
+import { renderCounselingPdf } from '../lib/pdfCounseling.ts';
 import { statSync } from 'node:fs';
 
 export const recordsRouter = Router();
@@ -63,7 +68,8 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw
-    : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw : raw;
+    : table === 'duties' ? withDutyNames(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw
+    : table === 'counselings' ? withCounselingDetail(req.ctx, req.user.id, [raw], scopeFor(req.ctx, req.user, req))[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   // A record an import brought in says so, and by whose word (ADR-0019); a duty a retention schedule anonymized says it
   // was imported, and names nobody (ADR-0023 §8).
@@ -72,9 +78,24 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   res.json(imported ? { ...row, imported } : row);
 }));
 
-/** One record to keep: as JSON, a one-row CSV, or a ZIP with its files. Whoever may read the record may download it. */
-recordsRouter.get('/:table/:id/export', wrap((req, res) => {
+/**
+ * One record to keep: as JSON, a one-row CSV, or a ZIP with its files; a counseling also as its worksheet in the NAVMC
+ * 2795 layout (ADR-0027), drawn from the stored record and never stored itself. Whoever may read the record may download it.
+ */
+recordsRouter.get('/:table/:id/export', wrap(async (req, res) => {
   const table = tableParam(req);
+  if (table === 'counselings' && req.query.format === 'pdf') {
+    const revision = req.query.revision === undefined ? null : Number(req.query.revision);
+    const doc = counselingWorksheet(req.ctx, req.user, String(req.params.id), { revision, purpose: 'pdf' }, req, clientIp(req));
+    const pdf = await renderCounselingPdf(doc);
+    const subject = getRecord(req.ctx, 'counselings', doc.id, { includeDeleted: true });
+    audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: doc.id, subject_id: subject && subject.user_id !== req.user.id ? subject.user_id : null, unit_id: subject?.unit_id ?? null, detail: `pdf; revision ${doc.revision}${doc.stage === 'final' ? '' : `; ${doc.stage}`}`, ip: clientIp(req) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${worksheetFileName(doc)}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(pdf);
+    return;
+  }
   const row = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'zip' ? 'zip' : 'json';
   const out = buildRecordExport(req.ctx, table, row as Record<string, unknown>, format, { files: isAttachable(table) });
@@ -127,13 +148,17 @@ recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsAct
 recordsRouter.post('/duties/:id/review', wrap((req, res) => res.json(reviewDuty(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
 recordsRouter.get('/duties/:id/reviews', wrap((req, res) => res.json(dutyReviewHistory(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
 
-recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
-  const row = getRecord(req.ctx, 'counselings', String(req.params.id));
-  if (!row) throw notFound('No such counseling.');
-  if (row.user_id !== req.user.id) throw forbidden('Only the counseled Marine can acknowledge.');
-  req.ctx.db.prepare('UPDATE counselings SET acknowledged_at = COALESCE(acknowledged_at, ?), updated_at = ?, version = version + 1 WHERE id = ?').run(now(), now(), row.id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'acknowledge_counseling', entity: 'counselings', entity_id: row.id, unit_id: row.unit_id, ip: clientIp(req) });
-  res.json(getRecord(req.ctx, 'counselings', row.id));
+// A counseling's workflow (ADR-0027): sharing a draft with its Marine and taking it back, finalizing it, amending a final
+// one, and its Marine acknowledging it; each against the version its asker saw. Then its amendment history and worksheet.
+recordsRouter.post('/counselings/:id/share', wrap((req, res) => res.json(shareCounseling(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.post('/counselings/:id/withdraw', wrap((req, res) => res.json(withdrawCounseling(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.post('/counselings/:id/finalize', wrap((req, res) => res.json(finalizeCounseling(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.post('/counselings/:id/amend', wrap((req, res) => res.json(amendCounseling(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => res.json(acknowledgeCounseling(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+recordsRouter.get('/counselings/:id/revisions', wrap((req, res) => res.json(counselingRevisions(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
+recordsRouter.get('/counselings/:id/worksheet', wrap((req, res) => {
+  const revision = req.query.revision === undefined ? null : Number(req.query.revision);
+  res.json(counselingWorksheet(req.ctx, req.user, String(req.params.id), { revision, purpose: req.query.purpose === 'print' ? 'print' : 'view' }, req, clientIp(req)));
 }));
 
 // Files on records, and a training's evidence (ADR-0025). Whoever may open the record may list and open its files;
@@ -149,8 +174,10 @@ function attachableRecord(req: express.Request, needEdit = false, again = false)
   if (!row) throw notFound('No such record.');
   // `again`: the caller's roles and memberships as they are now, not as this request first read them.
   const scope = again ? scopeFor(req.ctx, req.user) : scopeFor(req.ctx, req.user, req);
-  if (!canRead(scope, req.user.id, row)) throw forbidden('You cannot read attachments for that record.');
-  if (needEdit && !canEdit(scope, req.user.id, row)) throw forbidden('That record is not yours to update.');
+  // A counseling draft, or one shared for review, is not there for anyone else: the same 404 as an id that is not (ADR-0027).
+  if (!canRead(scope, req.user.id, row)) throw unfinalized(row) ? notFound('No such record.') : forbidden('You cannot read attachments for that record.');
+  // A final counseling's counselor keeps its files, a signed worksheet among them, though its words no longer change (ADR-0027).
+  if (needEdit && !(table === 'counselings' ? mayManageCounselingFiles(req.ctx, scope, req.user.id, row) : canEdit(scope, req.user.id, row))) throw forbidden('That record is not yours to update.');
   return { table, row };
 }
 

@@ -96,7 +96,12 @@ its answer with every duty it reads, and each decision is a row of `duty_reviews
 ([ADR-0024](ADR/0024-duty-review-permissions-scoring.md)). A record's files live in `attachments` and are reached only through the
 record (`canRead` to list and download, `canEdit` to add, correct and remove); a training's files are its evidence and
 say what they are (`kind`, `description`, migration 033), validated by `inspectAttachment`
-([ADR-0025](ADR/0025-training-evidence.md)). The person's timeline (`GET /api/record/timeline`)
+([ADR-0025](ADR/0025-training-evidence.md)). A counseling a leader writes is a draft only they read, may be shared with its
+Marine for review, and is finalized; once final it changes only by amendment, which keeps what it replaced in
+`counseling_revisions` (migration 035). One rule (`counselingOptions` in `shared/counseling.ts`) says who may share,
+finalize, amend or acknowledge, and its worksheet is one structured document that the preview, the print page and
+`server/lib/pdfCounseling.ts` all draw; the PDF is never stored ([ADR-0027](ADR/0027-counseling-workflow-navmc-2795.md)).
+The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
 training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in
 `record_lineage`, is audited at both ends and can be undone; nothing moves on its own, and migration 023

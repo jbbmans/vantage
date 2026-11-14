@@ -3,7 +3,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther } from '../authz/records.ts';
+import { readableClause, canEdit, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther, unfinalized } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
@@ -11,6 +11,7 @@ import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/
 import { periodClause } from './timeframes.ts';
 import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
+import { assertFinalizable, finalizedColumns, tellFinal, withCounselingDetail } from './counselings.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -103,9 +104,11 @@ const keptFingerprint = (userId: string, current: unknown, merged: Record<string
 export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null; deleted?: boolean } = {}) {
   const spec = TABLES[table];
   const { clause, params } = readableClause(ctx, scope, user.id, 't', { memberReadable: spec.memberReadable, counselor: spec.counselor, assignee: spec.assignee });
-  // The recycle bin is personal: only the owner sees their own deleted rows.
-  const where = opts.deleted ? ['t.deleted_at IS NOT NULL', 't.user_id = ?'] : [`t.deleted_at IS NULL`, clause];
-  if (opts.deleted) params.splice(0, params.length, user.id);
+  // The recycle bin is personal: only the owner sees their own deleted rows. A counseling not yet final is its
+  // counselor's, deleted or not: it is in their bin, never in its Marine's (ADR-0027).
+  const binClause = table === 'counselings' ? "((t.user_id = ? AND t.stage = 'final') OR (t.counselor_id = ? AND t.stage <> 'final'))" : 't.user_id = ?';
+  const where = opts.deleted ? ['t.deleted_at IS NOT NULL', binClause] : [`t.deleted_at IS NULL`, clause];
+  if (opts.deleted) params.splice(0, params.length, ...(table === 'counselings' ? [user.id, user.id] : [user.id]));
   if (opts.unitId) { where.push('t.unit_id = ?'); params.push(opts.unitId); }
   // A record with a timeframe is in the period when any day of it is (ADR-0018); a task by its due date, a counseling by its date.
   if (isTimeframed(table)) {
@@ -121,7 +124,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const offset = Math.max(Number(opts.offset) || 0, 0);
   const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
   const hydrated = rows.map((r) => hydrate(r, table)!);
-  if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
+  if (table === 'counselings') return withCounselingDetail(ctx, user.id, hydrated, scope);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
   if (table === 'duties') return withDutyNames(ctx, user.id, hydrated, scope);
@@ -139,17 +142,6 @@ export function withEvidenceCounts<T extends Record<string, unknown>>(ctx: AppCo
   const counts = new Map((ctx.db.prepare(`SELECT record_id, COUNT(*) AS n FROM attachments WHERE record_table = 'trainings' AND deleted_at IS NULL AND record_id IN (SELECT value FROM json_each(?)) GROUP BY record_id`)
     .all(JSON.stringify(rows.map((r) => String(r.id)))) as Array<{ record_id: string; n: number }>).map((c) => [c.record_id, c.n]));
   return rows.map((r) => ({ ...r, evidence_count: counts.get(String(r.id)) ?? 0 }));
-}
-
-/** A counselor reading a counseling they recorded for someone else sees whom it was for. */
-function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
-  const ids = [...new Set(rows.map((r) => String(r.user_id)).filter((id) => id !== viewerId))];
-  if (!ids.length) return rows;
-  const names = new Map((ctx.db.prepare(
-    `SELECT u.id, u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
-  ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
-    .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
-  return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
 }
 
 /**
@@ -191,7 +183,8 @@ export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppCont
 /** A record as its writer gets it back: as a read of it gives it, with a goal's progress and a duty's names. */
 function readBack(ctx: AppContext, table: RecordTable, id: string, viewerId: string) {
   const row = getRecord(ctx, table, id)!;
-  return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : table === 'duties' ? withDutyNames(ctx, viewerId, [row])[0] as typeof row : row;
+  return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : table === 'duties' ? withDutyNames(ctx, viewerId, [row])[0] as typeof row
+    : table === 'counselings' ? withCounselingDetail(ctx, viewerId, [row])[0] as typeof row : row;
 }
 
 export function getRecord(ctx: AppContext, table: RecordTable, id: string, { includeDeleted = false } = {}) {
@@ -273,6 +266,11 @@ export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, 
   // and the duty with it. The database refuses the same move (duties_reviews_same_org).
   if (table === 'duties' && ctx.db.prepare('SELECT 1 FROM duty_reviews WHERE duty_id = ? LIMIT 1').get(row.id)) {
     throw forbidden('This duty has been reviewed in its Unit Instance, so it stays there. Record the duty again in the other one.', 'cross_instance');
+  }
+  // A counseling's amendment history is its amenders' words in the Unit Instance it was amended in (ADR-0027): it stays
+  // there, and the counseling with it. The database refuses the same move (counselings_revisions_same_org).
+  if (table === 'counselings' && ctx.db.prepare('SELECT 1 FROM counseling_revisions WHERE counseling_id = ? LIMIT 1').get(row.id)) {
+    throw forbidden('This counseling has been amended in its Unit Instance, so it stays there.', 'cross_instance');
   }
   if (table !== 'projects') return;
   // Work filed under a project goes only where it already is. The owner's own unplaced work belongs to no instance;
@@ -361,6 +359,10 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   let ownerId = user.id;
   let counselorId: string | null = null;
   let onBehalf = false;
+  // A counseling a leader writes for a Marine starts where they say: a draft, shared with the Marine for review, or final,
+  // as every counseling was before 035 (ADR-0027). A Marine's own notes are always final.
+  const askedStage = table === 'counselings' ? (data.stage as 'draft' | 'review' | 'final' | undefined) : undefined;
+  delete data.stage;
   if ((table === 'counselings' || table === 'awards' || table === 'duties') && data.user_id && data.user_id !== user.id) {
     const subject = String(data.user_id);
     const units = detailUnitsFor(ctx, scope, subject).filter((u) => can(scope, PERMISSIONS.COUNSEL, u));
@@ -393,8 +395,17 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
 
   const id = newId();
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
-  const vals: unknown[] = [id, ownerId, unitId, visibility, now(), now()];
-  if (table === 'counselings') { cols.push('counselor_id'); vals.push(counselorId); }
+  const createdAt = now();
+  const vals: unknown[] = [id, ownerId, unitId, visibility, createdAt, createdAt];
+  const stage = table === 'counselings' && counselorId ? askedStage ?? 'final' : 'final';
+  if (table === 'counselings') {
+    cols.push('counselor_id', 'stage'); vals.push(counselorId, stage);
+    if (counselorId && stage === 'final') {
+      assertFinalizable(data.date);
+      const stamp = finalizedColumns(ctx, { user_id: ownerId, unit_id: unitId, counselor_id: counselorId, counselor_name: data.counselor_name }, user.id, createdAt);
+      cols.push('finalized_at', 'finalized_by', 'particulars'); vals.push(stamp.finalized_at, stamp.finalized_by, stamp.particulars);
+    }
+  }
   // An award keeps who entered it: its owner, or the leader recommending them (ADR-0015).
   if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
   if (table === 'activities') { cols.push('fingerprint'); vals.push(opts.fingerprint && isDrawnFromWork(opts.fingerprint) ? opts.fingerprint : activityFingerprint(ownerId, data as never)); }
@@ -416,7 +427,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : undefined, ip });
+  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : table === 'counselings' && counselorId ? `counseling ${stage}` : undefined, ip });
   if (opts.importId) return readBack(ctx, table, id, user.id);
   if (table === 'goals') {
     record(ctx, 'goal.created', {
@@ -438,8 +449,10 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     const type = ctx.db.prepare('SELECT name FROM duty_types WHERE id = ?').get(data.duty_type_id) as { name: string } | undefined;
     notify(ctx, ownerId, { kind: 'duty', title: 'Duty recorded for you', message: `${user.first_name} ${user.last_name} recorded ${type?.name ?? 'duty'} on ${String(data.date)} for you.`, actionUrl: `/record/duty?open=${id}`, dedupeKey: `duty:${id}` });
   }
-  if (table === 'counselings' && counselorId) {
-    notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}` });
+  // Its Marine is told once it is final, or shared with them to review; a draft is its counselor's alone.
+  if (table === 'counselings' && counselorId && stage === 'final') tellFinal(ctx, user, ownerId, id, data.type);
+  if (table === 'counselings' && counselorId && stage === 'review') {
+    notify(ctx, ownerId, { kind: 'counseling', title: 'Counseling draft to review', message: `${user.first_name} ${user.last_name} shared a counseling draft with you. Read it and answer in its comments before it is final.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}:review:1` });
   }
   if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned` });
@@ -452,6 +465,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const row = getRecord(ctx, table, id);
   if (!row) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
+  // A counseling not yet final is no such record to anyone who may not read it (ADR-0027).
+  if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'edit');
   const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
   if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
@@ -542,6 +557,7 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const row = getRecord(ctx, table, id);
   if (!row) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
+  if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'delete');
   if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to delete.');
   let detail: string | undefined;
@@ -561,6 +577,7 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   const row = getRecord(ctx, table, id, { includeDeleted: true });
   if (!row || !row.deleted_at) throw notFound('No such deleted record.');
   const scope = scopeFor(ctx, user, reqKey);
+  if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such deleted record.');
   if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to restore.');
   if (table === 'activities' && row.fingerprint) {
     const twin = ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL AND id != ?').get(row.user_id, row.fingerprint, id) as { id: string; title: string } | undefined;
@@ -573,9 +590,10 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
 
 export function readableRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {
   const row = getRecord(ctx, table, id, { includeDeleted: true });
-  if (!row || (row.deleted_at && row.user_id !== user.id)) throw notFound('No such record.');
+  if (!row || (row.deleted_at && row.user_id !== user.id && !(unfinalized(row) && row.counselor_id === user.id))) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
-  if (!canRead(scope, user.id, row)) throw forbidden('You cannot open that record.');
+  // A counseling not yet final is no such record to anyone but its counselor, and its Marine once shared (ADR-0027).
+  if (!canRead(scope, user.id, row)) throw unfinalized(row) ? notFound('No such record.') : forbidden('You cannot open that record.');
   return row;
 }
 

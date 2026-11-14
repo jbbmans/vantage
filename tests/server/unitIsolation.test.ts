@@ -171,8 +171,9 @@ test('nobody else’s record can be moved into another Unit Instance', async () 
   const row = app.ctx.db.prepare('SELECT unit_id FROM activities WHERE id = ?').get(g8.activity) as { unit_id: string };
   assert.equal(row.unit_id, 'FISCAL', 'the entry stayed where its author put it');
 
-  // A counselor may re-place a counseling they wrote, but not into another Unit Instance: that refusal is the boundary's.
-  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-06', type: 'quarterly', summary: 'Quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit' });
+  // A counselor may re-place a counseling they are still drafting, but not into another Unit Instance: that refusal is
+  // the boundary's. (A final counseling is not re-placed at all; it changes only by an amendment, ADR-0027.)
+  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-06', type: 'quarterly', summary: 'Quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit', stage: 'draft' });
   assert.equal(counseling.status, 201, JSON.stringify(counseling.body));
   const moved = await put(reyes.token, `/api/records/counselings/${counseling.body.id}`, { unit_id: 'MANPOWER', visibility: 'unit' });
   assert.equal(moved.status, 403, JSON.stringify(moved.body));
@@ -420,7 +421,7 @@ test('a project cannot move out from under work filed in another Unit Instance, 
 });
 
 test('a counselor cannot carry a counseling across by taking it out of every unit first', async () => {
-  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-07', type: 'quarterly', summary: 'Second quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit' });
+  const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-07', type: 'quarterly', summary: 'Second quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit', stage: 'draft' });
   assert.equal(counseling.status, 201, JSON.stringify(counseling.body));
   const path = `/api/records/counselings/${counseling.body.id}`;
   const out = await put(reyes.token, path, { unit_id: null, visibility: 'private' });
@@ -428,7 +429,7 @@ test('a counselor cannot carry a counseling across by taking it out of every uni
   assert.equal(out.body.code, 'scope_owner_only');
   assert.equal((await put(reyes.token, path, { unit_id: 'MANPOWER', visibility: 'unit' })).status, 403);
   assert.equal((app.ctx.db.prepare('SELECT unit_id FROM counselings WHERE id = ?').get(counseling.body.id) as { unit_id: string }).unit_id, 'FISCAL');
-  // Inside the instance it was written in, the counselor still re-places it.
+  // Inside the instance it was written in, the counselor still re-places their draft.
   assert.equal((await put(reyes.token, path, { unit_id: 'G8', visibility: 'unit' })).status, 200);
 });
 
@@ -715,4 +716,31 @@ test('one Unit Instance cannot re-key the sign-in of an account that serves in a
   assert.equal(linked.status, 200, JSON.stringify(linked.body));
   assert.equal((await get(g8marine.token, '/api/me')).status, 401);
   g8marine.token = await login('g8marine');
+});
+
+test('a counselor’s authority in one Unit Instance never moves a counseling in another', async () => {
+  // A Marine of both instances; Reyes counsels them in each. Reyes finalizes a counseling in G8, then holds nothing in G8.
+  const both = await app.register('twoinstances');
+  await enroll(app, op.token, 'FISCAL', both.id);
+  await enroll(app, g1lead.token, 'MANPOWER', both.id);
+  const made = await post(reyes.token, '/api/records/counselings', { user_id: both.id, type: 'quarterly', date: '2026-10-01', summary: 'Quarterly counseling in G8.', visibility: 'unit', unit_id: 'FISCAL', stage: 'final' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const path = `/api/records/counselings/${made.body.id}`;
+  const draft = await post(reyes.token, '/api/records/counselings', { user_id: both.id, type: 'monthly', date: '2026-10-02', summary: 'A G8 draft.', visibility: 'unit', unit_id: 'FISCAL', stage: 'draft' });
+  assert.equal(draft.status, 201, JSON.stringify(draft.body));
+  const grants = app.ctx.db.prepare('SELECT * FROM member_roles WHERE user_id = ? AND unit_id = ?').all(reyes.id, 'G8') as Array<Record<string, unknown>>;
+  assert.ok(grants.length);
+  app.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(reyes.id, 'G8');
+  try {
+    const read = await get(reyes.token, path);
+    assert.equal(read.status, 200, 'its counselor still reads what they wrote');
+    assert.equal(read.body.workflow.amend, false, 'counseling the Marine in G1 is no authority over a G8 counseling');
+    const amend = await post(reyes.token, `${path}/amend`, { version: made.body.version, summary: 'Changed from G1.', reason: 'x' });
+    assert.equal(amend.status, 403, JSON.stringify(amend.body));
+    for (const step of ['share', 'finalize']) assert.equal((await post(reyes.token, `/api/records/counselings/${draft.body.id}/${step}`, { version: draft.body.version })).status, 403, step);
+    assert.equal((app.ctx.db.prepare('SELECT summary FROM counselings WHERE id = ?').get(made.body.id) as { summary: string }).summary, 'Quarterly counseling in G8.');
+  } finally {
+    const put = app.ctx.db.prepare('INSERT INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)');
+    for (const g of grants) put.run(g.user_id, g.role_id, g.unit_id, g.granted_by ?? null, g.created_at);
+  }
 });

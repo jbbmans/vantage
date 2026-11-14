@@ -29,6 +29,8 @@ export const EXPORT_TABLES = [
   ...RECORD_TABLE_NAMES,
   // Each duty's review history (ADR-0024): a moved service keeps who decided what, when and why. After the duties it hangs on.
   'duty_reviews',
+  // Each counseling's amendment history (ADR-0027): what it said before each amendment, and who amended it, when and why.
+  'counseling_revisions',
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // The financial error reports each unit filed, as they were filed, and the kinds it files (ADR-0021).
   'error_report_types', 'error_snapshots', 'error_snapshot_rows',

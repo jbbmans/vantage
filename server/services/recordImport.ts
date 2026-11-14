@@ -7,7 +7,7 @@ import { newId, now } from '../lib/ids.ts';
 import { readZip, ZipError } from '../lib/zip.ts';
 import { readWorkbook, WorkbookError } from '../lib/workbook.ts';
 import { orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
-import { canEdit, canPlace, canPlaceOwnDuty, type RecordRow } from '../authz/records.ts';
+import { canEdit, canPlace, canPlaceOwnDuty, readsUnfinalized, unfinalized, type RecordRow } from '../authz/records.ts';
 import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
@@ -235,6 +235,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   counted('drafts', 'Drafts from financial cases', doc.drafts, 'Drafts belong to the cases they were worded from.');
   counted('record_moves', 'Record moves', doc.record_moves, 'Imported records start their own history here.');
   counted('duty_reviews', 'Duty review history', doc.duty_reviews, 'A file never approves duty: imported duty comes in submitted for review, and the decisions made on it before stay in the export.');
+  counted('counseling_revisions', 'Counseling amendment history', doc.counseling_revisions, 'An imported counseling comes in as your own notes, as it reads now; what it said before each amendment stays in the export.');
 
   const attachments: AttachmentIn[] = [];
   for (const a of (Array.isArray(doc.attachments) ? doc.attachments : []) as Row[]) {
@@ -622,7 +623,10 @@ function suggestionFor(c: Candidate, as: ImportTable): ImportReviewRow['suggesti
 function ownRecord(ctx: AppContext, table: ImportTable, id: string, userId: string): Row | null {
   if (table === 'career_steps') return (ctx.db.prepare('SELECT * FROM career_steps WHERE id = ? AND user_id = ?').get(id, userId) as Row | undefined) ?? null;
   const row = getRecord(ctx, table as RecordTable, id, { includeDeleted: true }) as Row | undefined;
-  return row && row.user_id === userId ? row : null;
+  if (!row || row.user_id !== userId) return null;
+  // A counseling draft about them is not theirs to see, deleted or not: its id answers as one that is not here (ADR-0027 §8).
+  const asRecord = row as unknown as RecordRow;
+  return unfinalized(asRecord) && !readsUnfinalized(userId, asRecord) ? null : row;
 }
 
 function importedBefore(ctx: AppContext, userId: string, table: ImportTable, sourceId: string): { id: string; title: string; at: string } | null {
@@ -641,7 +645,9 @@ function twinIndex(ctx: AppContext, userId: string) {
     if (table === 'activities') return (ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL').get(userId, key) as { id: string; title: string } | undefined) ?? null;
     if (!byTable.has(table)) {
       const index = new Map<string, { id: string; title: string }>();
-      for (const r of ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL`).all(userId) as Row[]) index.set(contentKey(table, r), { id: String(r.id), title: titleOf(table, r) });
+      // A counseling draft about the Marine is its counselor's alone (ADR-0027): nothing is matched to it, or named from it.
+      const readable = table === 'counselings' ? " AND stage <> 'draft'" : '';
+      for (const r of ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL${readable}`).all(userId) as Row[]) index.set(contentKey(table, r), { id: String(r.id), title: titleOf(table, r) });
       byTable.set(table, index);
     }
     return byTable.get(table)!.get(key) ?? null;

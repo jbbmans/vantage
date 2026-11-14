@@ -1,6 +1,35 @@
 # Progress
 
-_Updated 2026-11-11_
+_Updated 2026-11-13_
+
+## What changed (2026-11-13: counseling and NAVMC 2795)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word. The worksheet's layout has not been
+checked against the printed NAVMC 2795 figures.
+
+Counseling is structured data with a lifecycle
+([ADR-0027](engineering/ADR/0027-counseling-workflow-navmc-2795.md), migration 035).
+
+- **Draft, review, final.** A counseling a leader writes for a Marine is a draft only they see. They may share it with
+  the Marine for review (the Marine reads it and answers in its comments) and take it back, and they finalize it, which
+  needs the session's date, stamps who and when, and keeps the particulars its worksheet prints. The Marine is told when
+  it is shared and when it is final. A Marine's own notes, and every counseling written before 035, are final.
+- **Drafts are no such record to anyone else**, on every path: lists, the record, its comments, its worksheet, its PDF,
+  the timeline, the dashboard, the digest, analysis, reports, AI input, the member page and exports.
+- **Amendment history.** A final counseling changes only by amendment: its counselor (who still counsels the Marine) or
+  a records manager of its unit says what changed and why. What it said before is kept, append-only, in
+  `counseling_revisions`, readable and printable; the Marine acknowledges the amended text.
+- **Acknowledgement is bound to the text read**, and its counselor is told.
+- **Preview, print, PDF.** One structured worksheet, in the layout of NAVMC 2795 Appendix A (Figure A-1 for E-1 to E-3,
+  A-2 for the rest), drawn three ways: in the counseling's dialog, on a print page without the app around it, and as a
+  PDF drawn on demand with the report PDF's pieces. Never stored, never an SSN, labelled "Not an official form", with
+  the instance's handling line on every page. Earlier revisions print with a band that says they were replaced.
+- **Who may do what** is one rule (`counselingOptions`), sent with each counseling, checked before a request's body is
+  read.
+- **Audit:** `counseling_shared`, `counseling_withdrawn`, `counseling_finalized` and `print_counseling` are new; an
+  amendment names the fields it changed, never their words; the PDF is an `export_record`.
+- **Exports:** the personal export carries each counseling's amendment history (`counseling-revisions.csv` in the ZIP);
+  the instance export carries `counseling_revisions`; retention anonymizes the history's words and the particulars.
 
 ## What changed (2026-11-11: training evidence)
 

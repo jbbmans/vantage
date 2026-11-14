@@ -7,6 +7,7 @@ import { RANKS } from './ranks.ts';
 import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
 import { VERSION } from '../version.ts';
 import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
+import { REDACTED } from '../../shared/constants.ts';
 
 export type Db = Database.Database;
 
@@ -427,6 +428,32 @@ const MIGRATIONS: Migration[] = [
   },
   // The new ephemeral challenge table and its index are created idempotently by schema.sql. No existing rows change.
   { id: 34, name: '034_durable_passkey_challenges', run: () => {} },
+  {
+    id: 35,
+    name: '035_counseling_workflow',
+    // Counseling as structured data (Task 20, ADR-0027). A counseling gains where it stands (a draft, shared with its
+    // Marine for review, or final), which text it is (its revision), who finalized it and when, and the particulars its
+    // worksheet prints as they stood then. A database that had the counselings table before these columns gets them here,
+    // with the checks schema.sql gives a new one. Every counseling already written is final at revision 1, as it read to
+    // its Marine the moment it was written, with no finalization stamp or particulars, because nothing recorded them: its
+    // worksheet says so. No row is removed or reshaped, and no counseling's text, people, unit or acknowledgement is
+    // touched. Its amendment history (counseling_revisions) comes from schema.sql, which is safe to replay, and the
+    // boundary keeps an amendment in its counseling's Unit Instance.
+    run: (db) => {
+      const have = columnsOf(db, 'counselings');
+      if (!have.has('stage')) db.exec(`ALTER TABLE counselings ADD COLUMN stage TEXT NOT NULL DEFAULT 'final' CHECK (stage IN ('draft', 'review', 'final'))`);
+      if (!have.has('revision')) db.exec('ALTER TABLE counselings ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)');
+      if (!have.has('finalized_at')) db.exec('ALTER TABLE counselings ADD COLUMN finalized_at TEXT');
+      if (!have.has('finalized_by')) db.exec('ALTER TABLE counselings ADD COLUMN finalized_by TEXT REFERENCES users(id)');
+      if (!have.has('particulars')) db.exec('ALTER TABLE counselings ADD COLUMN particulars TEXT');
+      // One a retention schedule already anonymized stays done: its new particulars are redacted as its words are, so the
+      // next run neither counts it again nor stamps it as disposed of that day.
+      db.prepare(`UPDATE counselings SET particulars = ? WHERE particulars IS NULL AND summary IS ? AND strengths IS ? AND improvements IS ? AND goals_set IS ? AND counselor_name IS ?`)
+        .run(REDACTED, REDACTED, REDACTED, REDACTED, REDACTED, REDACTED);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_counselings_stage ON counselings(counselor_id, stage)');
+      instanceBoundaryTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -730,6 +757,16 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.unit_id IS NOT OLD.unit_id AND ${orgOf('NEW.unit_id')} IS NOT ${orgOf('OLD.unit_id')} AND EXISTS (SELECT 1 FROM duty_reviews r WHERE r.duty_id = NEW.id)
       ${refuse('this duty has been reviewed in its Unit Instance')}`);
   }
+  // A counseling's amendment history stays in its counseling's Unit Instance (ADR-0027): an amendment is written in the
+  // unit its counseling stands in, and a counseling that has been amended does not leave the Unit Instance it was amended in.
+  if (columnsOf(db, 'counseling_revisions').has('counseling_id')) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS counseling_revisions_same_org_insert BEFORE INSERT ON counseling_revisions FOR EACH ROW
+      WHEN ${orgOf('NEW.unit_id')} IS NOT ${orgOf('(SELECT unit_id FROM counselings WHERE id = NEW.counseling_id)')}
+      ${refuse('a counseling amendment belongs to the Unit Instance of its counseling')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS counselings_revisions_same_org BEFORE UPDATE OF unit_id ON counselings FOR EACH ROW
+      WHEN NEW.unit_id IS NOT OLD.unit_id AND ${orgOf('NEW.unit_id')} IS NOT ${orgOf('OLD.unit_id')} AND EXISTS (SELECT 1 FROM counseling_revisions r WHERE r.counseling_id = NEW.id)
+      ${refuse('this counseling has been amended in its Unit Instance')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -780,6 +817,9 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     } : {}),
     ...(columnsOf(db, 'duty_reviews').has('duty_id') ? {
       duty_reviews: `SELECT COUNT(*) AS n FROM duty_reviews r JOIN duties d ON d.id = r.duty_id WHERE ${orgOf('r.unit_id')} IS NOT ${orgOf('d.unit_id')}`,
+    } : {}),
+    ...(columnsOf(db, 'counseling_revisions').has('counseling_id') ? {
+      counseling_revisions: `SELECT COUNT(*) AS n FROM counseling_revisions r JOIN counselings c ON c.id = r.counseling_id WHERE ${orgOf('r.unit_id')} IS NOT ${orgOf('c.unit_id')}`,
     } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL
