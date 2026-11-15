@@ -8,7 +8,7 @@ import { loadRuntime } from '../runtime.ts';
 import { appendRestore, chainPoint } from './restoreLog.ts';
 import { dataExportProblem } from '../../shared/dataTransfer.ts';
 import { writeLineage } from './recovery.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle, dropTimeframeTriggers, timeframeTriggers, timeframeViolations, grantDutyReviewToStandardRoles } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle, dropTimeframeTriggers, timeframeTriggers, timeframeViolations, grantDutyReviewToStandardRoles, backfillWorkflowMessages } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -115,6 +115,9 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   // An archive from before 032 has no review history and roles from before duty was reviewed: its standard SNCO and
   // SNCOIC roles gain the review permissions, as the migration gives a live database's (ADR-0024).
   const unreviewed = !archive.tables.duty_reviews;
+  // An archive from before migration 038 (ADR-0031): its counseling comments become private where they were said before
+  // final, and its notices are given the record they link to and lose the words they quoted, as a live database's were.
+  const unmessaged = (archive.tables.comments || []).some((c) => !('kind' in c)) || (archive.tables.notifications || []).some((n) => !('entity' in n));
   let crossings: Record<string, number> = {};
   let outOfOrder: Record<string, number> = {};
   ctx.db.pragma('foreign_keys = OFF');
@@ -163,6 +166,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       if (unrecorded) backfillAwardRecorders(ctx.db);
       if (unlinked) linkBilletsByTitle(ctx.db);
       if (unreviewed) grantDutyReviewToStandardRoles(ctx.db);
+      if (unmessaged) backfillWorkflowMessages(ctx.db);
       // An archive from before the history opens a period for each membership it holds, as migration 018 does.
       openMissingMembershipPeriods(ctx.db);
       membershipHistoryTriggers(ctx.db);

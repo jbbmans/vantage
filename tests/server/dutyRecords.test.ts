@@ -228,7 +228,9 @@ test('a leader who counsels a Marine records duty for them; the Marine is told a
   assert.deepEqual([d.user_id, d.recorded_by, d.unit_id, d.visibility, d.approval_status, d.calculated_points], [reyes.id, diaz.id, 'G8', 'unit', 'pending', 3]);
   assert.equal(told().length, before + 1);
   assert.equal(told()[0].action_url, `/record/duty?open=${d.id}`);
-  assert.match(told()[0].message, /Duty NCO on 2026-04-07/);
+  // Task 24: the notice names the record by entity, read when it is read; it stores no words of its own.
+  assert.deepEqual([told()[0].entity, told()[0].entity_id, told()[0].message], ['duties', d.id, null]);
+  assert.match(told()[0].title, /recorded duty for you/);
 
   // The Marine sees it, named by who recorded it, and cannot change or delete it.
   const seen = await get(reyes.token, `/api/records/duties/${d.id}`);

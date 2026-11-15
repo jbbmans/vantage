@@ -148,7 +148,8 @@ function cleanPayload(kind: FormDraftKind, raw: Record<string, unknown>): Record
     return { changes, ...(label ? { supervisor_label: label } : {}) };
   }
   const spec = TABLES[FORM_DRAFT_TABLE[kind]];
-  const allowed = new Set<string>([...spec.fields, 'visibility', 'unit_id']);
+  // A task's or a goal's assignment note is kept with it, and written when the form is sent (ADR-0031).
+  const allowed = new Set<string>([...spec.fields, 'visibility', 'unit_id', ...(kind === 'task' || kind === 'goal' ? ['assignment_note'] : [])]);
   const json = new Set<string>(spec.json);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {

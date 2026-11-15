@@ -179,7 +179,7 @@ export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string,
   const label = ORG_ROLES[input.role as OrgRole].label;
   const orgName = getOrg(ctx, orgId)?.name ?? 'a Unit Instance';
   notify(ctx, target.id, { kind: 'unit', title: `You are now ${label} of ${orgName}`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console' });
-  notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${target.first_name} ${target.last_name} was made ${label}`, message: `By ${actor.first_name} ${actor.last_name}${expires ? `, until ${expires.toISOString().slice(0, 10)}` : ''}.`, actionUrl: '/console/people' }, actor.id);
+  notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${target.first_name} ${target.last_name} was made ${label}`, message: `By ${actor.first_name} ${actor.last_name}${expires ? `, until ${expires.toISOString().slice(0, 10)}` : ''}.`, actionUrl: '/console/people' }, [actor.id, target.id]);
   return orgRoleHolders(ctx, orgId);
 }
 

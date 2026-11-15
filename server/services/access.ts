@@ -63,7 +63,8 @@ export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string
   notifyOrg(ctx, orgId, 'org.access', {
     kind: 'system',
     title: immediate ? `Vantage support is looking at ${org.name}` : `Vantage support asks to look at ${org.name}`,
-    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the Unit Manager console.'}`,
+    // Who and for how long; the reason is read in the console, never carried in a notice (ADR-0031).
+    message: `${staff.first_name} ${staff.last_name}, for ${hours}.${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Read the reason, then approve or deny it, in the Unit Manager console.'}`,
     actionUrl: '/console/access',
     dedupeKey: `access:${id}`,
   });
@@ -87,7 +88,7 @@ export function decideAccess(ctx: AppContext, actor: SessionUser, orgId: string,
   notify(ctx, g.staff_user_id, {
     kind: 'system',
     title: approve ? `Access to ${g.org_name} approved` : `Access to ${g.org_name} denied`,
-    message: approve ? `Read-only, until ${new Date(Date.now() + g.minutes * 60_000).toISOString().slice(11, 16)}Z.${note ? ` “${note.trim().slice(0, 200)}”` : ''}` : note?.trim().slice(0, 200) || undefined,
+    message: approve ? `Read-only, until ${new Date(Date.now() + g.minutes * 60_000).toISOString().slice(11, 16)}Z.` : undefined,
     actionUrl: '/admin/access',
   });
   return load(ctx, id);

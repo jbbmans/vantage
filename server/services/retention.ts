@@ -6,6 +6,7 @@ import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 import { holdState } from './holds.ts';
 import { REDACTED } from '../../shared/constants.ts';
+import { forgetNotices } from './notifications.ts';
 
 export type Disposition = 'destroy' | 'anonymize' | 'review';
 
@@ -227,6 +228,11 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
           // so does what it said before an import changed it, which an undo would otherwise write back (ADR-0019).
           destroyLineage(ctx, table, ids, holds);
           forgetImportSnapshots(ctx, table, ids);
+          // What was said on it goes with its words (ADR-0031): every comment, request, answer and assignment note on it
+          // keeps who said what kind of thing and when, and loses what it said. Its notices go; open requests close.
+          ctx.db.prepare(`UPDATE comments SET body = ?, mentions = '[]' WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?)) AND body IS NOT ?`).run(REDACTED, table, JSON.stringify(ids), REDACTED);
+          ctx.db.prepare(`UPDATE comments SET state = 'closed', closed_at = ? WHERE record_table = ? AND state = 'open' AND record_id IN (SELECT value FROM json_each(?))`).run(stamp, table, JSON.stringify(ids));
+          forgetNotices(ctx, table, ids);
           // A duty's reviewers' words go with its own (ADR-0024): the reason its points were set apart, and every reason
           // in its review history. Who decided, when, and the points stay, as its score does.
           if (table === 'duties') {

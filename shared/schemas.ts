@@ -9,6 +9,7 @@ import { parseTime, TIME_HINT } from './timeframe.ts';
 import { SCORING_CONDITIONS } from './dutyScoring.ts';
 import { cleanDescription, isEvidenceKind, type EvidenceKind } from './attachments.ts';
 import { CEUS_MAX, COURSE_CODE_MAX, cleanCourseCode, courseKey } from './courses.ts';
+import { MUTABLE_GROUPS } from './notifications.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -342,6 +343,8 @@ export const prefsSchema = z.object({
   dashboardLayout: z.object({ hidden: z.array(z.string()).max(20), order: z.array(z.string()).max(20) }).optional(),
   digest: z.object({ enabled: z.boolean(), weekday: z.number().int().min(0).max(6), hour: z.number().int().min(0).max(23) }).optional(),
   onboardingDone: z.boolean().optional(),
+  // What a person turned off (ADR-0031): only the groups that may be; everything else always arrives.
+  notifications: z.object({ muted: z.array(z.enum(MUTABLE_GROUPS)).max(MUTABLE_GROUPS.length) }).optional(),
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 

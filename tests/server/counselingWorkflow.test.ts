@@ -226,7 +226,8 @@ test('shared for review, its Marine reads it and answers in its comments; the un
   assert.equal(shared.body.stage, 'review');
   assert.deepEqual(shared.body.workflow, { edit: true, share: false, withdraw: true, finalize: true, amend: false, acknowledge: false });
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail, e.subject_id]), [['counseling_shared', 'draft shared with the Marine for review', diaz.id]]);
-  assert.deepEqual(noticesFor(diaz.id, c.id).map((n) => n.title), ['Counseling draft to review']);
+  assert.equal(noticesFor(diaz.id, c.id).length, 1);
+  assert.match(noticesFor(diaz.id, c.id)[0].title, /shared a counseling draft for you to review$/);
   assert.equal((await post(lopez.token, `${path}/share`, { version: shared.body.version })).status, 409, 'shared once');
 
   const read = await get(diaz.token, path);
@@ -246,8 +247,11 @@ test('shared for review, its Marine reads it and answers in its comments; the un
   // The Marine answers in its comments, and its counselor hears it.
   const answer = await post(diaz.token, `${path}/comments`, { body: 'Can we add the GTCC follow-up to the targets?' });
   assert.equal(answer.status, 201, JSON.stringify(answer.body));
-  const heard = app.ctx.db.prepare('SELECT title FROM notifications WHERE user_id = ? AND dedupe_key = ?').get(lopez.id, `comment-owner:${answer.body.id}:${lopez.id}`) as { title: string } | undefined;
-  assert.match(heard?.title ?? '', /counseling you wrote/);
+  // Task 24: one notice per counseling while it is unread, naming who spoke and never what they said.
+  const heard = app.ctx.db.prepare("SELECT title, message, count FROM notifications WHERE user_id = ? AND kind = 'counseling_comment' AND entity = 'counselings' AND entity_id = ?").get(lopez.id, c.id) as { title: string; message: string | null; count: number } | undefined;
+  assert.match(heard?.title ?? '', /commented/);
+  assert.equal(heard?.message, null, 'a notice never carries what was said');
+  assert.equal(heard?.count, 1);
   for (const who of [reyes, nguyen, op]) {
     assert.equal((await get(who.token, path)).status, 404, 'the unit reads it once it is final');
     assert.equal((await get(who.token, `${path}/comments`)).status, 404);
@@ -289,7 +293,7 @@ test('a counseling shared for review on creation tells its Marine; one finalized
   assert.equal(legacy.body.stage, 'final');
   assert.equal(legacy.body.finalized_by, lopez.id);
   assert.ok(legacy.body.finalized_at);
-  assert.deepEqual(noticesFor(diaz.id, legacy.body.id).map((n) => [n.title, n.dedupe_key]), [['New counseling recorded', `counseling:${legacy.body.id}`]]);
+  assert.deepEqual(noticesFor(diaz.id, legacy.body.id).map((n) => [/recorded a counseling for you$/.test(n.title), n.dedupe_key]), [[true, `counseling:${legacy.body.id}`]]);
   // A Marine's own notes are always final, whatever they ask, and stay theirs to edit.
   const own = await post(diaz.token, '/api/records/counselings', { summary: 'My notes from the quarterly session.', stage: 'draft' });
   assert.equal(own.status, 201, JSON.stringify(own.body));
@@ -325,7 +329,8 @@ test('finalizing stamps who and when, keeps the particulars as they stood, and t
   assert.equal(final.finalized_by, lopez.id);
   assert.deepEqual(final.workflow, { edit: false, share: false, withdraw: false, finalize: false, amend: true, acknowledge: false });
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['counseling_finalized', 'from draft; revision 1']]);
-  assert.deepEqual(noticesFor(diaz.id, c.id).map((n) => n.title), ['New counseling recorded']);
+  assert.equal(noticesFor(diaz.id, c.id).length, 1);
+  assert.match(noticesFor(diaz.id, c.id)[0].title, /recorded a counseling for you$/);
   const particulars = JSON.parse(stored(c.id).particulars);
   assert.deepEqual(particulars.subject, { name: 'Diaz, Ana', rank: 'Cpl', grade: 'E-4', mos: '3451', billet: null, unit: 'G-8 Comptroller' });
   assert.deepEqual(particulars.counselor, { name: 'Lopez, Maria', rank: 'Sgt' });
@@ -372,7 +377,7 @@ test('the Marine acknowledges the text they read, once; the counselor is told', 
   assert.equal(again.status, 200);
   assert.equal(again.body.acknowledged_at, ack.body.acknowledged_at, 'saying it again changes nothing');
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['acknowledge_counseling', 'revision 1']]);
-  assert.deepEqual(noticesFor(lopez.id, final.id).map((n) => [n.title, n.dedupe_key]), [['Counseling acknowledged', `counseling:${final.id}:ack:1`]]);
+  assert.deepEqual(noticesFor(lopez.id, final.id).map((n) => [/acknowledged a counseling you wrote$/.test(n.title), n.dedupe_key]), [[true, `counseling:${final.id}:ack:1`]]);
 });
 
 test('an amendment keeps what it replaced, why and by whom; the Marine acknowledges the amended text', async () => {
@@ -404,14 +409,14 @@ test('an amendment keeps what it replaced, why and by whom; the Marine acknowled
   assert.equal(first.body.acknowledged_at, null, 'the Marine acknowledges the amended text afresh');
   assert.equal(first.body.summary, 'Corrected summary of the session.');
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['counseling_amended', 'counselor amendment; revision 2; changed: summary, follow_up_date; acknowledgement cleared']]);
-  assert.deepEqual(noticesFor(diaz.id, c.id).map((n) => n.title).slice(-1), ['Counseling amended']);
+  assert.match(noticesFor(diaz.id, c.id).at(-1)!.title, /amended a counseling; read it and acknowledge it$/);
 
   // A records manager amends too, and its counselor hears of it.
   const second = await post(reyes.token, `${path}/amend`, { version: first.body.version, goals_set: 'Clear the UMTs and close the GTCC delinquency.', reason: 'Added the target agreed at the session.' });
   assert.equal(second.status, 200, JSON.stringify(second.body));
   assert.equal(second.body.revision, 3);
   assert.equal(lastDetail('counseling_amended'), 'manager amendment; revision 3; changed: goals_set');
-  assert.ok(noticesFor(lopez.id, c.id).some((n) => n.title === 'A counseling you wrote was amended'));
+  assert.ok(noticesFor(lopez.id, c.id).some((n) => /amended a counseling you wrote$/.test(n.title)));
 
   // The history, newest first: what each revision said, whether the Marine had acknowledged it, who and why.
   const history = await get(diaz.token, `${path}/revisions`);

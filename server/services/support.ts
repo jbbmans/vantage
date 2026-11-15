@@ -78,7 +78,8 @@ export function raiseTicket(
   audit(ctx, { actor_id: user?.id ?? null, action: 'support_ticket_raised', entity: 'support_ticket', entity_id: id, unit_id: input.unit_id ?? null, ip });
   for (const staff of queueFor(ctx, input.unit_id ?? null)) {
     if (staff === user?.id) continue;
-    notify(ctx, staff, { kind: 'support_ticket', title: 'A new help request', message: subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket:${id}:${staff}` });
+    // A notice names the event, never what was written (ADR-0031): the subject is on the ticket, behind its permissions.
+    notify(ctx, staff, { kind: 'support_ticket', title: 'A new help request', actionUrl: `/support/${id}`, actorId: user?.id ?? null, dedupeKey: `ticket:${id}:${staff}` });
   }
   return getTicket(ctx, id)!;
 }
@@ -183,7 +184,7 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
     for (const target of targets) {
       if (target === user.id) continue;
       const title = fromRequester ? 'A reply on a help request' : 'A reply on your help request';
-      notify(ctx, target, { kind: 'support_reply', title, message: text.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-reply:${id}:${at}:${target}` });
+      notify(ctx, target, { kind: 'support_reply', title, actionUrl: `/support/${id}`, actorId: user.id, dedupeKey: `ticket-reply:${id}:${at}:${target}` });
     }
   }
   // Somebody working the queue answers for it: a unit's queue is unit administration, Vantage support's is enterprise (ADR-0013).
@@ -231,7 +232,14 @@ export function updateTicket(
   if (assignedTo) {
     notify(ctx, assignedTo, {
       kind: 'support_assigned', title: 'A help request was assigned to you',
-      message: row.subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-assign:${id}:${at}`,
+      actionUrl: `/support/${id}`, actorId: user.id, dedupeKey: `ticket-assign:${id}:${at}`,
+    });
+  }
+  // Its requester hears it was resolved, once each time it is (ADR-0031); a closed ticket was already resolved or withdrawn.
+  if (patch.state === 'resolved' && row.state !== 'resolved' && row.requester_id) {
+    notify(ctx, row.requester_id, {
+      kind: 'support_resolved', title: 'Your help request was resolved', actionUrl: `/support/${id}`, actorId: user.id,
+      dedupeKey: `ticket-resolved:${id}:${at}`,
     });
   }
   audit(ctx, { actor_id: user.id, action: 'support_ticket_updated', category: row.unit_id ? 'unit' : 'enterprise', entity: 'support_ticket', entity_id: id, subject_id: row.requester_id, ip });

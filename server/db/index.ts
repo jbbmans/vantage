@@ -482,6 +482,44 @@ const MIGRATIONS: Migration[] = [
   // kept. A draft about a Marine names its unit, checked when it is saved; no boundary trigger, as with report_drafts
   // (ADR-0008). No row is removed or reshaped.
   { id: 37, name: '037_form_drafts', run: () => {} },
+  {
+    id: 38,
+    name: '038_workflow_messages',
+    // Workflow messaging (Task 24, ADR-0031). A comment gains its kind (a comment, a question or a review request to one
+    // named person, the answer to one, an assignment's note), whom a request is for, where it stands, the request an
+    // answer is to, who closed a request and when, and whether it was said on a counseling before it was final. A notice
+    // gains its Unit Instance, the record or work case it is about, who acted, and how many events one unread notice
+    // stands for. A database that had these tables before the columns gets them here, with the checks schema.sql gives a
+    // new one, last and in order. Every comment already written is a comment; one said on a counseling before it was
+    // final becomes private to its counselor and its Marine, as it was when it was said. Every notice already sent that
+    // links to a record is given that record, so it is checked again when read; the words old notices quoted from a
+    // comment, a hand-off or a task are cleared, because a notice carries nobody's words. No row is removed.
+    run: (db) => {
+      const comments = columnsOf(db, 'comments');
+      if (!comments.has('kind')) db.exec(`ALTER TABLE comments ADD COLUMN kind TEXT NOT NULL DEFAULT 'comment' CHECK (kind IN ('comment', 'review_request', 'clarification_request', 'answer', 'assignment_note'))`);
+      if (!comments.has('addressee_id')) db.exec('ALTER TABLE comments ADD COLUMN addressee_id TEXT REFERENCES users(id)');
+      if (!comments.has('state')) db.exec(`ALTER TABLE comments ADD COLUMN state TEXT CHECK ((state IS NULL) = (kind NOT IN ('review_request', 'clarification_request'))
+                      AND (state IS NULL OR state IN ('open', 'answered', 'looks_right', 'needs_changes', 'withdrawn', 'closed'))
+                      AND (kind NOT IN ('review_request', 'clarification_request') OR addressee_id IS NOT NULL))`);
+      if (!comments.has('reply_to')) db.exec(`ALTER TABLE comments ADD COLUMN reply_to TEXT CHECK ((reply_to IS NULL) = (kind <> 'answer'))`);
+      if (!comments.has('closed_by')) db.exec('ALTER TABLE comments ADD COLUMN closed_by TEXT REFERENCES users(id)');
+      if (!comments.has('closed_at')) db.exec(`ALTER TABLE comments ADD COLUMN closed_at TEXT CHECK ((closed_at IS NULL) = (state IS NULL OR state = 'open'))`);
+      if (!comments.has('private')) db.exec('ALTER TABLE comments ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))');
+      const notices = columnsOf(db, 'notifications');
+      if (!notices.has('org_id')) db.exec('ALTER TABLE notifications ADD COLUMN org_id TEXT');
+      if (!notices.has('entity')) db.exec('ALTER TABLE notifications ADD COLUMN entity TEXT');
+      if (!notices.has('entity_id')) db.exec('ALTER TABLE notifications ADD COLUMN entity_id TEXT CHECK ((entity IS NULL) = (entity_id IS NULL))');
+      if (!notices.has('actor_id')) db.exec('ALTER TABLE notifications ADD COLUMN actor_id TEXT REFERENCES users(id)');
+      if (!notices.has('count')) db.exec('ALTER TABLE notifications ADD COLUMN count INTEGER CHECK (count IS NULL OR (count >= 1 AND dedupe_key IS NULL AND entity IS NOT NULL))');
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_coalesce ON notifications(user_id, kind, entity, entity_id) WHERE read_at IS NULL AND count IS NOT NULL`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_entity ON notifications(entity, entity_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_comments_addressee ON comments(addressee_id, state)');
+      backfillWorkflowMessages(db);
+      workflowMessageTriggers(db);
+      instanceBoundaryTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -505,6 +543,73 @@ export function grantDutyReviewToStandardRoles(db: Db) {
   add.run(REVIEW_DUTY, 'snco', leads, leads);
   add.run(REVIEW_DUTY, 'sncoic', leads, leads);
   add.run(OVERRIDE_DUTY_POINTS, 'sncoic', leads | MANAGE_RECORDS, leads | MANAGE_RECORDS);
+}
+
+/** The record tables a comment may hang on, and the work case: what a notice's link is read back to (migration 038). */
+const NOTICE_LINKS: ReadonlyArray<[RegExp, string]> = [
+  [/^\/records\/(activities|awards|trainings|counselings|tasks|projects|goals|duties)\/([^/?#]+)$/, '$1'],
+  [/^\/records\/([^/?#]+)$/, 'activities'],
+  [/^\/career\/awards\?open=([^&#]+)$/, 'awards'],
+  [/^\/career\/training\?open=([^&#]+)$/, 'trainings'],
+  [/^\/career\/counseling\?open=([^&#]+)$/, 'counselings'],
+  [/^\/record\/duty\?open=([^&#]+)$/, 'duties'],
+  [/^\/work\/items\/([^/?#]+)$/, 'work_items'],
+];
+
+/**
+ * What migration 038 does to rows written before it, and what an instance archive from before it gets when it is loaded
+ * (importInstance). A comment said on a counseling before it was final is private to its counselor and its Marine, as it
+ * was when it was said: while it is still a draft or in review, or before the moment it was finalized. A notice that
+ * links to a record or a work case is given it, with its Unit Instance, so it is checked again when read; one whose kind
+ * quoted what somebody wrote (a comment, a hand-off's note, a task's title) keeps its title and loses the words. Safe to
+ * run again: it only fills what is empty and clears what a notice must not hold.
+ */
+export function backfillWorkflowMessages(db: Db) {
+  if (columnsOf(db, 'comments').has('private') && columnsOf(db, 'counselings').has('stage')) {
+    db.exec(`UPDATE comments SET private = 1 WHERE private = 0 AND record_table = 'counselings' AND EXISTS (
+      SELECT 1 FROM counselings c WHERE c.id = comments.record_id
+        AND (c.stage IN ('draft', 'review') OR (c.finalized_at IS NOT NULL AND comments.created_at < c.finalized_at)))`);
+  }
+  if (!columnsOf(db, 'notifications').has('entity')) return;
+  const linked = db.prepare(`SELECT id, action_url FROM notifications WHERE entity IS NULL AND action_url IS NOT NULL
+    AND kind IN ('comment_added', 'comment_mention', 'counseling', 'award', 'duty', 'assignment', 'work_assigned', 'work')`).all() as Array<{ id: string; action_url: string }>;
+  const give = db.prepare('UPDATE notifications SET entity = ?, entity_id = ?, org_id = COALESCE(org_id, (SELECT u.org_id FROM units u WHERE u.id = ?)) WHERE id = ?');
+  const unitOf = (table: string, id: string) => {
+    if (!/^[a-z_]+$/.test(table) || !columnsOf(db, table).has('unit_id')) return null;
+    return (db.prepare(`SELECT unit_id FROM ${table} WHERE id = ?`).get(id) as { unit_id: string | null } | undefined)?.unit_id ?? null;
+  };
+  for (const n of linked) {
+    for (const [pattern, table] of NOTICE_LINKS) {
+      const m = pattern.exec(n.action_url);
+      if (!m) continue;
+      const entity = table.startsWith('$') ? m[1] : table;
+      const entityId = decodeURIComponent(table.startsWith('$') ? m[2] : m[1]);
+      give.run(entity, entityId, unitOf(entity, entityId), n.id);
+      break;
+    }
+  }
+  db.exec(`UPDATE notifications SET message = NULL WHERE message IS NOT NULL AND kind IN ('comment_added', 'comment_mention', 'work_assigned', 'assignment')`);
+  // The demonstration's old "work" notices were about work that moved; the catalogue names that kind now.
+  db.exec(`UPDATE notifications SET kind = 'work_moved' WHERE kind = 'work'`);
+  // A training has no page of its own under /records: its notices open it where it lives.
+  db.exec(`UPDATE notifications SET action_url = '/career/training?open=' || substr(action_url, 20) WHERE action_url LIKE '/records/trainings/%'`);
+}
+
+/**
+ * What the database keeps of a discussion's shape (ADR-0031), as the second line behind the code: an answer is on its
+ * request's record, and what a request, an answer or an assignment note said is never rewritten, except by a retention
+ * schedule's redaction. A reference to a request that is not there yet passes, as an archive loads table by table.
+ */
+export function workflowMessageTriggers(db: Db) {
+  if (!columnsOf(db, 'comments').has('reply_to')) return;
+  db.exec(`CREATE TRIGGER IF NOT EXISTS comments_reply_same_record BEFORE INSERT ON comments FOR EACH ROW
+    WHEN NEW.reply_to IS NOT NULL AND EXISTS (SELECT 1 FROM comments r WHERE r.id = NEW.reply_to
+      AND (r.record_table IS NOT NEW.record_table OR r.record_id IS NOT NEW.record_id OR r.kind NOT IN ('review_request', 'clarification_request')))
+    BEGIN SELECT RAISE(ABORT, 'workflow_message: an answer belongs to its request, on its record'); END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS comments_requests_kept BEFORE UPDATE OF body, kind, author_id, addressee_id ON comments FOR EACH ROW
+    WHEN OLD.kind <> 'comment' AND (NEW.kind IS NOT OLD.kind OR NEW.author_id IS NOT OLD.author_id OR NEW.addressee_id IS NOT OLD.addressee_id
+      OR (NEW.body IS NOT OLD.body AND NEW.body IS NOT '${REDACTED.replace(/'/g, "''")}'))
+    BEGIN SELECT RAISE(ABORT, 'workflow_message: a request, an answer or an assignment note is kept as it was said'); END`);
 }
 
 /** What `migration_audited_through` holds for a database created by this start whose creation is not audited yet. */
@@ -795,6 +900,14 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.unit_id IS NOT OLD.unit_id AND ${orgOf('NEW.unit_id')} IS NOT ${orgOf('OLD.unit_id')} AND EXISTS (SELECT 1 FROM counseling_revisions r WHERE r.counseling_id = NEW.id)
       ${refuse('this counseling has been amended in its Unit Instance')}`);
   }
+  // What is said on a record or a work case is said in its Unit Instance (ADR-0031): a comment, a request or an answer is
+  // written in the unit of the record it hangs on. Only a new one is checked: a Marine's own comments go with their own
+  // record when it moves (ADR-0008), and what others said keeps a record where it was said (assertCarriesNothingAcross).
+  if (columnsOf(db, 'comments').has('reply_to')) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS comments_same_org_insert BEFORE INSERT ON comments FOR EACH ROW
+      WHEN NEW.unit_id IS NOT NULL AND ${across('NEW.unit_id', commentHostUnit(db, 'NEW'))}
+      ${refuse('what is said on a record is said in its Unit Instance')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -817,6 +930,14 @@ const billetOrg = (id: string) => `(SELECT org_id FROM unit_billets WHERE id = $
 const typeOrg = (id: string) => `(SELECT org_id FROM error_report_types WHERE id = ${id})`;
 const caseUnit = (id: string) => `(SELECT unit_id FROM work_items WHERE id = ${id})`;
 const dutyTypeOrg = (id: string) => `(SELECT org_id FROM duty_types WHERE id = ${id})`;
+/** The tables a comment may hang on in this database, by what it names them. */
+const COMMENT_HOSTS = ['activities', 'awards', 'trainings', 'counselings', 'tasks', 'projects', 'goals', 'duties', 'work_items'] as const;
+/** The unit of the record a comments row (aliased `row`) hangs on, as SQL. */
+const commentHostUnit = (db: Db, row: string) => `(CASE ${row}.record_table ${COMMENT_HOSTS.filter((t) => columnsOf(db, t).has('unit_id'))
+  .map((t) => `WHEN '${t}' THEN (SELECT unit_id FROM ${t} WHERE id = ${row}.record_id)`).join(' ')} END)`;
+/** The Marine (or owner) of the record a comments row (aliased `row`) hangs on, as SQL. */
+const commentHostOwner = (db: Db, row: string) => `(CASE ${row}.record_table ${COMMENT_HOSTS.filter((t) => columnsOf(db, t).has(t === 'work_items' ? 'owner_id' : 'user_id'))
+  .map((t) => `WHEN '${t}' THEN (SELECT ${t === 'work_items' ? 'owner_id' : 'user_id'} FROM ${t} WHERE id = ${row}.record_id)`).join(' ')} END)`;
 const scoringOrg = (id: string) => `(SELECT org_id FROM duty_scoring_policies WHERE id = ${id})`;
 
 /**
@@ -848,6 +969,12 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     } : {}),
     ...(columnsOf(db, 'counseling_revisions').has('counseling_id') ? {
       counseling_revisions: `SELECT COUNT(*) AS n FROM counseling_revisions r JOIN counselings c ON c.id = r.counseling_id WHERE ${orgOf('r.unit_id')} IS NOT ${orgOf('c.unit_id')}`,
+    } : {}),
+    // What someone other than the record's Marine said, in a Unit Instance the record is no longer in. A Marine's own
+    // comments go with their record (ADR-0008), so they are not counted.
+    ...(columnsOf(db, 'comments').has('reply_to') ? {
+      comments: `SELECT COUNT(*) AS n FROM comments c WHERE c.deleted_at IS NULL AND c.unit_id IS NOT NULL
+        AND c.author_id IS NOT ${commentHostOwner(db, 'c')} AND ${across('c.unit_id', commentHostUnit(db, 'c'))}`,
     } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL

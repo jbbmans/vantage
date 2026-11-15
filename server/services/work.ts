@@ -8,9 +8,12 @@ import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
-import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
+import { appendEvent, caseView, assertMayResolveCase, isReturn, tellReturned, caseClosed } from './cases.ts';
+import { notify } from './notifications.ts';
+import { whoActs } from './comments.ts';
+import { orgOfUnit } from '../authz/scope.ts';
 import { summariesFor } from './caseDiagnosis.ts';
-import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
+import { STATE_TO_STAGE, type Stage } from '../../shared/caseModel.ts';
 import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { parse } from '../lib/http.ts';
@@ -211,7 +214,18 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
   })();
 }
 
-export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null, request?: WorkRequest) {
+/**
+ * Tells a holder their claim went: lapsed, or released by someone else (ADR-0031). On a shared case they still read, the
+ * notice names it; on a private one they no longer can, so it names none.
+ */
+function tellReleased(ctx: AppContext, row: WorkItemRow, title: string, actorId: string | null, dedupeKey: string) {
+  if (!row.claimed_by) return;
+  notify(ctx, row.claimed_by, shared(row)
+    ? { kind: 'work_released', title, actionUrl: `/work/items/${row.id}`, entity: 'work_items', entityId: row.id, actorId, dedupeKey }
+    : { kind: 'work_released', title, actionUrl: '/work', actorId, orgId: orgOfUnit(ctx, row.unit_id), dedupeKey });
+}
+
+export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null, request?: WorkRequest, opts: { quiet?: boolean } = {}) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
@@ -230,6 +244,7 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
               version = version + 1, updated_at = ? WHERE id = ?`
     ).run(at, id);
     appendEvent(ctx, { item: row, actorId: user.id, kind: 'released', subjectId: row.claimed_by !== user.id ? row.claimed_by : null, ...(request ? { idempotencyKey: workRequestKey(user.id, id, request), body: { request_fingerprint: request.fingerprint } } : {}) });
+    if (!opts.quiet && row.claimed_by !== user.id) tellReleased(ctx, row, `${whoActs(user)} released your claim on work`, user.id, `claim-released:${id}:${row.claimed_at}`);
     record(ctx, 'work.released', { held_hours: row.claimed_at ? Math.max(0, (Date.parse(at) - Date.parse(row.claimed_at)) / 3_600_000) : 0 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
@@ -308,6 +323,8 @@ export function releaseStaleClaims(ctx: AppContext, afterHours?: number): number
                 version = version + 1, updated_at = ? WHERE id = ?`
       ).run(at, row.id);
       appendEvent(ctx, { item: row, actorId: null, kind: 'claim_expired', subjectId: row.claimed_by, body: { after_hours: row.hours } });
+      const item = reload(ctx, row.id);
+      tellReleased(ctx, { ...item, claimed_by: row.claimed_by }, `Your claim on work lapsed after ${row.hours} hours untouched`, null, `claim-lapsed:${row.id}:${row.claimed_at}`);
       audit(ctx, { actor_id: null, action: 'work_claim_expired', entity: 'work_items', entity_id: row.id, subject_id: row.claimed_by, unit_id: row.unit_id, detail: `untouched for ${row.hours}h` });
     }
   })();
@@ -351,6 +368,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
     const at = now();
     const sets: string[] = ['version = version + 1', 'updated_at = ?'];
     const params: unknown[] = [at];
+    const after: Array<() => void> = [];
 
     if (patch.state) {
       if (!WORK_STATES.includes(patch.state)) throw badRequest('That is not a state a work item can be in.');
@@ -369,6 +387,13 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
       if (row.procedure_key && patch.state === 'not_applicable') {
         throw conflict('This work follows a procedure. Mark it not applicable from the case, with the reason.', 'reason_required');
       }
+      const stageNow = (row as WorkItemRow & { stage?: string | null }).stage || STATE_TO_STAGE[row.state];
+      const returning = isReturn(stageNow as Stage, STATE_TO_STAGE[patch.state]);
+      if (returning && row.claimed_by !== user.id) {
+        throw conflict('This work is waiting to be verified. Return it for correction from its stage, saying what needs correcting.', 'reason_required');
+      }
+      if (returning) after.push(() => tellReturned(ctx, user, row as never));
+      if (closing) after.push(() => caseClosed(ctx, user, row as never, STATE_TO_STAGE[patch.state!] as Stage));
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
       const toStage = STATE_TO_STAGE[patch.state];
@@ -416,6 +441,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
     }
     if (sets.length === 2) throw badRequest('Nothing to change.');
     ctx.db.prepare(`UPDATE work_items SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    for (const tell of after) tell();
     return hydrate(reload(ctx, id));
   })();
 }
@@ -529,6 +555,7 @@ export function recordAction(
       }
       const fromStage = (row as WorkItemRow & { stage?: string | null }).stage || STATE_TO_STAGE[row.state];
       ctx.db.prepare(`UPDATE work_items SET state = 'resolved', stage = 'resolved', waiting_category = NULL, waiting_since = NULL, resolved_at = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(at, at, itemId);
+      if (fromStage !== 'resolved') caseClosed(ctx, user, row as never, 'resolved');
       if (fromStage !== 'resolved') {
         appendEvent(ctx, { item: row, actorId: user.id, kind: 'stage_changed', body: { from: fromStage, to: 'resolved', reason: null } });
         appendEvent(ctx, { item: row, actorId: user.id, kind: 'resolved', body: {} });

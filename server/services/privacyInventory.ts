@@ -493,12 +493,13 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   notifications: {
-    purpose: 'Messages to a person about work and records that changed.',
+    purpose: 'Notices to a person about requests, decisions and changes on records and work they are part of (ADR-0031). A notice names the event, who acted and the record; never what anybody wrote. Kept 180 days unless a hold keeps it.',
     authority: 'Necessary to operate the product.',
-    access: 'The person.',
+    access: 'The person, and only while they may still open the record a notice is about.',
     columns: {
       id: 'technical', user_id: 'identifier', kind: 'none', title: 'performance', message: 'performance', action_url: 'technical',
       dedupe_key: 'technical', read_at: 'technical', created_at: 'technical',
+      org_id: 'employment', entity: 'none', entity_id: 'technical', actor_id: 'identifier', count: 'none',
     },
   },
   maradmins: {
@@ -748,12 +749,13 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: { state_hash: 'authentication', connector_id: 'technical', user_id: 'identifier', verifier_enc: 'authentication', created_at: 'technical', expires_at: 'technical', used_at: 'technical' },
   },
   comments: {
-    purpose: 'Discussion on a record or work item, with mentions.',
+    purpose: 'Discussion on a record or work case (ADR-0031): comments, questions and review requests to one named person, their answers, and the notes assignments carry, with mentions.',
     authority: 'Operational communication about the record it hangs on.',
-    access: 'Whoever can read the record it is on.',
+    access: 'Whoever can read the record it is on; what was said on a counseling before it was final, only its counselor and its Marine.',
     columns: {
       id: 'technical', record_table: 'none', record_id: 'technical', author_id: 'identifier', unit_id: 'employment', body: 'performance',
       mentions: 'identifier', edited_at: 'technical', deleted_at: 'technical', created_at: 'technical',
+      kind: 'none', addressee_id: 'identifier', state: 'none', reply_to: 'technical', closed_by: 'identifier', closed_at: 'technical', private: 'none',
     },
   },
   unit_invites: {

@@ -13,6 +13,7 @@ import {
 } from '../../shared/dutyReview.ts';
 import { audit, auditListedRecords } from './audit.ts';
 import { notify } from './notifications.ts';
+import { closeRequests } from './comments.ts';
 import { isAnonymizedDuty, withDutyNames } from './duties.ts';
 
 /**
@@ -57,45 +58,46 @@ export function recordDutyReview(ctx: AppContext, e: {
       e.duty.scoring_version ?? null, e.override ? 1 : 0, e.duty.user_id === e.actorId ? 1 : 0, e.at);
 }
 
-const typeName = (ctx: AppContext, row: DutyRow) => (ctx.db.prepare('SELECT name FROM duty_types WHERE id = ?').get(row.duty_type_id) as { name: string } | undefined)?.name ?? 'Duty';
 
 /**
  * Tells the people a decision concerns: the duty's Marine, whoever recorded it for them, and the reviewer whose decision
- * was answered or undone. By the duty's type and day, never its words or the reason given (those are read on the duty,
- * by whoever may open it). Someone who can no longer open the duty is not told about it.
+ * was answered or undone. A notice names the event, who decided and the points; the duty itself is named by its type and
+ * day when the notice is read, after checking its reader may still open it (ADR-0031). Never its words or the reason
+ * given: those are read on the duty. Someone who cannot open the duty as it stands now is not told about it: `now` is the
+ * duty after the change (a correction may have moved it), `row` the one whose reviewer is answered.
  */
-function tell(ctx: AppContext, actor: SessionUser, row: DutyRow, event: DutyReviewEvent, extra: { approved?: number | null; version: number }) {
+function tell(ctx: AppContext, actor: SessionUser, row: DutyRow, event: DutyReviewEvent, extra: { approved?: number | null; version: number; now?: DutyRow | null }) {
   const who = `${actor.first_name} ${actor.last_name}`;
-  const what = `${typeName(ctx, row)} on ${row.date}`;
+  const after = extra.now ?? dutyRow(ctx, String(row.id)) ?? row;
   const url = `/record/duty?open=${row.id}`;
   const key = (to: string) => `duty:${row.id}:${event}:${extra.version}:${to}`;
-  const reads = (id: string) => id === row.user_id || canRead(scopeFor(ctx, { id }), id, row);
-  const send = (id: string | null | undefined, title: string, message: string) => {
+  const reads = (id: string) => id === after.user_id || canRead(scopeFor(ctx, { id }), id, after);
+  const send = (id: string | null | undefined, title: string) => {
     if (!id || id === actor.id || !reads(id)) return;
-    notify(ctx, id, { kind: 'duty', title, message, actionUrl: url, dedupeKey: key(id) });
+    notify(ctx, id, { kind: 'duty', title, actionUrl: url, entity: 'duties', entityId: String(row.id), actorId: actor.id, dedupeKey: key(id) });
   };
   const marine = row.user_id;
   const recorder = recordedByOther(row) ? row.recorded_by : null;
   const previous = row.reviewed_by && row.reviewed_by !== marine && row.reviewed_by !== recorder ? row.reviewed_by : null;
   if (event === 'approved') {
     const counted = extra.approved != null ? ` for ${points(extra.approved)} points` : '';
-    send(marine, 'Duty approved', `${who} approved ${what}${counted}.`);
-    send(recorder, 'Duty you recorded was approved', `${who} approved ${what}${counted}.`);
+    send(marine, `${who} approved your duty${counted}`);
+    send(recorder, `${who} approved duty you recorded${counted}`);
   } else if (event === 'returned') {
-    send(marine, 'Duty returned for correction', `${who} returned ${what}. Open it to see why${recorder ? '' : ', correct it and send it back for review'}.`);
-    send(recorder, 'Duty you recorded was returned', `${who} returned ${what}. Open it to see why, correct it and send it back for review.`);
+    send(marine, recorder ? `${who} returned your duty` : `${who} returned your duty for correction`);
+    send(recorder, `${who} returned duty you recorded for correction`);
   } else if (event === 'rejected') {
-    send(marine, 'Duty rejected', `${who} rejected ${what}. Open it to see why.`);
-    send(recorder, 'Duty you recorded was rejected', `${who} rejected ${what}. Open it to see why.`);
+    send(marine, `${who} rejected your duty`);
+    send(recorder, `${who} rejected duty you recorded`);
   } else if (event === 'resubmitted') {
-    send(row.reviewed_by, 'Duty sent back for review', `${who} sent ${what} back for review after you returned it.`);
+    send(row.reviewed_by, `${who} sent back for review a duty you returned`);
   } else if (event === 'reopened') {
-    send(marine, 'Duty reopened for review', `${who} reopened ${what}. It waits for review again${row.approval_status === 'approved' ? ' and does not count until it is approved' : ''}.`);
-    send(recorder, 'Duty you recorded was reopened', `${who} reopened ${what}. It waits for review again.`);
-    send(previous, 'A duty you decided was reopened', `${who} reopened ${what}. It waits for review again.`);
+    send(marine, `${who} reopened your duty for review${row.approval_status === 'approved' ? '; it does not count until it is approved' : ''}`);
+    send(recorder, `${who} reopened duty you recorded for review`);
+    send(previous, `${who} reopened a duty you decided`);
   } else if (event === 'points_changed') {
-    send(marine, 'Approved duty points changed', `${who} changed the approved points for ${what} to ${points(extra.approved)}. Open it to see why.`);
-    send(previous, 'Points changed on a duty you approved', `${who} changed the approved points for ${what} to ${points(extra.approved)}.`);
+    send(marine, `${who} changed your duty's approved points to ${points(extra.approved)}`);
+    send(previous, `${who} changed the points on a duty you approved to ${points(extra.approved)}`);
   }
 }
 
@@ -206,6 +208,8 @@ export function reviewDuty(ctx: AppContext, user: SessionUser, id: string, body:
             : 'reason given';
     audit(ctx, { actor_id: user.id, action: is.approved ? 'duty_approved' : is.returned ? 'duty_returned' : is.rejected ? 'duty_rejected' : is.resubmitted ? 'duty_resubmitted' : is.reopened ? 'duty_reopened' : 'duty_points_changed', entity: 'duties', entity_id: id, subject_id: own ? null : row.user_id, unit_id: row.unit_id, detail, ip });
   })();
+  // A decision answers the review requests still open on the duty (ADR-0031).
+  if (event === 'approved' || event === 'returned' || event === 'rejected') closeRequests(ctx, 'duties', id, user.id, 'review_request');
   tell(ctx, user, row, event, { approved, version: input.version });
   return current();
 }
@@ -224,7 +228,8 @@ export function resubmittedByCorrection(ctx: AppContext, user: SessionUser, befo
   const scored = dutyRow(ctx, String(row.id)) ?? row;
   recordDutyReview(ctx, { duty: { id: row.id, user_id: row.user_id, calculated_points: scored.calculated_points, scoring_version: scored.scoring_version }, unitId, actorId: user.id, event: 'resubmitted', from: 'returned', to: 'pending', at });
   audit(ctx, { actor_id: user.id, action: 'duty_resubmitted', entity: 'duties', entity_id: row.id, subject_id: row.user_id === user.id ? null : row.user_id, unit_id: unitId, detail: 'after a return; corrected', ip });
-  return () => tell(ctx, user, row, 'resubmitted', { version: Number(row.version) });
+  // Told about the duty as corrected (it may now be in another unit), never as it was (ADR-0024: nobody who can no longer open it).
+  return () => tell(ctx, user, row, 'resubmitted', { version: Number(row.version), now: dutyRow(ctx, String(row.id)) });
 }
 
 /**

@@ -30,6 +30,8 @@ import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { pruneStagedImports } from './services/recordImport.ts';
 import { expireFormDrafts } from './services/drafts.ts';
 import { DRAFT_KEPT_DAYS } from '../shared/drafts.ts';
+import { expireNotifications } from './services/notifications.ts';
+import { NOTICE_RETENTION_DAYS } from '../shared/notifications.ts';
 import { pruneStagedCatalogs } from './services/courseCatalog.ts';
 import { STAGED_CATALOG_HOURS } from '../shared/courses.ts';
 import { orgRouter } from './routes/org.ts';
@@ -576,6 +578,8 @@ export function startSchedulers(ctx: AppContext) {
   every('record_import_prune', 'Import prune', 60 * 60_000, () => { const expired = pruneStagedImports(ctx); if (expired) console.log(`${now()} released the files of ${expired} imports left waiting past ${ctx.config.recordImports.stagedHours} hours`); });
   // Saved forms left 90 days are removed, except under a legal hold (ADR-0030).
   every('form_drafts_expire', 'Saved draft expiry', 6 * 60 * 60_000, () => { const removed = expireFormDrafts(ctx); if (removed) console.log(`${now()} removed ${removed} saved drafts not saved again in ${DRAFT_KEPT_DAYS} days`); });
+  // Notices are kept 180 days, read or not, unless a legal hold keeps them (ADR-0031).
+  every('notifications_expire', 'Notice expiry', 6 * 60 * 60_000, () => { const r = expireNotifications(ctx); if (r.expired) console.log(`${now()} removed ${r.expired} notices older than ${NOTICE_RETENTION_DAYS} days`); });
   every('course_catalog_prune', 'Course catalog prune', 60 * 60_000, () => { const discarded = pruneStagedCatalogs(ctx); if (discarded) console.log(`${now()} discarded ${discarded} course catalogs left waiting past ${STAGED_CATALOG_HOURS} hours`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {

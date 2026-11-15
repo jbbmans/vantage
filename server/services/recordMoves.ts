@@ -16,6 +16,7 @@ import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { courseColumns } from './courses.ts';
 import { newId, now } from '../lib/ids.ts';
+import { moveNotices } from './notifications.ts';
 
 /**
  * Moving an entry between record types (ADR-0015). An activity that was really an award received or a course completed
@@ -96,6 +97,8 @@ function carry(ctx: AppContext, from: LineageTable, fromId: string, to: LineageT
                      AND sha256 IN (SELECT sha256 FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL)`).run(now(), from, fromId, to, toId);
   ctx.db.prepare('UPDATE attachments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
   ctx.db.prepare('UPDATE comments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
+  // Its notices follow it, and open it where it is now (ADR-0031).
+  moveNotices(ctx, from, fromId, to, toId);
 }
 
 function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq' | 'kept_for_hold_at'>) {

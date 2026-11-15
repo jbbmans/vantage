@@ -45,6 +45,9 @@ export const limiters = {
   resetUser: new Window(3, 60 * 60_000),
   mailUser: new Window(10),
   teamMail: new Window(5, 60 * 60_000),
+  // Questions and review requests one person sends (ADR-0031), and lookups of who may be named or asked on a record.
+  workflowRequests: new Window(30, 60 * 60_000),
+  peopleLookups: new Window(300),
   aiGlobal: new Window(100, 60_000),
   aiUser: new Window(12, 60_000),
 };

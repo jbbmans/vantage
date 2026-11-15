@@ -301,7 +301,7 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
     sessionsRevoked += invalidateUserSessions(ctx, successor.id);
   })();
   audit(ctx, { actor_id: actor.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId, subject_id: successor.id, unit_id: unitId, detail: `${unit.owner_user_id || 'unowned'} -> ${successor.id}`, ip });
-  notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}` });
+  notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}:${now()}` });
   return { ok: true, sessionsRevoked };
 }
 

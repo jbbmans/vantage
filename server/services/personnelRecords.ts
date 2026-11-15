@@ -660,7 +660,7 @@ export function bulkPersonnel(ctx: AppContext, c: Omit<ChangeContext, 'batchId'>
   const applied = !req.dry_run && !refused;
   if (applied) {
     audit(ctx, { actor_id: actor.id, action: 'personnel_bulk', entity: 'unit', entity_id: viewUnitId, unit_id: viewUnitId, detail: `${req.action} for ${results.length} Marine${results.length === 1 ? '' : 's'}; batch ${batchId}${req.reason ? `; ${req.reason}` : ''}`, ip });
-    for (const id of moved) notify(ctx, id, { kind: 'unit', title: 'Moved to a new team', message: `${actor.first_name} ${actor.last_name} moved you to ${getUnit(ctx, value!)?.name}. Sign in again to see it.`, actionUrl: '/team', dedupeKey: `move:${value}:${id}` });
+    for (const id of moved) notify(ctx, id, { kind: 'unit', title: 'Moved to a new team', message: `${actor.first_name} ${actor.last_name} moved you to ${getUnit(ctx, value!)?.name}. Sign in again to see it.`, actionUrl: '/team', actorId: actor.id, dedupeKey: `move:${value}:${id}:${batchId}` });
   }
   return { batch_id: applied ? batchId : null, applied, dry_run: Boolean(req.dry_run), results, refused };
 }

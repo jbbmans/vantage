@@ -935,7 +935,7 @@ test('037 adds the saved forms table, empty, and changes no draft that was alrea
     assert.equal(migrationHistory(db).filter((m) => m.id === 37).length, 1, 'a second boot runs it once');
     assert.deepEqual(KEPT.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY id`).all()), kept, 'and after a second boot');
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
-    assert.equal(SCHEMA_VERSION, 37);
+    assert.ok(SCHEMA_VERSION >= 37);
     db.close();
   } finally { cleanup(); }
 });

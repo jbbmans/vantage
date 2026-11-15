@@ -15,6 +15,7 @@ import { now } from '../lib/ids.ts';
 import { buildZip, type ZipEntry } from '../lib/zip.ts';
 import { membershipHistory } from './membership.ts';
 import { isAnonymizedDuty } from './duties.ts';
+import { exportableNotices } from './notifications.ts';
 
 type Row = Record<string, unknown>;
 
@@ -108,12 +109,15 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   };
   for (const a of attachmentRows) if (!opens(a)) { a.kind = null; a.description = null; }
 
-  const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
+  // Notices are checked as the list checks them (ADR-0031): one about a record the Marine may no longer open is left out,
+  // and one about a record names it as it is called now, never what anybody wrote.
+  const notifications = exportableNotices(ctx, { id: userId }, scope) as Row[];
 
-  const commentColumns = 'id, record_table, record_id, author_id, body, mentions, edited_at, created_at, deleted_at';
+  const commentColumns = 'id, record_table, record_id, author_id, body, mentions, edited_at, created_at, deleted_at, kind, addressee_id, state, reply_to, closed_at, private';
   const ownComments = db.prepare(`SELECT ${commentColumns} FROM comments WHERE author_id = ?`).all(userId) as Row[];
   const seenComments = new Set<string>();
-  const commentRows = [...ownComments, ...onOwnRecords(commentColumns, 'comments')]
+  // What others said on the Marine's records, as it stands: words its author or a moderator removed are not theirs to take.
+  const commentRows = [...ownComments, ...onOwnRecords(commentColumns, 'comments').filter((c) => c.author_id === userId || c.deleted_at == null)]
     .filter((c) => { const id = String(c.id); if (seenComments.has(id)) return false; seenComments.add(id); return true; })
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const auditTrail = db.prepare(`SELECT al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = ? THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = ? THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject
