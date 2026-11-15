@@ -6,6 +6,7 @@ import { PageHeader, Button, Field, Input, Select, Tabs, Panel, EmptyState, Badg
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, CategoryDot, DescriptionList, Table, useParam } from '@/components/common';
 import { AwardFields, emptyAward, evidenceCount } from '@/pages/Career';
@@ -69,6 +70,9 @@ export default function MemberDetail() {
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0] ?? null;
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
+  // An award recommendation for this Marine saved as a draft (ADR-0030) opens here from ?draft=, in the unit it names.
+  const restoreAward = (p: Record<string, unknown>) => ({ ...emptyAward('unit', unitId), ...p, user_id: id });
+  const resumeAward = useResumeDraft('award', (d) => setAward(restoreAward(d.payload)), { subjectId: id, enabled: !isSelf });
   const canManage = Boolean(data?.canManageMembers?.length);
   const [until, setUntil] = useState('');
   const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && Boolean(data) && tab === 'roles', retry: false });
@@ -127,6 +131,7 @@ export default function MemberDetail() {
         <Stat label="Counselings" value={records.counselings.length} hint={pendingAck ? `${pendingAck} not yet acknowledged` : 'all acknowledged'} tone={pendingAck ? 'warn' : undefined} />
       </div>
       </>}
+      {!isSelf && <DraftStrip kind="award" subjectId={id} onContinue={resumeAward.open} />}
       <Tabs value={shownTab} onChange={setTab} className="mb-4" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records.activities.length }, { value: 'counseling', label: 'Counseling', count: records.counselings.length }, { value: 'career', label: 'Awards and training', count: records.awards.length + records.trainings.length }, { value: 'duty', label: 'Duty', count: records.duties.length }, { value: 'roles', label: 'Roles' }] : [])]} />
 
       {shownTab === 'personnel' && <PersonnelPanel record={record} onTab={records ? setTab : undefined} onChanged={reload} />}
@@ -186,7 +191,8 @@ export default function MemberDetail() {
 
       <CounselingDialog open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling?.draft ?? null} row={counseling?.row} leader={!counseling?.row || counselorWritten(counseling.row)} title={counseling?.draft.id ? (counseling.row && !counselorWritten(counseling.row) ? `Edit ${person.last_name}’s own counseling notes` : `Edit counseling for ${person.last_name}`) : `New counseling for ${person.last_name}`} onSaved={() => refetch()} />
       <AmendDialog row={amending} open={Boolean(amending)} onOpenChange={(o) => { if (!o) setAmending(null); }} onAmended={() => refetch()} />
-      <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) setAward(null); }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg" validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />
+      <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); resumeAward.done(); } }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg"
+        formDraft={{ kind: 'award', subjectId: id, unitId, saved: resumeAward.saved, restore: restoreAward, told: () => fullName(person), onChange: resumeAward.done }} validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />
       <DutyDialog mode={duty} open={Boolean(duty)} onOpenChange={(o) => { if (!o) setDuty(null); }} onSaved={() => { refetch(); setTab('duty'); }} />
       <Dialog open={Boolean(dutyViewed)} onOpenChange={(o) => { if (!o) setDutyView(null); }} title={dutyViewed ? dutyViewed.title || dutyViewed.duty_type_name || 'Duty' : ''} size="lg">
         {dutyViewed && hasReviewOptions(dutyViewed.review) && (

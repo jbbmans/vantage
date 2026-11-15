@@ -5,6 +5,7 @@ import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, NumberI
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, courseMarks, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { Comments } from '@/components/Comments';
@@ -150,6 +151,11 @@ export default function Career({ section }: { section: CareerSection }) {
   const vis = prefs.defaultVisibility || 'private';
   const unit = identity?.homeUnitId || null;
   const awardRows: AwardRow[] = awards || [];
+  // A training or an award of one's own saved as a draft (ADR-0030) opens on its page from ?draft=, as the form it was saved from.
+  const restoreTraining = (p: Record<string, unknown>) => ({ ...emptyTraining(vis, unit), ...p }) as TrainingDraft;
+  const restoreAward = (p: Record<string, unknown>) => ({ ...emptyAward(vis, unit), ...p }) as AwardDraft;
+  const resumeTraining = useResumeDraft('training', (d) => setTraining(restoreTraining(d.payload)), { enabled: tab === 'training' });
+  const resumeAward = useResumeDraft('award', (d) => { setCitationOut(null); setAward(restoreAward(d.payload)); }, { enabled: tab === 'awards' });
   // A notification opens the record it is about: a counseling to acknowledge, or an award or counseling somebody commented on.
   // A move opens the entry where it now lives: an award, or a course.
   useEffect(() => {
@@ -202,6 +208,9 @@ export default function Career({ section }: { section: CareerSection }) {
         <Stat label="Counselings" value={(counselings || []).length} hint={awaitingMe ? `${awaitingMe === 1 ? 'one awaits' : `${awaitingMe} await`} your acknowledgement` : myDrafts ? `${myDrafts} you wrote ${myDrafts === 1 ? 'is' : 'are'} not final yet` : 'up to date'} tone={awaitingMe ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
+      {tab === 'training' && <DraftStrip kind="training" onContinue={resumeTraining.open} />}
+      {tab === 'awards' && <DraftStrip kind="award" everyone onContinue={resumeAward.open} />}
+
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table minWidth={720} head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-24">Evidence</th><th className="w-28">Status</th><th className="w-44"></th></>}>
           {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{(t.provider || t.course_code) && <span className="block text-xs text-ink-3"><CourseCodeText row={t} />{t.course_code && t.provider ? ' · ' : ''}{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining(trainingDraft(t))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
@@ -230,8 +239,10 @@ export default function Career({ section }: { section: CareerSection }) {
         </Table></div>
       ))}
 
-      <RecordDialog<TrainingDraft> store="trainings" fromCurrent={trainingDraft} open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
-      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))}
+      <RecordDialog<TrainingDraft> store="trainings" fromCurrent={trainingDraft} open={Boolean(training)} onOpenChange={(o) => { if (!o) { setTraining(null); resumeTraining.done(); } }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training"
+        formDraft={{ kind: 'training', saved: resumeTraining.saved, restore: restoreTraining, onChange: resumeTraining.done }} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
+      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); resumeAward.done(); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg"
+        formDraft={{ kind: 'award', saved: resumeAward.saved, restore: restoreAward, onChange: resumeAward.done }} validate={(d) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))}
         fields={(d, set, errors) => (
           <>
             <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), to: d.date || undefined }} label="Draft citation" onResult={(output, meta) => { setCitationOut({ output, meta }); if (output.citation && !d.citation) set('citation', String(output.citation)); }} />} />

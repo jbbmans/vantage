@@ -83,7 +83,7 @@ export const GROUPS: NavGroup[] = [
       { to: '/career/awards', label: 'Awards', icon: Award, hint: 'Recommendations and what came of them' },
       { to: '/career/counseling', label: 'Counseling', icon: MessagesSquare, hint: 'Counselings given and received' },
       { to: '/record/duty', label: 'Duty', icon: Timer, hint: 'Duty you stood, its hours and its points' },
-      { to: '/record/drafts', label: 'Drafts', icon: FilePen, hint: 'Entries drawn from your work, waiting for you', count: 'drafts' },
+      { to: '/record/drafts', label: 'Drafts', icon: FilePen, hint: 'Everything you started and have not finished', count: 'drafts' },
       { to: '/record/contributions', label: 'Contributions', icon: Workflow, hint: 'What you did on each case you worked' },
     ],
   },

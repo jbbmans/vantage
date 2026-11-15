@@ -889,7 +889,53 @@ test('036 adds a course code, CEUs and what an approved catalog verified to trai
     assert.deepEqual((db.prepare('PRAGMA table_info(trainings)').all() as Array<{ name: string }>).map((c) => c.name), columns);
     assert.equal((db.prepare("SELECT course_entry_id FROM trainings WHERE id = 't-pme'").get() as { course_entry_id: string }).course_entry_id, 'e1');
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
-    assert.equal(SCHEMA_VERSION, 36);
+    db.close();
+  } finally { cleanup(); }
+});
+
+test('037 adds the saved forms table, empty, and changes no draft that was already kept anywhere', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(36, (db) => {
+    db.exec('DROP TABLE form_drafts');
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u2', 'u2', 'u2@example.mil', 'x', 'Dos', 'Two', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO record_drafts (id, user_id, title, facts, wording, created_at, updated_at) VALUES ('rd1', 'u1', 'From a case', '[]', 'Worded', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO counselings (id, user_id, counselor_id, stage, date, type, summary, visibility, created_at, updated_at) VALUES ('c1', 'u2', 'u1', 'draft', '2026-10-01', 'event', 'Not final', 'private', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO report_drafts (id, user_id, subject_id, title, period_start, period_end, created_at, updated_at) VALUES ('r1', 'u1', 'u1', 'Q3', '2026-07-01', '2026-09-30', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO threads (id, owner_id, subject, state, created_at, updated_at) VALUES ('t1', 'u1', 'Unsent', 'draft', ?, ?)").run(at, at);
+  });
+  try {
+    const KEPT = ['record_drafts', 'counselings', 'report_drafts', 'threads'];
+    const raw = new Database(path, { readonly: true });
+    const kept = KEPT.map((t) => raw.prepare(`SELECT * FROM ${t} ORDER BY id`).all());
+    raw.close();
+    let db = openDatabase(path);
+    assert.deepEqual(KEPT.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY id`).all()), kept, 'every draft kept elsewhere is byte for byte as it was');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM form_drafts').get() as { n: number }).n, 0);
+    assert.ok(migrationHistory(db).some((m) => m.id === 37 && m.name === '037_form_drafts'));
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    const columns = (d: Database.Database) => (d.prepare('PRAGMA table_info(form_drafts)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns(db), columns(fresh), 'the same columns, in the same order, as a new database');
+    fresh.close();
+    // The checks hold: an object payload, a Marine and a unit together, only for the two kinds about someone else.
+    const insert = (id: string, kind: string, subject: string | null, unit: string | null, payload = '{}') =>
+      db.prepare('INSERT INTO form_drafts (id, user_id, kind, subject_id, unit_id, title, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, 'u1', kind, subject, unit, 'A draft', payload, at, at);
+    insert('f1', 'goal', null, null);
+    assert.throws(() => insert('f2', 'goal', null, null, '[]'), /CHECK/);
+    assert.throws(() => insert('f3', 'goal', 'u2', 'G8'), /CHECK/);
+    assert.throws(() => insert('f4', 'personnel_change', null, null), /CHECK/);
+    assert.throws(() => insert('f5', 'counseling', null, null), /CHECK/);
+    db.prepare('DELETE FROM form_drafts').run();
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    db.close();
+
+    db = openDatabase(path);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 37).length, 1, 'a second boot runs it once');
+    assert.deepEqual(KEPT.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY id`).all()), kept, 'and after a second boot');
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.equal(SCHEMA_VERSION, 37);
     db.close();
   } finally { cleanup(); }
 });

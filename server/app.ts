@@ -21,12 +21,15 @@ import { recordsRouter } from './routes/records.ts';
 import { workRouter } from './routes/work.ts';
 import { correspondenceRouter } from './routes/correspondence.ts';
 import { recordRouter } from './routes/record.ts';
+import { draftsRouter } from './routes/drafts.ts';
 import { demoRouter, demoGuard } from './routes/demo.ts';
 import { assertDatabaseMatchesMode, purgeExpired } from './services/demo.ts';
 import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { pruneStagedImports } from './services/recordImport.ts';
+import { expireFormDrafts } from './services/drafts.ts';
+import { DRAFT_KEPT_DAYS } from '../shared/drafts.ts';
 import { pruneStagedCatalogs } from './services/courseCatalog.ts';
 import { STAGED_CATALOG_HOURS } from '../shared/courses.ts';
 import { orgRouter } from './routes/org.ts';
@@ -122,7 +125,8 @@ const recentDenials = new WeakMap<AppContext, Map<string, number>>();
  * same person on the same route is written once in ten minutes, so a page that keeps asking does not flood the trail.
  */
 function auditDenial(ctx: AppContext, req: Request, err: HttpError) {
-  const area = /^\/api\/(platform|orgs?)(?:\/|$)/.exec(req.originalUrl.split('?')[0])?.[1];
+  // Drafts too: a refusal there is someone saving a draft for a Marine they may not act for (ADR-0030).
+  const area = /^\/api\/(platform|orgs?|drafts)(?:\/|$)/.exec(req.originalUrl.split('?')[0])?.[1];
   if (!area || !req.user || err.status !== 403 || NOT_DENIALS.has(err.code ?? '')) return;
   // The route as declared under its router's mount, so one key covers every id; the mount alone where no route matched
   // (a router's own guard), so made-up paths beneath it are one refusal, not one each. By the time the error reaches here
@@ -372,6 +376,7 @@ export function createApp(ctx: AppContext) {
   app.use('/api/records', recordsRouter);
   app.use('/api/work', workRouter);
   app.use('/api/record', recordRouter);
+  app.use('/api/drafts', draftsRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
   app.use('/api/support', supportRouter);
@@ -569,6 +574,8 @@ export function startSchedulers(ctx: AppContext) {
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
   every('record_import_prune', 'Import prune', 60 * 60_000, () => { const expired = pruneStagedImports(ctx); if (expired) console.log(`${now()} released the files of ${expired} imports left waiting past ${ctx.config.recordImports.stagedHours} hours`); });
+  // Saved forms left 90 days are removed, except under a legal hold (ADR-0030).
+  every('form_drafts_expire', 'Saved draft expiry', 6 * 60 * 60_000, () => { const removed = expireFormDrafts(ctx); if (removed) console.log(`${now()} removed ${removed} saved drafts not saved again in ${DRAFT_KEPT_DAYS} days`); });
   every('course_catalog_prune', 'Course catalog prune', 60 * 60_000, () => { const discarded = pruneStagedCatalogs(ctx); if (discarded) console.log(`${now()} discarded ${discarded} course catalogs left waiting past ${STAGED_CATALOG_HOURS} hours`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {

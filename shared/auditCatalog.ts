@@ -65,6 +65,8 @@ const USER = [
   'build_report', 'create_report', 'save_report_revision', 'export_report_revision', 'ai_assist', 'ai_assist_failed',
   // The report center (ADR-0020): another's report or a unit's read, any report printed or filed, and saved reports.
   'view_report', 'print_report', 'export_report', 'report_definition_saved', 'report_definition_deleted',
+  // Forms saved to finish later, and discarded (ADR-0030); a draft sent is audited as the record or change it became.
+  'save_draft', 'discard_draft',
   // Work, cases and correspondence.
   'work_created', 'work_action', 'work_handed_off', 'work_closed', 'work_reopened', 'work_claim_expired',
   'work_claim_released_on_departure', 'procedure_applied', 'procedure_migrated', 'upload_source', 'run_import',
@@ -118,7 +120,7 @@ const ENTERPRISE = [
   'vantage_access_withdrawn', 'vantage_access_ended', 'vantage_access_expired', 'vantage_access_lapsed',
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
-  'maintenance_off', 'maintenance_task', 'purge_deleted',
+  'maintenance_off', 'maintenance_task', 'purge_deleted', 'drafts_expired',
   // What the service does to itself: a new build, each schema migration it runs, and what counting rows around them found.
   'release_deployed', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
   // Features turned off for one Unit Instance, and given back.

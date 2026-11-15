@@ -33,7 +33,27 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   );
 }
 
+/**
+ * Focus back where it was when a dialog opened by state, not by a trigger, closes. With no trigger, the dialog's own return
+ * of focus leaves it nowhere (on the page body), even inside a form that is still open. The element is noted before the
+ * dialog takes focus (a layout effect runs before its content mounts), and focused again once the dialog has finished
+ * closing, only if nothing else has taken focus and it is still on the page.
+ */
+export function useReturnFocus(open: boolean) {
+  const from = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    if (open) { from.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; return; }
+    const back = from.current;
+    from.current = null;
+    if (!back) return;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => { timer = window.setTimeout(() => { if (back.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true }); }, 0); });
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [open]);
+}
+
 export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel = 'Delete', onConfirm, danger = true, loading }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; body: React.ReactNode; confirmLabel?: string; onConfirm: () => void | Promise<void>; danger?: boolean; loading?: boolean }) {
+  useReturnFocus(open);
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={title} size="sm" footer={
       <>

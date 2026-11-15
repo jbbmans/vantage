@@ -5,6 +5,7 @@ import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, 
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
+import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
 import { track } from '@/lib/telemetry';
@@ -83,13 +84,17 @@ export default function Goals() {
     [goals, filter],
   );
 
-  const newGoal = () => setDraft({
+  const blankGoal = (): GoalDraft => ({
     title: '', description: '', type: 'quarterly', category: null,
     metric: 'manual', metric_id: null, direction: 'increase', aggregation: 'sum', measure_scope: 'subject',
     baseline_value: 0, current_value: 0, target_value: '', unit_label: '',
     status: 'active', period_start: todayIso(), period_end: '',
     visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
   });
+  const newGoal = () => setDraft(blankGoal());
+  // A goal saved as a draft (ADR-0030) opens here from ?draft=, as the form it was saved from.
+  const restoreGoal = (p: Record<string, unknown>) => ({ ...blankGoal(), ...p }) as GoalDraft;
+  const resume = useResumeDraft('goal', (d) => setDraft(restoreGoal(d.payload)));
 
   const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   // "21 of 30 UMTs", "60 of 100% complete": the unit once, on the target, and a percent sign against its number.
@@ -104,6 +109,8 @@ export default function Goals() {
         <Segmented value={filter} onChange={setFilter} options={[{ value: 'active', label: 'Active' }, { value: 'all', label: 'All' }]} label="Filter" />
         <Button variant="primary" onClick={newGoal}><Plus className="h-4 w-4" />New goal</Button>
       </PageHeader>
+
+      <DraftStrip kind="goal" onContinue={resume.open} />
 
       {list.length === 0 ? (
         <div className="card"><EmptyState icon={Target} title={filter === 'active' ? 'No active goals' : 'No goals yet'} description="Pick one number you want to move this quarter, in the unit the work is measured in." action={<Button variant="primary" onClick={newGoal}>New goal</Button>} /></div>
@@ -176,8 +183,9 @@ export default function Goals() {
       )}
 
       <RecordDialog<GoalDraft>
-        store="goals" open={Boolean(draft)} onOpenChange={(o) => { if (!o) setDraft(null); }} initial={draft}
+        store="goals" open={Boolean(draft)} onOpenChange={(o) => { if (!o) { setDraft(null); resume.done(); } }} initial={draft}
         title={draft?.id ? 'Edit goal' : 'New goal'} noun="Goal"
+        formDraft={{ kind: 'goal', saved: resume.saved, restore: restoreGoal, onChange: resume.done }}
         validate={(d) => {
           if (!d.title.trim()) return 'A title is required.';
           if (d.metric_id && d.direction !== 'completion' && d.target_value === '') return 'Say what the target is.';
@@ -253,7 +261,7 @@ export default function Goals() {
             </div>
 
             <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_GOALS} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
-            {identity?.instance.aiEnabled && <p className="flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />AI suggestions are drafts. Check the number and the date.</p>}
+            {identity?.instance.aiEnabled && <p className="flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />Check an AI suggestion’s number and date before you use it.</p>}
           </>
         )}
       />

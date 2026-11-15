@@ -348,7 +348,7 @@ function changedFields(spec: TableSpec, row: Record<string, unknown>, data: Reco
  * all it adds; `fingerprint` keeps an activity drawn from a financial case marked as one; `review` is the import's dry
  * run, rolled back, which writes no trail.
  */
-export interface CreateOptions { importId?: string; fingerprint?: string; review?: boolean }
+export interface CreateOptions { importId?: string; fingerprint?: string; review?: boolean; /** Sent from a saved draft (ADR-0030). */ fromDraft?: boolean }
 
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string, opts: CreateOptions = {}) {
   const spec = TABLES[table];
@@ -433,7 +433,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : table === 'counselings' && counselorId ? `counseling ${stage}` : undefined, ip });
+  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : table === 'counselings' && counselorId ? `counseling ${stage}` : opts.fromDraft ? 'from saved form' : undefined, ip });
   if (opts.importId) return readBack(ctx, table, id, user.id);
   if (table === 'goals') {
     record(ctx, 'goal.created', {

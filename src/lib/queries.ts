@@ -89,6 +89,9 @@ export const keys = {
   goalContributors: (id: string) => ['goal-contributors', id] as const,
   reportDrafts: ['report-drafts'] as const,
   reportDraft: (id: string) => ['report-draft', id] as const,
+  // Every draft of the person's, wherever it is kept, and one saved form (ADR-0030).
+  drafts: ['drafts'] as const,
+  formDraft: (id: string) => ['form-draft', id] as const,
 };
 
 export function useIdentity() {
@@ -158,18 +161,18 @@ const FIGURES: ReadonlyArray<readonly unknown[]> = [
 
 const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
   activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates'], ['duty-candidates']],
-  training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
-  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
-  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet']],
+  training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline'], ['drafts']],
+  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['drafts']],
+  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet'], ['drafts'], ['record-summary']],
   duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['unit-analytics'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
-  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
-  task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
+  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline'], ['drafts']],
+  task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work'], ['drafts']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
   work: [['work-items'], ['unit-analytics'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],
-  draft: [['record-drafts']],
+  draft: [['record-drafts'], ['drafts'], ['form-draft'], ['record-summary']],
   career: [['career']],
-  correspondence: [['threads'], ['item-threads'], ['connectors']],
-  report: [['report-drafts'], ['report-draft']],
+  correspondence: [['threads'], ['item-threads'], ['connectors'], ['drafts'], ['record-summary']],
+  report: [['report-drafts'], ['report-draft'], ['drafts'], ['record-summary']],
 };
 
 export function invalidateDomains(qc: QueryClient, ...domains: Domain[]) {
@@ -349,6 +352,9 @@ export const useConnectors = (enabled = true) =>
 export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {
   qc.invalidateQueries({ queryKey: ['threads'] });
   qc.invalidateQueries({ queryKey: ['item-threads'] });
+  // Written and not sent, a thread is a draft (ADR-0030): Drafts, the menu count and the record overview list it.
+  qc.invalidateQueries({ queryKey: ['drafts'] });
+  qc.invalidateQueries({ queryKey: ['record-summary'] });
   if (threadId) qc.invalidateQueries({ queryKey: correspondenceKeys.thread(threadId) });
 }
 
@@ -412,6 +418,10 @@ export const useAssignedWork = () => {
 };
 export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
 export const useRecordDrafts = (enabled = true) => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts, enabled });
+/** Every draft of the person's, wherever its kind keeps it (ADR-0030). */
+export const useDrafts = (enabled = true) => useQuery({ queryKey: keys.drafts, queryFn: api.allDrafts, enabled, staleTime: 15_000 });
+/** One saved form, to finish it. */
+export const useFormDraft = (id: string | null | undefined) => useQuery({ queryKey: keys.formDraft(id || ''), queryFn: () => api.formDraft(id!), enabled: Boolean(id), retry: false, staleTime: 0 });
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });
 export const useWorkload = (unitId: string | null, params: Record<string, string | undefined> = {}) =>
   useQuery<WorkloadResponse>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });

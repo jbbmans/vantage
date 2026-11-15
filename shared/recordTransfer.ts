@@ -80,7 +80,7 @@ export const TRANSFER_CATEGORIES: readonly TransferCategory[] = [
   { key: 'duty', label: 'Duty', hint: 'Duty you stood: its type, times, conditions and the points it was scored.', table: 'duties', imports: true },
   { key: 'personnel', label: 'Personnel history', hint: 'Units served in, billets, responsibilities and every change to them.', table: null, imports: 'Those who manage your membership in each Unit Instance keep it; an import cannot write it.' },
   { key: 'attachments', label: 'Attachments', hint: 'The files on the records exported (ZIP only).', table: null, imports: true },
-  { key: 'account', label: 'Account history', hint: 'Memberships, roles, notifications, comments, your audit trail, AI use, email log, drafts, case contributions, moves, sign-in security.', table: null, imports: 'It is the record of what happened in Vantage: kept in the export, never written back.' },
+  { key: 'account', label: 'Account history', hint: 'Memberships, roles, notifications, comments, your audit trail, AI use, email log, drafts and saved forms, case contributions, moves, sign-in security.', table: null, imports: 'It is the record of what happened in Vantage: kept in the export, never written back.' },
 ];
 
 export const CATEGORY_KEYS = TRANSFER_CATEGORIES.map((c) => c.key);

@@ -8,6 +8,17 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-11-14',
+    title: 'Save a form as a draft and finish it later, and find every draft in one place',
+    items: [
+      'A new goal, award, training entry or task, an award recommendation for one of your Marines, and a change to a Marine’s billet or assignment each have Save draft. Only you can see a draft. Nothing counts it, and nobody is told of it, until you add it.',
+      'Closing one of those forms with text in it asks first: keep editing, let it go, or save it as a draft.',
+      'Each page lists your drafts of its kind above its list. Records → Drafts lists every draft you have: saved forms, entries drawn from your work, counselings you have not finalized, report packages and correspondence you have not sent. Each opens where you finish it, and says who else can read it.',
+      'A saved form is kept 90 days after you last save it. One a leader can no longer send, because they no longer lead that Marine, stays theirs to read and discard.',
+      'Today shows your newest drafts, and the menu counts the ones waiting on you.',
+    ],
+  },
+  {
+    date: '2026-11-14',
     title: 'The Unit dashboard answers questions about casework, duty, training and the roster',
     items: [
       'Open Reports & Analytics → Unit dashboard and choose Casework, Duty, Training or Personnel. Output shows what it always did.',

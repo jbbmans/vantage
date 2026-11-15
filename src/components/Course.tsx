@@ -29,7 +29,8 @@ export function useCourseLookup(code: string): Lookup {
   const key = courseKey(code);
   const [state, setState] = useState<Lookup>({ code: '', state: 'idle', result: null });
   useEffect(() => {
-    if (key.length < 2) { setState({ code: '', state: 'idle', result: null }); return; }
+    // Any code the server would look up is looked up here too: a one-character key is a key (Codex, PR #77).
+    if (!key) { setState({ code: '', state: 'idle', result: null }); return; }
     // What was found for the code before is not shown for this one while it is looked up.
     setState({ code, state: 'looking', result: null });
     const ctl = new AbortController();

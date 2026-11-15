@@ -13,7 +13,8 @@ test('a task opens onto its own page and carries a conversation', async ({ page,
   await dialog.waitFor();
   const title = `Reconcile the October sheet ${Date.now()}`;
   await dialog.getByLabel(/title/i).first().fill(title);
-  await dialog.getByRole('button', { name: /save|create|add/i }).first().click();
+  // A new task's form also has Save draft (ADR-0030), which keeps it to its author instead of adding it.
+  await dialog.getByRole('button', { name: 'Add task', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
 
   await page.getByRole('link', { name: title }).click();

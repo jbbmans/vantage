@@ -30,7 +30,7 @@ export const EVENTS: Record<string, EventSpec> = {
     family: 'capture',
     properties: {
       surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message'),
-      state: oneOf('closed_immediately', 'typed_then_left', 'validation_blocked', 'save_failed', 'navigated_away', 'unknown'),
+      state: oneOf('closed_immediately', 'typed_then_left', 'validation_blocked', 'save_failed', 'navigated_away', 'saved_draft', 'unknown'),
       fields_filled: num,
       had_measure: bool,
     },
@@ -43,7 +43,7 @@ export const EVENTS: Record<string, EventSpec> = {
       had_measure: bool,
       had_outcome: bool,
       ai_assisted: bool,
-      source: oneOf('manual', 'work_action', 'import', 'ai_draft'),
+      source: oneOf('manual', 'work_action', 'import', 'ai_draft', 'saved_form'),
     },
     times: ['form_ms', 'confirmed_work_minutes'],
   },

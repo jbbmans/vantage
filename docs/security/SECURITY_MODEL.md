@@ -58,9 +58,14 @@ Passkey challenges live in the database for restart continuity, expire after fiv
 
 ## The Record
 
-- Summary, assigned work, contributions, drafts and career routes take no user parameter. They serve
+- Summary, assigned work, contributions, drafts (`/api/record/drafts`, `/api/drafts`) and career routes take no user parameter. They serve
   only the session's own data. Drafts and career steps answer 404, not 403, to anyone else, so they do
   not confirm that the record exists.
+- One exception names someone else: a saved form about a Marine (`POST /api/drafts/forms` with `subject_id` and
+  `unit_id`, an award recommendation or a personnel change, ADR-0030). It is still its author's alone, and it is saved,
+  saved again, read as sendable and sent only while its author may act for that Marine in that unit: Counsel where
+  they may see the Marine, or Manage members above them. It answers what the kind's own route answers (403, 404,
+  `hierarchy`), so it learns nothing sending the form would not. Its unit is fixed when it is created.
 - The per-person workload breakdown needs `VIEW_MEMBER_DETAIL` in the unit, and each view is audited
   (`view_team_workload`). Section totals need `VIEW_RECORDS`.
 

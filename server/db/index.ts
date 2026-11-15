@@ -475,6 +475,13 @@ const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_trainings_course_entry ON trainings(course_entry_id)');
     },
   },
+  // Drafts (Task 23, ADR-0030). A form its author saves to finish later, a goal, an award, a training entry, a task or a
+  // change to a Marine's assignment, is kept in form_drafts until it is sent through its kind's own route, discarded or
+  // left 90 days. The table and its indexes come from schema.sql, which is safe to replay. Every other draft stays where it
+  // always was: a counseling's stage, a report package with no revision, correspondence not sent, an entry from work not
+  // kept. A draft about a Marine names its unit, checked when it is saved; no boundary trigger, as with report_drafts
+  // (ADR-0008). No row is removed or reshaped.
+  { id: 37, name: '037_form_drafts', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

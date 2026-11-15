@@ -2,6 +2,34 @@
 
 _Updated 2026-11-14_
 
+## What changed (2026-11-14: drafts in context)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+A draft lives with its own kind, and Records → Drafts reads every kind from where it is kept and stores nothing
+([ADR-0030](engineering/ADR/0030-drafts-in-context.md), migration 037).
+
+- **Save draft** on a new goal, award, training entry or task, on an award recommendation from a Marine's page, and on a
+  billet or assignment change. A saved form is its author's alone: nothing counts or lists it, its Marine is not told,
+  and anyone else gets 404. Sent through its kind's own route (`?draft=`), it is checked as any new record and removed
+  in the same transaction, so the record is then the only copy.
+- **Authority** for a recommendation or personnel change is checked when it is saved, read and sent. One its author can
+  no longer act on stays theirs to read and discard. Kind, Marine and unit never change after it is created. A
+  recommendation goes to the unit it was drafted in or nowhere.
+- **Closing a form with unsaved text asks first.** A draft sent or discarded in another window, or saved again there, is
+  said so, and what was typed stays. A drafted billet change says what someone else changed since it was saved.
+- **Each page lists its own drafts**; Drafts lists all of them with who else can read each; Today shows the newest; the
+  menu counts what waits on you (a counseling shared for review waits on its Marine, and a report package idle 30 days
+  is not counted).
+- **Kept 90 days** after the last save, swept every six hours. Any legal hold that covers its author, its Marine, the
+  instance or `form_drafts` keeps it, and every run is recorded as a disposition run.
+- **Exports** include `form_drafts` in the instance archive and a person's own saved forms in their export. A drafted
+  recommendation is never in its Marine's.
+- **Entries from work:** one case gives one open draft, drawn only from a case the person can still open (someone who
+  has left its unit gets 404). A kept entry is changed in the record, not in its draft.
+- **Fixed on the way** (Codex P2 on PR #77): a one-character course code now looks itself up in the training form.
+- **Also:** a dialog opened by state (every confirm, and the leave check) puts focus back where it was when it closes.
+
 ## What changed (2026-11-14: course lookup)
 
 **Partial.** In review; HawkScan not run (no key); CI disregarded on John's word. No approved MCeLE source has been

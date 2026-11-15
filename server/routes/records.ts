@@ -20,6 +20,8 @@ import { listComments, addComment, editComment, deleteComment } from '../service
 import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services/recordMoves.ts';
 import { newId, now } from '../lib/ids.ts';
 import { buildRecordExport } from '../services/personalExport.ts';
+import { consumeDraft, draftParam } from '../services/drafts.ts';
+import { kindOfTable } from '../../shared/drafts.ts';
 import { importedFrom } from '../services/recordImport.ts';
 import { withDutyNames, isAnonymizedDuty } from '../services/duties.ts';
 import { dutyReviewHistory, reviewDuty } from '../services/dutyReview.ts';
@@ -111,7 +113,16 @@ recordsRouter.get('/:table/:id/export', wrap(async (req, res) => {
 
 recordsRouter.post('/:table', wrap((req, res) => {
   const table = tableParam(req);
-  res.status(201).json(createRecord(req.ctx, req.user, table, req.body, req, clientIp(req)));
+  // A form saved as a draft is sent here like any other, and its draft goes with it, in the same transaction (ADR-0030).
+  const draftId = draftParam(req.query);
+  if (!draftId) return void res.status(201).json(createRecord(req.ctx, req.user, table, req.body, req, clientIp(req)));
+  const kind = kindOfTable(table);
+  if (!kind) throw badRequest('A draft of this kind of record is not kept.');
+  // Only an award is drafted about someone else: a leader's recommendation names its Marine as the record's owner.
+  const subject = kind === 'award' && typeof req.body?.user_id === 'string' && req.body.user_id !== req.user.id ? req.body.user_id : null;
+  // A recommendation goes to the unit its draft was saved in, which its author may still act in, never one createRecord picks.
+  const unitId = subject ? (typeof req.body?.unit_id === 'string' ? req.body.unit_id : null) : undefined;
+  res.status(201).json(consumeDraft(req.ctx, req.user, scopeFor(req.ctx, req.user, req), draftId, { kind, subjectId: subject, unitId }, () => createRecord(req.ctx, req.user, table, req.body, req, clientIp(req), { fromDraft: true })));
 }));
 
 recordsRouter.put('/:table/:id', wrap((req, res) => {

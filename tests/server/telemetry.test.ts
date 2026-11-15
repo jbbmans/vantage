@@ -54,6 +54,11 @@ test('no property can carry content: free text is dropped, not stored', () => {
   }
 });
 
+test('saving a form as a draft is its own way of leaving it, and sending one is its own source (ADR-0030)', () => {
+  assert.deepEqual(validateProperties(EVENTS['capture.abandoned'], { surface: 'record_form', state: 'saved_draft' }), { surface: 'record_form', state: 'saved_draft' });
+  assert.deepEqual(validateProperties(EVENTS['capture.completed'], { surface: 'record_form', source: 'saved_form' }), { surface: 'record_form', source: 'saved_form' });
+});
+
 test('a word outside the declared set is dropped rather than stored', async () => {
   await send(op.token, [{ name: 'surface.viewed', properties: { surface: 'the-secret-page' } }]);
   const stored = rows('surface.viewed').at(-1)!;
