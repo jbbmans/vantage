@@ -13,6 +13,8 @@ import type { AnalyticsResponse, AnalyticsSection, DrillResponse } from '../../s
 import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../shared/bulkWork';
 import type { CourseEntry, CourseLookup, CourseSourceRecord } from '../../shared/courses';
 import type { DraftsResponse, FormDraft, FormDraftKind } from '../../shared/drafts';
+import type { NoticeGroup, NoticesResponse } from '../../shared/notifications';
+import type { DiscussionEntry, RequestKind, RequestSummary, Speaker, Told } from '../../shared/workflowMessages';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
@@ -149,10 +151,23 @@ export const passkeyDelete = (id: string) => api.del(`/me/passkeys/${encodeURICo
 export const readiness = () => api.get('/me/readiness');
 export const saveReadiness = (payload: unknown) => api.put('/me/readiness', payload);
 export const memberReadiness = (id: string) => api.get(`/me/readiness/${encodeURIComponent(id)}`);
-/** Polled in the background, so it is marked as such: a poll must not keep an idle session alive. */
-export const notifications = (limit = 40) => request('GET', `/me/notifications?limit=${limit}`, undefined, { headers: { 'x-vantage-background': '1' } });
+/**
+ * Notices (ADR-0031), newest first, `limit` at a time; `cursor` is the previous page's `next_cursor`. Polled in the
+ * background, so it is marked as such: a poll must not keep an idle session alive.
+ */
+export interface NoticeQuery { limit?: number; cursor?: string | null; filter?: 'all' | 'unread'; group?: NoticeGroup | null }
+export const notifications = (q: NoticeQuery | number = {}) => {
+  const o: NoticeQuery = typeof q === 'number' ? { limit: q } : q;
+  const qs = new URLSearchParams({ limit: String(o.limit ?? 40) });
+  if (o.cursor) qs.set('cursor', o.cursor);
+  if (o.filter === 'unread') qs.set('filter', 'unread');
+  if (o.group) qs.set('group', o.group);
+  return request<NoticesResponse>('GET', `/me/notifications?${qs}`, undefined, { headers: { 'x-vantage-background': '1' } });
+};
 export const markRead = (id: string) => api.put(`/me/notifications/${encodeURIComponent(id)}/read`);
-export const markAllRead = () => api.post('/me/notifications/read-all');
+export const markAllRead = (group?: NoticeGroup | null) => api.post<{ ok: true; updated: number }>('/me/notifications/read-all', group ? { group } : {});
+/** Questions and review requests asked of the reader, and those they asked (ADR-0031). */
+export const myRequests = () => request<{ asked_of_you: RequestSummary[]; you_asked: RequestSummary[] }>('GET', '/me/requests', undefined, { headers: { 'x-vantage-background': '1' } });
 export const myAudit = () => api.get('/me/audit');
 export const digestPreview = () => api.get('/me/digest/preview');
 export const digestSendNow = () => api.post('/me/digest/send-now');
@@ -207,8 +222,22 @@ export const moveRecord = (store: MovableTable, id: string, body: { to: LineageT
 export const undoMove = (store: LineageTable, id: string) => api.post<{ table: LineageTable; id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/undo-move`);
 export const recordLineage = (store: LineageTable, id: string) => api.get<LineageResponse>(`/records/${store}/${encodeURIComponent(id)}/lineage`);
 export const keepAsActivity = (id: string) => api.post(`/records/activities/${encodeURIComponent(id)}/keep`);
-export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
-export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
+export const addComment = (store: Store, id: string, body: string) => api.post<DiscussionEntry & Told>(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
+
+/**
+ * A discussion's home (ADR-0031): a record, or a work case. A case takes questions and review requests, never free
+ * comments; its notes are its own sealed history.
+ */
+export type DiscussionHost = { kind: 'record'; table: Store; id: string } | { kind: 'work'; id: string };
+const discussionBase = (h: DiscussionHost) => (h.kind === 'work' ? `/work/items/${encodeURIComponent(h.id)}` : `/records/${h.table}/${encodeURIComponent(h.id)}`);
+export const discussion = (h: DiscussionHost) => api.get<{ comments: DiscussionEntry[] }>(`${discussionBase(h)}/comments`);
+export const askRequest = (h: DiscussionHost, body: { kind: RequestKind; addressee_id: string; body: string }) => api.post<DiscussionEntry>(`${discussionBase(h)}/requests`, body);
+export const answerRequest = (h: DiscussionHost, requestId: string, body: { outcome?: 'looks_right' | 'needs_changes'; body?: string }) =>
+  api.post<{ request: DiscussionEntry; answer: DiscussionEntry | null }>(`${discussionBase(h)}/requests/${encodeURIComponent(requestId)}/answer`, body);
+export const withdrawRequest = (h: DiscussionHost, requestId: string) => api.post<DiscussionEntry>(`${discussionBase(h)}/requests/${encodeURIComponent(requestId)}/withdraw`);
+/** Who may be named or asked on it: up to ten, by rank and name, matching `q`. */
+export const discussionPeople = (h: DiscussionHost, q: string) => api.get<{ people: Speaker[] }>(`${discussionBase(h)}/people?q=${encodeURIComponent(q)}`);
+export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put<DiscussionEntry & Told>(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 
 export const team = () => api.get<TeamResponse>('/org/team');
