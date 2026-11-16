@@ -32,6 +32,9 @@ type FieldErrors = { kind?: string; description?: string; file?: string };
  */
 const ACTIONS = 'ml-auto flex min-w-[min(17rem,100%)] shrink-0 items-center justify-end gap-1';
 
+/** How many frames focus waits for what comes next to be drawn and enabled: about half a second. */
+const FOCUS_FRAMES = 30;
+
 /**
  * The files on a record. On a training they are its evidence (ADR-0025): each says what it is (a certificate, a
  * transcript, a completion or qualification document, a roster) and, in a line, what it shows, beside its name, its
@@ -76,14 +79,28 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
   const working = busy !== null;
 
   /**
-   * After the panel changes under the keyboard, put focus where the person will act next. Only while focus is still in
-   * the panel or went with the control it was on: someone who has moved on to another field keeps their place there.
+   * After the panel changes under the keyboard, put focus where the person will act next, once it is drawn and can take
+   * it: that can be a frame or more after the change, and a control stays disabled until its request has ended. Only
+   * while focus is still on the control in the panel it was on, or went with it: someone who has moved on, to another
+   * field here or anywhere else, keeps their place there.
    */
-  const focusOn = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => {
-    const active = document.activeElement;
-    const elsewhere = active instanceof HTMLElement && active !== document.body && !root.current?.contains(active) && !active.contains(root.current);
-    if (!elsewhere) find()?.focus();
-  });
+  const focusOn = (find: () => HTMLElement | null | undefined) => {
+    const from = document.activeElement;
+    const attempt = (left: number) => requestAnimationFrame(() => {
+      const active = document.activeElement;
+      const panel = root.current;
+      const stayed = !active || active === document.body || (active instanceof HTMLElement && Boolean(panel) && active.contains(panel))
+        || (active === from && Boolean(panel?.contains(active)));
+      if (!stayed) return;
+      const target = find();
+      if (target?.isConnected && !(target as HTMLButtonElement).disabled) {
+        target.focus();
+        if (document.activeElement === target) return;
+      }
+      if (left > 0) attempt(left - 1);
+    });
+    attempt(FOCUS_FRAMES);
+  };
   /** When the control the keyboard was on is gone: the Add button, else a file's Remove, else the panel itself. */
   const focusHome = () => focusOn(() => addButton.current ?? root.current?.querySelector<HTMLElement>('[data-remove]') ?? root.current);
   /** A file just added shows at once, and the panel knows at once if it is now full. */
