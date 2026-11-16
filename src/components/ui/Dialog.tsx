@@ -16,7 +16,8 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/55 backdrop-blur-[3px] data-[state=open]:animate-fade-in" />
-        <DialogPrimitive.Content aria-describedby={description ? undefined : ''} className={cn(
+        {/* The title carries its own id, for the scrolling body to name itself by, so the dialog is named by that id too. */}
+        <DialogPrimitive.Content aria-labelledby={titleId} aria-describedby={description ? undefined : ''} className={cn(
           'fixed z-50 flex flex-col overflow-hidden bg-surface shadow-modal focus:outline-none',
           drawer
             ? 'inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl data-[state=open]:animate-slide-up sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(46vw,600px)] sm:rounded-none sm:rounded-l-2xl sm:data-[state=open]:animate-slide-in-right'

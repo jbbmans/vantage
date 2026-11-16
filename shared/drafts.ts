@@ -5,26 +5,13 @@
  * What the browser and the server share about them is here.
  */
 import { z } from 'zod';
+import type { DraftKind } from './draftKinds.ts';
+
+export { DRAFT_KINDS, DRAFT_KIND_LABELS, type DraftKind } from './draftKinds.ts';
 
 /** The forms a person may save to finish later. Each is sent, when it is finished, through its kind's own route. */
 export const FORM_DRAFT_KINDS = ['goal', 'award', 'training', 'task', 'personnel_change'] as const;
 export type FormDraftKind = (typeof FORM_DRAFT_KINDS)[number];
-
-/** Every kind the Drafts page lists, in the order its filters show them. */
-export const DRAFT_KINDS = ['counseling', 'report', 'goal', 'award', 'training', 'personnel_change', 'task', 'correspondence', 'entry'] as const;
-export type DraftKind = (typeof DRAFT_KINDS)[number];
-
-export const DRAFT_KIND_LABELS: Record<DraftKind, { one: string; many: string }> = {
-  counseling: { one: 'Counseling', many: 'Counselings' },
-  report: { one: 'Report', many: 'Reports' },
-  goal: { one: 'Goal', many: 'Goals' },
-  award: { one: 'Award', many: 'Awards' },
-  training: { one: 'Training entry', many: 'Training entries' },
-  personnel_change: { one: 'Personnel change', many: 'Personnel changes' },
-  task: { one: 'Task', many: 'Tasks' },
-  correspondence: { one: 'Correspondence', many: 'Correspondence' },
-  entry: { one: 'Entry from work', many: 'Entries from work' },
-};
 
 /** Where each kind of draft is kept, which says how it is opened, finished and discarded. */
 export type DraftSource = 'form' | 'entry' | 'counseling' | 'report' | 'correspondence';

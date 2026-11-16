@@ -4,7 +4,7 @@ import { CheckCircle2, ExternalLink, History, PenLine, Send, Undo2, Stamp } from
 import { Badge, Button, EmptyState, Field, Input, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import RecordDialog, { type SaveAction } from '@/components/RecordDialog';
+import RecordDialog, { missing, type SaveAction } from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { recordDownloads, type DownloadChoice } from '@/components/DownloadMenu';
 import { onText } from '@/components/common';
@@ -53,7 +53,7 @@ export function CounselingFields({ d, set, errors, leader }: { d: CounselingDraf
   );
 }
 
-const needsSummary = (d: CounselingDraft) => (!d.summary.trim() ? 'A summary is required.' : null);
+const needsSummary = (d: CounselingDraft) => (!d.summary.trim() ? missing('summary', 'A summary is required.') : null);
 const needsDate = (d: CounselingDraft) => (!d.date ? { message: 'Give the date of the counseling session before finalizing it.', fieldErrors: { date: 'Required to finalize.' } } : null);
 
 /**

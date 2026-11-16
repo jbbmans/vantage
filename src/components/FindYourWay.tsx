@@ -38,8 +38,9 @@ export default function FindYourWay() {
               <dd className="text-sm leading-relaxed text-ink-2">
                 {links.length || !x.otherwise ? x.a : x.otherwise}
                 {links.length > 0 && (
-                  <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    {links.map((to) => <Link key={to} to={to} className="link text-xs font-medium">{placeName(to)}</Link>)}
+                  // Each link is at least 24px tall with room between rows, so a finger or a shaky hand hits the one meant (WCAG 2.5.8).
+                  <span className="mt-1 flex flex-wrap gap-x-3 gap-y-2">
+                    {links.map((to) => <Link key={to} to={to} className="link inline-flex min-h-6 items-center text-xs font-medium">{placeName(to)}</Link>)}
                   </span>
                 )}
               </dd>

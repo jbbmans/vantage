@@ -1,9 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Tabs, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Tabs, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState, useRefusal } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
@@ -61,6 +61,9 @@ function Profile() {
   const u = identity!.user;
   const [form, setForm] = useState({ first_name: u.first_name, last_name: u.last_name, middle_initial: u.middle_initial || '', rank_id: u.rank_id || '', mos: u.mos || '', eas: u.eas || '', email: u.email || '', timezone: (u as { timezone?: string | null }).timezone || '' });
   const [errors, setErrors] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false);
+  // A refused save marks its fields and focus goes to the first; a refusal no field shows is a toast.
+  const fields = useRef<HTMLDivElement | null>(null);
+  const refuse = useRefusal(fields, toast.error);
   const save = async () => {
     setBusy(true); setErrors({});
     try {
@@ -70,12 +73,12 @@ function Profile() {
       else if (emailChanged) body.email = form.email || null;
       await withSudo(() => api.updateProfile(body));
       qc.invalidateQueries({ queryKey: keys.me }); toast.success('Profile saved.');
-    } catch (e: any) { setErrors(e?.fieldErrors || {}); toast.error(api.errorText(e)); } finally { setBusy(false); }
+    } catch (e: any) { setErrors(e?.fieldErrors || {}); refuse(api.errorText(e)); } finally { setBusy(false); }
   };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel title="Identity" className="lg:col-span-2" action={<Button variant="primary" size="sm" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div ref={fields} className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Field label="First name" error={errors.first_name}><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
           <Field label="Last name" error={errors.last_name}><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
           <Field label="MI"><Input value={form.middle_initial} maxLength={4} onChange={(e) => setForm({ ...form, middle_initial: e.target.value })} /></Field>

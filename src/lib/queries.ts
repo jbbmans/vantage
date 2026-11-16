@@ -14,7 +14,8 @@ import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../share
 import type { RecordRows } from '../../shared/types';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import { mayCorrectDuty, type DutyCandidatesResponse, type DutyOptionsResponse } from '../../shared/duty';
-import { IMPORT_TABLES, type ImportTable } from '../../shared/recordTransfer';
+// Types only: the import registry reads its goal options from the record schemas, which would put zod in every page's first load.
+import type { ImportTable } from '../../shared/recordTransfer';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -201,11 +202,12 @@ export function invalidateRecords(qc: QueryClient, store: Store) {
   invalidateDomains(qc, STORE_DOMAIN[store]);
 }
 
+// Typed by every table an import writes, so a table added there needs its domain here.
 const IMPORT_DOMAIN: Record<ImportTable, Domain> = { ...STORE_DOMAIN, career_steps: 'career' };
 
 /** After an import, or its undo: everything an import can add or change, so a kind it gains is never left stale. */
 export function invalidateImported(qc: QueryClient) {
-  invalidateDomains(qc, ...IMPORT_TABLES.map((t) => IMPORT_DOMAIN[t]));
+  invalidateDomains(qc, ...Object.values(IMPORT_DOMAIN));
   qc.invalidateQueries({ queryKey: keys.me });
   qc.invalidateQueries({ queryKey: ['record-imports'] });
 }

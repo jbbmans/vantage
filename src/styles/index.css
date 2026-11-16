@@ -18,7 +18,7 @@
     --ink-2: 58 76 101;         /* 8.9:1 on white, 8.3:1 on surface-2 */
     --ink-3: 92 108 130;        /* 5.4:1 on white, 5.0:1 on surface-2 */
     --good: 21 115 82;
-    --warn: 154 90 6;
+    --warn: 138 79 5;           /* 5.2:1 at least, as text and on a warn/10 badge, over every light palette's canvas, surface and surface-2 */
     --bad: 180 40 38;
     --info: 29 78 216;
     --rail: 8 22 42;            /* the rail is Deep Navy in both themes */

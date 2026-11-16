@@ -119,7 +119,8 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); else onOpenChange(o); }} title="Import records" size="xl"
       description="From a Vantage export or any spreadsheet. Awards come in as awards, training as training, counselings as counselings; nothing is written until you import." footer={footer}>
       {!review ? (
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft/30" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) stage(f); }}>
+        // The hidden input is the drop zone's only Tab stop, so the zone itself shows where the keyboard is.
+        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft/30 has-[:focus-visible]:border-accent has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) stage(f); }}>
           <FileUp className="h-6 w-6 text-ink-3" aria-hidden />
           <span className="text-sm font-medium text-ink">{busy === 'stage' ? 'Reading the file…' : 'Drop a file here, or click to choose'}</span>
           <span className="max-w-md text-xs text-ink-3">A Vantage export (.json or .zip), a CSV, or an Excel workbook with a sheet per record type. Vantage reads it, shows what each row is and where it goes, and you decide.</span>

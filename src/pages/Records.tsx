@@ -5,7 +5,7 @@ import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, T
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import RecordDialog from '@/components/RecordDialog';
+import RecordDialog, { missing } from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import MoveRecordDialog from '@/components/MoveRecordDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
@@ -216,7 +216,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing ? { ...editing } : null} title={editing?.id ? 'Edit activity' : 'New activity'} noun="Activity" size="lg"
-        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('activities', d))} onSaved={() => undefined} />
+        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? missing('title', 'A title is required.') : timeframeCheck('activities', d))} onSaved={() => undefined} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
       <MoveRecordDialog store="activities" row={moving?.row ?? null} suggested={moving?.to} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} />

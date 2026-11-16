@@ -537,8 +537,8 @@ export function Access() {
   return (
     <div className="space-y-4">
       <Panel title="Open" subtitle="Read-only, time-limited, and approved by the Unit Instance’s Lead Unit Managers unless it chose to be told instead." action={can('platform.access') ? (
-        <span className="flex items-center gap-2">
-          <Select aria-label="Unit Instance" className="w-56" value={pick} onValueChange={setPick} placeholder="Choose a Unit Instance" options={(orgs.data?.organizations ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
+        <span className="flex flex-wrap items-center gap-2">
+          <Select aria-label="Unit Instance" className="w-56 max-w-full" value={pick} onValueChange={setPick} placeholder="Choose a Unit Instance" options={(orgs.data?.organizations ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
           <Button size="sm" variant="primary" disabled={!pick} onClick={() => { const o = orgs.data?.organizations.find((x) => x.id === pick); if (o) setAsking({ id: o.id, name: o.name }); }}><KeyRound className="h-4 w-4" />Ask</Button>
         </span>) : undefined}>
         {!open.length ? <p className="text-sm text-ink-3">No access is open or waiting.</p> : <div className="-mx-4 -mt-1"><Table label="Open Vantage access" minWidth={760} head={head}>{open.map(row)}</Table></div>}
