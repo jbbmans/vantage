@@ -378,8 +378,8 @@ export function visibleUserIds(ctx: AppContext, scope: Scope, selfId: string): s
   if (scope.readableUnitIds.length) {
     const rows = ctx.db.prepare(
       `SELECT DISTINCT um.user_id FROM unit_members um JOIN users u ON u.id = um.user_id
-        WHERE um.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) AND u.active = 1`
-    ).all(...scope.readableUnitIds) as Array<{ user_id: string }>;
+        WHERE um.unit_id IN (SELECT value FROM json_each(?)) AND u.active = 1`
+    ).all(JSON.stringify(scope.readableUnitIds)) as Array<{ user_id: string }>;
     for (const r of rows) ids.add(r.user_id);
   }
   return [...ids];

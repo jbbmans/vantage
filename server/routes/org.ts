@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
+import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -21,7 +21,7 @@ import { readableSubtree, unitDashboard, unitOverview } from '../services/dashbo
 import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
 import { ANALYTICS_MAX_DAYS, isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
-import type { Activity, Award, Counseling, Duty, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
+import type { Counseling, Duty, Goal, MemberActivity, MemberAward, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
@@ -145,23 +145,54 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   res.json(out);
 }));
 
+/** How many people the enroll search offers, how many it reads at a time, and the most it reads before it says there are more. */
+const DIRECTORY_PAGE = 10;
+const DIRECTORY_BATCH = 50;
+const DIRECTORY_SCAN = 500;
+
 orgRouter.get('/directory', wrap((req, res) => {
+  const ctx = req.ctx;
   const unitId = String(req.query.unit_id || '');
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
-  const scope = scopeFor(req.ctx, req.user, req);
+  const scope = scopeFor(ctx, req.user, req);
   if (!unitId) throw badRequest('A destination unit is required.');
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot enroll members in that unit.');
   if (q.length < 2) throw badRequest('Enter at least two characters.', { fieldErrors: { q: 'Enter at least two characters.' } });
   const pattern = `${q.replace(/[\\%_]/g, '\\$&')}%`;
   // Only units in the destination's Unit Instance: leading people in another organization is no claim on them here.
-  const managed = unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS).filter((u) => sameInstance(req.ctx, u, unitId));
+  const managed = JSON.stringify(unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS).filter((u) => sameInstance(ctx, u, unitId)));
+  const destinationOrg = orgOfUnit(ctx, unitId);
   // Only people already in a unit the actor manages: an organization's administrators search their own organization, never
-  // the whole service. Anyone else joins by invitation.
-  const led = `AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (SELECT value FROM json_each(?)))`;
-  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
-    WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE) ${led}
-      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 50`).all(pattern, pattern, JSON.stringify(managed), unitId) as Array<{ id: string }>;
-  res.json({ results: rows.filter((r) => mayEnrollDirectly(req.ctx, req.user, scope, r.id, unitId)).slice(0, 10) });
+  // the whole service. Anyone else joins by invitation. Who may be enrolled directly is decided for each candidate before
+  // the list is cut to its length, a batch at a time in name order, so someone past the first few dozen by name is still
+  // offered when those before them are peers or seniors.
+  const batch = ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
+    WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE)
+      AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (SELECT value FROM json_each(?)))
+      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?)
+      AND (u.last_name, u.first_name, u.id) > (?, ?, ?)
+    ORDER BY u.last_name, u.first_name, u.id LIMIT ?`);
+  type Candidate = { id: string; username: string; first_name: string; last_name: string; rank_abbr: string | null };
+  const results: Candidate[] = [];
+  let after: [string, string, string] = ['', '', ''];
+  let scanned = 0;
+  let more = false;
+  while (!more && scanned < DIRECTORY_SCAN) {
+    const rows = batch.all(pattern, pattern, managed, unitId, ...after, Math.min(DIRECTORY_BATCH, DIRECTORY_SCAN - scanned)) as Candidate[];
+    const targets = scopesFor(ctx, rows.map((r) => r.id), req);
+    for (const r of rows) {
+      const offered = leadsForEnrollment(scope, targets.get(r.id)!, destinationOrg);
+      if (offered && results.length === DIRECTORY_PAGE) { more = true; break; }
+      scanned++;
+      if (offered) results.push(r);
+    }
+    if (rows.length < DIRECTORY_BATCH) break;
+    const last = rows.at(-1)!;
+    after = [last.last_name, last.first_name, last.id];
+  }
+  // Read to the limit: there may be more only if someone is left past it.
+  if (!more && scanned >= DIRECTORY_SCAN) more = batch.all(pattern, pattern, managed, unitId, ...after, 1).length > 0;
+  res.json({ results, more });
 }));
 
 orgRouter.post('/units/:unitId/members', wrap((req, res) => {
@@ -219,7 +250,7 @@ orgRouter.get('/units/:unitId/personnel', wrap((req, res) => {
 
 orgRouter.get('/units/:unitId/supervisor-candidates', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  res.json({ results: supervisorCandidates(req.ctx, scope, String(req.params.unitId), String(req.query.q || ''), req.query.except ? String(req.query.except) : null) });
+  res.json(supervisorCandidates(req.ctx, scope, String(req.params.unitId), String(req.query.q || ''), req.query.except ? String(req.query.except) : null));
 }));
 
 orgRouter.post('/units/:unitId/personnel/bulk', wrap((req, res) => {
@@ -512,21 +543,47 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
 orgRouter.get('/team', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
-  const ids = visibleUserIds(ctx, scope, req.user.id);
+  const ids = JSON.stringify(visibleUserIds(ctx, scope, req.user.id));
   const allowed = new Set(scope.readableUnitIds);
-  const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.sort DESC, u.last_name`).all(...ids) as Array<Omit<TeamPerson, 'memberships' | 'roles' | 'canOpen'>>;
-  const memberships = ctx.db.prepare(`SELECT um.user_id, um.unit_id, um.is_primary, um.billet, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id IN (${ids.map(() => '?').join(',')}) AND u.active = 1`).all(...ids) as Array<{ user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }>;
-  const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC`).all(...ids, ...scope.readableUnitIds, now()) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
+  // Id lists go in as one JSON value, so the query plans as a search by person however many there are, and no list is
+  // ever too long for SQLite's limit on bound values.
+  const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
+      WHERE u.active = 1 AND u.id IN (SELECT value FROM json_each(?)) ORDER BY r.sort DESC, u.last_name, u.first_name, u.id`).all(ids) as Array<Omit<TeamPerson, 'memberships' | 'roles' | 'canOpen'>>;
+  const memberships = ctx.db.prepare(`SELECT um.user_id, um.unit_id, um.is_primary, um.billet, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id
+      WHERE um.user_id IN (SELECT value FROM json_each(?)) AND u.active = 1 ORDER BY um.user_id, um.is_primary DESC, um.unit_id`).all(ids) as Array<{ user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }>;
+  const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+      WHERE mr.user_id IN (SELECT value FROM json_each(?)) AND mr.unit_id IN (SELECT value FROM json_each(?)) AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC, mr.unit_id, r.id`)
+    .all(ids, JSON.stringify(scope.readableUnitIds), now()) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
+  const membershipsBy = new Map<string, typeof memberships>();
+  for (const m of memberships) {
+    if (m.user_id !== req.user.id && !allowed.has(m.unit_id)) continue;
+    const list = membershipsBy.get(m.user_id);
+    if (list) list.push(m); else membershipsBy.set(m.user_id, [m]);
+  }
+  const rolesBy = new Map<string, typeof roleRows>();
+  for (const r of roleRows) {
+    const list = rolesBy.get(r.user_id);
+    if (list) list.push(r); else rolesBy.set(r.user_id, [r]);
+  }
+  // Whether the reader may open each person's page, from everyone's scope read at once rather than one person at a time.
+  const targets = scopesFor(ctx, people.map((p) => p.id), req);
   const roster = people.map((p): TeamPerson => ({
     ...p,
-    memberships: memberships.filter((m) => m.user_id === p.id && (m.user_id === req.user.id || allowed.has(m.unit_id))),
-    roles: roleRows.filter((r) => r.user_id === p.id),
-    canOpen: p.id === req.user.id || detailUnitsFor(ctx, scope, p.id).length > 0,
+    memberships: membershipsBy.get(p.id) ?? [],
+    roles: rolesBy.get(p.id) ?? [],
+    canOpen: p.id === req.user.id || detailUnitsFor(ctx, scope, p.id, targets.get(p.id)).length > 0,
   }));
   if (roster.length > 1) audit(ctx, { actor_id: req.user.id, action: 'view_roster', detail: `${roster.length} personnel`, ip: clientIp(req) });
   const body: TeamResponse = { roster, readableUnitIds: scope.readableUnitIds, manageMembers: unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS), manageRoles: unitsWith(scope, PERMISSIONS.MANAGE_ROLES), counsel: unitsWith(scope, PERMISSIONS.COUNSEL), exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA) };
   res.json(body);
 }));
+
+/** The most of each kind of record the Marine page lists. A longer list is cut (dated records to their newest), and its count says how many. */
+const MEMBER_LIST_LIMIT = 500;
+// What the page's lists of activities and awards show, and the balance by area adds up: not notes, links, citations or
+// evidence, which open from the record itself. The other kinds go whole, because the page opens and edits them in place.
+const MEMBER_ACTIVITY = 'id, user_id, unit_id, visibility, version, frozen_at, created_at, updated_at, date, end_date, start_time, end_time, ongoing, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, status';
+const MEMBER_AWARD = 'id, user_id, unit_id, visibility, version, frozen_at, created_at, updated_at, period_start, date, name, type, status';
 
 orgRouter.get('/team/:userId', wrap((req, res) => {
   const ctx = req.ctx;
@@ -538,39 +595,52 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.eas, u.rank_id, u.email, u.last_login_at, r.abbr AS rank_abbr, r.grade AS rank_grade, r.name AS rank_name FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ? AND u.active = 1`).get(id) as MemberDetailResponse['person'] | undefined;
   if (!person) throw notFound('No such Marine.');
   if (!isSelf) { delete person.email; audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) }); }
-  const ph = units.map(() => '?').join(',');
-  const unitClause = isSelf ? '' : `AND visibility = 'unit' AND unit_id IN (${ph})`;
-  const scoped = <T,>(table: 'activities' | 'trainings' | 'awards' | 'duties') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC${table === 'duties' ? ', start_time DESC' : ''} LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
-  const duties = withDutyNames(ctx, req.user.id, scoped<Record<string, unknown>>('duties'), scope) as unknown as Duty[];
+  const shared = JSON.stringify(units);
+  const unitClause = isSelf ? '' : "AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))";
+  const unitArgs = isSelf ? [] : [shared];
+  // Each list and its count read the same rows, so a list cut to its newest says truly how many there are.
+  const listed = (from: string, where: string, args: unknown[], order: string, columns = '*') => ({
+    rows: ctx.db.prepare(`SELECT ${columns} FROM ${from} WHERE ${where} ORDER BY ${order} LIMIT ?`).all(...args, MEMBER_LIST_LIMIT) as Array<Record<string, unknown>>,
+    count: (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${from} WHERE ${where}`).get(...args) as { n: number }).n,
+  });
+  const scoped = (table: 'activities' | 'trainings' | 'awards' | 'duties', columns = '*') => {
+    const l = listed(table, `user_id = ? AND deleted_at IS NULL ${unitClause}`, [id, ...unitArgs], `date DESC${table === 'duties' ? ', start_time DESC' : ''}`, columns);
+    return { rows: l.rows.map((r) => hydrate(r, table)!), count: l.count };
+  };
+  const activities = scoped('activities', MEMBER_ACTIVITY);
+  const awards = scoped('awards', MEMBER_AWARD);
+  const dutyList = scoped('duties');
+  const duties = withDutyNames(ctx, req.user.id, dutyList.rows, scope) as unknown as Duty[];
   // How much evidence each training holds (ADR-0025), where this reader could open it: the files are theirs to list and
   // open by the same rule (canRead), so a count is never given for a training whose files would be refused.
   // Each says what its course values were verified against (ADR-0029): catalog entries name no one.
-  const trainings = withCourseDetail(ctx, scoped<Record<string, unknown>>('trainings')) as unknown as Training[];
+  const trainingList = scoped('trainings');
+  const trainings = withCourseDetail(ctx, trainingList.rows) as unknown as Training[];
   const evidence = new Map(withEvidenceCounts(ctx, trainings.filter((t) => canRead(scope, req.user.id, t as unknown as RecordRow)) as unknown as Array<Record<string, unknown>>).map((t) => [String(t.id), t.evidence_count]));
   // A counseling still in draft is its counselor's alone; one shared for review is the Marine's to read too; the unit
   // reads a counseling once it is final (ADR-0027).
-  const counselings = withCounselingDetail(ctx, req.user.id, isSelf
-    ? ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (stage <> 'draft' OR counselor_id = user_id OR counselor_id IS NULL) ORDER BY date DESC`).all(id) as Array<Record<string, unknown>>
-    : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}) AND stage = 'final')) ORDER BY date DESC`).all(id, req.user.id, ...units) as Array<Record<string, unknown>>, scope) as unknown as Counseling[];
-  const rawGoals = isSelf
-    ? ctx.db.prepare('SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL').all(id, id)
-    : ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);
-  const goals = withGoalProgress(ctx, rawGoals as never) as unknown as Goal[];
-  const tasks = isSelf
-    ? ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed'`).all(id, id) as Task[]
-    : ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units) as Task[];
+  const counselingList = isSelf
+    ? listed('counselings', "user_id = ? AND deleted_at IS NULL AND (stage <> 'draft' OR counselor_id = user_id OR counselor_id IS NULL)", [id], 'date DESC')
+    : listed('counselings', "user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) AND stage = 'final'))", [id, req.user.id, shared], 'date DESC');
+  const counselings = withCounselingDetail(ctx, req.user.id, counselingList.rows, scope) as unknown as Counseling[];
+  // Goals and open tasks in the order they were set, as the page has always listed them.
+  const goalList = listed('goals', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ${unitClause}`, [id, id, ...unitArgs], 'created_at, id');
+  const goals = withGoalProgress(ctx, goalList.rows as never) as unknown as Goal[];
+  const taskList = listed('tasks', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' ${unitClause}`, [id, id, ...unitArgs], 'created_at, id');
   const body: MemberDetailResponse = {
     person,
-    memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : `AND um.unit_id IN (${ph})`}`).all(id, ...(isSelf ? [] : units)) as MemberDetailResponse['memberships'],
+    memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : 'AND um.unit_id IN (SELECT value FROM json_each(?))'}`).all(id, ...unitArgs) as MemberDetailResponse['memberships'],
     roles: ctx.db.prepare(`SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, r.key, mr.expires_at FROM member_roles mr JOIN roles r ON r.id = mr.role_id
-                           WHERE mr.user_id = ? AND (mr.expires_at IS NULL OR mr.expires_at > ?) ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, now(), ...(isSelf ? [] : units)) as MemberDetailResponse['roles'],
+                           WHERE mr.user_id = ? AND (mr.expires_at IS NULL OR mr.expires_at > ?) ${isSelf ? '' : 'AND mr.unit_id IN (SELECT value FROM json_each(?))'} ORDER BY r.position DESC`).all(id, now(), ...unitArgs) as MemberDetailResponse['roles'],
     // Where they have served (ADR-0009): all of it on one's own page; for a leader, the units of the leader's own Unit
     // Instance that the leader can open, so neither another command nor a sibling team's roster is learned from it.
     history: isSelf ? membershipHistory(ctx, id, null) : membershipHistory(ctx, id, [...new Set(units.map((u) => orgOfUnit(ctx, u)).filter((o): o is string => Boolean(o)))], 200, scope.viewableUnitIds),
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
-    activities: scoped<Activity>('activities'), trainings: trainings.map((t) => (evidence.has(t.id) ? { ...t, evidence_count: evidence.get(t.id) } : t)), awards: scoped<Award>('awards'), duties, counselings, goals, tasks,
+    activities: activities.rows as unknown as MemberActivity[], trainings: trainings.map((t) => (evidence.has(t.id) ? { ...t, evidence_count: evidence.get(t.id) } : t)), awards: awards.rows as unknown as MemberAward[], duties, counselings, goals, tasks: taskList.rows as unknown as Task[],
+    counts: { activities: activities.count, trainings: trainingList.count, awards: awards.count, duties: dutyList.count, counselings: counselingList.count, goals: goalList.count, tasks: taskList.count },
+    listLimit: MEMBER_LIST_LIMIT,
   };
   res.json(body);
 }));

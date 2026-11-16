@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
-import { can, PERMISSIONS, positionIn, scopeFor, isUnitOwner, orgOfUnit, detailUnitsFor, subtreeIds, unitTree, seatedLeader, sameInstance, type Scope } from '../authz/scope.ts';
+import { can, PERMISSIONS, positionIn, scopeFor, scopesFor, isUnitOwner, orgOfUnit, detailUnitsFor, subtreeIds, unitTree, seatedLeader, sameInstance, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound, HttpError } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -101,7 +101,7 @@ export function personnelAccess(ctx: AppContext, scope: Scope, actorId: string, 
     self,
     seeIn: units.filter((u) => can(scope, PERMISSIONS.VIEW_RECORDS, u) || can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
     manageIn: self ? [] : units.filter((u) => mayManageIn(ctx, scope, actorId, targetScope, u)),
-    recordsIn: self ? [] : detailUnitsFor(ctx, scope, targetId),
+    recordsIn: self ? [] : detailUnitsFor(ctx, scope, targetId, targetScope),
   };
 }
 
@@ -115,9 +115,29 @@ export function profileUnitsFor(ctx: AppContext, manageIn: string[], userId: str
   return home ? manageIn.filter((u) => sameInstance(ctx, u, home)) : manageIn;
 }
 
-/** Manage members in the unit, and above the Marine there or its leader: the rule every membership change follows. */
-function mayManageIn(ctx: AppContext, scope: Scope, actorId: string, targetScope: Scope, unitId: string) {
-  return can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId) && (isUnitOwner(ctx, actorId, unitId) || positionIn(targetScope, unitId) < positionIn(scope, unitId));
+/**
+ * Manage members in the unit, and above the Marine there or its leader: the rule every membership change follows. A list
+ * that asks it for every row passes `leads` from ledBy, so whom the reader leads is read once rather than once a row.
+ */
+function mayManageIn(ctx: AppContext, scope: Scope, actorId: string, targetScope: Scope, unitId: string, leads: (unitId: string) => boolean = (u) => isUnitOwner(ctx, actorId, u)) {
+  return can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId) && (leads(unitId) || positionIn(targetScope, unitId) < positionIn(scope, unitId));
+}
+
+/** The units this person leads now, by isUnitOwner's own rule (active, and they still belong to it), read in one statement. */
+function ledBy(ctx: AppContext, userId: string): (unitId: string) => boolean {
+  const led = new Set((ctx.db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND u.active = 1 AND ${seatedLeader('u')}`).all(userId) as Array<{ id: string }>).map((r) => r.id));
+  return (unitId) => led.has(unitId);
+}
+
+/** Rows grouped by a key, each group in the order the rows came: a lookup per person instead of a search of every row. */
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row); else out.set(k, [row]);
+  }
+  return out;
 }
 
 /** What the account's state says to someone who manages it: whether it can be used, never a secret. */
@@ -332,17 +352,21 @@ function recordCounts(ctx: AppContext, userId: string, units: string[] | null, r
  */
 export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, unitId: string): PersonnelRosterResponse {
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
-  if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId) && !can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot see this unit’s roster.');
+  const sees = (u: string) => can(scope, PERMISSIONS.VIEW_RECORDS, u) || can(scope, PERMISSIONS.MANAGE_MEMBERS, u);
+  if (!sees(unitId)) throw forbidden('You cannot see this unit’s roster.');
   const orgId = orgOfUnit(ctx, unitId);
   const tree = unitTree(ctx);
-  const subtree = subtreeIds(ctx, unitId, tree).filter((u) => can(scope, PERMISSIONS.VIEW_RECORDS, u) || can(scope, PERMISSIONS.MANAGE_MEMBERS, u));
+  const subtree = subtreeIds(ctx, unitId, tree).filter(sees);
+  const inView = new Set(subtree);
   const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.mos, u.eas, u.active, u.locked_until, u.last_login_at, u.must_change_password,
         r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort
       FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
      WHERE u.id IN (SELECT um.user_id FROM unit_members um WHERE um.unit_id IN (SELECT value FROM json_each(?)))
      ORDER BY r.sort DESC, u.last_name, u.first_name`).all(JSON.stringify(subtree)) as Array<{ id: string; first_name: string; last_name: string; mos: string | null; eas: string | null; active: number; locked_until: string | null; last_login_at: string | null; must_change_password: number; rank_abbr: string | null; rank_grade: string | null; rank_sort: number | null }>;
-  const ids = JSON.stringify(people.map((p) => p.id));
-  const memberships = membershipsOf(ctx, people.map((p) => p.id)).filter((m) => subtree.includes(m.unit_id));
+  const userIds = people.map((p) => p.id);
+  const ids = JSON.stringify(userIds);
+  const all = membershipsOf(ctx, userIds);
+  const memberships = all.filter((m) => inView.has(m.unit_id));
   const records = orgId ? ctx.db.prepare('SELECT user_id, supervisor_id, checked_in_on FROM personnel_records WHERE org_id = ? AND user_id IN (SELECT value FROM json_each(?))').all(orgId, ids) as Array<{ user_id: string; supervisor_id: string | null; checked_in_on: string | null }> : [];
   const duties = orgId ? ctx.db.prepare('SELECT user_id, title FROM personnel_responsibilities WHERE org_id = ? AND ended_at IS NULL AND user_id IN (SELECT value FROM json_each(?)) ORDER BY title').all(orgId, ids) as Array<{ user_id: string; title: string }> : [];
   const roles = ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color FROM member_roles mr JOIN roles r ON r.id = mr.role_id
@@ -351,26 +375,39 @@ export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, 
   const refs = peopleById(ctx, records.map((r) => r.supervisor_id));
   const labels = unitLabels(ctx, memberships.map((m) => m.unit_id));
   const manages = can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId);
+  // Each row is decided as it always was, one Marine at a time, from scopes and rows read once for the whole roster: a
+  // command of thousands costs the same handful of statements as a team.
+  const membershipsBy = groupBy(memberships, (m) => m.user_id);
+  const seenBy = groupBy(all.filter((m) => m.org_id === orgId && sees(m.unit_id)), (m) => m.user_id);
+  const recordBy = new Map(records.map((r) => [r.user_id, r]));
+  const dutiesBy = groupBy(duties, (d) => d.user_id);
+  const rolesBy = groupBy(roles, (r) => `${r.user_id}/${r.unit_id}`);
+  const targets = scopesFor(ctx, userIds);
+  const leads = ledBy(ctx, actorId);
 
   // A membership only in an archived unit puts nobody on the roster. A deactivated account keeps its memberships: it is
   // on the roster, marked Deactivated, for those who manage it, and on nobody else's.
-  const rows: PersonnelRosterRow[] = people.filter((p) => memberships.some((m) => m.user_id === p.id)).flatMap((p) => {
-    const row = deepest(memberships.filter((m) => m.user_id === p.id), tree)!;
+  const rows: PersonnelRosterRow[] = people.flatMap((p) => {
+    const mine = membershipsBy.get(p.id);
+    if (!mine) return [];
+    const row = deepest(mine, tree)!;
     const self = p.id === actorId;
-    const canManage = !self && mayManageIn(ctx, scope, actorId, scopeFor(ctx, { id: p.id }), row.unit_id);
+    const target = targets.get(p.id)!;
+    const canManage = !self && mayManageIn(ctx, scope, actorId, target, row.unit_id, leads);
     if (!p.active && !canManage) return [];
-    const rec = records.find((r) => r.user_id === p.id);
+    const rec = recordBy.get(p.id);
     return [{
       id: p.id, first_name: p.first_name, last_name: p.last_name, rank_abbr: p.rank_abbr, rank_grade: p.rank_grade, rank_sort: p.rank_sort, mos: p.mos, eas: p.eas,
       assignment: assignmentOf(row, canManage),
       team_label: labels.get(row.unit_id) || row.unit_name,
       supervisor: rec?.supervisor_id ? refs.get(rec.supervisor_id) ?? null : null,
       checked_in_on: rec?.checked_in_on ?? null,
-      responsibilities: duties.filter((d) => d.user_id === p.id).map((d) => d.title),
-      roles: roles.filter((r) => r.user_id === p.id && r.unit_id === row.unit_id).map((r) => ({ id: r.id, name: r.name, color: r.color })),
+      responsibilities: (dutiesBy.get(p.id) ?? []).map((d) => d.title),
+      roles: (rolesBy.get(`${p.id}/${row.unit_id}`) ?? []).map((r) => ({ id: r.id, name: r.name, color: r.color })),
+      unit_ids: (seenBy.get(p.id) ?? []).map((m) => m.unit_id),
       ...(canManage || self ? { status: accountStatus(p), last_login_at: p.last_login_at } : {}),
       self, canManage,
-      canOpenRecords: self || (Boolean(p.active) && detailUnitsFor(ctx, scope, p.id).length > 0),
+      canOpenRecords: self || (Boolean(p.active) && detailUnitsFor(ctx, scope, p.id, target).length > 0),
     }];
   });
   const billets = manages && orgId
@@ -379,20 +416,27 @@ export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, 
   return { unit_id: unitId, org_id: orgId, rows, billets, canManage: manages };
 }
 
-/** Members of this unit's Unit Instance the reader can see, to choose a supervisor from. Never the Marine themselves. */
-export function supervisorCandidates(ctx: AppContext, scope: Scope, unitId: string, q: string, exceptId: string | null): PersonnelPersonRef[] {
+/** How many people the supervisor search offers at once. */
+const SUPERVISOR_CHOICES = 10;
+
+/**
+ * Members of this unit's Unit Instance the reader can see, to choose a supervisor from. Never the Marine themselves.
+ * `more` says the search stopped at its limit with others still matching, so typing more of the name finds them.
+ */
+export function supervisorCandidates(ctx: AppContext, scope: Scope, unitId: string, q: string, exceptId: string | null): { results: PersonnelPersonRef[]; more: boolean } {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot manage members in that unit.');
   const orgId = orgOfUnit(ctx, unitId);
   const term = q.trim().toLowerCase().slice(0, 40);
-  if (!orgId || term.length < 2) return [];
+  if (!orgId || term.length < 2) return { results: [], more: false };
   const pattern = `${term.replace(/[\\%_]/g, '\\$&')}%`;
   const units = scope.viewableUnitIds.filter((u) => scope.unitOrg[u] === orgId);
-  return ctx.db.prepare(`SELECT DISTINCT u.id, u.first_name, u.last_name, r.abbr AS rank_abbr, r.sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
+  const rows = ctx.db.prepare(`SELECT DISTINCT u.id, u.first_name, u.last_name, r.abbr AS rank_abbr, r.sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
       JOIN unit_members um ON um.user_id = u.id
      WHERE u.active = 1 AND um.unit_id IN (SELECT value FROM json_each(?)) AND u.id IS NOT ?
        AND (u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR u.first_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR u.username LIKE ? ESCAPE '\\')
-     ORDER BY r.sort DESC, u.last_name LIMIT 10`).all(JSON.stringify(units), exceptId, pattern, pattern, pattern)
+     ORDER BY r.sort DESC, u.last_name, u.first_name, u.id LIMIT ?`).all(JSON.stringify(units), exceptId, pattern, pattern, pattern, SUPERVISOR_CHOICES + 1)
     .map((row) => { const { sort: _sort, ...ref } = row as PersonnelPersonRef & { sort: number | null }; return ref; });
+  return { results: rows.slice(0, SUPERVISOR_CHOICES), more: rows.length > SUPERVISOR_CHOICES };
 }
 
 // ——— Changing ———

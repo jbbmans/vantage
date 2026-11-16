@@ -47,6 +47,9 @@ export interface OrgMember {
   units: Array<{ unit_id: string; unit: string; billet: string | null; billet_id?: string | null; is_primary: number; roles: string | null }>;
 }
 
+/** A page of members: `more` says another follows, and `next` is where it starts. */
+export interface OrgMembersPage { members: OrgMember[]; more: boolean; next: string | null }
+
 export interface OrgUnit {
   id: string; code: string; name: string; short_name: string | null; echelon: string | null; parent_id: string | null; active: number;
   owner_user_id: string | null; owner_first: string | null; owner_last: string | null; members: number;

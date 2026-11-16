@@ -9,7 +9,7 @@ import { ORG_PERMISSION_LIST, ORG_ROLES, ORG_ROLE_KEYS, ROLE_TEMPLATE, type OrgP
 import { audit, orgAuditClause, verifyAuditChain } from '../services/audit.ts';
 import { canManageRoleDefinition, orgSummaries, type RoleRow } from '../services/org.ts';
 import {
-  exportOrganization, getOrg, grantOrgRole, isOrgMember, orgCounts, orgMembers, orgRoleHolders, orgUnits, publicOrg, removeFromOrg, revokeOrgRole,
+  allOrgMembers, exportOrganization, getOrg, grantOrgRole, isOrgMember, orgCounts, orgMembers, ORG_MEMBERS_PAGE, orgRoleHolders, orgUnits, publicOrg, removeFromOrg, revokeOrgRole,
   setUnitLeader, updateOrganization,
 } from '../services/organizations.ts';
 import { accessForOrg, decideAccess, endAccess } from '../services/access.ts';
@@ -135,8 +135,17 @@ orgsRouter.delete('/:orgId/roles/:userId/:role', inOrg('org.owners'), wrap((req,
 
 // ——— Members ———
 
+const membersQuery = z.object({
+  q: z.string().optional(),
+  unit: z.string().max(64).optional(),
+  cursor: z.string().max(1024).optional(),
+  limit: z.coerce.number().int().min(1).max(ORG_MEMBERS_PAGE).optional(),
+});
+
+/** The members, a page at a time: `more` and `next` say whether another page follows and where it starts. */
 orgsRouter.get('/:orgId/members', inOrg('org.members', 'org.owners', 'org.roles'), wrap((req, res) => {
-  res.json({ members: orgMembers(req.ctx, orgOf(req).id, String(req.query.q || '').slice(0, 60)) });
+  const q = parse(membersQuery, req.query);
+  res.json(orgMembers(req.ctx, orgOf(req).id, { q: (q.q ?? '').slice(0, 60), unitId: q.unit || null, cursor: q.cursor || null, limit: q.limit }));
 }));
 
 const memberOf = (req: Request) => {
@@ -431,7 +440,7 @@ const CAC_USERNAME = /^edipi-\d+$/i;
 orgsRouter.get('/:orgId/roster.csv', inOrg('org.export'), wrap((req, res) => {
   const org = orgOf(req);
   const holders = orgRoleHolders(req.ctx, org.id);
-  const rows = orgMembers(req.ctx, org.id, '', null).flatMap((m) => {
+  const rows = allOrgMembers(req.ctx, org.id).flatMap((m) => {
     const person = m as unknown as { username: string; first_name: string; last_name: string; rank_abbr: string | null; active: number; units: Array<{ unit_id: string; unit: string; billet: string | null; is_primary: number; roles: string | null }> };
     const instanceRoles = holders.filter((h) => h.user_id === m.id).map((h) => ORG_ROLES[h.role].label).join('; ');
     const base = { last_name: person.last_name, first_name: person.first_name, rank: person.rank_abbr ?? '', username: CAC_USERNAME.test(person.username) ? '' : person.username, status: person.active ? 'active' : 'off', unit_instance_roles: instanceRoles };

@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, CalendarClock, HelpCircle, IdCard, KeyRound, LogOut, Save, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Stat, Switch, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
+import { PersonPicker, type PersonSearch } from '@/components/PersonPicker';
 import { InstanceOperationsDetail, type InstanceOperations } from '@/components/InstanceOperations';
 import AccountImport from '@/components/AccountImport';
 import SharedAuditTrail from '@/components/AuditTrail';
@@ -13,10 +14,10 @@ import SignInDetails from '@/components/SignInDetails';
 import WhyList from '@/components/WhyList';
 import { keys, useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { formatStamp, timeAgo } from '@/lib/utils';
+import { formatStamp, timeAgo, useMediaQuery } from '@/lib/utils';
 import {
   ACCESS_LABEL, ACCESS_TONE, endOfDay, personName, remaining, tomorrowKey,
-  type AccessGrant, type OrgCounts, type OrgMember, type OrgRoleHolder, type OrgRoleKey, type OrgSummary, type OrgUnit, type PermissionCatalogEntry,
+  type AccessGrant, type OrgCounts, type OrgMember, type OrgMembersPage, type OrgRoleHolder, type OrgRoleKey, type OrgSummary, type OrgUnit, type PermissionCatalogEntry,
   type PublicOrg, type RoleCatalogEntry, type UnitExplanation,
 } from '@/lib/tenancy';
 
@@ -98,7 +99,29 @@ export function People({ org }: { org: OrgSummary }) {
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
   useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 250); return () => clearTimeout(t); }, [q]);
-  const members = useQuery<{ members: OrgMember[] }>({ queryKey: ['org', org.id, 'members', debounced], queryFn: () => withSudo(() => api.orgMembers(org.id, debounced)), retry: false, placeholderData: (prev) => prev });
+  // A page at a time, as the server cuts it: "Show more" reads the next, and the line above the list says how many are shown.
+  const members = useInfiniteQuery({
+    queryKey: ['org', org.id, 'members', debounced],
+    queryFn: ({ pageParam }) => withSudo(() => api.orgMembers(org.id, { q: debounced, cursor: pageParam })),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: OrgMembersPage) => (last.more ? last.next : undefined),
+    retry: false,
+    placeholderData: (prev) => prev,
+  });
+  const people = useMemo(() => (members.data?.pages ?? []).flatMap((page) => page.members), [members.data]);
+  // A phone gets a list: the table's columns and its row of buttons would not fit.
+  const wide = useMediaQuery('(min-width: 640px)');
+  const [grantee, setGrantee] = useState<{ id: string; name: string } | null>(null);
+  // Whom a Unit Instance role may go to: an active member other than oneself, found by name rather than from a list
+  // that holds only the first page.
+  const granteeSearch = useMemo<PersonSearch>(() => ({
+    key: ['org', org.id, 'grantees'],
+    load: async (term) => {
+      const page = await withSudo(() => api.orgMembers(org.id, { q: term, limit: 20 }));
+      return { people: page.members.filter((m) => m.active && m.id !== identity?.user.id).map((m) => ({ id: m.id, username: m.username, name: personName(m), rank: m.rank_abbr })), more: page.more };
+    },
+    none: 'No active member by that name.',
+  }), [org.id, identity?.user.id]);
   const roles = useOrg<{ holders: OrgRoleHolder[]; catalog: { roles: Record<OrgRoleKey, RoleCatalogEntry> } }>(org.id, 'roles', () => api.orgRoles(org.id));
   const [why, setWhy] = useState<OrgMember | null>(null);
   const [confirm, setConfirm] = useState<{ kind: 'unlock' | 'logout' | 'remove'; member: OrgMember } | null>(null);
@@ -115,6 +138,27 @@ export function People({ org }: { org: OrgSummary }) {
     if (r) setCac(null);
   };
   const rolesOf = (userId: string) => (roles.data?.holders ?? []).filter((h) => h.user_id === userId);
+  // Each member's parts, the same in the table and in the phone list, so the two never offer different things.
+  const personCell = (m: OrgMember) => (
+    <>
+      <span className="block font-medium text-ink">{personName(m)}{rolesOf(m.id).map((h) => <Badge key={h.role} tone="accent" className="ml-2">{roles.data?.catalog.roles[h.role].label}</Badge>)}</span>
+      <span className="block text-xs text-ink-3">@{m.username}{m.edipi ? ' · CAC linked' : ''}{m.other_orgs ? ` · also in ${m.other_orgs} other Unit Instance${m.other_orgs === 1 ? '' : 's'}` : ''}</span>
+    </>
+  );
+  const unitsOf = (m: OrgMember) => m.units.map((u) => <span key={u.unit_id} className="block"><span className="font-medium text-ink">{u.unit}</span>{u.billet ? `, ${u.billet}` : ''}{u.roles ? <span className="text-ink-3"> · {u.roles}</span> : ''}</span>);
+  const signInOf = (m: OrgMember) => <>{m.last_login_at ? timeAgo(m.last_login_at) : 'never signed in'}<span className="block">{m.totp_enabled || m.passkeys ? 'second factor on' : <span className="text-warn">no second factor</span>}</span></>;
+  const statusOf = (m: OrgMember) => (!m.active ? <Badge tone="bad">Off</Badge> : m.locked_until ? <Badge tone="warn" title={`Locked until ${formatStamp(m.locked_until)}`}>Locked</Badge> : <Badge tone="good">Active</Badge>);
+  const actionsOf = (m: OrgMember) => (
+    <>
+      <Button size="xs" variant="ghost" onClick={() => setWhy(m)} aria-label={`Why can they? ${m.username}`}><HelpCircle className="h-3 w-3" />Why can they?</Button>
+      {can('org.personnel') && <Button size="xs" variant="ghost" aria-label={`EDIPI for ${m.username}`} onClick={() => setCac({ member: m, edipi: m.edipi || '' })}><IdCard className="h-3 w-3" />EDIPI</Button>}
+      {can('org.members') && m.id !== identity?.user.id && <>
+        {m.locked_until && <Button size="xs" variant="ghost" aria-label={`Unlock ${m.username}`} onClick={() => setConfirm({ kind: 'unlock', member: m })}><Unlock className="h-3 w-3" />Unlock</Button>}
+        <Button size="xs" variant="ghost" aria-label={`Sign out ${m.username}`} onClick={() => setConfirm({ kind: 'logout', member: m })}><LogOut className="h-3 w-3" />Sign out</Button>
+        <Button size="xs" variant="ghost" className="text-bad" aria-label={`Remove ${m.username}`} onClick={() => setConfirm({ kind: 'remove', member: m })}><UserMinus className="h-3 w-3" />Remove</Button>
+      </>}
+    </>
+  );
 
   const run = async () => {
     if (!confirm) return;
@@ -130,7 +174,7 @@ export function People({ org }: { org: OrgSummary }) {
         <Panel title="Unit Instance roles" subtitle="Who runs the Unit Instance. These roles manage its structure; none of them reads Marines’ records, and each lasts only while its holder is a member." action={can('org.owners') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Grant a role</Button> : undefined}>
           {roles.isPending ? <Skeleton className="h-24" /> : !roles.data?.holders.length ? <p className="text-sm text-ink-3">Nobody holds a Unit Instance role.</p> : (
             <div className="-mx-4 -mt-1">
-              <Table label="Unit Instance roles" minWidth={620} head={<><th>Person</th><th className="w-36">Role</th><th className="w-40">Until</th><th className="w-40">Granted by</th><th className="w-24"></th></>}>
+              <Table label="Unit Instance roles" minWidth={620} head={<><th scope="col">Person</th><th scope="col" className="w-36">Role</th><th scope="col" className="w-40">Until</th><th scope="col" className="w-40">Granted by</th><th scope="col" className="relative w-24"><span className="sr-only">Actions</span></th></>}>
                 {roles.data.holders.map((h) => (
                   <tr key={`${h.user_id}:${h.role}`}>
                     <td><span className="block font-medium text-ink">{personName(h)}</span><span className="block text-xs text-ink-3">@{h.username}{h.member ? '' : ' · no longer a member, so it confers nothing'}</span></td>
@@ -148,38 +192,45 @@ export function People({ org }: { org: OrgSummary }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label="Search people" placeholder="Search by name or username…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
-        <span className="text-xs text-ink-3">{members.data ? `${members.data.members.length} shown` : ''}</span>
-        {can('org.members') && <span className="ml-auto flex flex-wrap gap-2"><SignInDetails orgId={org.id} onDone={refresh} /><AccountImport orgId={org.id} onDone={refresh} /></span>}
+        <p role="status" aria-live="polite" className="text-xs text-ink-3">{!members.data ? '' : `${people.length} ${people.length === 1 ? 'person' : 'people'} shown${members.hasNextPage ? '; more follow' : ''}`}</p>
+        {can('org.members') && <span className="flex flex-wrap gap-2 sm:ml-auto"><SignInDetails orgId={org.id} onDone={refresh} /><AccountImport orgId={org.id} onDone={refresh} /></span>}
       </div>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        {members.isPending ? <Skeleton className="h-64" /> : members.error ? <EmptyState title="Could not load people" description={api.errorText(members.error)} /> : !members.data?.members.length ? <EmptyState icon={Users} title="Nobody here yet" description="Bring people in with a join code or invitation from a unit, or import a roster." /> : (
-          <Table label="People" minWidth={960} head={<><th>Person</th><th>Units and unit roles</th><th className="w-32">Sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
-            {members.data.members.map((m) => {
-              const held = rolesOf(m.id);
-              return (
-                <tr key={m.id}>
-                  <td>
-                    <span className="block font-medium text-ink">{personName(m)}{held.map((h) => <Badge key={h.role} tone="accent" className="ml-2">{roles.data?.catalog.roles[h.role].label}</Badge>)}</span>
-                    <span className="block text-xs text-ink-3">@{m.username}{m.edipi ? ' · CAC linked' : ''}{m.other_orgs ? ` · also in ${m.other_orgs} other Unit Instance${m.other_orgs === 1 ? '' : 's'}` : ''}</span>
-                  </td>
-                  <td className="text-xs text-ink-2">{m.units.map((u) => <span key={u.unit_id} className="block"><span className="font-medium text-ink">{u.unit}</span>{u.billet ? `, ${u.billet}` : ''}{u.roles ? <span className="text-ink-3"> · {u.roles}</span> : ''}</span>)}</td>
-                  <td className="text-xs text-ink-3">{m.last_login_at ? timeAgo(m.last_login_at) : 'never'}<span className="block">{m.totp_enabled || m.passkeys ? 'second factor on' : <span className="text-warn">no second factor</span>}</span></td>
-                  <td>{!m.active ? <Badge tone="bad">Off</Badge> : m.locked_until ? <Badge tone="warn" title={`Locked until ${formatStamp(m.locked_until)}`}>Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
-                  <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
-                    <Button size="xs" variant="ghost" onClick={() => setWhy(m)}><HelpCircle className="h-3 w-3" />Why can they?</Button>
-                    {can('org.personnel') && <Button size="xs" variant="ghost" aria-label={`EDIPI for ${m.username}`} onClick={() => setCac({ member: m, edipi: m.edipi || '' })}><IdCard className="h-3 w-3" />EDIPI</Button>}
-                    {can('org.members') && m.id !== identity?.user.id && <>
-                      {m.locked_until && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'unlock', member: m })}><Unlock className="h-3 w-3" />Unlock</Button>}
-                      <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'logout', member: m })}><LogOut className="h-3 w-3" />Sign out</Button>
-                      <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'remove', member: m })}><UserMinus className="h-3 w-3" />Remove</Button>
-                    </>}
-                  </span></td>
-                </tr>
-              );
-            })}
-          </Table>
-        )}
-      </div>
+      {members.isPending ? <div className="card"><Skeleton className="h-64" /></div> : members.error && !members.data ? <div className="card"><EmptyState title="Could not load people" description={api.errorText(members.error)} action={<Button onClick={() => members.refetch()}>Retry</Button>} /></div> : !people.length ? <div className="card"><EmptyState icon={Users} title={debounced ? 'Nobody matches' : 'Nobody here yet'} description={debounced ? 'Try another name or username.' : 'Bring people in with a join code or invitation from a unit, or import a roster.'} /></div> : (
+        <>
+          {wide ? (
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <Table label="People" minWidth={960} head={<><th scope="col">Person</th><th scope="col">Units and unit roles</th><th scope="col" className="w-32">Sign-in</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-72"><span className="sr-only">Actions</span></th></>}>
+                {people.map((m) => (
+                  <tr key={m.id}>
+                    <td>{personCell(m)}</td>
+                    <td className="text-xs text-ink-2">{unitsOf(m)}</td>
+                    <td className="text-xs text-ink-3">{signInOf(m)}</td>
+                    <td>{statusOf(m)}</td>
+                    <td className="text-right"><span className="flex flex-wrap justify-end gap-1">{actionsOf(m)}</span></td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          ) : (
+            <ul className="card divide-y divide-line overflow-hidden p-0" aria-label="People">
+              {people.map((m) => (
+                <li key={m.id} className="space-y-1.5 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2"><div className="min-w-0 break-words">{personCell(m)}</div><div className="shrink-0">{statusOf(m)}</div></div>
+                  <div className="text-xs text-ink-2">{unitsOf(m)}</div>
+                  <div className="text-xs text-ink-3">{signInOf(m)}</div>
+                  <div className="flex flex-wrap gap-1">{actionsOf(m)}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {members.isFetchNextPageError && <p className="text-sm text-bad" role="alert">More people could not load. {api.errorText(members.error)}</p>}
+          {members.hasNextPage && (
+            <div className="flex justify-center">
+              <Button onClick={() => members.fetchNextPage()} loading={members.isFetchingNextPage}>{members.isFetchNextPageError ? 'Try again' : 'Show more'}</Button>
+            </div>
+          )}
+        </>
+      )}
       <p className="text-xs text-ink-3">A forgotten password or a lost authenticator is Vantage support’s to reset, because an account can belong to more than one Unit Instance. You can unlock a member and sign them out; they reset their own password from the sign-in page.</p>
 
       <WhyDialog orgId={org.id} member={why} onClose={() => setWhy(null)} />
@@ -193,13 +244,18 @@ export function People({ org }: { org: OrgSummary }) {
         confirmLabel={confirm?.kind === 'remove' ? 'Remove' : confirm?.kind === 'unlock' ? 'Unlock' : 'Sign out'} onConfirm={run} />
       <ConfirmDialog open={Boolean(revoke)} onOpenChange={(o) => { if (!o) setRevoke(null); }} title={`Remove ${revoke ? personName(revoke) : ''} as ${revoke ? roles.data?.catalog.roles[revoke.role].label : ''}?`} body="They are signed out and the role ends now. A Unit Instance always keeps at least one Lead Unit Manager." confirmLabel="Remove"
         onConfirm={async () => { if (revoke) await act('Role removed.', () => api.orgRevokeRole(org.id, revoke.user_id, revoke.role), refresh); setRevoke(null); }} />
-      <Dialog open={granting} onOpenChange={setGranting} title="Grant a Unit Instance role" size="sm" description="To a member of the Unit Instance. Another Lead Unit Manager grants your own."
-        footer={<><Button variant="ghost" onClick={() => setGranting(false)}>Cancel</Button><Button variant="primary" disabled={!grant.user_id} onClick={async () => {
+      <Dialog open={granting} onOpenChange={(o) => { setGranting(o); if (!o) setGrantee(null); }} title="Grant a Unit Instance role" size="sm" description="To a member of the Unit Instance. Another Lead Unit Manager grants your own."
+        footer={<><Button variant="ghost" onClick={() => { setGranting(false); setGrantee(null); }}>Cancel</Button><Button variant="primary" disabled={!grant.user_id} onClick={async () => {
           const r = await act('Role granted. They are told, and pick it up at their next sign-in.', () => api.orgGrantRole(org.id, { user_id: grant.user_id, role: grant.role, expires_at: endOfDay(grant.until) }), refresh);
-          if (r) { setGranting(false); setGrant({ user_id: '', role: 'admin', until: '' }); }
+          if (r) { setGranting(false); setGrantee(null); setGrant({ user_id: '', role: 'admin', until: '' }); }
         }}>Grant</Button></>}>
         <div className="space-y-3">
-          <Field label="Person"><Select value={grant.user_id} onValueChange={(v) => setGrant({ ...grant, user_id: v })} placeholder="Choose a member" options={(members.data?.members ?? []).filter((m) => m.active && m.id !== identity?.user.id).map((m) => ({ value: m.id, label: `${personName(m)} (@${m.username})` }))} /></Field>
+          {grantee ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm">
+              <span className="font-medium text-ink">{grantee.name}</span>
+              <Button size="xs" variant="ghost" aria-label={`Change from ${grantee.name} to someone else`} onClick={() => { setGrantee(null); setGrant({ ...grant, user_id: '' }); }}>Change</Button>
+            </div>
+          ) : <PersonPicker search={granteeSearch} label="Person" hint="An active member" onChoose={(p) => { setGrantee({ id: p.id, name: p.name }); setGrant({ ...grant, user_id: p.id }); }} />}
           <Field label="Role"><Select value={grant.role} onValueChange={(v) => setGrant({ ...grant, role: v as OrgRoleKey })} options={Object.entries(roles.data?.catalog.roles ?? {}).map(([key, r]) => ({ value: key, label: r.label }))} /></Field>
           <p className="text-xs text-ink-3">{roles.data?.catalog.roles[grant.role]?.description}</p>
           <Field label="Until" hint="optional: for an acting billet or a leave period"><Input type="date" value={grant.until} min={tomorrowKey()} onChange={(e) => setGrant({ ...grant, until: e.target.value })} /></Field>
@@ -262,7 +318,7 @@ export function VantageAccess({ org }: { org: OrgSummary }) {
       </Panel>
       <Panel title="History" subtitle="Every request, decision and end is also in your audit trail.">
         {!past.length ? <p className="text-sm text-ink-3">None yet.</p> : (
-          <div className="-mx-4 -mt-1"><Table label="Vantage access history" minWidth={640} head={<><th>Who and why</th><th className="w-44">Outcome</th><th className="w-32">When</th></>}>
+          <div className="-mx-4 -mt-1"><Table label="Vantage access history" minWidth={640} head={<><th scope="col">Who and why</th><th scope="col" className="w-44">Outcome</th><th scope="col" className="w-32">When</th></>}>
             {past.map((g) => <tr key={g.id}><td><span className="block text-sm text-ink">{g.staff_name}</span><span className="block text-xs text-ink-3">{g.reason}</span></td><td><Badge tone={ACCESS_TONE[g.status]}>{ACCESS_LABEL[g.status]}</Badge>{g.decided_by_name ? <span className="mt-0.5 block text-2xs text-ink-3">by {g.decided_by_name}</span> : null}</td><td className="text-xs text-ink-3">{timeAgo(g.ended_at || g.decided_at || g.requested_at)}</td></tr>)}
           </Table></div>
         )}

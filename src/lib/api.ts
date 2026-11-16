@@ -1,6 +1,7 @@
 import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
-import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { DirectoryResponse, MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { OrgMembersPage } from './tenancy';
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
@@ -269,13 +270,13 @@ export const deleteComment = (store: Store, id: string, commentId: string) => ap
 export const team = () => api.get<TeamResponse>('/org/team');
 export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/${encodeURIComponent(id)}`);
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
-export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
+export const directory = (unitId: string, q: string) => api.get<DirectoryResponse>(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
 export const updateMembership = (unitId: string, userId: string, payload: unknown, draft?: DraftRef | null) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}${fromDraft(draft)}`, payload);
 // Personnel records (ADR-0017).
 export const personnelRoster = (unitId: string) => api.get<PersonnelRosterResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel`);
 export const personnelRecord = (userId: string) => api.get<PersonnelRecordResponse>(`/org/team/${encodeURIComponent(userId)}/personnel`);
-export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[] }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
+export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[]; more: boolean }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
 export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload);
 export const endResponsibility = (id: string, reason?: string | null) => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null });
 export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload);
@@ -501,7 +502,8 @@ export const orgUpdate = (orgId: string, body: unknown) => api.patch(orgPath(org
 export const orgRoles = (orgId: string) => api.get(orgPath(orgId, '/roles'));
 export const orgGrantRole = (orgId: string, body: { user_id: string; role: string; expires_at?: string | null }) => api.post(orgPath(orgId, '/roles'), body);
 export const orgRevokeRole = (orgId: string, userId: string, role: string) => api.del(orgPath(orgId, `/roles/${enc(userId)}/${enc(role)}`));
-export const orgMembers = (orgId: string, q = '') => api.get(orgPath(orgId, `/members?${qs({ q })}`));
+/** One page of a Unit Instance's members: `next` (from the page before) starts the one after; `unit` keeps one unit's. */
+export const orgMembers = (orgId: string, o: { q?: string; unit?: string | null; cursor?: string | null; limit?: number } = {}) => api.get<OrgMembersPage>(orgPath(orgId, `/members?${qs({ q: o.q, unit: o.unit, cursor: o.cursor, limit: o.limit })}`));
 export const orgWhy = (orgId: string, userId: string) => api.get(orgPath(orgId, `/members/${enc(userId)}/why`));
 export const orgMemberAction = (orgId: string, userId: string, action: 'unlock' | 'logout') => api.post(orgPath(orgId, `/members/${enc(userId)}/${action}`));
 export const orgRemoveMember = (orgId: string, userId: string) => api.del(orgPath(orgId, `/members/${enc(userId)}`));

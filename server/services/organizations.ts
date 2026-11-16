@@ -258,23 +258,67 @@ export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string
   return roles;
 }
 
-/** The Unit Instance's members with their units; at most `limit` people (500 for a page), or all of them with `null`. */
-export function orgMembers(ctx: AppContext, orgId: string, q = '', limit: number | null = 500) {
+/** The most members one page of the console's list holds. */
+export const ORG_MEMBERS_PAGE = 500;
+
+type MemberRow = Record<string, unknown> & { id: string; email: string | null; active: number; first_name: string; last_name: string };
+/** Where a page of members ends: the order's own columns (active first, then by name), so the next page starts after it. */
+type MemberKey = [number, string, string, string];
+
+const memberCursor = (m: MemberRow): string => Buffer.from(JSON.stringify([m.active, m.last_name, m.first_name, m.id])).toString('base64url');
+function readMemberCursor(cursor: string | null | undefined): MemberKey | null {
+  if (!cursor) return null;
+  let key: unknown = null;
+  try { key = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')); } catch { /* refused below */ }
+  if (Array.isArray(key) && key.length === 4 && (key[0] === 0 || key[0] === 1) && key.slice(1).every((v) => typeof v === 'string')) return key as MemberKey;
+  throw badRequest('That page of members is not one this list gave. Start again from the first page.', { code: 'bad_cursor' });
+}
+
+/**
+ * The Unit Instance's members, in the console's order, read after `after` and at most `limit` of them (all with null).
+ * Everything that decides who is listed is in the SQL, the Unit Instance first, so a page is cut only after it. `unitId`
+ * narrows the list to one of the instance's own units; a unit of another instance matches nobody.
+ */
+function memberRows(ctx: AppContext, orgId: string, { q = '', unitId = null, after = null, limit = null }: { q?: string; unitId?: string | null; after?: MemberKey | null; limit?: number | null }): MemberRow[] {
   const pattern = q.trim() ? `%${q.trim().toLowerCase().replace(/[\\%_]/g, '\\$&')}%` : null;
-  const people = ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.edipi, u.active, u.last_login_at, u.totp_enabled, u.must_change_password,
+  return ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.edipi, u.active, u.last_login_at, u.totp_enabled, u.must_change_password,
         CASE WHEN u.locked_until > ? THEN u.locked_until END AS locked_until, rk.abbr AS rank_abbr,
         (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys,
         (SELECT COUNT(DISTINCT un2.org_id) FROM unit_members um2 JOIN units un2 ON un2.id = um2.unit_id WHERE um2.user_id = u.id AND un2.org_id <> ?) AS other_orgs
       FROM users u LEFT JOIN ranks rk ON rk.id = u.rank_id
      WHERE u.id IN (${memberIdsSql}) ${pattern ? "AND (lower(u.last_name) LIKE ? ESCAPE '\\' OR lower(u.first_name) LIKE ? ESCAPE '\\' OR lower(u.username) LIKE ? ESCAPE '\\')" : ''}
-     ORDER BY u.active DESC, u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE LIMIT ?`)
-    .all(now(), orgId, orgId, ...(pattern ? [pattern, pattern, pattern] : []), limit ?? -1) as Array<Record<string, unknown> & { id: string; email: string | null }>;
-  const units = ctx.db.prepare(`SELECT um.user_id, un.id AS unit_id, COALESCE(un.short_name, un.name) AS unit, um.billet, um.billet_id, um.is_primary,
+       ${unitId ? 'AND u.id IN (SELECT fm.user_id FROM unit_members fm JOIN units fu ON fu.id = fm.unit_id WHERE fm.unit_id = ? AND fu.org_id = ?)' : ''}
+       ${after ? 'AND (u.active < ? OR (u.active = ? AND (u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE, u.id) > (?, ?, ?)))' : ''}
+     ORDER BY u.active DESC, u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE, u.id LIMIT ?`)
+    .all(now(), orgId, orgId, ...(pattern ? [pattern, pattern, pattern] : []), ...(unitId ? [unitId, orgId] : []), ...(after ? [after[0], after[0], after[1], after[2], after[3]] : []), limit ?? -1) as MemberRow[];
+}
+
+/** Each member with their units in this Unit Instance and the unit roles they hold there, read for these members only. */
+function withUnits(ctx: AppContext, orgId: string, people: MemberRow[]) {
+  const units = people.length ? ctx.db.prepare(`SELECT um.user_id, un.id AS unit_id, COALESCE(un.short_name, un.name) AS unit, um.billet, um.billet_id, um.is_primary,
         (SELECT GROUP_CONCAT(r.name, ', ') FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = um.user_id AND mr.unit_id = um.unit_id AND (mr.expires_at IS NULL OR mr.expires_at > ?)) AS roles
-      FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND un.active = 1`).all(now(), orgId) as Array<{ user_id: string; unit_id: string; unit: string; billet: string | null; billet_id: string | null; is_primary: number; roles: string | null }>;
+      FROM unit_members um JOIN units un ON un.id = um.unit_id
+     WHERE um.user_id IN (SELECT value FROM json_each(?)) AND un.org_id = ? AND un.active = 1 ORDER BY um.user_id, um.is_primary DESC, unit, un.id`)
+    .all(now(), JSON.stringify(people.map((p) => p.id)), orgId) as Array<{ user_id: string; unit_id: string; unit: string; billet: string | null; billet_id: string | null; is_primary: number; roles: string | null }> : [];
   const byUser = new Map<string, typeof units>();
-  for (const u of units) byUser.set(u.user_id, [...(byUser.get(u.user_id) || []), u]);
+  for (const u of units) { const list = byUser.get(u.user_id); if (list) list.push(u); else byUser.set(u.user_id, [u]); }
   return people.map((p) => ({ ...p, units: (byUser.get(p.id) || []).map(({ user_id: _u, ...rest }) => rest) }));
+}
+
+/**
+ * One page of the Unit Instance's members with their units, and whether more follow: `next` is where the next page
+ * starts. Nothing is cut without `more` saying so.
+ */
+export function orgMembers(ctx: AppContext, orgId: string, { q = '', unitId = null, cursor = null, limit = ORG_MEMBERS_PAGE }: { q?: string; unitId?: string | null; cursor?: string | null; limit?: number } = {}) {
+  const rows = memberRows(ctx, orgId, { q, unitId, after: readMemberCursor(cursor), limit: limit + 1 });
+  const page = rows.slice(0, limit);
+  const more = rows.length > limit;
+  return { members: withUnits(ctx, orgId, page), more, next: more ? memberCursor(page.at(-1)!) : null };
+}
+
+/** Every member of the Unit Instance with their units, for its export and its roster file, which must leave nobody out. */
+export function allOrgMembers(ctx: AppContext, orgId: string) {
+  return withUnits(ctx, orgId, memberRows(ctx, orgId, {}));
 }
 
 /**
@@ -346,7 +390,7 @@ export function exportOrganization(ctx: AppContext, orgId: string) {
     units: orgUnits(ctx, orgId),
     roles: (ctx.db.prepare('SELECT id, unit_id, key, name, description, position, permissions, is_default FROM roles WHERE unit_id IN (SELECT value FROM json_each(?)) ORDER BY unit_id, position DESC').all(unitIds) as Array<{ permissions: number } & Record<string, unknown>>)
       .map((r) => ({ ...r, permission_names: listPermissions(r.permissions) })),
-    members: orgMembers(ctx, orgId).map(({ email: _e, ...m }) => m),
+    members: allOrgMembers(ctx, orgId).map(({ email: _e, ...m }) => m),
     organization_roles: orgRoleHolders(ctx, orgId),
   };
 }
