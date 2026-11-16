@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Tabs, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
@@ -17,12 +17,16 @@ import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
+import { shortcutsOn } from '@/lib/keyboard';
 import { DEFAULT_PERIOD } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
 
+const SECTIONS = [{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }];
+
 export default function Settings() {
   const { data: identity } = useIdentity();
+  const panel = useId();
   const [tab, setTab] = useParam('tab', 'profile');
   const [verify] = useParam('verify');
   const toast = useToast(); const qc = useQueryClient();
@@ -30,18 +34,23 @@ export default function Settings() {
   }, [verify]);
   // The weekly digest was a tab of its own, and is now part of Notifications: an old link to it lands there.
   useEffect(() => { if (tab === 'digest') setTab('notifications'); }, [tab, setTab]);
-  const shown = tab === 'digest' ? 'notifications' : tab;
+  // An address naming no section opens Profile, rather than an empty page under no tab.
+  const asked = tab === 'digest' ? 'notifications' : tab;
+  const shown = SECTIONS.some((t) => t.value === asked) ? asked : 'profile';
   if (!identity) return <Skeleton className="h-64" />;
   return (
     <div className="page page-narrow">
-      <PageHeader eyebrow="Settings" title={`${identity.user.first_name} ${identity.user.last_name}`} lede={`@${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
+      {/* The page is Settings, as the menu and the tab name it; whose settings they are is the line beneath. */}
+      <PageHeader eyebrow="Settings" title="Settings" lede={`${identity.user.first_name} ${identity.user.last_name} · @${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
       {identity.user.must_change_password ? <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">You signed in with a temporary password. Set a new one under Security before doing anything else.</div> : null}
-      <Tabs value={shown} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }]} />
-      {shown === 'profile' && <Profile />}
-      {shown === 'security' && <Security />}
-      {shown === 'appearance' && <Appearance />}
-      {shown === 'notifications' && <NotificationsTab />}
-      {shown === 'data' && <DataTab />}
+      <Tabs value={shown} onChange={setTab} className="mb-4" label="Settings sections" panel={panel} tabs={SECTIONS} />
+      <TabPanel id={panel} value={shown}>
+        {shown === 'profile' && <Profile />}
+        {shown === 'security' && <Security />}
+        {shown === 'appearance' && <Appearance />}
+        {shown === 'notifications' && <NotificationsTab />}
+        {shown === 'data' && <DataTab />}
+      </TabPanel>
     </div>
   );
 }
@@ -253,6 +262,11 @@ function Appearance() {
           <Field label="New entries are"><Select value={prefs.defaultVisibility || 'private'} onValueChange={(v) => save.mutate({ defaultVisibility: v as never })} options={VISIBILITIES.map((v) => ({ value: v, label: v === 'private' ? 'Only me' : 'Shared with my unit' }))} /></Field>
           <div className="pt-5"><Switch checked={Boolean(prefs.quickLogExpanded)} onChange={(v) => save.mutate({ quickLogExpanded: v })} label="Show every field in Quick Log" description="Organization, system, notes, and visibility open by default." /></div>
         </div>
+      </Panel>
+      {/* Single printable keys can be turned off (WCAG 2.1.4): a stray key, or a word said to speech input, acts on none of them. */}
+      <Panel title="Keyboard" className="lg:col-span-2">
+        <Switch checked={shortcutsOn(prefs)} onChange={(v) => save.mutate({ shortcuts: v })} label="Keyboard shortcuts"
+          description="Single keys: N logs an activity, / searches, ? lists the keys, G then a letter opens a page, and in the work queue's rows J, K, Space, Enter and C move, select, open and claim. None acts in a text field. Off, only ⌘K or Ctrl+K is left, for search." />
       </Panel>
     </div>
   );

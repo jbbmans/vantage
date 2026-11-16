@@ -1,7 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, loginAs, OPERATOR } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
+const serious = (violations: Array<{ impact?: string | null; id: string; nodes: unknown[] }>) => violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} (${v.nodes.length})`);
+const axe = async (page: Page) => serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations);
+const noSidewaysScroll = async (page: Page, what: string) => {
+  const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  expect(scroll, `${what} scrolls sideways`).toBeLessThanOrEqual(width + 1);
+};
 
 const CSV = [
   'Document,Description,Due,Amount,Type,Status',
@@ -10,6 +17,8 @@ const CSV = [
   'WB-102,Chase a missing supporting document,2026-08-01,,,Waiting',
 ].join('\n');
 
+// Contrast is measured on the page at rest, not halfway through a fade.
+test.use({ contextOptions: { reducedMotion: 'reduce' } });
 test.beforeEach(async ({ page, request }) => { await ensureSetup(request); await loginAs(page, OPERATOR.username); });
 
 test('a spreadsheet is imported through the wizard, and the preview is shown before anything is written', async ({ page }) => {
@@ -132,4 +141,90 @@ test('the queue is keyboard-navigable and a selection copies as pasteable rows',
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboard.split('\n')[0]).toContain('Identifier\tWhat it is');
   expect(clipboard.split('\n')).toHaveLength(2);
+});
+
+test('KB-10/F5: the queue is one table, sorted from its headers without losing focus, each case a link and each checkbox named', async ({ page }) => {
+  await page.goto('/work/queue');
+  const main = page.getByRole('main');
+  await expect(main.getByRole('link', { name: 'WB-101', exact: true })).toBeVisible();
+  // One table: the header row stays at the top while the rows scroll, so each cell is read with its column.
+  await expect(main.getByRole('table')).toHaveCount(1);
+  await expect(main.getByRole('region', { name: 'Work queue rows' }).getByRole('table')).toHaveCount(1);
+
+  const due = main.getByRole('columnheader', { name: 'Sort by Due' });
+  const documents = main.getByRole('columnheader', { name: 'Sort by Document' });
+  await expect(due).toHaveAttribute('aria-sort', 'ascending');
+  await expect(documents).toHaveAttribute('aria-sort', 'none');
+  await expect(main.getByRole('columnheader', { name: 'Held by' })).not.toHaveAttribute('aria-sort');
+
+  // Sorting keeps the rows in place while the next order loads, so the header pressed keeps focus.
+  const sort = main.getByRole('button', { name: 'Sort by Document' });
+  await sort.focus();
+  await page.keyboard.press('Enter');
+  await expect(documents).toHaveAttribute('aria-sort', 'ascending');
+  await expect(due).toHaveAttribute('aria-sort', 'none');
+  await expect(sort).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(documents).toHaveAttribute('aria-sort', 'descending');
+  await expect(sort).toBeFocused();
+  await expect(main.getByRole('region', { name: 'Work queue rows' })).not.toHaveAttribute('aria-busy');
+  await expect(main.getByRole('table')).toHaveCSS('opacity', '1');
+
+  // A checkbox says which case it selects.
+  await expect(main.getByRole('checkbox', { name: 'Select WB-101, Reconcile a reimbursable order' })).toBeVisible();
+  expect(await axe(page)).toEqual([]);
+  await noSidewaysScroll(page, 'the queue');
+
+  // The identifier is a link: Tab reaches it, a screen reader lists it, and Enter opens the case.
+  await main.getByRole('link', { name: 'WB-101', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/work\/items\//);
+  await expect(page.getByRole('heading', { name: 'Reconcile a reimbursable order', level: 1 })).toBeVisible();
+});
+
+test('KB-03: the queue’s single keys act only in its rows, and not at all once shortcuts are off', async ({ page }) => {
+  const claims: string[] = [];
+  page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/work\/items\/[^/]+\/claim$/.test(new URL(r.url()).pathname)) claims.push(r.url()); });
+  await page.goto('/work/queue');
+  const main = page.getByRole('main');
+  const hint = main.getByText('In the rows, j and k move, space selects, Enter opens, c claims.');
+  const first = main.getByRole('link', { name: 'WB-101', exact: true });
+  await expect(first).toBeVisible();
+  await expect(hint).toBeVisible();
+
+  // Outside the rows a letter is only a letter: nothing on the page, and nothing in the buttons above them, claims.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('c');
+  await main.getByRole('button', { name: 'Mine' }).focus();
+  await page.keyboard.press('c');
+  await page.keyboard.press('j');
+  await expect(main.getByRole('button', { name: 'Mine' })).toBeFocused();
+  await page.waitForTimeout(300);
+  expect(claims).toEqual([]);
+
+  // In the rows, j moves focus to the next case, and c claims the case in focus.
+  const index = Number(await main.getByRole('row').filter({ has: page.getByRole('link', { name: 'WB-101', exact: true }) }).getAttribute('data-index'));
+  await first.focus();
+  await page.keyboard.press('j');
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('tr')?.getAttribute('data-index'))).toBe(String(index + 1));
+  const next = await page.evaluate(() => document.activeElement?.textContent ?? '');
+  await page.keyboard.press('c');
+  await expect(page.getByText(`You picked up ${next}`)).toBeVisible();
+  expect(claims).toHaveLength(1);
+
+  try {
+    // Turned off, the queue's keys are gone with the rest, and so is the line that offers them.
+    expect((await page.request.put('/api/me/prefs', { headers: H, data: { shortcuts: false } })).ok()).toBeTruthy();
+    await page.reload();
+    await expect(first).toBeVisible();
+    await expect(hint).toHaveCount(0);
+    await first.focus();
+    await page.keyboard.press('c');
+    await page.keyboard.press('j');
+    await expect(first).toBeFocused();
+    await page.waitForTimeout(300);
+    expect(claims).toHaveLength(1);
+  } finally {
+    await page.request.put('/api/me/prefs', { headers: H, data: { shortcuts: true } });
+  }
 });

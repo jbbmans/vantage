@@ -338,6 +338,8 @@ export const prefsSchema = z.object({
   reportPeriod: z.string().max(20).optional(),
   reportView: z.string().max(20).optional(),
   quickLogExpanded: z.boolean().optional(),
+  // Single-key shortcuts (N, /, G then a letter, the queue's j, k and c), on unless turned off (WCAG 2.1.4).
+  shortcuts: z.boolean().optional(),
   defaultVisibility: z.enum(VISIBILITIES).optional(),
   aiModel: z.string().max(100).optional(),
   dashboardLayout: z.object({ hidden: z.array(z.string()).max(20), order: z.array(z.string()).max(20) }).optional(),

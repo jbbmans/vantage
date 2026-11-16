@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck, CircleHelp, Settings2 } from 'lucide-react';
-import { PageHeader, Panel, Button, Badge, EmptyState, Select, Segmented, Skeleton, Tabs, type Tone } from '@/components/ui/primitives';
+import { PageHeader, Panel, Button, Badge, EmptyState, Select, Segmented, Skeleton, Tabs, TabPanel, type Tone } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { QueryFailure } from '@/components/QueryFailure';
 import { useParam } from '@/components/common';
@@ -40,11 +40,11 @@ export default function Notifications() {
       >
         <Button variant="ghost" asChild><Link to={SETTINGS}><Settings2 className="h-4 w-4" aria-hidden />Choose what you are told</Link></Button>
       </PageHeader>
-      <Tabs value={tab} onChange={(v) => setTab(v)} className="mb-4" tabs={[
+      <Tabs value={tab} onChange={(v) => setTab(v)} className="mb-4" label="Notifications" panel="notifications-panel" tabs={[
         { value: 'notices', label: 'Notices', count: unread || undefined },
         { value: 'asked', label: 'Asked of you / You asked', count: waiting || undefined },
       ]} />
-      {tab === 'notices' ? <Notices /> : <Asked />}
+      <TabPanel id="notifications-panel" value={tab}>{tab === 'notices' ? <Notices /> : <Asked />}</TabPanel>
     </div>
   );
 }

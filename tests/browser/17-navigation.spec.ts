@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { ensureSetup, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 // A group's page labels, without the "G X" hint the rail shows beside a hovered page, or the count beside one
 // (Drafts counts what is waiting on you).
@@ -131,7 +131,7 @@ test('every page in the sidebar opens without an error boundary, headed as the m
     ['/team/dashboard', 'Reports & Analytics', 'Unit dashboard'],
     ['/team/invitations', 'Administration', 'Invitations'], ['/team/roles', 'Administration', 'Roles'], ['/team/units', 'Administration', 'Units'],
     ['/team/access-log', 'Administration', 'Access log'],
-    ['/help', 'Help', 'Field guide'], ['/support', 'Help', 'Support'], ['/settings', 'Settings', /.+/],
+    ['/help', 'Help', 'Field guide'], ['/support', 'Help', 'Support'], ['/settings', null, 'Settings'],
   ];
   for (const [path, group, heading] of pages) {
     await page.goto(path);
@@ -167,4 +167,45 @@ test('what changed is a click away, marked until it has been read', async ({ pag
   await page.getByRole('combobox', { name: 'Search' }).fill("what's new");
   await page.getByRole('option', { name: /What’s new in Vantage/ }).click();
   await expect(dialog).toBeVisible();
+});
+
+test('F12: every page names itself in the browser tab, and a page with nothing to show still has one heading', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  const heading = page.getByRole('main').getByRole('heading', { level: 1 });
+
+  // Settings is the page, as the menu and the tab name it; whose settings they are is the line beneath.
+  await page.goto('/settings');
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText('Settings');
+  await expect(page).toHaveTitle('Settings · Vantage');
+
+  // An address that leads nowhere says so in the tab as well as on the page.
+  await page.goto('/no-such-page');
+  await expect(heading).toHaveText('Page not found');
+  await expect(page).toHaveTitle('Page not found · Vantage');
+  await page.goto('/records/duties/nothing-here');
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText('Nothing to open here');
+  await expect(page).toHaveTitle('Nothing to open here · Vantage');
+  await page.goto('/records/tasks/nothing-here');
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText('That task is not available');
+  await expect(page).toHaveTitle('That task is not available · Vantage');
+
+  // Each console section is a place of its own in history and among the browser's tabs.
+  await page.goto('/console/G8/people');
+  await confirmSudoIfAsked(page);
+  await expect(page.getByRole('heading', { name: 'People', level: 1 })).toBeVisible();
+  await expect(page).toHaveTitle('People · Unit Manager console · Vantage');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Overview' }).click();
+  await expect(page).toHaveTitle(`${OPERATOR.unit_name} · Unit Manager console · Vantage`);
+  await page.goto('/console/G8/no-such-section');
+  await expect(page.getByRole('heading', { name: 'No page here', level: 1 })).toBeAttached();
+  await expect(page).toHaveTitle('No page here · Unit Manager console · Vantage');
+
+  await page.goto('/admin/staff');
+  await confirmSudoIfAsked(page);
+  await expect(page.getByRole('heading', { name: 'Vantage staff', level: 1 })).toBeVisible();
+  await expect(page).toHaveTitle('Vantage staff · Vantage Administrator console');
 });

@@ -170,6 +170,8 @@ test('importing and exporting are named for what moves, on their pages and in �
   await expect(wizard).toBeHidden();
   await page.goBack();
   await expect(page).toHaveURL(/\/record\/activities$/);
+  // Back from a page that was loaded on its own loads this one again; ⌘K is listened for once it has.
+  await expect(page.getByRole('heading', { name: 'Activities', level: 1 })).toBeVisible();
 
   await palette('export');
   await expect(page.getByRole('option', { name: /Export my record as a PDF/ })).toBeVisible();
@@ -258,4 +260,117 @@ test('on a phone, Help and Activities fit the screen and pass axe, and the drawe
   const top = (await drawer.getByRole('link').allInnerTexts()).map((l) => l.trim());
   expect(top.filter((l) => !['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Duty', 'Drafts', 'Contributions'].includes(l)))
     .toEqual(['Today', 'Work', 'Records', 'Training & Development', 'Reports & Analytics', 'Help', 'Settings']);
+});
+
+test('KB-02: G then a key goes once, and never out of a field or a dialog', async ({ page }) => {
+  await signUp(page, 'chord');
+  // G G is Goals, and the second G does not start another G: D after it is only a D.
+  await page.keyboard.press('g');
+  await page.keyboard.press('g');
+  await expect(page).toHaveURL(/\/goals$/);
+  await page.keyboard.press('d');
+  await page.waitForTimeout(300);
+  await expect(page).toHaveURL(/\/goals$/);
+
+  // G, then a click into a field: what is typed there is typing, R included.
+  await page.goto('/work/queue');
+  const search = page.getByRole('textbox', { name: 'Search the queue' });
+  await expect(search).toBeVisible();
+  await page.keyboard.press('g');
+  await search.click();
+  await page.keyboard.type('reconcile');
+  await expect(search).toHaveValue('reconcile');
+  await expect(page).toHaveURL(/\/work\/queue/);
+
+  // In a dialog, its keys are the dialog's: N opens no second one, and G D leaves nobody's page.
+  await page.goto('/goals');
+  await expect(page.getByRole('heading', { name: 'Goals', level: 1 })).toBeVisible();
+  await page.keyboard.press('?');
+  const list = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(list).toBeVisible();
+  await page.keyboard.press('n');
+  await page.keyboard.press('g');
+  await page.keyboard.press('d');
+  await page.waitForTimeout(300);
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(list).toBeVisible();
+  await expect(page).toHaveURL(/\/goals$/);
+  await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+});
+
+test('KB-03: single-key shortcuts can be turned off, in Settings or in their own list, and ⌘K stays', async ({ page }) => {
+  await signUp(page, 'nokeys');
+  await page.goto('/settings?tab=appearance');
+  const toggle = page.getByRole('switch', { name: 'Keyboard shortcuts' });
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  expect(serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations)).toEqual([]);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  // Kept with the person's other preferences, not just in this browser.
+  await expect.poll(async () => (await (await page.request.get('/api/me/prefs')).json()).shortcuts).toBe(false);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+  for (const key of ['n', '?', '/']) await page.keyboard.press(key);
+  await page.keyboard.press('g');
+  await page.keyboard.press('h');
+  await page.waitForTimeout(300);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
+
+  // ⌘K is not a single key, and stays: the palette is how a person turns them back on without Settings.
+  await page.keyboard.press('Meta+k');
+  await page.getByRole('combobox', { name: 'Search' }).fill('keyboard shortcuts');
+  await page.getByRole('option', { name: /^Keyboard shortcuts/ }).click();
+  const list = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(list).toBeVisible();
+  const inList = list.getByRole('switch', { name: 'Keyboard shortcuts' });
+  await expect(inList).toHaveAttribute('aria-checked', 'false');
+  await inList.click();
+  await expect(inList).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+  await page.keyboard.press('n');
+  await expect(page.getByRole('dialog', { name: 'Log activity' })).toBeVisible();
+});
+
+test('KB-12/KB-07: a tab strip is one stop for Tab and arrows move along it, and the first Tab is the skip link', async ({ page }) => {
+  await signUp(page, 'tabs');
+  for (const path of ['/settings', '/notifications', '/reference']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(page.locator(':focus'), path).toHaveText('Skip to content');
+  }
+
+  await page.goto('/settings');
+  const strip = page.getByRole('tablist', { name: 'Settings sections' });
+  const profile = strip.getByRole('tab', { name: 'Profile' });
+  const security = strip.getByRole('tab', { name: 'Security' });
+  await expect(profile).toHaveAttribute('aria-selected', 'true');
+  // Only the chosen tab is in the Tab order; the arrows, Home and End move between them.
+  await expect(strip.locator('[tabindex="0"]')).toHaveCount(1);
+  await profile.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(security).toBeFocused();
+  await expect(security).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/tab=security/);
+  await page.keyboard.press('End');
+  await expect(strip.getByRole('tab', { name: 'Your data' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(profile).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(strip.getByRole('tab', { name: 'Your data' })).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(profile).toBeFocused();
+
+  // The chosen tab names the panel it shows, and the panel is labelled by it.
+  const panelId = await profile.getAttribute('aria-controls');
+  expect(panelId).toBeTruthy();
+  const panel = page.locator(`[id="${panelId}"]`);
+  await expect(panel).toHaveAttribute('role', 'tabpanel');
+  await expect(page.getByRole('tabpanel', { name: 'Profile' })).toBeVisible();
+  expect(serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations)).toEqual([]);
+  await noSidewaysScroll(page, 'Settings');
 });

@@ -44,7 +44,7 @@ function SupportHome() {
   return (
     <div className="page page-narrow">
       <PageHeader eyebrow="Help" title="Support" lede="Ask a person, for what the field guide does not answer. A request goes to the people who run Vantage here, and to the support staff of the unit you send it to." />
-      {works && <Tabs value={shown} onChange={setTab} className="mb-4" tabs={[{ value: 'mine', label: 'Yours', count: mine.data?.tickets?.length }, { value: 'queue', label: 'The queue', count: queue.data?.tickets?.filter((t: Ticket) => t.state !== 'resolved' && t.state !== 'closed').length }]} />}
+      {works && <Tabs value={shown} onChange={setTab} className="mb-4" label="Support requests" tabs={[{ value: 'mine', label: 'Yours', count: mine.data?.tickets?.length }, { value: 'queue', label: 'The queue', count: queue.data?.tickets?.filter((t: Ticket) => t.state !== 'resolved' && t.state !== 'closed').length }]} />}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <NewRequest units={identity?.memberships || []} />
         <Panel title={shown === 'queue' ? 'The queue' : 'Your requests'} className="lg:col-span-2" padded={false}>

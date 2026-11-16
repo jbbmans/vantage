@@ -86,6 +86,7 @@ export default function Correspondence({ embedded }: { embedded?: boolean } = {}
       <Tabs
         value={tab}
         onChange={setTab}
+        label="Correspondence"
         className="mb-4"
         tabs={[
           { value: 'threads', label: 'Threads' },
