@@ -94,6 +94,26 @@ export function Field({ label, hint, error, children, className, required }: { l
   );
 }
 
+/**
+ * Says why a save was refused where the person is working. Call the function it returns once the form's field errors are
+ * set: when they have rendered, focus moves to the first field marked invalid inside `form`, whose own message (a Field's
+ * alert) is then the one announcement (WCAG 3.3.1, 2.4.3). When no field there is marked, `elsewhere` says it instead,
+ * such as a toast or the form's own message, so a refusal is never silent and never said twice.
+ */
+export function useRefusal(form: React.RefObject<HTMLElement | null>, elsewhere: (message: string) => void) {
+  const [refused, setRefused] = React.useState<{ message: string } | null>(null);
+  const say = React.useRef(elsewhere);
+  React.useLayoutEffect(() => { say.current = elsewhere; });
+  React.useEffect(() => {
+    if (!refused) return;
+    const field = form.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (field) field.focus();
+    else say.current(refused.message);
+  }, [refused, form]);
+  // A new object each time, so the same refusal twice moves focus twice.
+  return React.useCallback((message: string) => setRefused({ message }), []);
+}
+
 export interface SelectOption { value: string; label: string; disabled?: boolean }
 export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; 'aria-describedby'?: string; id?: string }) {
   // Radix renders an empty value as the placeholder, so an explicit "any" option ('' value) supplies that text.
@@ -155,12 +175,14 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
   return (
     <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
-        <header className="panel-head flex items-center justify-between gap-3 px-5 py-3.5">
-          <div className="min-w-0">
+        // The actions go under the title when the two do not fit side by side, and wrap among themselves, so a panel never
+        // pushes the page wider than a phone (WCAG 1.4.10). The title keeps at least 8rem beside them before that happens.
+        <header className="panel-head flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-3.5">
+          <div className="min-w-0 flex-1 basis-32">
             {title && <h2 className="truncate text-md font-semibold tracking-[-0.012em] text-ink">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
           </div>
-          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+          {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
         </header>
       )}
       <div className={cn('card-body', padded && 'p-5', bodyClassName)}>{children}</div>
@@ -327,7 +349,8 @@ export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: strin
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
         </div>
-        {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+        {/* No wider than the page, so what it holds wraps or truncates on a phone instead of widening it. */}
+        {children && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{children}</div>}
       </div>
     </div>
   );

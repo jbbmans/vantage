@@ -215,8 +215,9 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             <span className="text-sm font-medium text-ink">{busy ? 'Reading the file' : 'Choose a file'}</span>
             <span className="text-xs text-ink-3">.xlsx, .xlsm, .csv or .tsv</span>
           </button>
+          {/* The button above is the one Tab stop; this input only holds the file it picks. */}
           <input
-            ref={fileInput} type="file" className="sr-only" aria-label="Spreadsheet to import"
+            ref={fileInput} type="file" className="sr-only" aria-label="Spreadsheet to import" tabIndex={-1} aria-hidden="true"
             accept=".xlsx,.xlsm,.csv,.tsv,.txt"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); e.target.value = ''; }}
           />

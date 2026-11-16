@@ -4,7 +4,7 @@ import { Plus, Target, Sparkles, Info, ArrowRight } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, NumberInput, Segmented, Skeleton } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import RecordDialog from '@/components/RecordDialog';
+import RecordDialog, { missing } from '@/components/RecordDialog';
 import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
@@ -201,8 +201,8 @@ export default function Goals() {
         title={draft?.id ? 'Edit goal' : 'New goal'} noun="Goal"
         formDraft={{ kind: 'goal', saved: resume.saved, restore: restoreGoal, told: (d) => (d.assignee_id && d.assignee_id !== me ? nameOf(d.assignee_id) : null), onChange: resume.done }}
         validate={(d) => {
-          if (!d.title.trim()) return 'A title is required.';
-          if (d.metric_id && d.direction !== 'completion' && d.target_value === '') return 'Say what the target is.';
+          if (!d.title.trim()) return missing('title', 'A title is required.');
+          if (d.metric_id && d.direction !== 'completion' && d.target_value === '') return missing('target_value', 'Say what the target is.');
           return null;
         }}
         fields={(d, set, errors) => (

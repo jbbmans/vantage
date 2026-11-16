@@ -29,7 +29,8 @@ const instances = (list: SodInstance[]) => list.map((i) => `${i.orgName}: ${i.ro
 /** One finding: a heading the page's outline reads, what it means, and its rows or a plain "none". */
 function Finding({ id, title, explain, count, children, head }: { id: string; title: string; explain: string; count: number; children: React.ReactNode; head: React.ReactNode }) {
   return (
-    <Panel id={id} title={<span className="flex items-center gap-2">{title}<Badge tone={count ? 'warn' : 'good'}>{count ? `${count} to review` : 'None'}</Badge></span>} subtitle={explain}>
+    // The count sits beside the heading, not in it: a heading that truncates would cut it off on a phone.
+    <Panel id={id} title={title} subtitle={explain} action={<Badge tone={count ? 'warn' : 'good'}>{count ? `${count} to review` : 'None'}</Badge>}>
       {count ? <Table label={title} minWidth={560} head={head}>{children}</Table> : <p className="text-sm text-ink-3">Nobody.</p>}
     </Panel>
   );

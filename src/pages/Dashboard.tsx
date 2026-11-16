@@ -15,9 +15,10 @@ import {
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { DRAFT_KIND_LABELS } from '../../shared/drafts';
+import { DRAFT_KIND_LABELS } from '../../shared/draftKinds';
 import { NOTICE_KINDS, isNoticeKind, type NoticeRow } from '../../shared/notifications';
-import { REQUEST_KIND_LABELS, type RequestSummary } from '../../shared/workflowMessages';
+import { REQUEST_KIND_LABELS } from '../../shared/requestKinds';
+import type { RequestSummary } from '../../shared/workflowMessages';
 import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { goalPace } from '../../shared/metricEngine';

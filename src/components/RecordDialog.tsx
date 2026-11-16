@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Lock, Trash2 } from 'lucide-react';
 import { captureTimer } from '@/lib/telemetry';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
-import { Button } from '@/components/ui/primitives';
+import { Button, useRefusal } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import * as api from '@/lib/api';
 import { errorText, type DraftRef, type Store } from '@/lib/api';
@@ -14,6 +14,9 @@ import { LeaveDialog, LostDraft, ResumedNote, lostFrom, type Lost } from '@/comp
 import type { FormDraft, RecordDraftKind } from '../../shared/drafts';
 
 type Problem = string | { message: string; fieldErrors: Record<string, string> } | null;
+
+/** A field the form needs filled: said at the field, which takes focus, rather than only in a passing toast. */
+export const missing = (field: string, message: string) => ({ message, fieldErrors: { [field]: message } });
 
 /**
  * One way to save the form, as its own button: a counseling saves as a draft, is shared with its Marine, or is finalized
@@ -65,6 +68,10 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
   const update = useUpdateRecord(store);
   const [draft, setDraft] = useState<T | null>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // A refused save is said at the fields it is about, and focus goes to the first; only a refusal no field shows is a toast.
+  const form = useRef<HTMLFormElement | null>(null);
+  const refuse = useRefusal(form, toast.error);
+  const refused = (message: string, fieldErrors: Record<string, string> | null | undefined) => { setErrors(fieldErrors || {}); refuse(message); };
   const [conflict, setConflict] = useState<any>(null);
   const [saving, setSaving] = useState<string | null>(null);
   // The saved draft this form came from, and the version of it last read: kept beside the form, never in it, so a record
@@ -136,7 +143,7 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
       const l = savedRef.current ? lostFrom(err) : null;
       // From the leave check too: it closes, so the form says what happened and what can be done with what was typed.
       if (l) { setLost(l); setLeaving(false); }
-      else { setErrors(err instanceof api.ApiError && err.fieldErrors ? err.fieldErrors : {}); toast.error(errorText(err)); }
+      else refused(errorText(err), err instanceof api.ApiError ? err.fieldErrors : null);
     } finally { setSaving(null); }
   };
 
@@ -163,8 +170,8 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
     if (problem) {
       capture.current?.abandoned('validation_blocked', { fields_filled: Object.values(draft).filter(Boolean).length });
       capture.current = captureTimer('record_form');
-      if (typeof problem === 'string') toast.error(problem);
-      else { setErrors(problem.fieldErrors); toast.error(problem.message); }
+      if (typeof problem === 'string') refused(problem, null);
+      else refused(problem.message, problem.fieldErrors);
       return;
     }
     setSaving(action?.label ?? 'save');
@@ -185,7 +192,7 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
       if (action?.then) {
         // What was saved stays saved if the next step is refused: the form carries on from it, at its new version.
         try { saved = await action.then(saved); }
-        catch (err: any) { setDraft((d) => (d ? { ...d, id: saved.id, version: saved.version } : d)); setErrors(err?.fieldErrors || {}); toast.error(errorText(err)); onSaved?.(saved); return; }
+        catch (err: any) { setDraft((d) => (d ? { ...d, id: saved.id, version: saved.version } : d)); refused(errorText(err), err?.fieldErrors); onSaved?.(saved); return; }
       }
       capture.current?.completed({
         had_measure: draft.quantity != null || draft.dollar_amount != null,
@@ -204,8 +211,7 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
       else {
         capture.current?.abandoned('save_failed');
         capture.current = captureTimer('record_form');
-        setErrors(err?.fieldErrors || {});
-        toast.error(errorText(err));
+        refused(errorText(err), err?.fieldErrors);
       }
     } finally { setSaving(null); }
   };
@@ -240,7 +246,7 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
           : <Button variant="primary" onClick={() => save()} loading={busy && saving !== 'draft'} disabled={blocked || saving === 'draft'}>{draft.id ? 'Save changes' : `Add ${noun.toLowerCase()}`}</Button>}</>}>
         {drafting && resumed && !lost && <ResumedNote blocked={formDraft?.saved?.blocked} />}
         {lost && <LostDraft lost={lost} busy={busy} addLabel={`Add it as a new ${noun.toLowerCase()}`} onAddNew={() => { startOver(); save(); }} onSaveNew={() => { startOver(); saveDraft(); }} onLoadNewer={loadNewer} onKeepMine={keepMine} />}
-        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); save(); }}>{fields(draft, set, errors)}<button type="submit" className="hidden" aria-hidden /></form>
+        <form ref={form} className="space-y-3" onSubmit={(e) => { e.preventDefault(); save(); }}>{fields(draft, set, errors)}<button type="submit" className="hidden" aria-hidden /></form>
       </Dialog>
       <ConflictDialog conflict={conflict} onClose={() => setConflict(null)} onOverwrite={() => { const v = conflict.version; setConflict(null); save(v, pending.current); }} onReload={() => { setDraft({ ...draft, ...(fromCurrent ? fromCurrent(conflict as never) : conflict) }); setConflict(null); }} />
       <LeaveDialog open={leaving} resumed={resumed} noun={noun.toLowerCase()} saving={saving === 'draft'} canSave={!blocked} onStay={() => setLeaving(false)} onSave={saveDraft}

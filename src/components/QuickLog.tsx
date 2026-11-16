@@ -4,7 +4,7 @@ import { captureTimer, track as trackEvent } from '@/lib/telemetry';
 import { format } from 'date-fns';
 import { ChevronDown, Sparkles, WifiOff, Zap } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
-import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from '@/components/ui/primitives';
+import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot, useRefusal } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
 import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
@@ -27,6 +27,29 @@ import { placeName } from '@/config/nav';
 const offlineNote = (to: 'awards' | 'trainings') => `You are offline, and only activities wait to sync. Keep it as an activity, or save it as ${to === 'awards' ? 'an award' : 'training'} once you are back online.`;
 
 const EXAMPLES = ['Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8', 'Led 22 Marines through 58.5 hours of instruction, 100% graduation', 'Processed 12 MIPRs, zero returns'];
+const UNTITLED = 'Give the entry a title before saving.';
+
+/**
+ * Opened by N or from the command palette, Log activity has no button of its own to give focus back to, and the Dialog's
+ * own return leaves it on the page body. Focus then goes to the Log activity button on screen (the header's, or the tab
+ * bar's on a phone), the control that opens it, so a keyboard user carries on from there.
+ */
+function useFocusLogButtonAfter(open: boolean) {
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) { wasOpen.current = true; return; }
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    let timer = 0;
+    // After the Dialog's own return (a frame, then a task), so a real opener keeps its focus.
+    const frame = requestAnimationFrame(() => { timer = window.setTimeout(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const shown = [...document.querySelectorAll<HTMLElement>('button[aria-label="Log activity"]')].find((b) => b.getClientRects().length > 0);
+      (shown ?? document.getElementById('main'))?.focus({ preventScroll: true });
+    }, 0); });
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [open]);
+}
 
 export default function QuickLog({ open, onOpenChange, initialText = '' }: { open: boolean; onOpenChange: (o: boolean) => void; initialText?: string }) {
   const track = useTrack();
@@ -47,8 +70,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const [kept, setKept] = useState(false);
   const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
+  // Nothing to save is said at the text box, which takes focus; a refusal from the server stays a toast.
+  const [untitled, setUntitled] = useState(false);
+  const body = useRef<HTMLDivElement | null>(null);
+  const refuse = useRefusal(body, toast.error);
+  useFocusLogButtonAfter(open);
   useEffect(() => {
-    if (open) { capture.current = captureTimer('quick_log'); setAiUsed(false); }
+    if (open) { capture.current = captureTimer('quick_log'); setAiUsed(false); setUntitled(false); }
     return () => { capture.current?.abandoned('closed_immediately'); capture.current = null; };
   }, [open]);
   const key = draftKey(identity?.user.id, 'quicklog');
@@ -90,7 +118,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     if (!record?.title?.trim()) {
       capture.current?.abandoned('validation_blocked', { fields_filled: record ? Object.values(record).filter(Boolean).length : 0, had_measure: false });
       capture.current = captureTimer('quick_log');
-      toast.error('Give the entry a title before saving.');
+      setUntitled(true); refuse(UNTITLED);
       return;
     }
     setSaving(true);
@@ -126,7 +154,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   // An award received or a course completed keeps a record of its own (ADR-0015). Only activities wait in the offline
   // outbox, so these are saved while the connection is up, or kept as an activity.
   const saveAs = async (to: 'awards' | 'trainings') => {
-    if (!record?.title?.trim()) { toast.error('Give the entry a title before saving.'); return; }
+    if (!record?.title?.trim()) { setUntitled(true); refuse(UNTITLED); return; }
     if (!navigator.onLine) { toast.info(offlineNote(to)); return; }
     setSaving(true);
     const body = payload()!;
@@ -175,12 +203,12 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       <>
         <span className="mr-auto hidden text-2xs text-ink-3 sm:inline">⌘↵ to save{pending ? ` · ${pending} queued offline` : ''}</span>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" onClick={save} loading={saving} disabled={!text.trim()}>{offline ? <><WifiOff className="h-4 w-4" />Queue offline</> : 'Save activity'}</Button>
+        <Button variant="primary" onClick={save} loading={saving}>{offline ? <><WifiOff className="h-4 w-4" />Queue offline</> : 'Save activity'}</Button>
       </>
     }>
-      <div className="space-y-4" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save(); } }}>
-        <Field label="What did you do?" hint="include the result, quantity, and value when you have them">
-          <Textarea ref={input} autoFocus rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" className="text-md" />
+      <div ref={body} className="space-y-4" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save(); } }}>
+        <Field label="What did you do?" hint="include the result, quantity, and value when you have them" error={untitled ? UNTITLED : null}>
+          <Textarea ref={input} autoFocus rows={3} value={text} onChange={(e) => { setText(e.target.value); setUntitled(false); }} placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" className="text-md" />
         </Field>
         <div aria-live="polite" className={cn(!reading && '!mt-0')}>
           {reading && (

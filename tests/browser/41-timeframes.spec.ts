@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, loginAs, unique, OPERATOR } from './fixtures';
 
@@ -13,8 +13,17 @@ test.beforeEach(async ({ page, request }) => { await ensureSetup(request); await
 
 const serious = (violations: Array<{ impact?: string | null; id: string; nodes: unknown[] }>) => violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} (${v.nodes.length})`);
 const toast = (page: Page, text: string | RegExp) => expect(page.getByRole('status').filter({ hasText: text }).first()).toBeVisible();
-/** A refusal is announced at once: the toast and the field's own message are alerts. */
-const refused = (page: Page, text: string | RegExp) => expect(page.getByRole('alert').filter({ hasText: text }).first()).toBeVisible();
+const literally = (text: string) => new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+/**
+ * A refusal marks the field to fix and moves focus to it, and its message is said once: the field's own alert, with no
+ * toast repeating it.
+ */
+async function refused(page: Page, field: Locator, text: string) {
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+  await expect(field).toHaveAccessibleDescription(literally(text));
+  await expect(page.locator('[role="alert"]').filter({ hasText: text })).toHaveCount(1);
+}
 const noSidewaysScroll = async (page: Page, what: string) => {
   const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   expect(scroll, `${what} scrolls sideways`).toBeLessThanOrEqual(width + 1);
@@ -29,10 +38,8 @@ test('an activity takes a start, an end and times, is refused when it ends first
   await dialog.getByLabel('Start date', { exact: true }).fill('2026-03-02');
   await dialog.getByLabel('End date', { exact: true }).fill('2026-02-27');
   await dialog.getByRole('button', { name: 'Add activity' }).click();
-  // Refused before anything is sent, with the date to fix marked.
-  await refused(page, 'An activity cannot end before it starts.');
-  await expect(dialog.getByLabel('End date', { exact: true })).toHaveAttribute('aria-invalid', 'true');
-  await expect(dialog.getByText('On or after the start.')).toBeVisible();
+  // Refused before anything is sent, with the date to fix marked and focused.
+  await refused(page, dialog.getByLabel('End date', { exact: true }), 'On or after the start.');
   expect(serious((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations), 'the form with its error').toEqual([]);
 
   await dialog.getByLabel('End date', { exact: true }).fill('2026-03-13');
@@ -70,17 +77,30 @@ test('a time that is not one is named before anything is sent', async ({ page })
   await dialog.getByRole('button', { name: 'Add times' }).click();
   await dialog.getByLabel('Start time', { exact: true }).fill('2500');
   await dialog.getByRole('button', { name: 'Add activity' }).click();
-  await refused(page, 'Use a 24-hour time: 0800 or 08:00.');
-  await expect(dialog.getByLabel('Start time', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await refused(page, dialog.getByLabel('Start time', { exact: true }), 'Use a 24-hour time: 0800 or 08:00.');
   // Past midnight, it ends the next day.
   await dialog.getByLabel('Start time', { exact: true }).fill('2200');
   await dialog.getByLabel('End time', { exact: true }).fill('0600');
   await dialog.getByRole('button', { name: 'Add activity' }).click();
-  await refused(page, 'The end time is before the start time on the same day.');
-  await expect(dialog.getByText(/set the end date to the next day/)).toBeVisible();
+  await refused(page, dialog.getByLabel('End time', { exact: true }), 'After the start time. If it ran past midnight, set the end date to the next day.');
   await dialog.getByLabel('End date', { exact: true }).fill('2026-05-02');
   await dialog.getByRole('button', { name: 'Add activity' }).click();
   await toast(page, 'Activity added.');
+});
+
+test('KB-09: a duty time that is not one takes focus, and the form says it once', async ({ page }) => {
+  await page.goto('/record/duty');
+  await page.getByRole('button', { name: 'Record duty' }).first().click();
+  const form = page.getByRole('dialog', { name: 'Record duty' });
+  await form.getByLabel('Start date').fill('2026-05-01');
+  await form.getByLabel('Start time').fill('1600');
+  await form.getByLabel('End time').fill('25:99');
+  await form.getByRole('button', { name: 'Record duty' }).focus();
+  await page.keyboard.press('Enter');
+  await refused(page, form.getByLabel('End time'), 'Use a 24-hour time: 0800 or 08:00.');
+  // The summary under the form says it too, but is not a second announcement.
+  await expect(form.getByText('Use a 24-hour time: 0800 or 08:00.', { exact: true })).toHaveCount(2);
+  await expect(form.locator('[role="alert"]')).toHaveCount(1);
 });
 
 test('a course runs from its first day to its last, and an award names the period it recognizes', async ({ page }) => {
@@ -103,7 +123,7 @@ test('a course runs from its first day to its last, and an award names the perio
   await award.getByLabel('Period start').fill('2026-07-01');
   await award.getByLabel('Period end / award date').fill('2026-06-30');
   await award.getByRole('button', { name: 'Add award' }).click();
-  await refused(page, 'The period an award recognizes cannot end before it starts.');
+  await refused(page, award.getByLabel('Period end / award date'), 'On or after the start.');
   await award.getByLabel('Period start').fill('2026-01-01');
   await award.getByRole('button', { name: 'Add award' }).click();
   await toast(page, 'Award added.');

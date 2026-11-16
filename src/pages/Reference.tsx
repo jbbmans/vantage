@@ -68,7 +68,8 @@ export default function Reference() {
 
 function SourceBadge() {
   return (
-    <Link to="/reference?tab=limits" className="group flex max-w-sm items-center gap-3 rounded-2xl bg-surface p-2 pr-4 shadow-card transition-shadow hover:shadow-lift">
+    // Never wider than the header it sits in, so its title truncates on a phone instead of widening the page.
+    <Link to="/reference?tab=limits" className="group flex min-w-0 max-w-[min(24rem,100%)] items-center gap-3 rounded-2xl bg-surface p-2 pr-4 shadow-card transition-shadow hover:shadow-lift">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-deep-2 to-deep text-white shadow-[inset_0_1px_0_rgb(255_255_255/.12)]"><BookOpen className="h-4 w-4" /></span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-ink">{FMRAC_SOURCE.title}</span>

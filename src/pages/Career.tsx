@@ -1,10 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip, ArrowRightLeft, Upload, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, NumberInput, Stat, Segmented } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import RecordDialog from '@/components/RecordDialog';
+import RecordDialog, { missing } from '@/components/RecordDialog';
 import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, courseMarks, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
@@ -87,6 +87,7 @@ export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: 
 }
 
 export function AwardFields({ d, set, errors, ai }: { d: AwardDraft; set: (k: any, v: unknown) => void; errors: Record<string, string>; ai?: React.ReactNode }) {
+  const citationId = useId();
   return (
     <>
       <Field label="Award" required error={errors.name}><><Input autoFocus list="award-names" value={d.name} onChange={onText(set, 'name')} /><datalist id="award-names">{AWARD_NAMES.map((n) => <option key={n} value={n} />)}</datalist></></Field>
@@ -102,7 +103,8 @@ export function AwardFields({ d, set, errors, ai }: { d: AwardDraft; set: (k: an
         <Field label="Approved"><Input type="date" value={d.approved_at} onChange={onText(set, 'approved_at')} /></Field>
         <Field label="Presented"><Input type="date" value={d.presented_at} onChange={onText(set, 'presented_at')} /></Field>
       </div>
-      <div><div className="mb-1.5 flex items-center justify-between"><span className="text-xs font-semibold text-ink-2">Citation</span>{ai}</div><Textarea rows={5} value={d.citation} onChange={onText(set, 'citation')} placeholder="For professional achievement in the superior performance of…" /></div>
+      {/* The visible word names the box, not its placeholder, which goes once something is typed (WCAG 2.5.3). */}
+      <div><div className="mb-1.5 flex items-center justify-between"><span id={citationId} className="text-xs font-semibold text-ink-2">Citation</span>{ai}</div><Textarea aria-labelledby={citationId} rows={5} value={d.citation} onChange={onText(set, 'citation')} placeholder="For professional achievement in the superior performance of…" /></div>
       <Field label="Notes" hint="tracking numbers, routing, who has it"><Textarea rows={2} value={d.notes} onChange={onText(set, 'notes')} /></Field>
       <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
     </>
@@ -222,7 +224,7 @@ export default function Career({ section }: { section: CareerSection }) {
           {awardRows.map((a) => (
             <article key={a.id} className="card card-hover p-4">
               <div className="flex items-start justify-between gap-2"><div><h3 className="text-base font-semibold text-ink">{a.name}</h3><p className="text-xs text-ink-3">{a.type === 'loa' ? 'Letter of Appreciation' : humanize(a.type)} · <TimeframeText table="awards" row={a} /></p></div><StatusBadge value={a.status} /></div>
-              <ol className="mt-3 flex items-center gap-1 text-2xs uppercase tracking-wider text-ink-3">{['recommended', 'submitted', 'approved', 'presented'].map((s, i) => { const idx = (AWARD_STATUS as readonly string[]).indexOf(a.status); const reached = idx >= AWARD_STATUS.indexOf(s as never); return <li key={s} className="flex items-center gap-1"><span className={reached ? 'text-good' : ''}>{reached ? <CheckCircle2 className="inline h-3 w-3" /> : '○'} {humanize(s)}</span>{i < 3 && <span className="mx-1">›</span>}</li>; })}</ol>
+              <ol className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1 text-2xs uppercase tracking-wider text-ink-3">{['recommended', 'submitted', 'approved', 'presented'].map((s, i) => { const idx = (AWARD_STATUS as readonly string[]).indexOf(a.status); const reached = idx >= AWARD_STATUS.indexOf(s as never); return <li key={s} className="flex items-center gap-1"><span className={reached ? 'text-good' : ''}>{reached ? <CheckCircle2 className="inline h-3 w-3" /> : '○'} {humanize(s)}</span>{i < 3 && <span className="mx-1">›</span>}</li>; })}</ol>
               {a.citation && <p className="mt-3 line-clamp-3 text-sm text-ink-2">{a.citation}</p>}
               <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-xs text-ink-3"><span className="min-w-0">{[a.recommending_official ? `Rec: ${a.recommending_official}` : '', recordedByOther(a) && a.recorder_name ? `Recorded by ${a.recorder_name}` : '', a.user_id !== me ? 'shared record' : ''].filter(Boolean).join(' · ')}</span><span className="flex shrink-0 gap-1"><Button size="xs" variant="ghost" onClick={() => setView({ kind: 'award', row: a })}>View</Button>{canMove(a) && <Button size="xs" variant="ghost" onClick={() => startMove('awards', a)}>Move to…</Button>}{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => { setCitationOut(null); setAward({ ...a, period_start: a.period_start || '', date: a.date || '', recommending_official: a.recommending_official || '', approving_authority: a.approving_authority || '', citation: a.citation || '', notes: a.notes || '', submitted_at: a.submitted_at || '', approved_at: a.approved_at || '', presented_at: a.presented_at || '' }); }}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'awards', row: a })}>Delete</Button></>}</span></div>
             </article>
@@ -240,9 +242,9 @@ export default function Career({ section }: { section: CareerSection }) {
       ))}
 
       <RecordDialog<TrainingDraft> store="trainings" fromCurrent={trainingDraft} open={Boolean(training)} onOpenChange={(o) => { if (!o) { setTraining(null); resumeTraining.done(); } }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training"
-        formDraft={{ kind: 'training', saved: resumeTraining.saved, restore: restoreTraining, onChange: resumeTraining.done }} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
+        formDraft={{ kind: 'training', saved: resumeTraining.saved, restore: restoreTraining, onChange: resumeTraining.done }} validate={(d) => (!d.title.trim() ? missing('title', 'A title is required.') : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
       <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); resumeAward.done(); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg"
-        formDraft={{ kind: 'award', saved: resumeAward.saved, restore: restoreAward, onChange: resumeAward.done }} validate={(d) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))}
+        formDraft={{ kind: 'award', saved: resumeAward.saved, restore: restoreAward, onChange: resumeAward.done }} validate={(d) => (!d.name.trim() ? missing('name', 'The award name is required.') : timeframeCheck('awards', d))}
         fields={(d, set, errors) => (
           <>
             <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), to: d.date || undefined }} label="Draft citation" onResult={(output, meta) => { setCitationOut({ output, meta }); if (output.citation && !d.citation) set('citation', String(output.citation)); }} />} />

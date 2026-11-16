@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Dialog } from '@/components/ui/Dialog';
-import { Button, Field, Input, Select, Textarea, Badge } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Textarea, Badge, useRefusal } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { DateText, DescriptionList, onText } from '@/components/common';
 import { invalidateDomains, useDutyOptions, useIdentity } from '@/lib/queries';
@@ -83,7 +83,17 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
   const today = opts?.today || todayIso();
   const [d, setDraft] = useState<Draft>(() => draftOf(mode, today));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [problem, setProblem] = useState<string | null>(null);
+  // A refusal moves focus to the first field it marks, whose message is the alert; the summary below is then read as
+  // part of the form, not announced a second time. With no field marked, the summary is the alert and takes focus.
+  const [problem, setProblem] = useState<{ text: string; atField: boolean } | null>(null);
+  const form = useRef<HTMLFormElement | null>(null);
+  const summary = useRef<HTMLParagraphElement | null>(null);
+  const refuse = useRefusal(form, () => summary.current?.focus());
+  const refused = (text: string, fieldErrors: Record<string, string> | null | undefined) => {
+    setErrors(fieldErrors || {});
+    setProblem({ text, atField: Object.keys(fieldErrors || {}).length > 0 });
+    refuse(text);
+  };
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -131,7 +141,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
 
   const save = async () => {
     const found = check();
-    if (found) { setErrors(found.fieldErrors); setProblem(found.message); return; }
+    if (found) { refused(found.message, found.fieldErrors); return; }
     const fields = {
       duty_type_id: d.duty_type_id, unit_id: d.unit_id, title: d.title.trim() || null, location: d.location.trim() || null,
       date: d.date, start_time: times.start_time, end_date: d.end_date, end_time: times.end_time, conditions: d.conditions, notes: d.notes.trim() || null,
@@ -157,8 +167,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
       onOpenChange(false);
       onSaved?.(saved);
     } catch (e) {
-      setErrors((e instanceof api.ApiError && e.fieldErrors) || {});
-      setProblem(api.errorText(e));
+      refused(api.errorText(e), e instanceof api.ApiError ? e.fieldErrors : null);
       setSaving(false);
     }
   };
@@ -172,7 +181,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
           : returned ? 'A reviewer returned it. Saving your correction sends it back for review.'
             : 'Duty is recorded once it has been stood, and waits for a reviewer before it counts.'}
       footer={<><Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button><Button variant="primary" onClick={save} loading={saving} disabled={options.isLoading}>{returned ? 'Save and send back' : mode.kind === 'edit' ? 'Save changes' : mode.kind === 'move' ? 'Move to Duty' : 'Record duty'}</Button></>}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
+      <form ref={form} className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
         {mode.kind === 'edit' && returned && mode.row.review_reason && (
           <section aria-labelledby={`${uid}-returned`} className="rounded-md border border-warn/30 bg-warn/5 px-3 py-2 text-sm">
             <h3 id={`${uid}-returned`} className="eyebrow mb-1">Returned for correction{mode.row.reviewer_name ? ` by ${mode.row.reviewer_name}` : ''}</h3>
@@ -221,7 +230,7 @@ function DutyForm({ mode, open, onOpenChange, onSaved }: { mode: DutyMode; open:
           {score && <p className="mt-1 text-ink-2" aria-live="polite">{describeScore(score.points, score.basis)}{score.basis.rule ? `: ${score.basis.rule}` : ''}{score.basis.applied.length ? `, × ${score.basis.factor} for ${score.basis.applied.map((c) => CONDITION_LABELS[c].toLowerCase()).join(' and ')}` : ''}.</p>}
           <p className="mt-1 text-xs text-ink-3">{returned ? 'Sent back for review when you save: a reviewer approves, returns or rejects it.' : 'Submitted, not yet counted: a reviewer approves, returns or rejects it.'}</p>
         </section>
-        {problem && <p role="alert" className="rounded-md border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{problem}</p>}
+        {problem && <p ref={summary} tabIndex={-1} role={problem.atField ? undefined : 'alert'} className="rounded-md border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{problem.text}</p>}
         <button type="submit" className="hidden" aria-hidden />
       </form>
     </Dialog>
