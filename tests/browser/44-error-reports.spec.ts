@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, instanceDay, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
  * Financial error reports (Task 15, ADR-0021). A leader files a ULO report from a CSV, says which column identifies an
@@ -21,7 +21,8 @@ const noSidewaysScroll = async (page: Page, what: string) => {
   const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   expect(scroll, `${what} scrolls sideways`).toBeLessThanOrEqual(width + 1);
 };
-const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+/** A day as the server reckons it (its timezone's calendar): a report may not stand on a day that has not come there. */
+const day = instanceDay;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** A day as the page writes it: 05 Oct 2026. */
 const shown = (iso: string) => `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
@@ -103,7 +104,10 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(page.getByRole('button', { name: /^Open: 3, \$950\.00\. Show the rows$/})).toBeVisible();
   await expect(page.getByRole('button', { name: /^Resolution rate: 50%/ })).toBeVisible();
   await expect(page.getByText('The oldest is 60 days old')).toBeVisible();
-  await expect(page.getByRole('img', { name: 'Open errors on each ULO report' })).toBeVisible();
+  // The series' trend, headed by its question (the analytics kit, Task 21): a column for each report, with how many were open.
+  const trend = page.getByRole('figure', { name: 'How many errors were open on each ULO report?' });
+  await expect(trend.getByRole('img', { name: `${shown(day(7)).slice(0, 6)}: 2` })).toBeVisible();
+  await expect(trend.getByRole('img', { name: `${shown(day(0)).slice(0, 6)}: 3` })).toBeVisible();
   expect(await axe(page), 'a comparison').toEqual([]);
 
   // A figure opens its rows: the resolved error as last week's file had it, with every column it carried.

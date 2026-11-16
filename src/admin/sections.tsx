@@ -267,7 +267,7 @@ export function AiSettings() {
       <Panel title="Usage" subtitle="Today, across everyone">
         <div className="grid grid-cols-3 gap-3"><Stat label="Requests" value={data.daily.requests} /><Stat label="Tokens" value={Number(data.daily.total_tokens).toLocaleString()} hint={`budget ${Number(data.daily.budget_tokens).toLocaleString()}`} /><Stat label="Failures" value={data.daily.failures} tone={data.daily.failures ? 'warn' : undefined} /></div>
         <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink-2">Last 30 days by model</h3>
-        {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
+        {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table label="Last 30 days by model" minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
         {data.last_error_code && <p className="mt-3 text-xs text-warn">Last gateway error: {data.last_error_code} {timeAgo(data.last_error_at)}.</p>}
         <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0" />Workflows: {data.workflows.map((w: any) => w.label).join(', ')}.</p>
       </Panel>
@@ -394,7 +394,7 @@ export function DataAdmin() {
             ? <><p className="mt-2 text-xs text-ink-3">Every other Lead Vantage Administrator is told each time one is downloaded.</p><Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button></>
             : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
           {backups.history.length > 0 && (
-            <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
+            <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
               {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? '—'}</td></tr>)}
             </Table>
           )}
@@ -413,7 +413,7 @@ export function DataAdmin() {
 
       <Panel title="Restores" subtitle="What this database has been put back to, and what each one undid">
         {!restores.history.length ? <p className="text-sm text-ink-3">None. This database has not been restored since Vantage began keeping the record.</p> : (
-          <Table minWidth={680} head={<><th>When</th><th>How</th><th>Back to</th><th className="text-right">Entries undone</th><th>Authorized by</th><th /></>}>
+          <Table label="Restores" minWidth={680} head={<><th>When</th><th>How</th><th>Back to</th><th className="text-right">Entries undone</th><th>Authorized by</th><th /></>}>
             {restores.history.map((r) => (
               <tr key={r.id}>
                 <td className="fig text-xs">{formatStamp(r.at)}</td>
@@ -435,7 +435,7 @@ export function DataAdmin() {
       </Panel>
 
       <Panel title="Not backups: data exports" subtitle="Copies of one Unit Instance’s, unit’s or person’s data, for its own use">
-        <Table minWidth={640} head={<><th>Export or import</th><th>What it holds</th><th>Who</th><th>Coming back</th></>}>
+        <Table label="Data exports" minWidth={640} head={<><th>Export or import</th><th>What it holds</th><th>Who</th><th>Coming back</th></>}>
           {exports.map((t) => <tr key={t.id}><td className="text-xs"><span className="text-ink">{t.label}</span><span className="block text-2xs text-ink-3">{t.format}</span></td><td className="text-xs text-ink-2">{t.holds}</td><td className="text-xs text-ink-2">{t.who}</td><td className="text-xs text-ink-2">{t.restores}</td></tr>)}
         </Table>
         <p className="mt-2 text-xs text-ink-3">None of these can restore the service, and none of their imports takes a backup: each refuses a database file or the service archive.</p>
@@ -469,7 +469,7 @@ function RestoreDetail({ restore: r, usernames }: { restore: RestoreView; userna
         <div>
           <h3 className="text-xs font-semibold text-ink-2">Account, authority and hold changes undone</h3>
           <p className="text-xs text-ink-3">Each is as the backup had it again; make again the ones that still should be.{r.undone.count > r.undone.entries.length ? ` The first ${r.undone.entries.length} of ${r.undone.count}.` : ''}</p>
-          <Table className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
+          <Table label="Account, authority and hold changes undone" className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
             {r.undone.entries.map((e) => <tr key={e.seq}><td className="fig text-xs">{formatStamp(e.at)}</td><td className="text-xs">{humanize(e.action)}</td><td className="mono text-2xs">{e.subject_id ? usernames[e.subject_id] ?? (e.subject_username ? `${e.subject_username} (gone with the restore)` : 'an account since removed') : '—'}</td></tr>)}
           </Table>
         </div>

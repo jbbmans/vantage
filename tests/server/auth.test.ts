@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { startApp, PASSWORD, type TestApp } from './helpers.ts';
 import { totpCode } from '../../server/auth/totp.ts';
 import { resetLimiters } from '../../server/auth/limiter.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { PROJECT_ROOT } from '../../server/config.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -58,6 +61,33 @@ test('cookie sessions require the client header for writes', async () => {
   const logout = await fetch(`${app.base}/api/auth/logout`, { method: 'POST', headers: { cookie, 'x-vantage-client': '1' } });
   assert.equal(logout.status, 200);
   assert.equal((await fetch(`${app.base}/api/me`, { headers: { cookie } })).status, 401);
+});
+
+const signInCookies = async () => {
+  const res = await fetch(`${app.base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'boletz', password: PASSWORD }) });
+  assert.equal(res.status, 200);
+  return Object.fromEntries(res.headers.getSetCookie().map((c) => c.split(';')[0].split('=') as [string, string]));
+};
+const signOutCookies = (c: Record<string, string>) => fetch(`${app.base}/api/auth/logout`, { method: 'POST', headers: { cookie: `vantage_session=${c.vantage_session}`, 'x-vantage-client': '1' } });
+
+test('each sign-in writes a signed-in marker of its own, which does not give away its session token', async () => {
+  const first = await signInCookies();
+  const second = await signInCookies();
+  assert.match(first.vantage_signed_in, /^[0-9a-f]{16}$/);
+  assert.notEqual(first.vantage_signed_in, second.vantage_signed_in, 'a page tells a 401 for a replaced session by the marker it was sent with');
+  assert.ok(!first.vantage_session.includes(first.vantage_signed_in));
+  for (const c of [first, second]) await signOutCookies(c);
+});
+
+test('a document served to a live session restores a signed-in marker a page cleared', { skip: !existsSync(join(PROJECT_ROOT, 'dist/index.html')) && 'needs npm run build' }, async () => {
+  const live = await signInCookies();
+  const markerOf = (res: Response) => res.headers.getSetCookie().find((c) => c.startsWith('vantage_signed_in='))?.split(';')[0].slice('vantage_signed_in='.length);
+  const doc = (cookie: string) => fetch(`${app.base}/work/queue`, { headers: { cookie } });
+  assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}`)), live.vantage_signed_in);
+  assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}; vantage_signed_in=1`)), live.vantage_signed_in, 'a marker from before is replaced');
+  assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}; vantage_signed_in=${live.vantage_signed_in}`)), undefined, 'a right marker is left alone');
+  await signOutCookies(live);
+  assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}`)), undefined, 'an ended session gets none');
 });
 
 test('self-registration creates an unattached account and can be disabled', async () => {

@@ -16,11 +16,19 @@ const VARIANTS = {
 const SIZES = { xs: 'h-6 px-2 text-xs gap-1 rounded-md', sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-lg', md: 'h-9 px-3.5 text-base gap-2 rounded-[9px]', lg: 'h-11 px-5 text-md gap-2 rounded-[11px]', icon: 'h-9 w-9 justify-center rounded-[9px]', 'icon-sm': 'h-7 w-7 justify-center rounded-lg', 'icon-xs': 'h-6 w-6 justify-center rounded-md' } as const;
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES; asChild?: boolean; loading?: boolean }
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, ...props }, ref) {
+/**
+ * A button. While `loading`, it keeps focus and ignores presses (aria-disabled, not the native disabled): a focused button
+ * that became disabled would drop focus to the page while its request ran (WCAG 2.4.3). Native `disabled` is for `disabled`.
+ */
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, onClick, ...props }, ref) {
   const Comp: any = asChild ? Slot : 'button';
+  const busy = loading && !disabled;
   return (
-    <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled || loading}
-      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
+    <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled}
+      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', busy && 'cursor-progress opacity-70', VARIANTS[variant], SIZES[size], className)} {...props}
+      aria-disabled={busy || props['aria-disabled'] || undefined} aria-busy={busy || undefined} data-loading={busy || undefined}
+      // A press while busy does nothing, not even submit its form (an Enter in a field presses the form's submit button).
+      onClick={busy ? (e: React.MouseEvent<HTMLButtonElement>) => { e.preventDefault(); e.stopPropagation(); } : onClick}>
       {asChild ? children : <>{loading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{children}</>}
     </Comp>
   );

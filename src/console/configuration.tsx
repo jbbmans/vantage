@@ -122,7 +122,7 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!rows.length ? <EmptyState icon={Users} title={show === 'teams' ? 'No teams yet' : 'No units'} description={show === 'teams' ? 'A team is a squad or fire team. Create one under the unit it belongs to.' : undefined} /> : (
-          <Table minWidth={780} head={<><th>Unit</th><th className="w-40">Echelon</th><th className="w-44">Leader</th><th className="w-20 text-right">Members</th><th className="w-24">Status</th><th className="relative w-56"><span className="sr-only">Actions</span></th></>}>
+          <Table label={show === 'teams' ? 'Teams' : 'Units'} minWidth={780} head={<><th>Unit</th><th className="w-40">Echelon</th><th className="w-44">Leader</th><th className="w-20 text-right">Members</th><th className="w-24">Status</th><th className="relative w-56"><span className="sr-only">Actions</span></th></>}>
             {rows.map((u) => (
               <tr key={u.id}>
                 <td><span className="block font-medium text-ink" style={{ paddingLeft: `${u.depth * 1.25}rem` }}>{u.depth ? '└ ' : ''}{u.name}</span><span className="block text-xs text-ink-3" style={{ paddingLeft: `${u.depth * 1.25}rem` }}>{u.short_name ? `${u.short_name} · ` : ''}{u.code}</span></td>
@@ -216,7 +216,7 @@ export function Billets({ org }: { org: OrgSummary }) {
       <Panel title="Billet list" subtitle="The billets this Unit Instance staffs, in one unit or in any. A member’s billet is chosen from it." padded={false}
         action={can('org.config') ? <Button size="sm" variant="primary" onClick={() => setEditing({ title: '', code: '', unit_id: '', description: '' })}><Plus className="h-4 w-4" />New billet</Button> : undefined}>
         {!billets.length ? <EmptyState icon={ClipboardList} title="No billets listed yet" description="Add the billets your table of organization staffs; the empty ones then show as vacant." /> : (
-          <Table minWidth={680} head={<><th>Billet</th><th className="w-28">Code</th><th className="w-44">Unit</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Billet list" minWidth={680} head={<><th>Billet</th><th className="w-28">Code</th><th className="w-44">Unit</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {billets.map((b) => (
               <tr key={b.id}>
                 <td><span className="block font-medium text-ink">{b.title}</span>{b.description && <span className="block text-xs text-ink-3">{b.description}</span>}</td>
@@ -427,7 +427,7 @@ export function Duty({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.dutyTypes.length ? <EmptyState icon={ShieldAlert} title="No duty types yet" description={`Start from the standard list (${data.catalog.standardDutyTypes.map((d) => d.name).join(', ')}) or add your own.`} /> : (
-          <Table minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Duty types" minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.dutyTypes.map((d) => (
               <tr key={d.id}>
                 <td className="mono text-xs text-ink">{d.code}</td>
@@ -493,7 +493,7 @@ export function ErrorReportTypes({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.errorReportTypes.length ? <EmptyState icon={FileWarning} title="No error report types yet" description={`Start from the standard list (${data.catalog.standardErrorReportTypes.map((t) => t.code).join(', ')}) or add your own.`} /> : (
-          <Table minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Error report types" minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.errorReportTypes.map((t) => (
               <tr key={t.id}>
                 <td className="mono text-xs text-ink">{t.code}</td>
@@ -775,7 +775,7 @@ export function Training({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.trainingRequirements.length ? <EmptyState icon={GraduationCap} title="No training requirements yet" description="Add the courses, qualifications and annual training your Marines must hold." /> : (
-          <Table minWidth={760} head={<><th>Requirement</th><th className="w-32">Kind</th><th className="w-32">Recurs</th><th className="w-40">Applies to</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Training requirements" minWidth={760} head={<><th>Requirement</th><th className="w-32">Kind</th><th className="w-32">Recurs</th><th className="w-40">Applies to</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.trainingRequirements.map((t) => (
               <tr key={t.id}>
                 <td><span className="block text-sm font-medium text-ink">{t.title}</span><span className="block text-xs text-ink-3">{[t.course_code, t.description].filter(Boolean).join(' · ')}</span></td>

@@ -91,7 +91,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function RowChanges({ changes }: { changes: CountChange[] }) {
   if (!changes.length) return null;
   return (
-    <Table className="scroll-x mt-2" minWidth={320} head={<><th>Table</th><th className="text-right">Before</th><th className="text-right">After</th></>}>
+    <Table label="Tables with fewer rows" className="scroll-x mt-2" minWidth={320} head={<><th>Table</th><th className="text-right">Before</th><th className="text-right">After</th></>}>
       {changes.map((c) => <tr key={c.table}><td className="mono text-2xs">{c.table}</td><td className="fig text-right text-xs">{c.before}</td><td className="fig text-right text-xs text-warn">{c.after ?? 'table gone'}</td></tr>)}
     </Table>
   );

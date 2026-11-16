@@ -1,12 +1,17 @@
 import React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, useOverflow } from '@/lib/utils';
 import { Button } from './primitives';
 
 export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', variant = 'modal', className }: { open: boolean; onOpenChange: (o: boolean) => void; title: React.ReactNode; description?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; size?: 'sm' | 'md' | 'lg' | 'xl'; variant?: 'modal' | 'drawer'; className?: string }) {
   const widths = { sm: 'sm:max-w-md', md: 'sm:max-w-2xl', lg: 'sm:max-w-4xl', xl: 'sm:max-w-6xl' };
   const drawer = variant === 'drawer';
+  // Every dialog here opens from state, not a Radix trigger, so Radix has nowhere to put focus back when it closes.
+  useReturnFocus(open);
+  const titleId = React.useId();
+  // A body longer than the dialog takes a Tab stop, so its end can be read with the keyboard (WCAG 2.1.1).
+  const [body, overflows] = useOverflow<HTMLDivElement>('y');
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -20,12 +25,12 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
         )}>
           <header className="flex items-start justify-between gap-4 px-5 pb-2 pt-4">
             <div className="min-w-0">
-              <DialogPrimitive.Title className="text-lg font-semibold tracking-[-0.015em] text-ink">{title}</DialogPrimitive.Title>
+              <DialogPrimitive.Title id={titleId} className="text-lg font-semibold tracking-[-0.015em] text-ink">{title}</DialogPrimitive.Title>
               {description && <DialogPrimitive.Description className="mt-1 text-sm leading-relaxed text-ink-3">{description}</DialogPrimitive.Description>}
             </div>
             <DialogPrimitive.Close className="-mr-1.5 -mt-0.5 rounded-lg p-1.5 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink" aria-label="Close"><X className="h-4 w-4" /></DialogPrimitive.Close>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain]">{children}</div>
+          <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain]" {...(overflows ? { role: 'region', 'aria-labelledby': titleId, tabIndex: 0 } : {})}>{children}</div>
           {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2/60 px-5 pb-[max(.875rem,env(safe-area-inset-bottom))] pt-3.5 max-[420px]:[&>*]:flex-1 max-[420px]:[&>*]:justify-center">{footer}</footer>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

@@ -22,9 +22,15 @@ import type {
 /** A saved report as the library lists it: its name and choices, whose it is, and where it is shared. */
 export interface ReportDefinitionRow { id: string; user_id: string; name: string; type: string; params: Record<string, string>; visibility: 'private' | 'unit'; unit_id: string | null; owner_name: string | null; mine: boolean; created_at: string; updated_at: string }
 
-let sessionState: 'none' | 'unknown' | 'active' = (() => {
-  try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
-})();
+/**
+ * The signed-in marker: the cookie the page can read (the session's own is httpOnly). Each sign-in sets a value of its
+ * own, so the value a request left with says which sign-in it was sent under. `undefined` when the cookie cannot be read.
+ */
+const signedInMarker = (): string | null | undefined => {
+  try { return /(?:^|;\s*)vantage_signed_in=([^;]*)/.exec(document.cookie)?.[1] ?? null; } catch { return undefined; }
+};
+
+let sessionState: 'none' | 'unknown' | 'active' = signedInMarker() === null ? 'none' : 'unknown';
 
 export class ApiError extends Error {
   status: number; code: string | null; fieldErrors: Record<string, string> | null; extra: Record<string, unknown>;
@@ -66,8 +72,24 @@ function markSignedOut() {
 export const hasSession = () => sessionState !== 'none';
 export const markSignedIn = () => { sessionState = 'active'; window.dispatchEvent(new CustomEvent('vantage:signed-in')); };
 
+/**
+ * A request was answered 401. If someone signed in again after it left (in this tab or another: a role grant ends a
+ * person's sessions, and they sign in anew), the 401 is about the session that sign-in replaced, and the browser is
+ * signed in: the page picks up the new session rather than clear the marker that sign-in set. Otherwise the session it
+ * was sent with has ended, and the page signs out. A clearing can still land after a sign-in this page could not see
+ * yet; the next document served to the live session puts the marker back (restoreSignedInMarker, server/routes/auth.ts).
+ */
+function sessionEnded(sentWith: string | null | undefined) {
+  if (sessionState === 'none') return;
+  const current = signedInMarker();
+  if (current && sentWith !== undefined && current !== sentWith) { markSignedIn(); return; }
+  markSignedOut();
+  window.dispatchEvent(new CustomEvent('vantage:signed-out'));
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, init: RequestInit = {}): Promise<T> {
   let res: Response;
+  const sentWith = signedInMarker();
   try {
     res = await fetch(`/api${path}`, {
       ...init,
@@ -81,7 +103,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
     throw new ApiError('Cannot reach the Vantage server. Check your connection.', 0, { code: 'offline' });
   }
   if (res.status === 401) {
-    if (sessionState !== 'none') { markSignedOut(); window.dispatchEvent(new CustomEvent('vantage:signed-out')); }
+    sessionEnded(sentWith);
     const text = await res.text().catch(() => '');
     let payload: any = null; try { payload = JSON.parse(text); } catch {}
     throw new ApiError(payload?.error || 'Your session has expired. Sign in again.', 401, payload || {});
@@ -530,8 +552,9 @@ export const orgRevokeAccess = (orgId: string, id: string) => api.post(orgPath(o
 export const demoGovernance = () => api.get('/demo/governance');
 
 export async function downloadFile(url: string, fallbackName: string) {
+  const sentWith = signedInMarker();
   const res = await fetch(url, { credentials: 'same-origin' });
-  if (res.status === 401) { markSignedOut(); window.dispatchEvent(new CustomEvent('vantage:signed-out')); throw new ApiError('Your session has expired.', 401); }
+  if (res.status === 401) { sessionEnded(sentWith); throw new ApiError('Your session has expired.', 401); }
   if (!res.ok) { let payload: Record<string, unknown> = {}; try { payload = await res.json(); } catch {} throw new ApiError((payload.error as string) || `Download failed (${res.status}).`, res.status, payload); }
   const blob = await res.blob();
   const name = res.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] || fallbackName;

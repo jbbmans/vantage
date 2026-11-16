@@ -49,7 +49,7 @@ function SupportHome() {
         <NewRequest units={identity?.memberships || []} />
         <Panel title={shown === 'queue' ? 'The queue' : 'Your requests'} className="lg:col-span-2" padded={false}>
           {list.isPending ? <Skeleton className="m-4 h-32" /> : !tickets.length ? <EmptyState title={shown === 'queue' ? 'Nothing waiting' : 'No requests yet'} description={shown === 'queue' ? 'New requests appear here, and you are told when one arrives.' : 'When you send one, it is listed here with every answer.'} /> : (
-            <Table minWidth={520} head={<><th>Request</th>{shown === 'queue' && <th className="w-40">From</th>}<th className="w-44">State</th><th className="w-28">Updated</th></>}>
+            <Table label={shown === 'queue' ? 'The queue' : 'Your requests'} minWidth={520} head={<><th>Request</th>{shown === 'queue' && <th className="w-40">From</th>}<th className="w-44">State</th><th className="w-28">Updated</th></>}>
               {tickets.map((t) => (
                 <tr key={t.id}>
                   <td><Link className="link font-medium" to={`/support/${t.id}`}>{t.subject}</Link><span className="block text-xs text-ink-3">{categoryLabel(t.category)}{t.priority === 'high' || t.priority === 'urgent' ? ` · ${humanize(t.priority)} priority` : ''}</span></td>

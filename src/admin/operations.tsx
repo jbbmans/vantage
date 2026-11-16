@@ -67,7 +67,7 @@ export function Operations() {
           </dl>
           <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink-2">Releases this database has run</h3>
           {!version.releases.length ? <p className="text-sm text-ink-3">None recorded yet.</p> : (
-            <Table minWidth={360} head={<><th>Version</th><th>Build</th><th>First served</th></>}>
+            <Table label="Releases this database has run" minWidth={360} head={<><th>Version</th><th>Build</th><th>First served</th></>}>
               {version.releases.map((r) => <tr key={`${r.version}:${r.build}:${r.firstStartedAt}`}><td className="fig text-xs">{r.version}</td><td className="mono max-w-[10rem] truncate text-2xs" title={r.build}>{r.build}</td><td className="fig text-xs text-ink-3">{formatStamp(r.firstStartedAt)}</td></tr>)}
             </Table>
           )}
@@ -75,7 +75,7 @@ export function Operations() {
 
         <Panel title="Schema and migrations" subtitle={`This build needs schema ${schema.code}; the database is at ${schema.database}`} action={<Badge tone={SCHEMA_TONE[schema.state]}>{humanize(schema.state)}</Badge>}>
           {schema.notes.length > 0 && <ul className="mb-3 space-y-1 text-xs text-ink-2">{schema.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
-          <Table minWidth={420} head={<><th className="w-10">#</th><th>Migration</th><th>Ran</th><th className="text-right">Took</th></>}>
+          <Table label="Schema and migrations" minWidth={420} head={<><th className="w-10">#</th><th>Migration</th><th>Ran</th><th className="text-right">Took</th></>}>
             {migrations.map((m) => (
               <tr key={m.id}>
                 <td className="fig text-xs text-ink-3">{m.id}</td>
@@ -97,7 +97,7 @@ export function Operations() {
             : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">node scripts/backup.ts /path/to/copy.db</span> on the server.</p>}
           <p className="mt-2 text-xs text-ink-3">Vantage records backups taken on the server with the backup script and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
           {backups.history.length > 1 && (
-            <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Size</th></>}>
+            <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Size</th></>}>
               {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}
             </Table>
           )}
@@ -106,7 +106,7 @@ export function Operations() {
 
         <Panel title="Scheduled jobs" subtitle="In this server process">
           {!jobs.length ? <p className="text-sm text-warn">No scheduled jobs are running in this process.</p> : (
-            <Table minWidth={460} head={<><th>Job</th><th>Last run</th><th className="text-right">Runs</th><th>State</th></>}>
+            <Table label="Scheduled jobs" minWidth={460} head={<><th>Job</th><th>Last run</th><th className="text-right">Runs</th><th>State</th></>}>
               {jobs.map((j) => (
                 <tr key={j.name}>
                   <td className="text-xs"><span className="text-ink">{j.label}</span><span className="block text-2xs text-ink-3">{every(j.everyMs)}</span></td>
@@ -180,7 +180,7 @@ export function InstanceOperationsPage() {
 
       <Panel title="Schema upgrades" subtitle="Each counted, table by table and Unit Instance by Unit Instance, before and after">
         {!service.upgrades.length ? <p className="text-sm text-ink-3">None recorded. Vantage counts rows from the first upgrade this database runs after this release.</p> : (
-          <Table minWidth={640} head={<><th>When</th><th>Schema</th><th>Release</th><th>Result</th><th>Unit Instances with fewer rows</th><th /></>}>
+          <Table label="Schema upgrades" minWidth={640} head={<><th>When</th><th>Schema</th><th>Release</th><th>Result</th><th>Unit Instances with fewer rows</th><th /></>}>
             {service.upgrades.map((u) => (
               <tr key={u.id}>
                 <td className="fig text-xs">{formatStamp(u.at)}<span className="block text-2xs text-ink-3">{u.ms} ms</span></td>
@@ -198,7 +198,7 @@ export function InstanceOperationsPage() {
       <Panel title="Unit Instances" subtitle="Open one for its checks, upgrades, backup and restores"
         action={<div className="flex flex-wrap items-center gap-3"><Input aria-label="Find a Unit Instance" className="h-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find" /><Switch checked={onlyAttention} onChange={setOnlyAttention} label="Needs attention" /></div>}>
         {!shown.length ? <p className="text-sm text-ink-3">{instances.length ? 'None match.' : 'No Unit Instances yet.'}</p> : (
-          <Table minWidth={760} head={<><th>Unit Instance</th><th>Health</th><th>Version</th><th>Last upgrade</th><th>Backup</th><th>Last restore</th><th>Withheld</th></>}>
+          <Table label="Unit Instances" minWidth={760} head={<><th>Unit Instance</th><th>Health</th><th>Version</th><th>Last upgrade</th><th>Backup</th><th>Last restore</th><th>Withheld</th></>}>
             {shown.map((i) => (
               <tr key={i.id}>
                 <td className="text-xs"><button type="button" className="link text-left" onClick={() => setOpenId(i.id)}>{i.name}</button>{i.status !== 'active' && <span className="block text-2xs text-ink-3">{humanize(i.status)}</span>}</td>
@@ -291,12 +291,12 @@ export function SignInHealth() {
             <p className="text-sm text-ink-2">Last CAC sign-in {cac.lastSignIn ? timeAgo(cac.lastSignIn) : 'never'}.{cac.policyOids ? ` Cards must carry one of ${cac.policyOids} certificate policies.` : ''}</p>
             {cac.mode === 'proxy' && <p className="mt-2 text-xs text-ink-3">Vantage cannot see the gateway’s revocation lists or trusted CAs. Ask the team that runs it to watch both.</p>}
             {cac.crls.length > 0 && (
-              <Table className="scroll-x mt-3" minWidth={560} head={<><th>Revocation list</th><th>Issuer</th><th>Next update</th><th>State</th></>}>
+              <Table label="Certificate revocation lists" className="scroll-x mt-3" minWidth={560} head={<><th>Revocation list</th><th>Issuer</th><th>Next update</th><th>State</th></>}>
                 {cac.crls.map((c, i) => <tr key={`${c.file}:${i}`}><td className="mono text-2xs">{c.file}</td><td className="text-xs">{c.issuer ?? '—'}</td><td className="fig text-xs">{c.error ? <span className="text-bad">{c.error}</span> : c.nextUpdate ? `${formatStamp(c.nextUpdate)} (${timeAgo(c.nextUpdate)})` : 'not given'}</td><td><StatusBadge status={c.status} /></td></tr>)}
               </Table>
             )}
             {cac.cas.length > 0 && (
-              <Table className="scroll-x mt-3" minWidth={480} head={<><th>Trusted CA</th><th>Valid until</th><th>State</th></>}>
+              <Table label="Trusted certificate authorities" className="scroll-x mt-3" minWidth={480} head={<><th>Trusted CA</th><th>Valid until</th><th>State</th></>}>
                 {cac.cas.map((c, i) => <tr key={`${c.subject}:${i}`}><td className="text-xs">{c.subject}</td><td className="fig text-xs">{c.validTo ? formatStamp(c.validTo) : '—'}</td><td><StatusBadge status={c.status} /></td></tr>)}
               </Table>
             )}
@@ -368,7 +368,7 @@ export function FeatureFlags() {
         {selfService && !selfService.on && data.profile === 'mcen' && <p className="mt-3 text-xs text-ink-3">On MCEN, Vantage Administrators provision Unit Instances from Unit Instances.</p>}
       </Panel>
       <Panel title="Set when the service is deployed" subtitle="Changed in the host’s environment and a restart, not here">
-        <Table minWidth={560} head={<><th>Flag</th><th>State</th><th>Setting</th></>}>
+        <Table label="Set when the service is deployed" minWidth={560} head={<><th>Flag</th><th>State</th><th>Setting</th></>}>
           {data.environment.map((f) => (
             <tr key={f.key}>
               <td className="text-xs"><span className="text-ink">{f.label}</span><span className="block text-2xs text-ink-3">{f.hint}</span></td>
@@ -419,7 +419,7 @@ function InstanceFlags({ report, editable, refresh }: { report: InstanceFlagRepo
         {report.flags.map((f) => <li key={f.key}><span className="text-ink">{f.label}</span>: {f.hint}{f.serviceOn ? '' : ' The service has it off for everyone at the moment.'}</li>)}
       </ul>
       {!report.withheld.length ? <p className="text-sm text-ink-3">Nothing is withheld. Every Unit Instance has every feature the service runs.</p> : (
-        <Table minWidth={560} head={<><th>Unit Instance</th><th>Feature</th><th>Why</th><th>Since</th><th /></>}>
+        <Table label="Withheld from one Unit Instance" minWidth={560} head={<><th>Unit Instance</th><th>Feature</th><th>Why</th><th>Since</th><th /></>}>
           {report.withheld.map((w) => (
             <tr key={`${w.org_id}:${w.flag}`}>
               <td className="text-xs">{w.org_name}</td>
@@ -540,7 +540,7 @@ export function Maintenance() {
 
       <Panel title="Recent maintenance" subtitle="From the platform audit trail">
         {!data.history.length ? <p className="text-sm text-ink-3">Nothing yet.</p> : (
-          <Table minWidth={560} head={<><th className="w-36">When</th><th className="w-40">Step</th><th className="w-32">By</th><th>Detail</th></>}>
+          <Table label="Recent maintenance" minWidth={560} head={<><th className="w-36">When</th><th className="w-40">Step</th><th className="w-32">By</th><th>Detail</th></>}>
             {data.history.map((h, i) => <tr key={`${h.at}:${i}`}><td className="fig text-xs text-ink-3">{formatStamp(h.at)}</td><td className="text-xs">{STEP_LABEL[h.action] ?? humanize(h.action)}</td><td className="text-xs">{h.actor ?? 'system'}</td><td className="max-w-md truncate text-xs text-ink-2" title={h.detail ?? ''}>{h.detail}</td></tr>)}
           </Table>
         )}

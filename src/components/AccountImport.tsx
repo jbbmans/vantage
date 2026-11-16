@@ -86,7 +86,7 @@ export default function AccountImport({ orgId, onDone }: { orgId: string; onDone
               </div>
             ) : null}
             <div className="card" style={{ overflow: 'hidden' }}>
-              <Table minWidth={760} head={<><th className="w-12">Row</th><th>Marine</th><th className="w-48">Unit</th><th className="w-36">Role</th><th className="w-24">Status</th></>}>
+              <Table label="Accounts imported" minWidth={760} head={<><th className="w-12">Row</th><th>Marine</th><th className="w-48">Unit</th><th className="w-36">Role</th><th className="w-24">Status</th></>}>
                 {shown.accounts.map((a) => (
                   <tr key={a.line}>
                     <td className="fig text-ink-3">{a.line}</td>

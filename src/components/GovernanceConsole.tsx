@@ -97,7 +97,7 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
           </div>
           {plan.updates.length > 0 && (
             <div className="-mx-4 mb-3 -mt-1">
-              <Table minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
+              <Table label="Changed records" minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
                 {plan.updates.map((u) => (
                   <tr key={u.edipi}><td className="mono text-xs">{u.edipi}</td><td>{u.name}</td>
                     <td className="text-xs text-ink-2">{u.changes.map((c) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
@@ -208,7 +208,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
 
       <Panel title="Retention schedules" subtitle="Each one is off until you turn it on. A schedule with no citation is somebody's guess, so the authority is a field rather than a note.">
         <div className="-mx-4 -mt-1">
-          <Table minWidth={560} head={<><th>Record type</th><th className="w-28">Keep for</th><th className="w-32">Then</th><th>Authority</th><th className="w-24">Enabled</th><th className="w-16"></th></>}>
+          <Table label="Retention schedules" minWidth={560} head={<><th>Record type</th><th className="w-28">Keep for</th><th className="w-32">Then</th><th>Authority</th><th className="w-24">Enabled</th><th className="w-16"></th></>}>
             {retainableTypes.map((type: string) => {
               const s: any = byType.get(type);
               return (
@@ -234,7 +234,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
         <Panel title="What disposition would do now">
           {preview.lines.length === 0 ? <p className="text-sm text-ink-3">No schedule is enabled, so there is nothing to run.</p> : (
             <div className="-mx-4 -mt-1">
-              <Table minWidth={620} head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
+              <Table label="What disposition would do now" minWidth={620} head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
                 {preview.lines.map((l: any) => (
                   <tr key={l.record_type}>
                     <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}{l.files ? <span className="block text-xs text-ink-3">{l.files.toLocaleString()} attached {l.files === 1 ? 'file' : 'files'} {preview.applied ? 'removed' : 'would be removed'}</span> : null}{l.discussions ? <span className="block text-xs text-ink-3">The discussion on {l.discussions.toLocaleString()} {l.discussions === 1 ? 'record' : 'records'} anonymized earlier {preview.applied ? 'was redacted' : 'would be redacted'}</span> : null}</td>
@@ -271,7 +271,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
       <Panel title="Disposition history" subtitle="Every run, including the ones that removed nothing. A log with gaps cannot answer the question it exists for.">
         {history.length === 0 ? <p className="text-sm text-ink-3">Disposition has never run.</p> : (
           <div className="-mx-4 -mt-1">
-            <Table minWidth={620} head={<><th className="w-40">When</th><th>Record type</th><th className="w-28">Action</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Acted</th><th className="w-20">Mode</th></>}>
+            <Table label="Disposition history" minWidth={620} head={<><th className="w-40">When</th><th>Record type</th><th className="w-28">Action</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Acted</th><th className="w-20">Mode</th></>}>
               {history.map((r: any) => (
                 <tr key={r.id}>
                   <td className="text-xs"><DateText value={r.at} /></td>
@@ -369,7 +369,7 @@ export function PrivacyConsole({ demo = false, orgId }: { demo?: boolean; orgId?
         action={demo ? undefined : <Button onClick={async () => { const md = await withSudo(() => fetch(markdownUrl, { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
       >
         <div className="-mx-4 -mt-1">
-          <Table minWidth={680} head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>
+          <Table label="Data inventory" minWidth={680} head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>
             {data.tables.map((t: any) => (
               <tr key={t.table} className="cursor-pointer" onClick={() => setOpen(open === t.table ? null : t.table)}>
                 <td className="font-medium text-ink">{t.table}</td>

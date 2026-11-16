@@ -109,7 +109,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
   }
   return (
     <Panel title={`${data.unit.name} and the units beneath it`} subtitle="Each kind of report a unit files is a series. Open one to compare its reports." padded={false}>
-      <Table minWidth={760} head={<>
+      <Table label="Error report series" minWidth={760} head={<>
         <th scope="col">Report</th><th scope="col">Unit</th><th scope="col" className="text-right">Filed</th><th scope="col">Latest</th>
         <th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th><th scope="col" className="text-right">Since the one before</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
       </>}>
@@ -226,7 +226,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
         <Panel className="xl:col-span-2" title="By error type, unit and Marine" subtitle={r.before ? 'What each holds open now, and what came and went since the earlier report' : 'What each holds open on this report'} padded={false}
           action={<Segmented size="sm" label="Group by" value={group} onChange={setGroup} options={groups} />}>
           {!lines.length ? <p className="px-4 py-6 text-sm text-ink-3">Nothing is open on either report.</p> : (
-            <Table minWidth={r.before ? 720 : 360} head={<>
+            <Table label="By error type, unit and Marine" minWidth={r.before ? 720 : 360} head={<>
               <th scope="col">{GROUPS.find((g) => g.value === group)?.label}</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
               {r.before ? <><th scope="col" className="text-right">New</th><th scope="col" className="text-right">Still open</th><th scope="col" className="text-right">Reopened</th><th scope="col" className="text-right">Resolved</th><th scope="col" className="text-right">Value resolved</th></> : null}
             </>}>
@@ -298,7 +298,7 @@ function ReportsFiled({ reports, afterId, beforeId, onCompare, onWithdraw }: {
 }) {
   return (
     <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}>
-      <Table minWidth={820} head={<>
+      <Table label="Every report filed" minWidth={820} head={<>
         <th scope="col">Stands on</th><th scope="col">File</th><th scope="col" className="text-right">Rows</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
         <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
       </>}>
@@ -360,7 +360,7 @@ function DrillDialog({ ask, q, onClose }: { ask: DrillAsk; q: api.ErrorCompariso
       {rows.isPending ? <Skeleton className="h-64" /> : rows.isError || !d ? <QueryFailure error={rows.error} what="These rows" className="py-2" /> : !d.rows.length ? <p className="text-sm text-ink-3">No row is behind this figure.</p> : (
         <div className="space-y-2">
           {d.total > d.rows.length ? <p className="text-xs text-warn">Showing the first {formatNumber(d.rows.length)} of {formatNumber(d.total)}. The report library’s file holds them all.</p> : null}
-          <Table minWidth={900} head={<>
+          <Table label={ask.title} minWidth={900} head={<>
             <th scope="col">Identifier</th><th scope="col">What</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col" className="text-right">Amount</th>
             <th scope="col" className="text-right">Age</th><th scope="col" className="text-right">Row</th><th scope="col">Case</th>
           </>}>

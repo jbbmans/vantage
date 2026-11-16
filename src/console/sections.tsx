@@ -130,7 +130,7 @@ export function People({ org }: { org: OrgSummary }) {
         <Panel title="Unit Instance roles" subtitle="Who runs the Unit Instance. These roles manage its structure; none of them reads Marines’ records, and each lasts only while its holder is a member." action={can('org.owners') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Grant a role</Button> : undefined}>
           {roles.isPending ? <Skeleton className="h-24" /> : !roles.data?.holders.length ? <p className="text-sm text-ink-3">Nobody holds a Unit Instance role.</p> : (
             <div className="-mx-4 -mt-1">
-              <Table minWidth={620} head={<><th>Person</th><th className="w-36">Role</th><th className="w-40">Until</th><th className="w-40">Granted by</th><th className="w-24"></th></>}>
+              <Table label="Unit Instance roles" minWidth={620} head={<><th>Person</th><th className="w-36">Role</th><th className="w-40">Until</th><th className="w-40">Granted by</th><th className="w-24"></th></>}>
                 {roles.data.holders.map((h) => (
                   <tr key={`${h.user_id}:${h.role}`}>
                     <td><span className="block font-medium text-ink">{personName(h)}</span><span className="block text-xs text-ink-3">@{h.username}{h.member ? '' : ' · no longer a member, so it confers nothing'}</span></td>
@@ -153,7 +153,7 @@ export function People({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {members.isPending ? <Skeleton className="h-64" /> : members.error ? <EmptyState title="Could not load people" description={api.errorText(members.error)} /> : !members.data?.members.length ? <EmptyState icon={Users} title="Nobody here yet" description="Bring people in with a join code or invitation from a unit, or import a roster." /> : (
-          <Table minWidth={960} head={<><th>Person</th><th>Units and unit roles</th><th className="w-32">Sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
+          <Table label="People" minWidth={960} head={<><th>Person</th><th>Units and unit roles</th><th className="w-32">Sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
             {members.data.members.map((m) => {
               const held = rolesOf(m.id);
               return (
@@ -262,7 +262,7 @@ export function VantageAccess({ org }: { org: OrgSummary }) {
       </Panel>
       <Panel title="History" subtitle="Every request, decision and end is also in your audit trail.">
         {!past.length ? <p className="text-sm text-ink-3">None yet.</p> : (
-          <div className="-mx-4 -mt-1"><Table minWidth={640} head={<><th>Who and why</th><th className="w-44">Outcome</th><th className="w-32">When</th></>}>
+          <div className="-mx-4 -mt-1"><Table label="Vantage access history" minWidth={640} head={<><th>Who and why</th><th className="w-44">Outcome</th><th className="w-32">When</th></>}>
             {past.map((g) => <tr key={g.id}><td><span className="block text-sm text-ink">{g.staff_name}</span><span className="block text-xs text-ink-3">{g.reason}</span></td><td><Badge tone={ACCESS_TONE[g.status]}>{ACCESS_LABEL[g.status]}</Badge>{g.decided_by_name ? <span className="mt-0.5 block text-2xs text-ink-3">by {g.decided_by_name}</span> : null}</td><td className="text-xs text-ink-3">{timeAgo(g.ended_at || g.decided_at || g.requested_at)}</td></tr>)}
           </Table></div>
         )}

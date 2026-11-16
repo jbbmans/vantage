@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { formatDate } from '../../shared/metrics';
@@ -67,4 +67,27 @@ export function useMediaQuery(query: string): boolean {
     return () => media.removeEventListener('change', onChange);
   }, [query]);
   return matches;
+}
+
+/**
+ * Does this element's content overflow it (sideways, or down with `axis="y"`)? Kept current as the element, or what is
+ * in it, changes size, so a region takes a Tab stop only while there is something to scroll to. Pass the returned
+ * setter as the element's `ref`: it also works for an element that mounts later, such as a dialog's body.
+ */
+export function useOverflow<T extends HTMLElement>(axis: 'x' | 'y' = 'x') {
+  const [el, setEl] = useState<T | null>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    if (!el) { setOverflows(false); return; }
+    const check = () => setOverflows(axis === 'x' ? el.scrollWidth > el.clientWidth + 1 : el.scrollHeight > el.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const sizes = new ResizeObserver(check);
+    const watch = () => { sizes.disconnect(); sizes.observe(el); for (const child of Array.from(el.children)) sizes.observe(child); };
+    watch();
+    const content = new MutationObserver(() => { watch(); check(); });
+    content.observe(el, { childList: true });
+    return () => { sizes.disconnect(); content.disconnect(); };
+  }, [el, axis]);
+  return [setEl, overflows] as const;
 }

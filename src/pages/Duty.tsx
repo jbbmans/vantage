@@ -141,7 +141,7 @@ export default function Duty() {
       ) : (
         <div ref={queueRegion} tabIndex={-1} role="group" aria-label="Duty waiting for your review" className="card outline-none" style={{ overflow: 'hidden' }}>
           {/* The duty leads, so a phone shows what it is and whose before the table scrolls; it opens with every decision. */}
-          <Table minWidth={900} head={<><th>Duty</th><th className="w-32">Waiting since</th><th className="w-44">When</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-[17rem]"><span className="sr-only">Decide</span></th></>}>
+          <Table label="Duty waiting for your review" minWidth={900} head={<><th>Duty</th><th className="w-32">Waiting since</th><th className="w-44">When</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-[17rem]"><span className="sr-only">Decide</span></th></>}>
             {waiting.map((r, i) => (
               <tr key={r.id}>
                 <td className="min-w-[11rem]">
@@ -166,7 +166,7 @@ export default function Duty() {
           action={<Button variant="primary" onClick={() => setForm({ kind: 'new' })}>Record duty</Button>} /></div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-44"></th></>}>
+          <Table label="Duty recorded" minWidth={760} head={<><th className="w-44">When</th><th>Duty</th><th className="w-20 text-right">Hours</th><th className="w-24 text-right">Calculated</th><th className="w-24 text-right">Approved</th><th className="w-28">Status</th><th className="w-44"></th></>}>
             {shown.map((r) => (
               <tr key={r.id}>
                 <td className="text-xs"><TimeframeText table="duties" row={r} /></td>

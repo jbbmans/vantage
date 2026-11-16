@@ -7,6 +7,12 @@ export const SESSION_COOKIE = 'vantage_session';
 export const SIGNED_IN_COOKIE = 'vantage_signed_in';
 
 export const sessionDigest = (token: string) => sha256(`session:${token}`);
+/**
+ * The value of the marker cookie the page reads to know a session is open (the session cookie is httpOnly). Each
+ * session has its own, so a page can tell a 401 about a session a newer sign-in replaced; it is derived one way from the
+ * token under its own label, so it opens nothing and does not give away the session's id.
+ */
+export const signedInMarker = (token: string) => sha256(`signed-in:${token}`).slice(0, 16);
 
 /** How long a session may sit unused. Vantage staff's is never longer than anyone else's. */
 export const idleMinutesFor = (config: AppContext['config'], isStaff: boolean | number) =>

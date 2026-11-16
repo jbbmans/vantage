@@ -127,7 +127,7 @@ function StagedLoad({ load, canEdit, onApply, onDiscard, onBrowse }: { load: Cat
       {p.removed > 0 && <p className="mt-1 text-xs text-ink-3">A course no longer listed stops being verified for new entries. Trainings already verified against the catalog in use keep what was verified.</p>}
       {p.problems.length > 0 && (
         <details className="mt-2"><summary className="cursor-pointer text-xs text-ink-3">Rows left out{p.left_out > p.problems.length ? ` (the first ${p.problems.length})` : ''}</summary>
-          <Table head={<><th className="w-16">Line</th><th className="w-32">Code</th><th>Why</th></>}>
+          <Table label="Rows left out" head={<><th className="w-16">Line</th><th className="w-32">Code</th><th>Why</th></>}>
             {p.problems.map((x) => <tr key={`${x.line}-${x.reason}`}><td className="fig text-xs">{x.line}</td><td className="text-xs">{x.code ?? ''}</td><td className="text-xs">{x.reason}</td></tr>)}
           </Table>
         </details>
@@ -208,7 +208,7 @@ function BrowseDialog({ target, onClose }: { target: { source: CourseSourceRecor
         <Field label="Find a course" hint="by code or name"><Input value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} maxLength={200} /></Field>
         {query.isPending ? <Skeleton className="h-40" /> : query.isError ? <p className="text-sm text-bad">{api.errorText(query.error)}</p> : !data?.entries.length ? <EmptyState title="No course matches" /> : (
           <>
-            <Table head={<><th className="w-32">Code</th><th>Name</th><th className="w-40">Provider</th><th className="w-20 text-right">Hours</th><th className="w-20 text-right">CEUs</th><th className="w-32">Category</th></>}>
+            <Table label="Courses in this catalog" head={<><th className="w-32">Code</th><th>Name</th><th className="w-40">Provider</th><th className="w-20 text-right">Hours</th><th className="w-20 text-right">CEUs</th><th className="w-32">Category</th></>}>
               {data.entries.map((e) => <tr key={e.entry_id}><td className="text-xs">{e.code}</td><td className="text-sm">{e.name}</td><td className="text-xs">{e.provider ?? ''}</td><td className="fig text-right text-xs">{e.hours ?? ''}</td><td className="fig text-right text-xs">{e.ceus ?? ''}</td><td className="text-xs">{e.category ?? ''}</td></tr>)}
             </Table>
             <div className="flex items-center justify-between text-xs text-ink-3">

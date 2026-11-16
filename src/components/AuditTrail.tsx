@@ -86,7 +86,7 @@ export default function AuditTrail({ queryKey, load, exportUrl, fileStem, units,
       {data.chain && !data.chain.ok && <p className="mb-3 text-sm text-bad">{data.chain.reason}. {units ? 'Tell Vantage support: the trail is kept for every Unit Instance at once.' : 'Restore from a backup taken before that point and investigate.'}</p>}
       <div className="card" style={{ overflow: 'hidden' }}>
         {!rows.length ? <EmptyState title="Nothing matches" description={filtered ? 'Try a wider date range, another category or another action.' : empty} /> : (
-          <Table minWidth={900} head={<><th className="w-14">#</th><th className="w-40">When</th><th className="w-36">Actor</th><th className="w-44">Action and category</th><th className="w-32">Subject</th><th className="w-28">Unit</th><th>Detail</th><th className="w-28">IP</th></>}>
+          <Table label="Audit trail" minWidth={900} head={<><th className="w-14">#</th><th className="w-40">When</th><th className="w-36">Actor</th><th className="w-44">Action and category</th><th className="w-32">Subject</th><th className="w-28">Unit</th><th>Detail</th><th className="w-28">IP</th></>}>
             {rows.map((r) => (
               <tr key={r.id}>
                 <td className="fig text-xs text-ink-3">{r.seq}</td>

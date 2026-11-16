@@ -4,7 +4,7 @@ import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives
 import { PERIOD_OPTIONS, formatDate, formatDollars } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
-import { humanize, cn } from '@/lib/utils';
+import { humanize, cn, useOverflow } from '@/lib/utils';
 import { daysUntil } from '../../shared/evaluation';
 
 const STATUS_TONES: Record<string, Tone> = {
@@ -69,14 +69,29 @@ export function useParam(name: string, fallback = ''): [string, (v: string) => v
   return [value, set];
 }
 
-export function Table({ head, children, className, minWidth = 640 }: { head: React.ReactNode; children: React.ReactNode; className?: string; minWidth?: number }) {
+/**
+ * A wide table's sideways scroller (WCAG 2.1.1, 1.3.1). While its content is wider than it, it is a named region with a
+ * Tab stop, so someone on a keyboard can reach and scroll the columns that do not fit; otherwise it is a plain box and no
+ * extra stop. `label` names it: the table's own caption, as a screen reader hears it.
+ */
+export function ScrollRegion({ label, className = 'scroll-x', children }: { label: string; className?: string; children: React.ReactNode }) {
+  const [ref, overflows] = useOverflow<HTMLDivElement>('x');
+  return <div ref={ref} className={className} {...(overflows ? { role: 'region', 'aria-label': label, tabIndex: 0 } : {})}>{children}</div>;
+}
+
+/**
+ * A data table. `label` is its caption (read to screen readers, hidden on screen unless `showCaption`) and names its
+ * scroller when the table is wider than the page.
+ */
+export function Table({ head, children, className, minWidth = 640, label, showCaption = false }: { head: React.ReactNode; children: React.ReactNode; className?: string; minWidth?: number; label: string; showCaption?: boolean }) {
   return (
-    <div className={className ? className : 'scroll-x'}>
+    <ScrollRegion label={label} className={className ? className : 'scroll-x'}>
       <table className="w-full border-collapse text-sm" style={{ minWidth }}>
+        <caption className={showCaption ? 'pb-2 text-left text-sm font-medium text-ink-2' : 'sr-only'}>{label}</caption>
         <thead><tr className="border-b border-line-strong bg-surface-2/60 text-left [&>th]:px-2.5 [&>th]:py-1.5 [&>th]:table-head">{head}</tr></thead>
         <tbody className="[&>tr]:row [&>tr>td]:px-2.5 [&>tr>td]:py-1.5 [&>tr>td]:align-top">{children}</tbody>
       </table>
-    </div>
+    </ScrollRegion>
   );
 }
 

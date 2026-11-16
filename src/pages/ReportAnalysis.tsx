@@ -118,10 +118,10 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title={`Largest entries by ${money.toLowerCase()}`} padded={false}>
-          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Amount</th></>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /><span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
+          <Table label={`Largest entries by ${money.toLowerCase()}`} head={<><th>Date</th><th>Entry</th><th className="text-right">Amount</th></>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /><span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
         </Panel>
         <Panel title="Largest entries by actions counted" padded={false}>
-          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Count</th></>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
+          <Table label="Largest entries by actions counted" head={<><th>Date</th><th>Entry</th><th className="text-right">Count</th></>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
         </Panel>
       </div>
 
@@ -148,7 +148,7 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
 
       <Panel title="Entry ledger" subtitle={`${a.appendix.length} completed entries in ${a.period.label}`} action={<Button size="sm" variant="ghost" onClick={() => setLedgerOpen((v) => !v)}>{ledgerOpen ? 'Hide' : 'Show all'}</Button>} padded={false}>
         {ledgerOpen ? (
-          <Table head={<><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></>} minWidth={760}>
+          <Table label="Entry ledger" head={<><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></>} minWidth={760}>
             {a.appendix.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="text-xs text-ink-2">{e.area}</td><td className="fig text-right text-xs">{e.quantity == null ? '' : `${formatNumber(e.quantity)} ${e.unit_label || ''}`}</td><td className="fig text-right text-xs">{e.value == null ? '' : formatDollars(e.value)}</td><td className="text-xs text-ink-2">{e.result}</td><td className="fig text-right text-xs">{e.strength}</td></tr>)}
           </Table>
         ) : <p className="px-4 py-3 text-sm text-ink-3">The PDF always includes the full ledger as an appendix.</p>}

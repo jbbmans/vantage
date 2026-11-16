@@ -218,7 +218,7 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
           ))}
         </ul>
         <div className="card hidden sm:block" style={{ overflow: 'hidden' }}>
-          <Table head={<>{manage && <th className="w-8">{shownSelectable.length > 0 && <input type="checkbox" className="h-4 w-4 accent-accent" checked={allShown} onChange={toggleShown} aria-label="Select everyone shown" />}</th>}<th>Marine</th>{rollup && <th className="w-40">Team</th>}<th>Billet</th><th className="w-40">Supervisor</th><th className="w-32">Dates</th><th>Roles</th><th className="w-28"></th></>}>
+          <Table label="Roster" head={<>{manage && <th className="w-8">{shownSelectable.length > 0 && <input type="checkbox" className="h-4 w-4 accent-accent" checked={allShown} onChange={toggleShown} aria-label="Select everyone shown" />}</th>}<th>Marine</th>{rollup && <th className="w-40">Team</th>}<th>Billet</th><th className="w-40">Supervisor</th><th className="w-32">Dates</th><th>Roles</th><th className="w-28"></th></>}>
             {shown.map((p) => (
               <tr key={p.id}>
                 {manage && <td>{checkbox(p)}</td>}
@@ -355,7 +355,7 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
       </Panel>
       <Panel title="Open invitations" className="lg:col-span-2" padded={false}>
         {!data?.invites?.length ? <EmptyState title="No open invitations" /> : (
-          <Table head={<><th>Invitee</th><th>Role · billet</th><th className="w-28">Expires</th><th className="w-28">By</th><th className="w-20"></th></>}>
+          <Table label="Open invitations" head={<><th>Invitee</th><th>Role · billet</th><th className="w-28">Expires</th><th className="w-28">By</th><th className="w-20"></th></>}>
             {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
           </Table>
         )}
@@ -405,7 +405,7 @@ function JoinCodes({ unitId, unitLabel }: { unitId: string; unitLabel: (id: stri
       </Panel>
       <Panel title="Join codes" className="lg:col-span-2" padded={false}>
         {!codes.length ? <EmptyState title="No join codes" description="Create one to enroll a group at once." /> : (
-          <Table head={<><th>Code</th><th>Role · note</th><th className="w-20">Used</th><th className="w-28">Expires</th><th className="w-24"></th></>}>
+          <Table label="Join codes" head={<><th>Code</th><th>Role · note</th><th className="w-20">Used</th><th className="w-28">Expires</th><th className="w-24"></th></>}>
             {codes.map((c) => { const state = joinCodeState(c); return (
               <tr key={c.id}><td className="font-mono text-xs text-ink">{c.code_hint}-·····</td><td className="text-xs text-ink-2">{roles.find((r) => r.id === c.role_id)?.name || 'Marine'}{c.note ? ` · ${c.note}` : ''}</td><td className="fig text-xs">{c.uses}{c.max_uses != null ? ` of ${c.max_uses}` : ''}</td><td className="text-xs">{c.expires_at ? <DateText value={c.expires_at} /> : <span className="text-ink-3">Until revoked</span>}</td><td className="text-right">{state.label === 'Live' ? <Button size="xs" variant="ghost" aria-label={`Revoke join code ${c.code_hint}`} onClick={() => setRevoking(c)}>Revoke</Button> : <Badge tone={state.tone}>{state.label}</Badge>}</td></tr>
             ); })}
@@ -479,7 +479,7 @@ function Units({ units, manageUnits, orgAdmin, roster }: { units: Unit[]; manage
     <>
       <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Units you can manage. Authority flows down: leading a command reaches every team beneath it, and leading a team reaches nothing above it.</p><Button variant="primary" onClick={() => setEditing({ name: '', short_name: '', echelon: 'section', location: '', parent_id: manageUnits[0] || '' })} disabled={!manageUnits.length}><Building2 className="h-4 w-4" />New unit</Button></div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        <Table head={<><th>Unit</th><th className="w-36">Echelon</th><th className="w-40">Leader</th><th className="w-40"></th></>}>
+        <Table label="Units" head={<><th>Unit</th><th className="w-36">Echelon</th><th className="w-40">Leader</th><th className="w-40"></th></>}>
           {[...rows, ...orphans].map((u) => { const owner = roster.find((p) => p.id === u.owner_user_id); const canManage = manageUnits.includes(u.id); return (
             <tr key={u.id}><td><span style={{ paddingLeft: `${u.depth * 16}px` }} className="flex items-center gap-2"><span className="font-medium text-ink">{u.name}</span>{u.short_name && <span className="text-xs text-ink-3">{u.short_name}</span>}<span className="fig text-2xs text-ink-3">{u.code}</span></span></td><td className="text-xs text-ink-2">{ECHELONS.find((e) => e.value === u.echelon)?.label || humanize(u.echelon)}</td><td className="text-xs text-ink-2">{owner ? `${owner.rank_abbr || ''} ${owner.last_name}` : u.owner_user_id === identity?.user.id ? 'You' : u.owner_user_id ? 'Set' : <span className="text-warn">Unclaimed</span>}</td>
               <td className="text-right">{canManage && <span className="flex justify-end gap-1"><Button size="xs" variant="ghost" onClick={() => setEditing({ ...u, short_name: u.short_name || '', location: u.location || '', parent_id: u.parent_id || '' })}>Edit</Button>{(u.owner_user_id === identity?.user.id || orgAdmin) && <Button size="xs" variant="ghost" onClick={() => { setTransfer(u); setNewOwner(''); }}>Transfer</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm(u)}>Archive</Button></span>}</td></tr>
@@ -638,7 +638,7 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
         <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
           {!data.members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
-            <Table head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
+            <Table label="Members" head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
               {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
             </Table>
           )}
@@ -665,7 +665,7 @@ function UnitAudit({ unitId }: { unitId: string }) {
   return (
     <Panel title="Who has been reading records in this unit" subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}>
       {!rows.length ? <EmptyState icon={ClipboardList} title="No access events yet" /> : (
-        <Table head={<><th className="w-40">When</th><th className="w-32">Who</th><th>Action</th><th className="w-32">Subject</th><th>Detail</th></>}>
+        <Table label="Who has been reading records in this unit" head={<><th className="w-40">When</th><th className="w-32">Who</th><th>Action</th><th className="w-32">Subject</th><th>Detail</th></>}>
           {rows.map((r) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.actor_username || fullName(r) || 'system'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td><td className="text-xs">{r.subject_username || ''}</td><td className="truncate text-xs text-ink-3">{r.detail}</td></tr>)}
         </Table>
       )}

@@ -125,7 +125,7 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
             <div className="text-sm text-ink-2">
               <p><strong className="text-ink">{preview.updates.length}</strong> update existing entries · <strong className="text-ink">{preview.clean.length}</strong> new · <strong className="text-ink">{preview.duplicates.length}</strong> likely duplicates{skipDupes ? ' (skipped)' : ' (will import)'}</p>
               <div className="mt-2 max-h-56 overflow-auto rounded-md border border-line">
-                <Table head={<><th>When</th><th>Title</th><th>Qty</th><th>Value</th><th>Area</th></>} className="" minWidth={520}>
+                <Table label="Rows to import" head={<><th>When</th><th>Title</th><th>Qty</th><th>Value</th><th>Area</th></>} className="" minWidth={520}>
                   {preview.records.slice(0, 25).map((r, i) => <tr key={i}><td className="fig whitespace-nowrap">{formatTimeframe('activities', r, { pattern: 'yyyy-MM-dd' })}</td><td className="max-w-xs truncate">{r.title}</td><td className="fig">{r.quantity ?? ''} {r.unit_label || ''}</td><td className="fig">{r.dollar_amount ?? ''}</td><td>{r.eval_area || ''}</td></tr>)}
                 </Table>
                 {preview.records.length > 25 && <p className="px-3 py-1.5 text-2xs text-ink-3">…and {preview.records.length - 25} more</p>}

@@ -131,7 +131,7 @@ export default function SignInDetails({ orgId, onDone }: { orgId: string; onDone
             )}
             {!shown.length ? <p className="py-6 text-center text-sm text-ink-3">Nobody in this group has an email address to send to.</p> : (
               <div className="card" style={{ overflow: 'hidden' }}>
-                <Table minWidth={640} head={<><th>Marine</th><th>Email</th><th className="w-32">Last sign-in</th><th className="w-40">Status</th></>}>
+                <Table label="Who the sign-in details go to" minWidth={640} head={<><th>Marine</th><th>Email</th><th className="w-32">Last sign-in</th><th className="w-40">Status</th></>}>
                   {shown.map((p) => {
                     const o = outcomes[p.id];
                     return (
