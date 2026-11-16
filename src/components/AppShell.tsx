@@ -9,7 +9,7 @@ import {
 import { HOME, groupFor, pageFor, placeName, type Count, type NavGroup, type NavPage } from '@/config/nav';
 import { useNav } from '@/lib/useNav';
 import { cn, initials, timeAgo, useMediaQuery } from '@/lib/utils';
-import { centerInStrip, isTextEntry, ownsKeys, shortcutsOn } from '@/lib/keyboard';
+import { centerInStrip, isTextEntry, keepFocusClear, ownsKeys, shortcutsOn } from '@/lib/keyboard';
 import { pageTitle } from '@/lib/title';
 import { Badge, Kbd, Skeleton, Tooltip } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
@@ -336,6 +336,7 @@ export default function AppShell() {
   const savePrefs = useSavePrefs();
   const location = useLocation();
 
+  useEffect(() => keepFocusClear(), []);
   useEffect(() => { installTelemetry(); track('session.started', { returning: document.referrer.includes(window.location.host) }); }, []);
   useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname, location.search) }); }, [location.pathname, location.search]);
   const navigate = useNavigate();

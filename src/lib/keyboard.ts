@@ -38,3 +38,33 @@ export function centerInStrip(item: Element | null | undefined, strip: Element |
   const box = strip.getBoundingClientRect();
   strip.scrollLeft += at.left + at.width / 2 - (box.left + box.width / 2);
 }
+
+/**
+ * Keeps the control that keyboard focus lands on clear of the sticky header and the phone's tab bar (WCAG 2.4.11).
+ * Chromium scrolls a focused control just into view and does not apply scroll-padding to it, so a control at the edge
+ * of the screen landed under the bar. A frame after focus moves, the page scrolls by what is still covered. Focus from
+ * a pointer is left alone (nobody can tap through the bar), and so are controls that sit in the chrome themselves, in
+ * a dialog, or fixed on top (the skip link). Returns the function that stops it.
+ */
+export function keepFocusClear(): () => void {
+  let frame = 0;
+  const GAP = 12;
+  const check = () => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement) || el === document.body || !el.matches(':focus-visible')) return;
+    if (el.closest('header.sticky, nav.tabbar, aside, [role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]')) return;
+    for (let n: HTMLElement | null = el; n && n !== document.body; n = n.parentElement) if (getComputedStyle(n).position === 'fixed') return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.height) return;
+    const header = document.querySelector<HTMLElement>('header.sticky');
+    const bar = document.querySelector<HTMLElement>('nav.tabbar');
+    const top = header ? header.getBoundingClientRect().bottom + GAP : 0;
+    const bottom = bar && getComputedStyle(bar).display !== 'none' ? bar.getBoundingClientRect().top - GAP : window.innerHeight;
+    // A control taller than the room between them shows its top.
+    if (rect.top < top) window.scrollBy({ top: rect.top - top, behavior: 'instant' });
+    else if (rect.bottom > bottom) window.scrollBy({ top: Math.min(rect.bottom - bottom, rect.top - top), behavior: 'instant' });
+  };
+  const moved = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(check); };
+  document.addEventListener('focusin', moved);
+  return () => { document.removeEventListener('focusin', moved); cancelAnimationFrame(frame); };
+}

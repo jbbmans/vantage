@@ -14,7 +14,7 @@ import { hasSession, logout } from '@/lib/api';
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { appHref } from '@/lib/links';
 import { cn } from '@/lib/utils';
-import { centerInStrip } from '@/lib/keyboard';
+import { centerInStrip, keepFocusClear } from '@/lib/keyboard';
 import { usePageTitle } from '@/lib/title';
 
 const Login = lazy(() => import('@/pages/Login'));
@@ -62,6 +62,7 @@ function Gate({ documentTitle, loaderLabel, variant, admits, denied, children }:
   const signedOut = !hasSession() || statusOf(identity.error) === 401;
   // Each section names the tab itself (ConsoleLayout); the console's own name is for sign-in, loading and a refusal.
   const showsSections = !signedOut && identity.data != null && admits(identity.data) && !identity.data.user.must_change_password;
+  useEffect(() => keepFocusClear(), []);
   useEffect(() => {
     applyTheme(storedTheme());
     const signedIn = () => { rerender(); qc.invalidateQueries({ queryKey: keys.me }); };

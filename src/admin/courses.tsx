@@ -127,7 +127,7 @@ function StagedLoad({ load, canEdit, onApply, onDiscard, onBrowse }: { load: Cat
       {p.removed > 0 && <p className="mt-1 text-xs text-ink-3">A course no longer listed stops being verified for new entries. Trainings already verified against the catalog in use keep what was verified.</p>}
       {p.problems.length > 0 && (
         <details className="mt-2"><summary className="cursor-pointer text-xs text-ink-3">Rows left out{p.left_out > p.problems.length ? ` (the first ${p.problems.length})` : ''}</summary>
-          <Table label="Rows left out" head={<><th className="w-16">Line</th><th className="w-32">Code</th><th>Why</th></>}>
+          <Table label="Why each row was left out" head={<><th className="w-16">Line</th><th className="w-32">Code</th><th>Why</th></>}>
             {p.problems.map((x) => <tr key={`${x.line}-${x.reason}`}><td className="fig text-xs">{x.line}</td><td className="text-xs">{x.code ?? ''}</td><td className="text-xs">{x.reason}</td></tr>)}
           </Table>
         </details>
