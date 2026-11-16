@@ -46,7 +46,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
     const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
     // An action named by what was typed ("dark", "pdf") comes before the catch-all "log this sentence".
     const actions: Item[] = q ? (more.length ? [...more, log] : [log]) : [log];
-    const pages = nav.filter((n) => !q || `${n.label} ${n.hint}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
+    const pages = nav.filter((n) => !q || `${n.label} ${n.hint} ${n.keywords || ''}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
     const switches = views.length > 1 ? views.filter((v) => v.id !== view?.id && (!q || `view ${viewLabel(v)} ${v.name}`.toLowerCase().includes(q))).map((v) => ({ id: `view-${v.id}`, title: `View ${viewLabel(v)}`, subtitle: v.teams ? `Whole command · ${v.teams} ${v.teams === 1 ? 'team' : 'teams'}` : v.level === 'full' ? 'Team' : 'Team overview', kind: 'view', run: () => setView(v.id) })) : [];
     const recent = recentVisits(identity?.user.id).slice(0, 5).map((r) => ({ id: `recent-${r.to}`, title: r.title, subtitle: r.kind === 'case' ? 'Case you opened' : r.kind === 'marine' ? 'Marine you opened' : 'Entry you opened', kind: 'recent', to: r.to }));
     if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3), ...more];

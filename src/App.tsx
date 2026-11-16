@@ -46,6 +46,7 @@ const DemoGovernance = lazy(() => import('@/pages/DemoGovernance'));
 const Help = lazy(() => import('@/pages/Help'));
 const Support = lazy(() => import('@/pages/Support'));
 const Reference = lazy(() => import('@/pages/Reference'));
+const Notifications = lazy(() => import('@/pages/Notifications'));
 
 function Fallback() {
   return <div className="page space-y-3"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
@@ -260,6 +261,7 @@ function AppRoutes() {
         <Route path="team" element={<Here><D><Team section="overview" /></D></Here>} />
         {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
+        <Route path="notifications" element={<D><Notifications /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
         <Route path="invite" element={<InvitationRoute />} />
         {/* The demo's stand-in for the Unit Manager console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}

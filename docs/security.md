@@ -362,6 +362,64 @@ analytics and the records behind each figure (`server/services/unitAnalytics.ts`
 - **Charts carry no new data.** The kit draws what these routes, the metrics routes and the report center already
   return; the personal analysis drills from its own ledger without a request.
 
+## Workflow messages and notices (ADR-0031)
+
+[ADR-0031](engineering/ADR/0031-workflow-messages-and-notices.md) keeps what is said on the record or work case it is
+about, never in a chat, and gives every notice the record it is about (`server/services/comments.ts`,
+`server/services/notifications.ts`, migration 038).
+
+- **Who may speak is one rule** (`speaks()`). Writing a comment, asking a question or for a review, answering, being
+  asked, being named, being offered in the person picker and being told of a new comment all take an active account
+  that reads the record by its own access, on a record neither frozen nor anonymized, and that belongs to the record's
+  Unit Instance (`scope.orgIds`), or is its Marine on a record that is private, has no unit, or is in an instance they
+  still belong to. Permissions are recomputed without Vantage access (`ownScope` in `server/authz/scope.ts`), so
+  Vantage staff reading through an access grant never speak (ADR-0010). Anyone else who reads the record reads its
+  discussion and is refused a write (403 `not_a_speaker`); a frozen or anonymized record's discussion is closed (403
+  `discussion_closed`). A counselor is told of new comments only while they still counsel its Marine
+  (`stillCounsels`). Removing someone else's comment takes `MANAGE_RECORDS` in the record's unit, by one's own access.
+  Only the person asked answers a request, and only its author withdraws it.
+- **Mentions stay inside the Unit Instance.** A name is looked up only among the record's Marine and the members of its
+  Unit Instance, never the whole service, and kept only where that person speaks; while a counseling is a draft or in
+  review, only its counselor and its Marine can be named or asked. `@username` exactly, or a first and last name run
+  together when exactly one such person matches; never after a letter, digit or name character, so an e-mail address is
+  no mention. A message names at most 10 people, refused (400) rather than cut. The answer says who was told and which
+  names were not, never why.
+- **Each workflow's rules are the server's.** A duty is asked for review only of someone who may review it
+  (`dutyReviewAuthority`), never its Marine. A counseling takes no review request. A work case takes no free comment
+  (`case_comment`). A case leaves "Verification required" for a working stage only with a reason, unless its holder
+  moves it; the state PATCH and a recorded action, which carry no reason, refuse anyone else (409 `reason_required`).
+- **A counseling's words before it was final stay with its two people.** A comment, request or answer said while it is
+  a draft or in review is `private`, and migration 038 marked those already written: only its counselor and its Marine
+  read it, after it is final too, and every action on it answers 404 to anyone else.
+- **Requests, answers and assignment notes are kept as said.** Nobody edits or removes one, a moderator included. The
+  database refuses a change to their words, kind, author or addressee except a retention schedule's redaction
+  (`comments_requests_kept`), and an answer on another record than its request's (`comments_reply_same_record`). A
+  comment cannot be edited while a legal hold covers its record type, its Marine, its author or the instance.
+- **Rate limits.** 30 questions and review requests an hour per person (`workflowRequests`). The person picker has its
+  own limit, 300 lookups in 15 minutes per person (`peopleLookups`), reads at most 50 candidates in SQL and offers 10.
+- **A notice never carries anybody's words.** A notice about a record or work case stores the event and who did it, and
+  no message; the record's name is read when the notice is read, after the access check, and is "A record its retention
+  schedule anonymized" once it is. Help request, access request and credential approval notices no longer quote a
+  subject, a reply, a reason or a note: they are read where they were written. Migration 038 cleared the words old
+  notices quoted. The stated exceptions are notices about no record: a leader's team message, a MARADMIN's number and
+  title, a Unit Instance's suspension reason and a withheld-feature reason, and operations notes.
+- **Checked again when read.** `GET /api/me/notifications` checks each notice's record or case against its reader's
+  access now (`readableEntity`) and hides one they can no longer open: deleted, moved out of reach, back in draft, or
+  access lost. The unread count is counted the same way, and the person's export applies the same check. A notice that
+  would only tell someone they lost access (a counseling taken back, claims released because they left) is not sent. A
+  person marks only their own notices read.
+- **Kept 180 days**, read or not, then removed by the `notifications_expire` job every six hours, except those of a
+  person under a legal hold and those of a Unit Instance under an instance hold; a hold on every instance stops the
+  sweep. A run that finds any due is recorded as a disposition run, and audited (`notifications_expired`) when it removes
+  anything. A destroyed or anonymized record takes its notices with it; anonymizing also redacts every comment, request
+  and answer on it and closes its open requests.
+- **One Unit Instance.** A `BEFORE INSERT` trigger on `comments` (`comments_same_org_insert`) refuses an entry whose
+  unit is in another Unit Instance than its record's. There is no update trigger, because a Marine's own comments
+  travel with their record (ADR-0008); `instanceBoundaryViolations` counts live entries by anyone but the record's
+  Marine across the boundary.
+- **Audited without words.** `request_sent` and `request_closed` name the request by id; comment audits name the
+  comment by id.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.
@@ -381,7 +439,7 @@ Every log Vantage keeps, where it goes and who reads it. Nothing else is written
 Permissions are held per unit, so a person who serves in one Unit Instance only ever stands in its units. Someone attached to two commands holds real authority in each, and may work in each; what no authority allows is carrying one instance's data, or a reference to it, into the other. Where an operation names two units, or a unit and a row from another unit, the server checks that both are in one Unit Instance (`sameInstance` and `assertSameInstance` in `server/authz/scope.ts`, refusals with the code `cross_instance`):
 
 - **People.** A Marine is never moved between teams in different Unit Instances, nor enrolled directly into one on the strength of being led in another: they join it by invitation or join code. A primary unit held in one instance is not taken, moved or reassigned by enrollment or departure in another.
-- **Records.** A record manager or counselor may correct and re-place another Marine's record inside its own instance, never into another, and only its Marine takes it out of every unit. A Marine may re-place their own record among the units they belong to, because the record is theirs, unless it carries someone else's comments, attachments or filed work from another instance; comments and files are judged by the unit they were added in, and re-importing an entry by its id is the same move. Both instances' audit trails record the move.
+- **Records.** A record manager or counselor may correct and re-place another Marine's record inside its own instance, never into another, and only its Marine takes it out of every unit. A Marine may re-place their own record among the units they belong to, because the record is theirs, unless it carries someone else's comments, attachments or filed work from another instance; comments and files are judged by the unit they were added in, and re-importing an entry by its id is the same move. A record with a question or review request still open with someone other than its Marine does not move to another instance until it is answered or withdrawn (ADR-0031). Both instances' audit trails record the move.
 - **References by id.** A project filed against an entry, a task or a queue item; a contact on a thread; a thread linked to work; an uploaded sheet imported into a unit; a record cited by a report revision. Each is checked for the instance it belongs to, not only for whether the caller can read it, from both ends: the row pointed at cannot move out from under the row that points. A thread shows only the links its reader could open.
 - **Reports and exports.** A unit id from another instance is refused rather than answered with the caller's own figures, and a report about another Marine cites one instance's records. A unit export, a CSV, a report, and the metrics and dashboards for a unit carry one instance's rows; a view with no unit is the caller's own and counts what they can read in each instance they serve in.
 - **Identity.** An organization cannot link or change the EDIPI, which is the CAC sign-in key, of an account that serves in another instance or runs the service, and a changed EDIPI ends the account's sessions. The roster feed never renames or deactivates an account that runs the service and sits in none of the organization's units, and never deactivates any account that runs the service.
@@ -507,3 +565,5 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | Reading a government mailbox from the wrong cloud | The national cloud is declared, never inferred from an address |
 | Content leaking into analytics | Closed catalog with scalar-only properties; undeclared values dropped |
 | De-anonymizing a small cohort | Breakdowns under three contributors withheld |
+| Vantage staff on a read-only grant writing on a record, or being asked or told about it | `speaks()` recomputes permissions without Vantage access; such a reader reads the discussion and nothing more (ADR-0031) |
+| A mention or a notice reaching someone outside the record's Unit Instance, or one who can no longer open it | Mentions looked up in the record's Unit Instance only, at most 10 a message; every notice checked again when read and not shown otherwise; no words in a notice about a record (ADR-0031) |

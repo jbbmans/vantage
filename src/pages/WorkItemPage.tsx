@@ -5,7 +5,7 @@ import {
   ArrowLeft, BookOpen, Calculator, Check, CheckCircle2, ChevronDown, Circle, CircleDot, CircleDashed, FileCheck2, FileSpreadsheet, FlaskConical, GitBranch, Hand,
   History, Info, Lock, OctagonAlert, PenLine, RefreshCw, Send, ShieldAlert, ShieldCheck, SkipForward, Sparkles, UserRoundPlus, Users, Wand2,
 } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Select, Skeleton, Textarea } from '@/components/ui/primitives';
+import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Select, Skeleton, Switch, Textarea } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
@@ -14,7 +14,9 @@ import LifecycleBars from '@/components/fmra/LifecycleBars';
 import { AiAction, AiResult, useAiModel } from '@/components/AiPanel';
 import { ThreadsForItem } from './Workbench';
 import CaseDiagnosisPanel from '@/components/CaseDiagnosisPanel';
-import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
+import { Discussion } from '@/components/Comments';
+import { PersonPicker } from '@/components/PersonPicker';
+import { discussionKey, keys, useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, formatStamp, timeAgo, todayIso } from '@/lib/utils';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
@@ -29,6 +31,7 @@ import {
 import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../shared/fmra';
 import { formatCents, parseMoney } from '../../shared/money';
 import type { CaseEventView, CaseIntegrity, CaseView, EventBody, WorkItemView } from '../../shared/caseView';
+import { REQUEST_MAX, type Speaker } from '../../shared/workflowMessages';
 
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
@@ -214,6 +217,8 @@ export default function WorkItemPage() {
           {c.permissions.act && !closed && <EntryComposer itemId={id} procedure={procedure} onDone={refresh} />}
 
           <HistoryPanel itemId={id} events={c.events} people={c.people} procedure={procedure} canCorrect={c.permissions.act && !closed} onDone={refresh} integrity={c.integrity} />
+
+          <Discussion host={{ kind: 'work', id }} />
         </div>
 
         <aside className="space-y-5" aria-label="About this work">
@@ -271,7 +276,7 @@ export default function WorkItemPage() {
       </div>
 
       {handoffOpen && <HandoffDialog itemId={id} version={item.version} assigning={!item.claimed_by} onClose={() => setHandoffOpen(false)} onDone={() => { setHandoffOpen(false); refresh(); }} />}
-      {stageOpen && <StageDialog itemId={id} version={item.version} stage={stageOpen} procedure={procedure} resolution={c.resolution} onClose={() => setStageOpen(null)} onDone={() => { setStageOpen(null); refresh(); }} />}
+      {stageOpen && <StageDialog itemId={id} version={item.version} from={c.stage} stage={stageOpen} holding={holding} procedure={procedure} resolution={c.resolution} onClose={() => setStageOpen(null)} onDone={() => { setStageOpen(null); refresh(); }} />}
     </div>
   );
 }
@@ -1090,27 +1095,83 @@ function HandoffDialog({ itemId, version, assigning, onClose, onDone }: { itemId
   );
 }
 
-function StageDialog({ itemId, version, stage, procedure, resolution, onClose, onDone }: { itemId: string; version: number; stage: Stage; procedure: Procedure | null; resolution: CaseView['resolution']; onClose: () => void; onDone: () => void }) {
+/** The stages a case is worked in. Leaving "Verification required" for one of these sends it back for correction (ADR-0031). */
+const isReturn = (from: Stage, to: Stage) => from === 'verification_required' && !['verification_required', 'resolved', 'not_applicable'].includes(to);
+
+function StageDialog({ itemId, version, from, stage, holding, procedure, resolution, onClose, onDone }: { itemId: string; version: number; from: Stage; stage: Stage; holding: boolean; procedure: Procedure | null; resolution: CaseView['resolution']; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
+  const qc = useQueryClient();
   const [category, setCategory] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [askVerify, setAskVerify] = useState(false);
+  const [verifier, setVerifier] = useState<Speaker | null>(null);
+  const [verifyNote, setVerifyNote] = useState('');
+  const host = { kind: 'work', id: itemId } as const;
+  const returning = isReturn(from, stage);
+  const verifying = stage === 'verification_required';
   const needsCategory = stage === 'waiting';
-  const needsReason = stage === 'blocked' || (stage === 'not_applicable' && Boolean(procedure));
+  // The holder may take their own work back without saying why; anyone else says what needs correcting.
+  const needsReason = stage === 'blocked' || (stage === 'not_applicable' && Boolean(procedure)) || (returning && !holding);
   const blockedResolve = stage === 'resolved' && procedure && !resolution?.met?.ok;
+  const asking = verifying && askVerify && Boolean(verifier);
+  const note = verifyNote.trim();
+  const noteTooLong = note.length > REQUEST_MAX;
+  const label = STAGE_LABEL[stage].toLowerCase();
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={`Move to ${STAGE_LABEL[stage].toLowerCase()}`} size="sm"
-      description={stage === 'resolved' && procedure ? 'This work follows a procedure, so it resolves only once its outcome is verified.' : stage === 'waiting' ? 'Waiting time is tracked as elapsed time, never as work.' : stage === 'not_applicable' && procedure ? 'Closing procedure work as not applicable closes it without verifying it, so say why.' : undefined}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} disabled={Boolean(blockedResolve) || (needsCategory && !category) || (needsReason && !reason.trim())} onClick={async () => {
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={returning ? 'Return for correction' : `Move to ${label}`} size="sm"
+      description={returning
+        ? `It goes back to ${label}. ${holding ? 'You hold it, so saying what needs correcting is up to you.' : 'Its holder is told, and so is whoever asked for it to be verified.'}`
+        : stage === 'resolved' && procedure ? 'This work follows a procedure, so it resolves only once its outcome is verified.' : stage === 'waiting' ? 'Waiting time is tracked as elapsed time, never as work.' : stage === 'not_applicable' && procedure ? 'Closing procedure work as not applicable closes it without verifying it, so say why.' : undefined}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} disabled={Boolean(blockedResolve) || (needsCategory && !category) || (needsReason && !reason.trim()) || (verifying && askVerify && (!verifier || !note || noteTooLong))} onClick={async () => {
         setBusy(true);
-        try { await api.changeStage(itemId, { stage, waiting_category: category || null, reason: reason || null, version }); toast.success(`Moved to ${STAGE_LABEL[stage].toLowerCase()}.`); onDone(); }
-        catch (e) { toast.error(api.errorText(e)); }
-        finally { setBusy(false); }
-      }}>Move it</Button></>}>
+        try { await api.changeStage(itemId, { stage, waiting_category: category || null, reason: reason.trim() || null, version }); }
+        catch (e) { toast.error(api.errorText(e)); setBusy(false); return; }
+        if (asking && verifier) {
+          try {
+            await api.askRequest(host, { kind: 'review_request', addressee_id: verifier.id, body: note });
+            toast.success(`Moved to ${label}. ${verifier.name} is asked to verify it.`);
+          } catch (e) { toast.error(`Moved to ${label}, but ${verifier.name} was not asked: ${api.errorText(e)}`); }
+          void qc.invalidateQueries({ queryKey: discussionKey(host) });
+          void qc.invalidateQueries({ queryKey: keys.notifications });
+        } else {
+          toast.success(returning ? 'Returned for correction.' : `Moved to ${label}.`);
+        }
+        setBusy(false);
+        onDone();
+      }}>{returning ? 'Return for correction' : 'Move it'}</Button></>}>
       <div className="space-y-3">
         {blockedResolve && <p className="flex items-start gap-2 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />Not yet: {(resolution?.checks || []).map((r) => r.label.toLowerCase()).join(', or ')}.</p>}
         {needsCategory && <Field label="Waiting on" required><Select value={category} onValueChange={setCategory} placeholder="Choose" options={WAITING_CATEGORIES.map((w) => ({ value: w, label: WAITING_LABEL[w] }))} /></Field>}
-        <Field label={stage === 'blocked' ? 'What is blocking it' : 'Reason'} required={needsReason}><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Field label={returning ? 'What needs correcting' : stage === 'blocked' ? 'What is blocking it' : 'Reason'} required={needsReason}
+          hint={returning && holding ? 'Optional, since you hold it. It goes on the case history.' : returning ? 'It goes on the case history, where its holder reads it.' : undefined}>
+          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+        {verifying && (
+          <div className="rounded-xl ring-1 ring-inset ring-line">
+            <div className="px-3">
+              <Switch checked={askVerify} onChange={(v) => { setAskVerify(v); if (!v) { setVerifier(null); setVerifyNote(''); } }} label="Ask someone to verify it"
+                description="Optional. Once it has moved, they are asked to review it on this case, and told." />
+            </div>
+            {askVerify && (
+              <div className="space-y-3 border-t border-line px-3 pb-3 pt-3">
+                {verifier ? (
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                    <span className="text-ink-3">Asking</span>
+                    <span className="font-medium text-ink">{verifier.name}</span>
+                    <Button size="xs" variant="ghost" aria-label={`Change who to ask, now ${verifier.name}`} onClick={() => setVerifier(null)}>Change</Button>
+                  </p>
+                ) : <PersonPicker host={host} label="Ask whom" hint="Someone who can open this case" autoFocus onChoose={setVerifier} />}
+                {verifier && (
+                  <Field label="What should they check" required error={noteTooLong ? `Keep it under ${REQUEST_MAX.toLocaleString()} characters.` : null}
+                    hint={`${note.length.toLocaleString()}/${REQUEST_MAX.toLocaleString()}`}>
+                    <Textarea rows={2} value={verifyNote} onChange={(e) => setVerifyNote(e.target.value)} placeholder="The funds check and the closing balance." />
+                  </Field>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Dialog>
   );

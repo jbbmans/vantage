@@ -7,6 +7,20 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-15',
+    title: 'Ask one person a question or for a review, on the record it is about, and choose what you are told',
+    items: [
+      'On a record’s Discussion, or on a work case, choose Ask a question or Ask for review and name the one person you are asking. Only they answer it, and you can withdraw it while it is open. A review comes back as Looks right, or as Needs changes with what to change.',
+      'Notifications, from See all under the bell, lists your notices by group. Asked of you holds what waits on your answer, and You asked what you are waiting on; Today shows both.',
+      'A notice says what happened, who did it and on which record, and never quotes what anyone wrote: that stays on the record. It names the record as it is called when you open your notices, and one about a record you can no longer open is not shown.',
+      'New comments on one record make one notice, such as “3 new comments”, until you open it.',
+      'Settings → Notifications turns off Discussion, Work updates and Announcements if they are more than you need. Questions asked of you, decisions on your records, mentions and security notices always arrive. The weekly digest is there too.',
+      'A work case sent back from Verification required for correction says what needs correcting, and its holder is told.',
+      'Assigning a task or a goal to someone else takes a note for them, kept on the record where they read it.',
+      'A reviewer can approve a duty with a note. Its Marine reads it on the duty.',
+    ],
+  },
+  {
     date: '2026-11-14',
     title: 'Save a form as a draft and finish it later, and find every draft in one place',
     items: [

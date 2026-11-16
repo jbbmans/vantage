@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -18,6 +18,7 @@ import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } fro
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
 import { DEFAULT_PERIOD } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
+import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -26,17 +27,20 @@ export default function Settings() {
   const toast = useToast(); const qc = useQueryClient();
   useEffect(() => { if (verify) api.emailConfirm(verify).then((r) => { toast.success(`Email confirmed: ${r.email}`); qc.invalidateQueries({ queryKey: keys.me }); window.history.replaceState(null, '', '/settings?tab=profile'); }).catch((e) => toast.error(api.errorText(e))); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verify]);
+  // The weekly digest was a tab of its own, and is now part of Notifications: an old link to it lands there.
+  useEffect(() => { if (tab === 'digest') setTab('notifications'); }, [tab, setTab]);
+  const shown = tab === 'digest' ? 'notifications' : tab;
   if (!identity) return <Skeleton className="h-64" />;
   return (
     <div className="page page-narrow">
       <PageHeader eyebrow="Settings" title={`${identity.user.first_name} ${identity.user.last_name}`} lede={`@${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
       {identity.user.must_change_password ? <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">You signed in with a temporary password. Set a new one under Security before doing anything else.</div> : null}
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'digest', label: 'Weekly digest' }, { value: 'data', label: 'Your data' }]} />
-      {tab === 'profile' && <Profile />}
-      {tab === 'security' && <Security />}
-      {tab === 'appearance' && <Appearance />}
-      {tab === 'digest' && <Digest />}
-      {tab === 'data' && <DataTab />}
+      <Tabs value={shown} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }]} />
+      {shown === 'profile' && <Profile />}
+      {shown === 'security' && <Security />}
+      {shown === 'appearance' && <Appearance />}
+      {shown === 'notifications' && <NotificationsTab />}
+      {shown === 'data' && <DataTab />}
     </div>
   );
 }
@@ -216,6 +220,60 @@ function Appearance() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+/**
+ * What this person is told (ADR-0031): every group of notices, in the order the Notifications page lists them. Only
+ * Discussion, Work updates and Announcements can be turned off; the rest are what they are asked to do or must know, and
+ * always arrive. The weekly digest, an email a person may turn on, follows under its own heading.
+ */
+function NotificationsTab() {
+  const uid = useId();
+  return (
+    <div className="space-y-6">
+      <NoticeGroups />
+      <section aria-labelledby={`${uid}-digest`} className="space-y-3">
+        <div>
+          <h2 id={`${uid}-digest`} className="text-md font-semibold tracking-[-0.012em] text-ink">Weekly digest</h2>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-3">An email once a week, if you turn it on: your week’s work, what is due, and how many questions, reviews and notices wait for you. It counts them and never says what anyone wrote.</p>
+        </div>
+        <Digest />
+      </section>
+    </div>
+  );
+}
+
+function NoticeGroups() {
+  const prefs = usePrefs(); const save = useSavePrefs(); const toast = useToast();
+  const muted = (prefs.notifications?.muted ?? []).filter(isMutableGroup);
+  const turn = (group: MutableGroup, on: boolean) => {
+    const next = on ? muted.filter((g) => g !== group) : [...new Set([...muted, group])];
+    save.mutate({ notifications: { muted: next } }, {
+      onSuccess: () => toast.success(on ? `${GROUP_LABELS[group]} turned on.` : `${GROUP_LABELS[group]} turned off.`),
+      onError: (e) => toast.error(api.errorText(e)),
+    });
+  };
+  return (
+    <Panel title="What you are told" subtitle="Turn off Discussion, Work updates or Announcements if they are more than you need. Everything else always arrives, because it is something you are asked to do or must know." action={<Button size="xs" variant="ghost" asChild><Link to="/notifications">Open Notifications</Link></Button>}>
+      <ul className="-my-2 divide-y divide-line">
+        {NOTICE_GROUPS.map((group) => (
+          <li key={group} className="py-2">
+            {isMutableGroup(group)
+              ? <Switch checked={!muted.includes(group)} onChange={(on) => turn(group, on)} label={GROUP_LABELS[group]} description={GROUP_HINTS[group]} />
+              : (
+                <div className="flex items-start justify-between gap-4 px-1 py-2">
+                  <span className="min-w-0">
+                    <span className="block text-base font-medium text-ink">{GROUP_LABELS[group]}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{GROUP_HINTS[group]}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-ink-2">Always arrives</span>
+                </div>
+              )}
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

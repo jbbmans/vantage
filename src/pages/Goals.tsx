@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Target, Sparkles, Info, ArrowRight } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, NumberInput, Segmented, Skeleton } from '@/components/ui/primitives';
@@ -10,7 +10,7 @@ import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
 import { track } from '@/lib/telemetry';
 import { DateText, StatusBadge, onText } from '@/components/common';
-import { can, useDeleteRecord, useRestoreRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
+import { can, unitsWith, useDeleteRecord, useRestoreRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport, useTeam } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { GOAL_TYPES, GOAL_STATUS, categoryNames } from '../../shared/constants';
 import { DEFAULT_PERIOD, formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
@@ -18,6 +18,7 @@ import { daysUntil } from '../../shared/evaluation';
 import { quantityMetricId, canonicalMetricId, goalPace, type Pace } from '../../shared/metricEngine';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
+import { ASSIGNMENT_NOTE_MAX } from '../../shared/workflowMessages';
 import { usePlace } from '@/lib/place';
 
 interface GoalDraft {
@@ -26,6 +27,8 @@ interface GoalDraft {
   baseline_value: number | string; current_value: number | string; target_value: number | string;
   unit_label: string; status: string; period_start: string; period_end: string;
   visibility: 'private' | 'unit'; unit_id: string | null; assignee_id?: string | null;
+  /** What the assignee is told with a new assignment (ADR-0031): sent only with one, and kept in a saved draft. */
+  assignment_note?: string;
 }
 
 const DIRECTION_OPTIONS = [
@@ -64,6 +67,11 @@ export default function Goals() {
   const [counted, setCounted] = useState<any>(null);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const me = identity?.user.id;
+  // A leader assigns a shared goal to a member of its unit, as a task is assigned (ADR-0031: with a note if they like).
+  const { data: team } = useTeam(Boolean(identity?.canLead));
+  const roster: any[] = team?.roster || [];
+  const canAssign = unitsWith(identity, PERMISSIONS.CREATE_SHARED_GOALS).length > 0;
+  const nameOf = (id: string) => { const p = roster.find((r) => r.id === id); return p ? `${p.rank_abbr || ''} ${p.last_name}`.trim() : 'a teammate'; };
 
   const yearParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), scope: 'me' }; }, []);
   const catalogQuery = useMetricsReport(yearParams);
@@ -97,6 +105,12 @@ export default function Goals() {
   const resume = useResumeDraft('goal', (d) => setDraft(restoreGoal(d.payload)));
 
   const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
+  // Whom the form assigns the goal to, by name, when that is someone else and not who the goal already had: the only time
+  // it takes an assignment note.
+  const newAssignee = (d: GoalDraft) => {
+    const before = d.id ? (goals || []).find((g) => g.id === d.id)?.assignee_id ?? null : null;
+    return canAssign && d.visibility === 'unit' && d.assignee_id && d.assignee_id !== me && d.assignee_id !== before ? nameOf(d.assignee_id) : null;
+  };
   // "21 of 30 UMTs", "60 of 100% complete": the unit once, on the target, and a percent sign against its number.
   const bare = (g: { metric_id?: string | null }, n: number) => (String(g.metric_id || '').startsWith('money:') ? formatDollars(n) : formatNumber(n));
   const format = (g: { metric_id?: string | null; unit_label?: string | null }, n: number) => (String(g.metric_id || '').startsWith('money:') || !g.unit_label ? bare(g, n) : `${formatNumber(n)}${String(g.unit_label).startsWith('%') ? '' : ' '}${g.unit_label}`);
@@ -185,7 +199,7 @@ export default function Goals() {
       <RecordDialog<GoalDraft>
         store="goals" open={Boolean(draft)} onOpenChange={(o) => { if (!o) { setDraft(null); resume.done(); } }} initial={draft}
         title={draft?.id ? 'Edit goal' : 'New goal'} noun="Goal"
-        formDraft={{ kind: 'goal', saved: resume.saved, restore: restoreGoal, onChange: resume.done }}
+        formDraft={{ kind: 'goal', saved: resume.saved, restore: restoreGoal, told: (d) => (d.assignee_id && d.assignee_id !== me ? nameOf(d.assignee_id) : null), onChange: resume.done }}
         validate={(d) => {
           if (!d.title.trim()) return 'A title is required.';
           if (d.metric_id && d.direction !== 'completion' && d.target_value === '') return 'Say what the target is.';
@@ -261,6 +275,13 @@ export default function Goals() {
             </div>
 
             <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_GOALS} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
+            {canAssign && d.visibility === 'unit' && (
+              <Field label="Assign to" hint="members of the shared unit" error={errors.assignee_id}>
+                <Select value={d.assignee_id || '__me'} onValueChange={(v) => set('assignee_id', v === '__me' ? null : v)}
+                  options={[{ value: '__me', label: 'Myself' }, ...roster.filter((r) => r.id !== me && r.memberships.some((m: any) => m.unit_id === d.unit_id)).map((r) => ({ value: r.id, label: `${r.rank_abbr || ''} ${r.last_name}, ${r.first_name}`.trim() }))]} />
+              </Field>
+            )}
+            <AssignmentNote to={newAssignee(d)} value={d.assignment_note} error={errors.assignment_note} onChange={(v) => set('assignment_note', v)} />
             {identity?.instance.aiEnabled && <p className="flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />Check an AI suggestion’s number and date before you use it.</p>}
           </>
         )}
@@ -273,6 +294,27 @@ export default function Goals() {
         title="Delete this goal?" body="It moves to the recycle bin for 30 days."
         onConfirm={async () => { const id = confirm.id; try { await remove.mutateAsync(id); toast.success('Goal deleted.', { label: 'Undo', onClick: () => restore.mutateAsync(id).then(() => toast.success('Goal restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }}
       />
+    </div>
+  );
+}
+
+/**
+ * The note a new assignment carries (ADR-0031), kept on the goal where its assignee reads it; the notice they get names
+ * the goal, never the note. The server takes one only with an assignment to someone else, so it is offered only then,
+ * and let go of when the form stops assigning it (back to Myself, or made private).
+ */
+function AssignmentNote({ to, value, error, onChange }: { to: string | null; value: string | undefined; error?: string; onChange: (v: string | undefined) => void }) {
+  const uid = useId();
+  const orphaned = !to && value !== undefined;
+  useEffect(() => { if (orphaned) onChange(undefined); }, [orphaned, onChange]);
+  if (!to) return null;
+  const text = value ?? '';
+  return (
+    <div>
+      <Field label={`Note for ${to}`} hint={`optional · ${text.length} of ${ASSIGNMENT_NOTE_MAX}`} error={error}>
+        <Textarea rows={2} value={text} maxLength={ASSIGNMENT_NOTE_MAX} aria-describedby={`${uid}-kept`} placeholder="What they should know about it" onChange={(e) => onChange(e.target.value)} />
+      </Field>
+      <p id={`${uid}-kept`} className="mt-1 text-xs text-ink-3">It stays on the goal, where they read it. The notice they get does not quote it.</p>
     </div>
   );
 }

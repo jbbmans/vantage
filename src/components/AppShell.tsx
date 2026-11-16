@@ -9,7 +9,7 @@ import {
 import { HOME, groupFor, pageFor, placeName, type Count, type NavGroup, type NavPage } from '@/config/nav';
 import { useNav } from '@/lib/useNav';
 import { cn, initials, timeAgo } from '@/lib/utils';
-import { Tooltip, Kbd } from '@/components/ui/primitives';
+import { Badge, Kbd, Skeleton, Tooltip } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -31,6 +31,7 @@ import { VERSION } from '@/lib/version';
 import WhatsNewDialog, { useWhatsNew } from '@/components/WhatsNewDialog';
 import { useBuildWatch } from '@/lib/build';
 import { useView, roleLine, viewLabel } from '@/lib/view';
+import { NOTICE_KINDS, isNoticeKind, type NoticeRow } from '../../shared/notifications';
 
 /** What the header says about where you are: the group and the page, or a page and what it is for. */
 // A page about one thing (a case, an entry) is named for what it is, under its group, not "Vantage".
@@ -144,50 +145,153 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
 
 export const OutboxContext = React.createContext<{ pending: number; flush: () => Promise<void> }>({ pending: 0, flush: async () => {} });
 
-function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) {
-  const { data, refetch } = useNotifications();
+/** Where a notice opens: its own link when it is one of ours, otherwise the notifications page, where it is listed. */
+const noticeHref = (n: NoticeRow) => (n.action_url && n.action_url.startsWith('/') && !n.action_url.startsWith('//') ? n.action_url : '/notifications');
+
+/** What a notice that stands for several events adds ("3 new comments"), unless its title already says so. */
+function noticeCount(n: NoticeRow): string | null {
+  if (!n.count || n.count < 2 || !isNoticeKind(n.kind)) return null;
+  const spec = NOTICE_KINDS[n.kind];
+  if (!('many' in spec)) return null;
+  const text = `${n.count} ${spec.many}`;
+  return n.title === text ? null : text;
+}
+
+/** A plain click follows a link here; a click that opens a new tab or window leaves this page as it is. */
+const plainClick = (e: React.MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+
+/**
+ * What the status line says when notices arrive between polls: how many more are unread than at the last poll. Never on
+ * the first load, nor when the person changes; reading notices only lowers the count, so it never speaks for that.
+ */
+function useArrivals(unread: number | undefined, userId: string | undefined): string {
+  const last = React.useRef<{ user: string | undefined; unread: number } | null>(null);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (unread === undefined) return;
+    const before = last.current;
+    last.current = { user: userId, unread };
+    if (!before || before.user !== userId || unread <= before.unread) return;
+    const n = unread - before.unread;
+    // Cleared first, so the same words said twice in a row are said again.
+    setSaid('');
+    const t = window.setTimeout(() => setSaid(`${n} new ${n === 1 ? 'notification' : 'notifications'}`), 120);
+    return () => window.clearTimeout(t);
+  }, [unread, userId]);
+  return said;
+}
+
+function NotificationBell() {
+  const { data, error, isPending, isRefetchError, refetch } = useNotifications();
+  const { data: identity } = useIdentity();
   const qc = useQueryClient();
-  const unread = data?.unread || 0;
-  const rows: Array<{ id: string; kind: string; title: string; message: string | null; action_url: string | null; read_at: string | null; created_at: string }> = data?.rows || [];
-  const open = async (n: typeof rows[number]) => {
-    if (!n.read_at) { await api.markRead(n.id).catch(() => undefined); qc.invalidateQueries({ queryKey: keys.notifications }); }
-    if (n.action_url && n.action_url.startsWith('/') && !n.action_url.startsWith('//')) onNavigate(n.action_url);
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const following = React.useRef(false);
+  const content = React.useRef<HTMLDivElement>(null);
+  const headingId = React.useId();
+  const unread = data?.unread ?? 0;
+  const rows: NoticeRow[] = data?.rows ?? [];
+  const arrivals = useArrivals(data?.unread, identity?.user.id);
+
+  // Following a notice (or "See all") closes the bell and puts focus on the page it opened, not back on the bell.
+  const follow = (e: React.MouseEvent, n?: NoticeRow) => {
+    if (n && !n.read_at) api.markRead(n.id).catch(() => undefined).finally(() => qc.invalidateQueries({ queryKey: keys.notifications }));
+    if (!plainClick(e)) return;
+    following.current = true;
+    setOpen(false);
+    window.requestAnimationFrame(() => {
+      following.current = false;
+      const main = document.getElementById('main');
+      if (main && (!document.activeElement || document.activeElement === document.body)) main.focus({ preventScroll: true });
+    });
   };
-  return (
-    <Popover.Root onOpenChange={(o) => { if (o) refetch(); }}>
-      <Popover.Trigger asChild>
-        <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}>
-          <Bell className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          {unread > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-ink ring-2 ring-surface">{unread > 9 ? '9+' : unread}</span>}
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content align="end" sideOffset={10} className="z-50 w-[min(92vw,400px)] overflow-hidden rounded-2xl bg-surface shadow-pop animate-scale-in">
-          <div className="flex items-center justify-between px-4 pb-2 pt-3.5">
-            <p className="text-md font-semibold text-ink">Notifications</p>
-            {unread > 0 && <button type="button" onClick={async () => { await api.markAllRead(); qc.invalidateQueries({ queryKey: keys.notifications }); }} className="text-xs font-medium text-accent hover:underline">Mark all read</button>}
-          </div>
-          <div className="max-h-[60vh] overflow-y-auto px-1.5 pb-1.5">
-            {rows.length === 0 ? (
-              <div className="flex flex-col items-center px-4 py-10 text-center">
-                <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Bell className="h-4 w-4" /></span>
-                <p className="text-sm font-medium text-ink">You are caught up</p>
-                <p className="mt-0.5 text-xs text-ink-3">Handoffs, mentions and resolved work land here.</p>
-              </div>
-            ) : rows.map((n) => (
-              <button key={n.id} type="button" onClick={() => open(n)} className={cn('flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-surface-2', !n.read_at && 'bg-accent-soft/50')}>
-                <span className={cn('mt-1.5 badge-dot', n.read_at ? 'bg-line-strong' : 'bg-accent')} />
+  const markAll = async () => {
+    try { await api.markAllRead(); } catch (e) { toast.error(api.errorText(e)); }
+    await qc.invalidateQueries({ queryKey: keys.notifications });
+    // The button goes once nothing is unread; focus stays in the bell rather than falling to the page.
+    if (!document.activeElement || document.activeElement === document.body) content.current?.focus();
+  };
+
+  let body: React.ReactNode;
+  if (!data && error) {
+    body = (
+      <div className="px-3 py-6 text-center">
+        <p className="text-sm font-medium text-ink">Your notifications could not load.</p>
+        <p className="mt-0.5 text-xs text-ink-3">{api.errorText(error)}</p>
+        <button type="button" onClick={() => refetch()} className="tap mt-2 inline-flex items-center rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:underline">Try again</button>
+      </div>
+    );
+  } else if (isPending) {
+    body = <div className="space-y-2 p-2.5"><Skeleton className="h-12" /><Skeleton className="h-12" /><Skeleton className="h-12" /></div>;
+  } else if (rows.length === 0) {
+    body = (
+      <div className="flex flex-col items-center px-4 py-10 text-center">
+        <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Bell className="h-4 w-4" aria-hidden /></span>
+        <p className="text-sm font-medium text-ink">You are caught up</p>
+        <p className="mt-0.5 text-xs text-ink-3">Questions and reviews asked of you, decisions on your records and mentions land here.</p>
+      </div>
+    );
+  } else {
+    body = (
+      <ul aria-labelledby={headingId} className="space-y-0.5">
+        {rows.map((n) => {
+          const count = noticeCount(n);
+          return (
+            <li key={n.id}>
+              <Link to={noticeHref(n)} onClick={(e) => follow(e, n)}
+                className={cn('flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-surface-2', !n.read_at && 'bg-accent-soft/50')}>
+                <span className={cn('mt-1.5 badge-dot shrink-0', n.read_at ? 'bg-line-strong' : 'bg-accent')} aria-hidden />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink">{n.title}</span>
+                  <span className="flex items-start gap-2">
+                    <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium text-ink">{n.title}</span>
+                    {!n.read_at && <Badge tone="accent" className="shrink-0 px-1.5 py-0 text-2xs">New</Badge>}
+                  </span>
+                  {n.label && <span className="mt-0.5 block truncate text-sm text-ink-2">{n.label}</span>}
                   {n.message && <span className="mt-0.5 block text-xs leading-snug text-ink-2">{n.message}</span>}
-                  <span className="mt-1 block text-2xs text-ink-3">{timeAgo(n.created_at)}</span>
+                  <span className="mt-1 block text-2xs text-ink-3">
+                    {count && `${count} · `}
+                    {n.org_name && <><span className="sr-only">Unit Instance: </span>{n.org_name} · </>}
+                    <time dateTime={n.created_at}>{timeAgo(n.created_at)}</time>
+                  </span>
                 </span>
-              </button>
-            ))}
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
+  return (
+    <>
+      <Popover.Root open={open} onOpenChange={(o) => { setOpen(o); if (o) refetch(); }}>
+        <Popover.Trigger asChild>
+          {/* 36px to the eye; its hit area reaches 44px, for a thumb. */}
+          <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] text-ink-2 transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-surface-2 hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}>
+            <Bell className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
+            {unread > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-ink ring-2 ring-surface" aria-hidden>{unread > 9 ? '9+' : unread}</span>}
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content ref={content} aria-labelledby={headingId} align="end" sideOffset={10} collisionPadding={12}
+            onCloseAutoFocus={(e) => { if (following.current) e.preventDefault(); }}
+            className="z-50 flex w-[min(calc(100vw-1.5rem),400px)] flex-col overflow-hidden rounded-2xl bg-surface shadow-pop animate-scale-in focus:outline-none">
+            <div className="flex items-center justify-between gap-3 px-4 pb-1.5 pt-3">
+              <h2 id={headingId} className="text-md font-semibold text-ink">Notifications</h2>
+              {unread > 0 && <button type="button" onClick={markAll} className="tap -mr-2 inline-flex items-center rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:underline">Mark all read</button>}
+            </div>
+            {data && isRefetchError && <p className="px-4 pb-1.5 text-xs text-ink-3">Newer notices could not be checked just now.</p>}
+            <div className="max-h-[60vh] overflow-y-auto px-1.5 pb-1.5">{body}</div>
+            <div className="flex justify-end border-t border-line px-2 py-1">
+              <Link to="/notifications" onClick={(e) => follow(e)} className="tap inline-flex items-center rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:underline">See all</Link>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+      {/* Outside the bell and always here, so a screen reader hears new arrivals whether the bell is open or not. */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{arrivals}</div>
+    </>
   );
 }
 
@@ -203,6 +307,7 @@ function surfaceOf(pathname: string, search: string): string {
   const map: Record<string, string> = {
     '': 'dashboard', records: 'records', record: 'records', goals: 'goals', career: 'career',
     maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', console: 'operator', admin: 'operator', help: 'help', support: 'help',
+    notifications: 'notifications',
   };
   return map[pathname.split('/')[1] || ''] || 'dashboard';
 }
@@ -548,7 +653,7 @@ export default function AppShell() {
                 <span className="hidden xl:inline">Log activity</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
               </button>
-              <NotificationBell onNavigate={(to) => navigate(to)} />
+              <NotificationBell />
               {accountMenu(
                 <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" aria-hidden />}</button>,
               )}

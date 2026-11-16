@@ -23,7 +23,7 @@ const oneOf = (...values: string[]): PropertySpec => ({ kind: 'enum', values });
 export const EVENTS: Record<string, EventSpec> = {
   'session.started': { family: 'adoption', properties: { returning: bool, days_since_last: num } },
   'view.switched': { family: 'adoption', properties: { depth: num, whole: bool } },
-  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose') } },
+  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose', 'notifications') } },
 
   'capture.opened': { family: 'capture', properties: { surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message') } },
   'capture.abandoned': {
@@ -79,7 +79,7 @@ export const EVENTS: Record<string, EventSpec> = {
   'ai.accepted': { family: 'ai', properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative', 'case_brief'), edited: bool } },
 
   'reliability.request_failed': { family: 'reliability', serverOnly: true, properties: { status: num, ms: num, route: oneOf('records', 'work', 'imports', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai', 'other') } },
-  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose'), recovered: bool } },
+  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose', 'notifications'), recovered: bool } },
   'reliability.offline_queue': { family: 'reliability', properties: { queued: num, replayed: num, failed: num } },
 
   'security.step_up': { family: 'security', serverOnly: true, properties: { granted: bool, method: oneOf('password', 'totp', 'passkey', 'cac') } },

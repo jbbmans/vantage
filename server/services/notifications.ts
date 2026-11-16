@@ -281,14 +281,15 @@ export function listNotices(ctx: AppContext, user: SessionUser, scope: Scope, op
   }
   // A page that stopped reading at its limit says where to go on from, even when it found nothing more to show yet.
   const nextCursor = (more || scanned >= SCAN_LIMIT) && last ? encodeCursor(last) : null;
-  return { rows, unread: unreadCount(ctx, user, scope, check), next_cursor: nextCursor };
+  return { rows, unread: unreadCount(ctx, user, scope, check, opts.group ?? null), next_cursor: nextCursor };
 }
 
-/** Unread notices a person may still open: the badge agrees with the list. */
-export function unreadCount(ctx: AppContext, user: { id: string }, scope: Scope, check: Check = checker(ctx, user, scope)): number {
-  const plain = (ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL AND entity IS NULL').get(user.id) as { n: number }).n;
+/** Unread notices a person may still open, of one group or all: the badge and each list agree with what they show. */
+export function unreadCount(ctx: AppContext, user: { id: string }, scope: Scope, check: Check = checker(ctx, user, scope), group: NoticeGroup | null = null): number {
+  const { where, params } = filters(user, { unread: true, group });
+  const plain = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${where.join(' AND ')} AND entity IS NULL`).get(...params) as { n: number }).n;
   if (plain >= UNREAD_COUNTED) return UNREAD_COUNTED;
-  const about = ctx.db.prepare(`${SELECT} WHERE user_id = ? AND read_at IS NULL AND entity IS NOT NULL ORDER BY created_at DESC LIMIT ?`).all(user.id, UNREAD_COUNTED) as StoredNotice[];
+  const about = ctx.db.prepare(`${SELECT} WHERE ${where.join(' AND ')} AND entity IS NOT NULL ORDER BY created_at DESC LIMIT ?`).all(...params, UNREAD_COUNTED) as StoredNotice[];
   let n = plain;
   for (const row of about) if (check(row) && ++n >= UNREAD_COUNTED) break;
   return n;

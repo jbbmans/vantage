@@ -8,7 +8,7 @@ import RecordDialog from '@/components/RecordDialog';
 import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, courseMarks, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
-import { Comments } from '@/components/Comments';
+import { Discussion } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
@@ -274,7 +274,9 @@ export default function Career({ section }: { section: CareerSection }) {
           <CounselingHistory row={shownCounseling} />
           <p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p>
         </div>}
-        {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
+        {view && <div className="mt-4"><Discussion host={{ kind: 'record', table: view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings', id: view.row.id }} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)}
+          between={shownCounseling ? (shownCounseling.user_id === me ? shownCounseling.counselor_display || shownCounseling.counselor_name || 'your counselor' : shownCounseling.subject_name || 'its Marine') : undefined}
+          privateNow={shownCounseling ? shownCounseling.stage === 'draft' || shownCounseling.stage === 'review' : false} /></div>}
       </Dialog>
       <RecordImportDialog open={importing} onOpenChange={setImporting} />
       <MoveRecordDialog store={moving?.store ?? 'awards'} row={moving?.row ?? null} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} onMoved={goTo} onUndone={goTo} />

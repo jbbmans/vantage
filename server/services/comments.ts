@@ -515,6 +515,10 @@ const REQUEST_LIST = `SELECT c.*, u.first_name AS author_first_name, u.last_name
 /** How long a request someone sent stays in their "You asked" list once it is answered or closed. */
 const RECENTLY_CLOSED_DAYS = 14;
 
+/** How many requests each list shows, and how many are read to find them (the rest are on records the reader can no longer open). */
+const REQUESTS_LISTED = 100;
+const REQUESTS_SCANNED = 1000;
+
 export function myRequests(ctx: AppContext, user: { id: string }, scope: Scope): { asked_of_you: RequestSummary[]; you_asked: RequestSummary[] } {
   const hosts = new Map<string, Host | null>();
   const hostOf = (table: string, id: string) => {
@@ -538,13 +542,14 @@ export function myRequests(ctx: AppContext, user: { id: string }, scope: Scope):
       can_answer: r.state === 'open' && answerer(host, r), created_at: r.created_at, closed_at: r.closed_at,
     }];
   });
-  const asked = ctx.db.prepare(`${REQUEST_LIST} WHERE c.addressee_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.state = 'open' AND c.deleted_at IS NULL ORDER BY c.created_at DESC LIMIT 100`).all(user.id) as RequestListRow[];
+  const asked = ctx.db.prepare(`${REQUEST_LIST} WHERE c.addressee_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.state = 'open' AND c.deleted_at IS NULL ORDER BY c.created_at DESC LIMIT ?`).all(user.id, REQUESTS_SCANNED) as RequestListRow[];
   const since = new Date(Date.now() - RECENTLY_CLOSED_DAYS * 86_400_000).toISOString();
   const sent = ctx.db.prepare(`${REQUEST_LIST} WHERE c.author_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.deleted_at IS NULL
-                                 AND (c.state = 'open' OR c.closed_at > ?) ORDER BY c.state = 'open' DESC, c.created_at DESC LIMIT 100`).all(user.id, since) as RequestListRow[];
+                                 AND (c.state = 'open' OR c.closed_at > ?) ORDER BY c.state = 'open' DESC, c.created_at DESC LIMIT ?`).all(user.id, since, REQUESTS_SCANNED) as RequestListRow[];
+  // Checked first, then cut to the list's length, so a list is short only when there is no more to show.
   return {
-    asked_of_you: summarize(asked, (host) => speaks(ctx, host, user.id, scope)),
-    you_asked: summarize(sent, (host, r) => speaks(ctx, host, r.addressee_id!, scopeOf(r.addressee_id!))),
+    asked_of_you: summarize(asked, (host) => speaks(ctx, host, user.id, scope)).slice(0, REQUESTS_LISTED),
+    you_asked: summarize(sent, (host, r) => speaks(ctx, host, r.addressee_id!, scopeOf(r.addressee_id!))).slice(0, REQUESTS_LISTED),
   };
 }
 

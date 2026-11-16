@@ -939,3 +939,141 @@ test('037 adds the saved forms table, empty, and changes no draft that was alrea
     db.close();
   } finally { cleanup(); }
 });
+
+test('038 types every comment, gives every notice its record and Unit Instance, clears the words old notices quoted, keeps what was said on a counseling before it was final between its two people, and removes no row', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const finalizedAt = '2026-10-15T00:00:00.000Z';
+  const { path, cleanup } = atVersion(37, (db) => {
+    // The database as it was before 038: notices with no Unit Instance, record, actor or count, and comments with no kind,
+    // addressee, state, request, closing or privacy.
+    db.exec('DROP TABLE notifications; DROP TABLE comments;');
+    db.exec(`CREATE TABLE notifications (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), kind TEXT NOT NULL, title TEXT NOT NULL, message TEXT,
+      action_url TEXT, dedupe_key TEXT, read_at TEXT, created_at TEXT NOT NULL)`);
+    db.exec('CREATE INDEX idx_notifications_user ON notifications(user_id, created_at DESC)');
+    db.exec('CREATE UNIQUE INDEX idx_notifications_dedupe ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL');
+    db.exec(`CREATE TABLE comments (
+      id TEXT PRIMARY KEY, record_table TEXT NOT NULL, record_id TEXT NOT NULL, author_id TEXT NOT NULL REFERENCES users(id),
+      unit_id TEXT REFERENCES units(id), body TEXT NOT NULL, mentions TEXT NOT NULL DEFAULT '[]', edited_at TEXT, deleted_at TEXT,
+      created_at TEXT NOT NULL)`);
+    db.exec('CREATE INDEX idx_comments_record ON comments(record_table, record_id, created_at)');
+    db.exec('CREATE INDEX idx_comments_author ON comments(author_id, created_at DESC)');
+    db.pragma('foreign_keys = OFF');
+    db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES ('G8', 'G8', 'G-8', 'active', 'G8', '{}', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES ('G8', 'G8', 'G-8 Comptroller', NULL, 'G8', ?)").run(at);
+    db.pragma('foreign_keys = ON');
+    const user = db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    user.run('u1', 'u1', 'x', 'Ana', 'Diaz', at, at); // the Marine
+    user.run('u2', 'u2', 'x', 'Ben', 'Cole', at, at); // the leader who counsels her
+    db.prepare("INSERT INTO activities (id, user_id, unit_id, visibility, date, title, created_at, updated_at) VALUES ('a1', 'u1', 'G8', 'unit', '2026-10-01', 'Reconciled the UMT list', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO trainings (id, user_id, unit_id, visibility, date, title, created_at, updated_at) VALUES ('t1', 'u1', 'G8', 'unit', '2026-10-02', 'Fiscal law', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO work_items (id, unit_id, owner_id, natural_key, row_hash, title, created_at, updated_at) VALUES ('w1', 'G8', 'u2', 'k1', 'h1', 'UMT 1', ?, ?)").run(at, at);
+    const counseling = db.prepare("INSERT INTO counselings (id, user_id, counselor_id, unit_id, visibility, date, type, summary, stage, finalized_at, finalized_by, created_at, updated_at) VALUES (?, 'u1', 'u2', 'G8', 'unit', '2026-10-01', 'monthly', ?, ?, ?, ?, ?, ?)");
+    counseling.run('c-final', 'Final.', 'final', finalizedAt, 'u2', at, at);
+    counseling.run('c-draft', 'Still a draft.', 'draft', null, null, at, at);
+    const comment = db.prepare('INSERT INTO comments (id, record_table, record_id, author_id, unit_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    comment.run('k-act', 'activities', 'a1', 'u2', 'G8', 'Good work, @u1.', '2026-10-05T00:00:00.000Z');
+    // Said on a counseling shared for review, before it was final; after it was final; and on one still a draft.
+    comment.run('k-before', 'counselings', 'c-final', 'u1', 'G8', 'Can we change the date?', '2026-10-10T00:00:00.000Z');
+    comment.run('k-after', 'counselings', 'c-final', 'u1', 'G8', 'Read and understood.', '2026-10-20T00:00:00.000Z');
+    comment.run('k-draft', 'counselings', 'c-draft', 'u2', 'G8', 'A note while I write it.', '2026-10-21T00:00:00.000Z');
+    const notice = db.prepare('INSERT INTO notifications (id, user_id, kind, title, message, action_url, dedupe_key, read_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    notice.run('n-comment', 'u1', 'comment_added', 'Ben Cole commented on your record', 'Good work, @u1.', '/records/a1', 'comment-owner:k-act:u1', null, at);
+    notice.run('n-mention', 'u1', 'comment_mention', 'Ben Cole mentioned you', 'See the fiscal law notes, @u1.', '/records/trainings/t1', 'comment-mention:k-t:u1', at, at);
+    notice.run('n-duty', 'u1', 'duty', 'Duty recorded for you', 'Ben Cole recorded Guard on 2026-10-01 for you.', '/record/duty?open=d1', 'duty:d1', null, at);
+    notice.run('n-counseling', 'u1', 'counseling', 'A counseling is ready for you', null, '/career/counseling?open=c-final', null, null, at);
+    notice.run('n-handoff', 'u2', 'work_assigned', 'A case was handed to you', 'Please finish this by Friday.', '/work/items/w1', null, null, at);
+    // The demonstration's old notice about work, and a leader's message to the unit, which may keep its words.
+    notice.run('n-demo', 'u1', 'work', 'Twelve UMTs are waiting to be claimed', 'FY26 Q4 2-Way UMT review', '/work', null, null, at);
+    notice.run('n-unit', 'u1', 'unit', 'A message from your leader', 'Formation at 0700.', '/org', null, null, at);
+  });
+  try {
+    const OLD_COMMENT = 'id, record_table, record_id, author_id, unit_id, body, mentions, edited_at, deleted_at, created_at';
+    const OLD_NOTICE = 'id, user_id, title, dedupe_key, read_at, created_at';
+    const rows = (d: Database.Database, sql: string) => d.prepare(sql).all().map((r) => ({ ...(r as object) }));
+    const raw = new Database(path, { readonly: true });
+    const commentsBefore = rows(raw, `SELECT ${OLD_COMMENT} FROM comments ORDER BY id`);
+    const noticesBefore = rows(raw, `SELECT ${OLD_NOTICE} FROM notifications ORDER BY id`);
+    raw.close();
+    assert.equal(commentsBefore.length, 4);
+    assert.equal(noticesBefore.length, 7);
+
+    let db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 38 && m.name === '038_workflow_messages'));
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.ok(SCHEMA_VERSION >= 38);
+    const columns = (d: Database.Database, table: string) => (d.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+    assert.deepEqual(columns(db, 'comments').slice(-7), ['kind', 'addressee_id', 'state', 'reply_to', 'closed_by', 'closed_at', 'private'], 'added last, in the order a new database has them');
+    assert.deepEqual(columns(db, 'notifications').slice(-5), ['org_id', 'entity', 'entity_id', 'actor_id', 'count'], 'added last, in the order a new database has them');
+    const fresh = new Database(':memory:');
+    fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
+    for (const table of ['comments', 'notifications']) assert.deepEqual(columns(db, table), columns(fresh, table), `an upgraded database and a new one have the same ${table} columns in the same order`);
+    fresh.close();
+    for (const index of ['idx_notifications_coalesce', 'idx_notifications_entity', 'idx_notifications_created', 'idx_comments_addressee']) {
+      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index), index);
+    }
+
+    // No row is removed, and what was said is kept as it was said.
+    assert.deepEqual(rows(db, `SELECT ${OLD_COMMENT} FROM comments ORDER BY id`), commentsBefore);
+    assert.deepEqual(rows(db, `SELECT ${OLD_NOTICE} FROM notifications ORDER BY id`), noticesBefore);
+    // Every comment already written is a comment. One said on a counseling before it was final, or on one still a draft, is
+    // between its counselor and its Marine; one said after it was final, and one on any other record, is not.
+    const plain = { kind: 'comment', addressee_id: null, state: null, reply_to: null, closed_by: null, closed_at: null };
+    assert.deepEqual(rows(db, 'SELECT id, kind, addressee_id, state, reply_to, closed_by, closed_at, private FROM comments ORDER BY id'), [
+      { id: 'k-act', ...plain, private: 0 },
+      { id: 'k-after', ...plain, private: 0 },
+      { id: 'k-before', ...plain, private: 1 },
+      { id: 'k-draft', ...plain, private: 1 },
+    ]);
+
+    // Every notice that links to a record or a work case is given it, with its Unit Instance, so it is checked again when
+    // read. The words quoted from a comment or a hand-off are cleared; a training's link opens it where it lives; the
+    // demonstration's "work" is work that moved. A notice about no record keeps what it said.
+    const notices = Object.fromEntries(rows(db, 'SELECT id, kind, message, action_url, org_id, entity, entity_id, actor_id, count FROM notifications')
+      .map((r) => [(r as { id: string }).id, r]));
+    const none = { actor_id: null, count: null };
+    assert.deepEqual(notices, {
+      'n-comment': { id: 'n-comment', kind: 'comment_added', message: null, action_url: '/records/a1', org_id: 'G8', entity: 'activities', entity_id: 'a1', ...none },
+      'n-mention': { id: 'n-mention', kind: 'comment_mention', message: null, action_url: '/career/training?open=t1', org_id: 'G8', entity: 'trainings', entity_id: 't1', ...none },
+      // A duty this database does not hold is named, so the notice is hidden when read, but has no unit to give it an instance.
+      'n-duty': { id: 'n-duty', kind: 'duty', message: 'Ben Cole recorded Guard on 2026-10-01 for you.', action_url: '/record/duty?open=d1', org_id: null, entity: 'duties', entity_id: 'd1', ...none },
+      'n-counseling': { id: 'n-counseling', kind: 'counseling', message: null, action_url: '/career/counseling?open=c-final', org_id: 'G8', entity: 'counselings', entity_id: 'c-final', ...none },
+      'n-handoff': { id: 'n-handoff', kind: 'work_assigned', message: null, action_url: '/work/items/w1', org_id: 'G8', entity: 'work_items', entity_id: 'w1', ...none },
+      'n-demo': { id: 'n-demo', kind: 'work_moved', message: 'FY26 Q4 2-Way UMT review', action_url: '/work', org_id: null, entity: null, entity_id: null, ...none },
+      'n-unit': { id: 'n-unit', kind: 'unit', message: 'Formation at 0700.', action_url: '/org', org_id: null, entity: null, entity_id: null, ...none },
+    });
+
+    // One unread notice per person, kind and record while it coalesces; one already read does not hold the place, and a
+    // coalescing notice names a record.
+    const coalesced = db.prepare("INSERT INTO notifications (id, user_id, kind, title, org_id, entity, entity_id, count, read_at, created_at) VALUES (?, 'u1', 'comment_added', 'New comments', 'G8', 'activities', 'a1', ?, ?, ?)");
+    coalesced.run('n-new', 1, null, at);
+    assert.throws(() => coalesced.run('n-new-again', 1, null, at), /UNIQUE/);
+    coalesced.run('n-read', 3, at, at);
+    assert.throws(() => db.prepare("INSERT INTO notifications (id, user_id, kind, title, count, created_at) VALUES ('n-loose', 'u1', 'comment_added', 'New comments', 1, ?)").run(at), /CHECK/);
+    db.prepare("DELETE FROM notifications WHERE id IN ('n-new', 'n-read')").run();
+
+    // An answer is on its request's record, and a request or an answer is kept as it was said. A plain comment can still
+    // be edited, and a retention schedule's redaction still reaches a request.
+    const say = db.prepare('INSERT INTO comments (id, record_table, record_id, author_id, unit_id, body, kind, addressee_id, state, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    say.run('q1', 'activities', 'a1', 'u2', 'G8', 'Which UMT list?', 'clarification_request', 'u1', 'open', null, at);
+    assert.throws(() => say.run('q1-elsewhere', 'counselings', 'c-final', 'u1', 'G8', 'The Q4 list.', 'answer', null, null, 'q1', at), /an answer belongs to its request/);
+    say.run('q1-answer', 'activities', 'a1', 'u1', 'G8', 'The Q4 list.', 'answer', null, null, 'q1', at);
+    assert.throws(() => db.prepare("UPDATE comments SET body = 'Which list, again?' WHERE id = 'q1'").run(), /kept as it was said/);
+    assert.throws(() => db.prepare("UPDATE comments SET body = 'The Q3 list.' WHERE id = 'q1-answer'").run(), /kept as it was said/);
+    db.prepare("UPDATE comments SET body = 'Good work.', edited_at = ? WHERE id = 'k-act'").run(at);
+    db.prepare("UPDATE comments SET body = ? WHERE id = 'q1'").run(REDACTED);
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+    const commentsAfter = rows(db, 'SELECT * FROM comments ORDER BY id');
+    const noticesAfter = rows(db, 'SELECT * FROM notifications ORDER BY id');
+    db.close();
+
+    // A second boot runs it once, and adds, clears or rewrites nothing.
+    db = openDatabase(path);
+    assert.equal(migrationHistory(db).filter((m) => m.id === 38).length, 1, 'a second boot runs it once');
+    assert.deepEqual(rows(db, 'SELECT * FROM comments ORDER BY id'), commentsAfter);
+    assert.deepEqual(rows(db, 'SELECT * FROM notifications ORDER BY id'), noticesAfter);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+  } finally { cleanup(); }
+});

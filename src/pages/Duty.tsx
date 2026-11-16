@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { Table, useParam } from '@/components/common';
 import { TimeframeText } from '@/components/Timeframe';
 import { Attachments } from '@/components/Attachments';
-import { Comments } from '@/components/Comments';
+import { Discussion } from '@/components/Comments';
 import RecordLineage from '@/components/RecordLineage';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import DownloadMenu, { categoryDownloads, recordDownloads } from '@/components/DownloadMenu';
@@ -200,7 +200,7 @@ export default function Duty() {
         {viewed && <DutyReviewHistory id={viewed.id} className="mt-4" />}
         {viewed && <div className="mt-4"><Attachments table="duties" id={viewed.id} canEdit={canEditRow(viewed)} /></div>}
         {viewed && <RecordLineage store="duties" id={viewed.id} onUndone={goTo} className="mt-4" />}
-        {viewed && <div className="mt-4"><Comments table="duties" id={viewed.id} canModerate={Boolean(viewed.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, viewed.unit_id)} /></div>}
+        {viewed && <div className="mt-4"><Discussion host={{ kind: 'record', table: 'duties', id: viewed.id }} canModerate={Boolean(viewed.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, viewed.unit_id)} /></div>}
       </Dialog>
 
       <DutyDialog mode={form} open={Boolean(form)} onOpenChange={(o) => { if (!o) setForm(null); }} onSaved={openSaved} />
