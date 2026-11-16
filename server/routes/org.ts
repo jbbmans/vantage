@@ -123,12 +123,14 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
  * A unit's access log, newest first, a page at a time: `next` is the `before` of the page after it, null on the last.
  * Whether the reader may read it is decided before a single entry is read.
  */
+const unitAuditQuery = auditQuery.pick({ before: true }).extend({ limit: z.coerce.number().int().min(1).max(500).optional() });
 orgRouter.get('/units/:unitId/audit', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_AUDIT, unitId)) throw forbidden('You cannot read the access log for that unit.');
-  const q = parse(auditQuery.pick({ before: true, limit: true }), req.query);
+  // At most 500 a page, as before paging: a page joins two people to every entry.
+  const q = parse(unitAuditQuery, req.query);
   const limit = q.limit ?? 200;
   const rows = req.ctx.db.prepare(`SELECT al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, al.actor_id, act.first_name AS actor_first, act.last_name AS actor_last, ar.abbr AS actor_rank, sub.first_name AS subject_first, sub.last_name AS subject_last
     FROM audit_log al LEFT JOIN users act ON act.id = al.actor_id LEFT JOIN ranks ar ON ar.id = act.rank_id LEFT JOIN users sub ON sub.id = al.subject_id
@@ -631,10 +633,13 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
     ? listed('counselings', "user_id = ? AND deleted_at IS NULL AND (stage <> 'draft' OR counselor_id = user_id OR counselor_id IS NULL)", [id], 'date DESC')
     : listed('counselings', "user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) AND stage = 'final'))", [id, req.user.id, shared], 'date DESC');
   const counselings = withCounselingDetail(ctx, req.user.id, counselingList.rows, scope) as unknown as Counseling[];
-  // Goals and open tasks in the order they were set, as the page has always listed them.
-  const goalList = listed('goals', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ${unitClause}`, [id, id, ...unitArgs], 'created_at, id');
+  // Goals and open tasks in the order they were set, as the page has always listed them: read newest first, so a cut
+  // list keeps its newest like every other list here, then put back in that order.
+  const goalList = listed('goals', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ${unitClause}`, [id, id, ...unitArgs], 'created_at DESC, id DESC');
+  goalList.rows.reverse();
   const goals = withGoalProgress(ctx, goalList.rows as never) as unknown as Goal[];
-  const taskList = listed('tasks', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' ${unitClause}`, [id, id, ...unitArgs], 'created_at, id');
+  const taskList = listed('tasks', `(user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' ${unitClause}`, [id, id, ...unitArgs], 'created_at DESC, id DESC');
+  taskList.rows.reverse();
   const body: MemberDetailResponse = {
     person,
     memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : 'AND um.unit_id IN (SELECT value FROM json_each(?))'}`).all(id, ...unitArgs) as MemberDetailResponse['memberships'],

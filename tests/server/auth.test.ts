@@ -6,6 +6,7 @@ import { resetLimiters } from '../../server/auth/limiter.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../../server/config.ts';
+import { sessionDigest } from '../../server/auth/sessions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -88,6 +89,14 @@ test('a document served to a live session restores a signed-in marker a page cle
   assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}; vantage_signed_in=${live.vantage_signed_in}`)), undefined, 'a right marker is left alone');
   await signOutCookies(live);
   assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}`)), undefined, 'an ended session gets none');
+
+  // A session that idled out still has its row until a request ends it; a page load gives it no marker either, ends it,
+  // and clears its cookie, without touching it.
+  const idle = await signInCookies();
+  app.ctx.db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), sessionDigest(idle.vantage_session));
+  const res = await doc(`vantage_session=${idle.vantage_session}`);
+  assert.equal(markerOf(res), undefined, 'an idled-out session gets no marker');
+  assert.ok(res.headers.getSetCookie().some((c) => /^vantage_session=;/.test(c)), 'its cookie is cleared');
 });
 
 test('self-registration creates an unattached account and can be disabled', async () => {

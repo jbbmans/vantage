@@ -305,7 +305,7 @@ function buildTraining(r: Reading): Built {
       ORDER BY t.date DESC LIMIT ${SCAN_LIMIT}`).all(JSON.stringify(r.units), ...span.params) as TrainingRow[];
   const names = namesOf(r.ctx, rows.filter((x) => r.detailIn.has(x.unit_id)).map((x) => x.user_id));
   // The requirement standing as the training report reads it, over the units read here (ADR-0020).
-  const target: ReportTarget = { type: 'training', subject: 'unit', userId: null, unitId: r.unitId, unitIds: r.units, detail: r.detail, files: [] };
+  const target: ReportTarget = { type: 'training', subject: 'unit', userId: null, unitId: r.unitId, unitIds: r.units, detail: r.detail, detailUnits: r.units.filter((u) => r.detailIn.has(u)), files: [] };
   const { orgId, requirements, standings } = requirementStandings(r.ctx, target, r.today);
   const months = monthKeys(r.from, r.to);
 

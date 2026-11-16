@@ -49,6 +49,18 @@ test('a total opens into the outcomes behind it, and only readable ones', async 
   assert.equal(contributors.body.records[0].id, created.body.id);
   assert.equal(contributors.body.records[0].value, 5);
   assert.equal(contributors.body.records[0].table, 'activities');
+
+  // With another aggregation the drill says what the figure says, over the same outcomes.
+  await activity(op.token, { title: 'Reconciled more MIPRs', quantity: 9, unit_label: 'MIPRs' });
+  for (const aggregation of ['sum', 'max', 'min', 'average', 'distinct'] as const) {
+    const q = `metric_id=quantity:mipr&from=${day(-30)}&to=${day(1)}&aggregation=${aggregation}`;
+    const figure = (await app.call('GET', `/api/metrics?${q}`, { token: op.token })).body.tracked.concat((await app.call('GET', `/api/metrics?${q}`, { token: op.token })).body.headline)
+      .find((t: any) => t.metricId === 'quantity:mipr');
+    const drill = await app.call('GET', `/api/metrics/contributors?${q}`, { token: op.token });
+    assert.equal(drill.status, 200, JSON.stringify(drill.body));
+    assert.equal(drill.body.value, figure.value, `${aggregation}: the drill's value is the figure's`);
+    assert.equal(drill.body.count, figure.outcomes, `${aggregation}: one record per outcome`);
+  }
 });
 
 test('a private entry never reaches another member figures, even a leader', async () => {

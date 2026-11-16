@@ -5,7 +5,7 @@ import { subtreeIds } from '../authz/scope.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { periodClause } from './timeframes.ts';
 import {
-  measuresOfAll, totals, headline, series, catalog, selectMeasures, canonicalMetricId,
+  measuresOfAll, totals, headline, series, catalog, selectMeasures, canonicalMetricId, aggregateValues,
   type Measure, type MetricTotal, type MetricFigure, type MetricPoint, type Bucket, type Aggregation, type AggregateOptions,
 } from '../../shared/metricEngine.ts';
 import { DRILL_LIMIT } from '../../shared/unitAnalytics.ts';
@@ -248,7 +248,9 @@ export function metricContributors(ctx: AppContext, user: SessionUser, scope: Sc
     const [table, id] = m.outcomeId.split(':') as ['activities' | 'trainings', string];
     return { id, table, date: row.date, end_date: row.end_date, ongoing: row.ongoing === 1, title: row.title, user_id: row.user_id, unit_id: row.unit_id, value: m.value, unit: m.unit };
   }).sort((a, b) => b.date.localeCompare(a.date) || Math.abs(b.value) - Math.abs(a.value));
-  const value = Math.round(all.reduce((n, c) => n + c.value, 0) * 100) / 100;
+  // What the figure is, by its own aggregation over the same values in date order (a sum, a maximum, the latest...).
+  const value = Math.round(aggregateValues(opts.aggregation || 'sum', [...all].sort((a, b) => a.date.localeCompare(b.date)).map((c) => c.value)) * 100) / 100;
+  // Measures are one per outcome and metric (dedupe), so this counts outcomes, as the figure's `outcomes` does.
   return { count: all.length, value, records: all.slice(0, DRILL_LIMIT) };
 }
 

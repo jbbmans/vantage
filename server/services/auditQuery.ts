@@ -93,7 +93,8 @@ export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery
  */
 export function auditCount(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery, 'limit' | 'before'>, cap: number): number {
   const { where, params } = filterSql(trail, q);
-  return (ctx.db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM audit_log al ${JOINS} WHERE ${where} LIMIT ?)`).get(...params, cap) as { n: number }).n;
+  // Only a text search reads the actor's and the subject's names; without one the count walks the entries alone.
+  return (ctx.db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM audit_log al ${q.q ? JOINS : ''} WHERE ${where} LIMIT ?)`).get(...params, cap) as { n: number }).n;
 }
 
 /** Whether a request is a trail's first page with no filter: the only page that carries the trail's action list. */

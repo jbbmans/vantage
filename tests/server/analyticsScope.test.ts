@@ -136,6 +136,31 @@ test('a unit report reads the units beneath only where the reader reads them in 
   assert.ok(JSON.stringify((await run(lead.token, 'unit')).body).includes('Belowone'));
 });
 
+test('a unit report built on the dashboard names Marines unit by unit, as the Output tab does, and says so', async () => {
+  // Member detail at G8 alone (a position-0 role), shared records but no member detail in the team beneath.
+  app.ctx.db.prepare("INSERT INTO roles (id, unit_id, key, name, permissions, position, created_at) VALUES ('FISCAL:reader', 'FISCAL', 'reader', 'Reader', ?, 0, ?)")
+    .run(PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS, new Date().toISOString());
+  const partial = await app.register('partial');
+  await enroll(app, op.token, 'G8', partial.id, 'viewer');
+  await enroll(app, op.token, 'FISCAL', partial.id, 'reader');
+  partial.token = await login('partial');
+  const run = (type: string) => get(partial.token, `/api/report-center/run?${new URLSearchParams({ type, subject: 'unit', unit_id: 'G8', from: FROM, to: D })}`);
+  const tableOf = (doc: { sections: Array<{ tables: Array<{ id: string; rows: Array<Record<string, unknown>> }> }> }, id: string) =>
+    doc.sections.flatMap((s) => s.tables).find((t) => t.id === id);
+  for (const [type, id] of [['unit', 'members'], ['leadership', 'counseling']] as const) {
+    const res = await run(type);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const rows = tableOf(res.body, id)?.rows ?? [];
+    assert.ok(rows.some((r) => String(r.name).includes('Topside')), `${type}: the G8 Marine is named`);
+    const body = JSON.stringify(res.body);
+    assert.ok(!body.includes('Belowone') && !body.includes('Belowtwo'), `${type}: no Marine of the team beneath is named`);
+    assert.ok(res.body.notes.some((n: string) => n.includes('only from the units where you may open member records')), `${type}: says Marines are named in some units only`);
+  }
+  // The team beneath is still read: its work counts in the unit's totals.
+  const unit = await run('unit');
+  assert.ok(unit.body.summary.find((x: { label: string }) => x.label === 'Entries shared').value >= 3, JSON.stringify(unit.body.summary));
+});
+
 /** Every statement prepared while `fn` runs, with the arguments it ran with. */
 async function statements(fn: () => Promise<unknown>) {
   const db = app.ctx.db;

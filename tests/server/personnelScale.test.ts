@@ -281,6 +281,9 @@ test('a Marine’s page lists at most its limit of each record, newest first, sa
     const counsel = db().prepare("INSERT INTO counselings (id, user_id, unit_id, visibility, date, type, summary, stage, created_at, updated_at) VALUES (?, ?, 'P1a', 'unit', ?, 'monthly', 'Fine', ?, ?, ?)");
     for (let i = 0; i < 3; i++) counsel.run(`cs-${i}`, rich.id, day(i), 'final', at, at);
     counsel.run('cs-draft', rich.id, day(9), 'draft', at, at);
+    // Goals list in the order they were set; a cut keeps the newest, as every other list here does.
+    const goal = db().prepare("INSERT INTO goals (id, user_id, unit_id, visibility, title, created_at, updated_at) VALUES (?, ?, 'P1a', 'unit', ?, ?, ?)");
+    for (let i = 0; i < 520; i++) goal.run(`goal-${String(i).padStart(3, '0')}`, rich.id, `Goal ${i}`, `${day(i)}T00:00:00.000Z`, at);
   })();
   const theirs = await get(op.token, `/api/org/team/${rich.id}`);
   assert.equal(theirs.status, 200, JSON.stringify(theirs.body));
@@ -297,7 +300,10 @@ test('a Marine’s page lists at most its limit of each record, newest first, sa
   assert.equal(b.counts.awards, 1);
   assert.equal(b.counts.counselings, 3, 'a draft not the reader’s is neither listed nor counted');
   assert.equal(b.counselings.length, 3);
-  assert.deepEqual([b.counts.trainings, b.counts.duties, b.counts.goals, b.counts.tasks], [0, 0, 0, 0]);
+  assert.deepEqual([b.counts.trainings, b.counts.duties, b.counts.goals, b.counts.tasks], [0, 0, 520, 0]);
+  assert.equal(b.goals.length, 500);
+  assert.equal(b.goals[0].id, 'goal-020', 'the oldest goals are the ones left out');
+  assert.equal(b.goals.at(-1).id, 'goal-519', 'the newest is kept, last, in the order goals were set');
 
   const own = await get(rich.token, `/api/org/team/${rich.id}`);
   assert.equal(own.status, 200, JSON.stringify(own.body));

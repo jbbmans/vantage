@@ -78,8 +78,13 @@ export interface ReportTarget {
   unitId: string | null;
   /** The unit and every unit beneath it; empty unless the report is about a unit. */
   unitIds: string[];
-  /** May see figures by Marine. */
+  /** May see figures by Marine in every unit read. */
   detail: boolean;
+  /**
+   * The units read where the reader may see figures by Marine. The reports built on the unit dashboard name Marines from
+   * these alone, as the Output tab does; the others name Marines only when this is every unit read (`detail`).
+   */
+  detailUnits: string[];
   /** The files the reader may take it away as. */
   files: ReportFileFormat[];
 }
@@ -142,7 +147,7 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
     throw badRequest(`The ${spec.title} report is about ${about}.`, { fieldErrors: { subject: 'Not for this report.' } });
   }
   const all = [...REPORT_FILE_FORMATS];
-  if (subject === 'self') return { type: q.type, subject, userId: user.id, unitId: null, unitIds: [], detail: true, files: all };
+  if (subject === 'self') return { type: q.type, subject, userId: user.id, unitId: null, unitIds: [], detail: true, detailUnits: [], files: all };
 
   if (subject === 'member') {
     const units = detailUnitsFor(ctx, scope, other!);
@@ -152,7 +157,7 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
     const near = !q.unit_id || units.includes(q.unit_id) ? q.unit_id : units.find((u) => sameInstance(ctx, u, q.unit_id));
     if (q.unit_id && !near) throw forbidden('That Marine is not yours to report on in that Unit Instance.', 'cross_instance');
     const unitId = near || units[0];
-    return { type: q.type, subject, userId: other, unitId, unitIds: [], detail: true, files: can(scope, PERMISSIONS.EXPORT_DATA, unitId) ? all : ['pdf'] };
+    return { type: q.type, subject, userId: other, unitId, unitIds: [], detail: true, detailUnits: [unitId], files: can(scope, PERMISSIONS.EXPORT_DATA, unitId) ? all : ['pdf'] };
   }
 
   if (!q.unit_id) throw badRequest('Choose the unit the report is about.', { fieldErrors: { unit_id: 'Required.' } });
@@ -164,9 +169,10 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
   // dashboard and the analytics do. Figures by Marine need opening member records in every unit read, so a report never
   // names a Marine of a unit where the reader may not.
   const unitIds = q.type === 'comparison' ? [q.unit_id] : subtreeIds(ctx, q.unit_id).filter(reads);
+  const detailUnits = unitIds.filter((u) => can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, u));
   return {
     type: q.type, subject, userId: null, unitId: q.unit_id, unitIds,
-    detail: unitIds.every((u) => can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, u)), files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
+    detail: detailUnits.length === unitIds.length, detailUnits, files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
   };
 }
 
@@ -200,6 +206,9 @@ const asOfDay = (ctx: AppContext, user: SessionUser, q: ReportQuery) => q.as_of 
 
 /** What the reader does not see, in a line, when the report leaves out figures by Marine. */
 const NO_DETAIL = 'Figures by Marine are left out: they need opening member records in this unit.';
+const SOME_DETAIL = 'Marines are named, and counted by Marine, only from the units where you may open member records.';
+/** What a report built on the unit dashboard says about the Marines it names. */
+const detailNotes = (t: ReportTarget) => (t.detail ? [] : t.detailUnits.length ? [SOME_DETAIL] : [NO_DETAIL]);
 
 interface Built {
   summary: ReportFigure[];
@@ -550,12 +559,14 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
 // ——— Unit performance and leadership: the unit dashboard ———
 
 const dashboardOf = (ctx: AppContext, t: ReportTarget, period: Period) =>
-  unitDashboard(ctx, t.unitId!, period.from || '1970-01-01', period.to || zonedDay(ctx.config.timezone), { units: t.unitIds, detailIn: new Set(t.detail ? t.unitIds : []) });
+  unitDashboard(ctx, t.unitId!, period.from || '1970-01-01', period.to || zonedDay(ctx.config.timezone), { units: t.unitIds, detailIn: new Set(t.detailUnits) });
 const memberLabel = (m: { rank_abbr: string | null; name: string }) => `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`;
 
 function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {
   const cfg = ctx.runtime.metrics;
   const d = dashboardOf(ctx, t, period);
+  // Marines are listed from the units the reader sees by Marine, as on the Output tab (unitDashboard).
+  const named = t.detailUnits.length > 0;
   const sections: ReportSection[] = [
     {
       id: 'weeks', heading: 'Week by week',
@@ -583,7 +594,7 @@ function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {
       ], d.by_team.map((x) => ({ name: x.name, members: x.members, contributors: x.contributors, entries: x.entries, dollars: x.dollars })), 'No teams beneath the unit.')],
     });
   }
-  if (t.detail) {
+  if (named) {
     sections.push({
       id: 'members', heading: 'Marine by Marine',
       tables: [table('members', 'Marine by Marine', [
@@ -601,13 +612,15 @@ function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {
       { label: 'Open tasks', value: d.totals.open_tasks, kind: 'number' }, { label: 'Active goals', value: d.totals.active_goals, kind: 'number' },
       { label: 'Awards in progress', value: d.totals.awards_in_progress, kind: 'number' },
     ],
-    sections, primary: t.detail ? 'members' : 'weeks',
-    notes: [sourceNote(ctx, t), SPAN_NOTE, 'An entry begun before the period counts in its first week.', ...(t.detail ? [] : [NO_DETAIL])],
+    sections, primary: named ? 'members' : 'weeks',
+    notes: [sourceNote(ctx, t), SPAN_NOTE, 'An entry begun before the period counts in its first week.', ...detailNotes(t)],
   };
 }
 
 function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, period: Period): Built {
   const d = dashboardOf(ctx, t, period);
+  // Marines are listed from the units the reader sees by Marine, as on the Output tab (unitDashboard).
+  const named = t.detailUnits.length > 0;
   const units = JSON.stringify(t.unitIds);
   const today = zonedDay(zoneOf(ctx, user));
   const AWARDS = `FROM awards WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND status IN ('recommended', 'submitted', 'approved')`;
@@ -622,7 +635,7 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
   const due = d.members.filter((m) => m.counseling_due);
   const unready = d.members.filter((m) => m.readiness_complete < 5);
   const sections: ReportSection[] = [];
-  if (t.detail) {
+  if (named) {
     sections.push({
       id: 'counseling', heading: 'Counseling due', lede: 'No counseling shared with the unit in the last 45 days.',
       tables: [table('counseling', 'Counseling due', [
@@ -645,7 +658,7 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
       { key: 'due', label: 'Due', kind: 'date', width: 9 }, { key: 'days', label: 'Days late', kind: 'number', width: 8 },
     ], tasks.map((x) => ({ title: x.title, assignee: names.get(x.assignee_id || x.user_id) || null, priority: words(x.priority), due: x.due_date, days: Math.round((Date.parse(today) - Date.parse(x.due_date)) / DAY_MS) })), 'No shared task is overdue.', { total: taskCount })],
   });
-  if (t.detail) {
+  if (named) {
     sections.push({
       id: 'readiness', heading: 'Readiness not fully reported', lede: 'PFT, CFT, rifle qualification, MCMAP belt and PME: how many of the five each Marine has on record.',
       tables: [table('readiness', 'Readiness not fully reported', [
@@ -655,14 +668,14 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
   }
   return {
     summary: [
-      ...(t.detail ? [{ label: 'Counseling due', value: d.totals.counseling_due, kind: 'number' as const }] : []),
+      ...(named ? [{ label: 'Counseling due', value: due.length, kind: 'number' as const }] : []),
       { label: 'Awards in progress', value: awardCount, kind: 'number' }, { label: 'Overdue tasks', value: taskCount, kind: 'number' },
-      ...(t.detail ? [{ label: 'Readiness incomplete', value: unready.length, kind: 'number' as const }] : []),
+      ...(named ? [{ label: 'Readiness incomplete', value: unready.length, kind: 'number' as const }] : []),
       { label: 'Average PFT', value: d.totals.avg_pft, kind: 'number' }, { label: 'Average CFT', value: d.totals.avg_cft, kind: 'number' },
     ],
-    sections, primary: t.detail ? 'counseling' : 'awards',
+    sections, primary: named ? 'counseling' : 'awards',
     notes: [
-      sourceNote(ctx, t), 'Counselings are dated, never quoted.', ...(t.detail ? [] : [NO_DETAIL]),
+      sourceNote(ctx, t), 'Counselings are dated, never quoted.', ...detailNotes(t),
       ...(awardRead.cut ? [cutNote('awards in progress', { totals: true, dated: false })] : []),
       ...(taskRead.cut ? [cutNote('overdue tasks', { totals: true, dated: false })] : []),
     ],

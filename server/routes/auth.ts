@@ -8,7 +8,7 @@ import { assertNotLocked, assertNameNotLocked, recordFailure, recordNameFailure,
 import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
-import { createSession, destroySession, invalidateUserSessions, sessionDigest, sessionStands, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
+import { createSession, destroySession, invalidateUserSessions, resolveSession, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { matchTotp } from '../auth/totp.ts';
@@ -85,7 +85,10 @@ export function setSignedInMarker(req: Request, res: Response, token: string) {
 export function restoreSignedInMarker(req: Request, res: Response) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (typeof token !== 'string' || !token || req.cookies?.[SIGNED_IN_COOKIE] === signedInMarker(token)) return;
-  if (sessionStands(req.ctx, sessionDigest(token))) setSignedInMarker(req, res, token);
+  // Read as any request reads it, expiry included, without counting as use: a session that idled out gets no marker,
+  // and its cookie goes, so the next page asks nothing of it.
+  if (resolveSession(req.ctx, token, { touch: false })) setSignedInMarker(req, res, token);
+  else res.clearCookie(SESSION_COOKIE, { path: '/' });
 }
 
 /** A hash made the old way is replaced while the password is in hand, so the instance moves to PBKDF2 as people sign in. */
