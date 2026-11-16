@@ -1,10 +1,12 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, loginAs, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
  * The audit chain's anchors in the Vantage Administrator console (Task 7, ADR-0013): the head of the chain and the last
  * anchor written into it, and a check of an anchor kept off the host, from the keyboard, with its result announced.
+ * The access logs (ADR-0032): a unit's names who opened whose record, a Marine's names who opened theirs, each pages
+ * back to its oldest entry, and a log that cannot load says so.
  */
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -62,4 +64,105 @@ test('the audit trail page shows the chain’s head and last anchor, and checks 
   expect(rows.slice(0, 2).map((r) => r.category)).toEqual(['enterprise', 'enterprise']);
   expect(rows[0].detail).toContain('a different hash');
   expect(rows[1].detail).toContain('the entry matches');
+});
+
+/**
+ * A Marine in G-8 whose readiness the signed-in operator opened `reads` times: each open is an entry about them, in
+ * G-8's access log and in their own.
+ */
+async function lookedAt(browser: Browser, leader: Page, reads: number) {
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  const username = unique('looked');
+  await registerAs(page, username);
+  await joinUnit(leader.request, page.request);
+  const me = await (await page.request.get('/api/me')).json() as { user: { id: string; first_name: string; last_name: string } };
+  for (let i = 0; i < reads; i++) {
+    const read = await leader.request.get(`/api/me/readiness/${me.user.id}`, { headers: H });
+    expect(read.ok(), await read.text()).toBeTruthy();
+  }
+  return { context, page, name: `${me.user.first_name} ${me.user.last_name}` };
+}
+
+/** Pages of `size` entries on every read of `path`, so a test needs only a few entries to page back. */
+async function smallPages(page: Page, path: RegExp, size: number) {
+  await page.route(path, (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('limit', String(size));
+    return route.continue({ url: url.toString() });
+  });
+}
+
+test('the unit access log names who opened whose record, and pages back to the oldest entry (AUD-4, AUD-7)', async ({ page, browser }) => {
+  await loginAs(page, OPERATOR.username);
+  const marine = await lookedAt(browser, page, 3);
+  try {
+    await page.goto('/team/access-log');
+    const table = page.getByRole('table', { name: 'Who has been reading records in this unit' });
+    const read = table.locator('tbody tr').filter({ hasText: 'View readiness' }).filter({ hasText: marine.name }).first();
+    await expect(read.locator('td').nth(1), 'who opened it').toHaveText('Cpl John Boletz');
+    await expect(read.locator('td').nth(3), 'whose it was').toHaveText(marine.name);
+    await expect(table.locator('tbody tr td:nth-child(2)').filter({ hasText: /^system$/ }), 'every entry here has someone behind it').toHaveCount(0);
+
+    await smallPages(page, /\/api\/org\/units\/[^/]+\/audit/, 2);
+    await page.reload();
+    const rows = table.locator('tbody tr');
+    await expect(rows).toHaveCount(2);
+    await page.getByRole('button', { name: 'Load older' }).click();
+    await expect(rows).toHaveCount(4);
+    await expect(rows.nth(2), 'focus is on the first entry the page added').toBeFocused();
+    await expect(page.getByRole('status').filter({ hasText: '4 shown, newest first' })).toBeVisible();
+  } finally { await marine.context.close(); }
+});
+
+test('a Marine pages back through who has looked at their record, on a phone too (AUD-5, AUD-7)', async ({ page, browser }) => {
+  await loginAs(page, OPERATOR.username);
+  const marine = await lookedAt(browser, page, 3);
+  try {
+    const own = marine.page;
+    await smallPages(own, /\/api\/me\/audit/, 2);
+    await own.goto('/settings?tab=security');
+    const table = own.getByRole('table', { name: 'Who has looked at your record' });
+    const rows = table.locator('tbody tr');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText('Cpl Boletz');
+    await expect(rows.first()).toContainText('View readiness');
+    const more = own.getByRole('button', { name: 'Load older' });
+    await more.click();
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(2)).toBeFocused();
+    await expect(more, 'no button once the oldest entry is shown').toHaveCount(0);
+
+    await own.setViewportSize({ width: 390, height: 844 });
+    const region = own.getByRole('region', { name: 'Who has looked at your record' });
+    await region.focus();
+    await expect(region).toBeFocused();
+    const results = await new AxeBuilder({ page: own }).exclude('[data-radix-popper-content-wrapper]').analyze();
+    expect(serious(results.violations), '/settings?tab=security at 390px').toEqual([]);
+    const [scroll, width] = await own.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+    expect(scroll, 'no sideways scroll of the page').toBeLessThanOrEqual(width + 1);
+  } finally { await marine.context.close(); }
+});
+
+test('an access log that cannot load says so, never that nobody looked (AUD-6)', async ({ page, browser }) => {
+  await loginAs(page, OPERATOR.username);
+  const marine = await lookedAt(browser, page, 1);
+  try {
+    const own = marine.page;
+    await own.route(/\/api\/me\/audit/, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database is locked' }) }));
+    await own.goto('/settings?tab=security');
+    await expect(own.getByRole('alert').filter({ hasText: 'Your access log could not load' })).toBeVisible();
+    await expect(own.getByText('Nobody but you')).toHaveCount(0);
+
+    await page.route(/\/api\/org\/units\/[^/]+\/audit/, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database is locked' }) }));
+    await page.goto('/team/access-log');
+    await expect(page.getByRole('alert').filter({ hasText: 'The access log could not load' })).toBeVisible();
+    await expect(page.getByText('No access events yet')).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.unroute(/\/api\/org\/units\/[^/]+\/audit/);
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(page.getByRole('table', { name: 'Who has been reading records in this unit' })).toBeVisible();
+    const results = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze();
+    expect(serious(results.violations), '/team/access-log at 390px').toEqual([]);
+  } finally { await marine.context.close(); }
 });

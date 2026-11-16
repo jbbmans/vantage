@@ -200,7 +200,7 @@ test('a draft is its counselor’s alone: nobody else reads, counts or hears of 
   const onIt = app.ctx.db.prepare("SELECT action, subject_id FROM audit_log WHERE entity = 'counselings' AND entity_id = ?").all(c.id) as Array<{ action: string; subject_id: string | null }>;
   assert.ok(onIt.length >= 6, JSON.stringify(onIt));
   assert.deepEqual(onIt.filter((e) => e.subject_id), [], 'no entry on a draft names its Marine');
-  assert.ok(!(await get(diaz.token, '/api/me/audit')).body.some((e: any) => e.entity_id === c.id), 'not in their access log');
+  assert.ok(!(await get(diaz.token, '/api/me/audit?limit=1000')).body.rows.some((e: any) => e.entity_id === c.id), 'not in their access log');
   assert.ok(!buildPersonalExport(app.ctx, diaz.id).audit_trail.some((e: any) => e.entity_id === c.id), 'nor in their export’s trail');
   assert.ok(buildPersonalExport(app.ctx, lopez.id).audit_trail.some((e: any) => e.entity_id === c.id), 'its counselor’s trail keeps what they did');
   const listed = lastSeq();

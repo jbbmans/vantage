@@ -191,7 +191,10 @@ export const markRead = (id: string) => api.put(`/me/notifications/${encodeURICo
 export const markAllRead = (group?: NoticeGroup | null) => api.post<{ ok: true; updated: number }>('/me/notifications/read-all', group ? { group } : {});
 /** Questions and review requests asked of the reader, and those they asked (ADR-0031). */
 export const myRequests = () => request<{ asked_of_you: RequestSummary[]; you_asked: RequestSummary[] }>('GET', '/me/requests', undefined, { headers: { 'x-vantage-background': '1' } });
-export const myAudit = () => api.get('/me/audit');
+/** An access log a page at a time, newest first: `next` is the `before` of the page after it, null on the last. */
+export interface AccessLogPage<Row> { rows: Row[]; next: number | null }
+export interface MyAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; first_name: string | null; last_name: string | null; rank_abbr: string | null }
+export const myAudit = (before?: number | null) => api.get<AccessLogPage<MyAccessRow>>(`/me/audit${before ? `?before=${before}` : ''}`);
 export const digestPreview = () => api.get('/me/digest/preview');
 export const digestSendNow = () => api.post('/me/digest/send-now');
 export const emailVerify = (email: string) => api.post('/me/email/verify', { email });
@@ -316,7 +319,8 @@ export const unitAnalytics = (id: string, section: AnalyticsSection, from: strin
   api.get<AnalyticsResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}?${qs({ from, to })}`);
 export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { from: string; to: string; visual: string; key: string; series?: string | null }) =>
   api.get<DrillResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}/drill?${qs({ from: q.from, to: q.to, visual: q.visual, key: q.key, series: q.series || undefined })}`);
-export const unitAudit = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/audit`);
+export interface UnitAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; actor_id: string | null; actor_first: string | null; actor_last: string | null; actor_rank: string | null; subject_first: string | null; subject_last: string | null }
+export const unitAudit = (id: string, before?: number | null) => api.get<AccessLogPage<UnitAccessRow> & { unit_id: string }>(`/org/units/${encodeURIComponent(id)}/audit${before ? `?before=${before}` : ''}`);
 export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);
 /** "Why can they?": every grant behind someone's authority, in the units the caller manages. */
 export const whyCan = (userId: string) => api.get(`/org/team/${encodeURIComponent(userId)}/why`);

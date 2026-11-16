@@ -17,6 +17,7 @@ import { registrationOptions, completeRegistration, listPasskeys, deletePasskey 
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
 import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
+import { auditQuery } from '../services/auditQuery.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds, orgSummaries, viewsFor } from '../services/org.ts';
@@ -333,9 +334,17 @@ meRouter.post('/notifications/read-all', wrap((req, res) => {
   res.json({ ok: true, updated: markAllRead(req.ctx, req.user, group ?? null) });
 }));
 
+/**
+ * Who has opened the reader's record: entries about them that someone else wrote, newest first, a page at a time.
+ * `next` is the `before` of the page after it, null on the last, so every entry is in reach, however old.
+ */
 meRouter.get('/audit', wrap((req, res) => {
-  const rows = req.ctx.db.prepare(`SELECT al.id, al.action, al.entity, al.entity_id, al.detail, al.at, u.first_name, u.last_name, r.abbr AS rank_abbr FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN ranks r ON r.id = u.rank_id WHERE al.subject_id = ? AND al.actor_id <> ? ORDER BY al.seq DESC LIMIT 100`).all(req.user.id, req.user.id);
-  res.json(rows);
+  const q = parse(auditQuery.pick({ before: true, limit: true }), req.query);
+  const limit = q.limit ?? 100;
+  const rows = req.ctx.db.prepare(`SELECT al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, u.first_name, u.last_name, r.abbr AS rank_abbr FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN ranks r ON r.id = u.rank_id
+    WHERE al.subject_id = ? AND al.actor_id <> ? AND al.seq < ? ORDER BY al.seq DESC LIMIT ?`).all(req.user.id, req.user.id, q.before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number }>;
+  const page = rows.slice(0, limit);
+  res.json({ rows: page, next: rows.length > limit ? page.at(-1)!.seq : null });
 }));
 
 meRouter.get('/digest/preview', wrap((req, res) => {

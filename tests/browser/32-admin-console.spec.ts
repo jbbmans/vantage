@@ -135,6 +135,86 @@ test('the operations pages fit tablet and phone widths without sideways scrollin
       await page.waitForLoadState('networkidle');
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `/admin/${path} at ${w}px`).toBeLessThanOrEqual(1);
+      // The trail is wider than a phone: its columns scroll inside a named region the keyboard reaches.
+      if (path === 'audit' && w === 390) {
+        const region = page.getByRole('region', { name: 'Audit entries, newest first' });
+        await region.focus();
+        await expect(region).toBeFocused();
+        await page.keyboard.press('ArrowRight');
+        await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+        const results = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze();
+        expect(serious(results.violations), `/admin/audit at ${w}px`).toEqual([]);
+      }
     }
   }
+});
+
+/** Pages of `size` entries instead of 200, so a test needs only a few entries to page back. */
+async function smallPages(page: Page, size: number) {
+  await page.route(/\/api\/platform\/audit\?/, (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('limit', String(size));
+    return route.continue({ url: url.toString() });
+  });
+}
+
+test('pages read back stay when the window regains focus; focus moves to the first older entry (AUD-9)', async ({ page }) => {
+  await page.clock.install();
+  await smallPages(page, 4);
+  await loginAs(page, OPERATOR.username);
+  await openAdmin(page, 'audit', 'Platform audit trail');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(4);
+  await page.getByRole('button', { name: 'Load older' }).click();
+  await expect(rows).toHaveCount(8);
+  await expect(rows.nth(4), 'focus is on the first entry the page added').toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: '8 shown, newest first' })).toBeVisible();
+
+  let reads = 0;
+  page.on('request', (r) => { if (/\/api\/platform\/audit\?/.test(r.url())) reads += 1; });
+  // Past the point where a read would have gone stale, the reader comes back to the window.
+  await page.clock.fastForward('01:05');
+  await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(500);
+  expect(reads, 'coming back to the window reads nothing').toBe(0);
+  await expect(rows).toHaveCount(8);
+
+  // Refresh reads every page shown again, and keeps them.
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+  await expect(rows).toHaveCount(8);
+});
+
+test('a backwards date range is said at its field, the count is announced, and a long detail is shown whole (AUD-12)', async ({ page }) => {
+  await loginAs(page, OPERATOR.username);
+  // An entry with a long detail: an anchor check names the hash it was given.
+  const checked = await page.request.post('/api/platform/integrity/verify', { headers: H, data: { seq: 1, entry_hash: 'e'.repeat(64) } });
+  expect(checked.ok(), await checked.text()).toBeTruthy();
+  await openAdmin(page, 'audit', 'Platform audit trail');
+  const from = page.getByLabel('From (UTC)');
+  await from.fill('2026-03-10');
+  await page.getByLabel('To (UTC)').fill('2026-03-01');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(from).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert').filter({ hasText: 'From is after To' })).toBeVisible();
+  await expect(page.getByText(/shown, filtered/), 'nothing was sent').toHaveCount(0);
+
+  await page.getByLabel('To (UTC)').fill('2099-12-31');
+  await expect(from).not.toHaveAttribute('aria-invalid', 'true');
+  await page.getByLabel('Search').fill('anchor');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /shown, filtered/ })).toBeVisible();
+  const detail = page.getByRole('cell', { name: new RegExp(`hash ${'e'.repeat(64)}`) }).first();
+  await expect(detail).toBeVisible();
+  expect(await detail.evaluate((el) => [getComputedStyle(el).textOverflow, getComputedStyle(el).whiteSpace])).toEqual(['clip', 'normal']);
+  const results = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze();
+  expect(serious(results.violations)).toEqual([]);
+});
+
+test('the platform trail says it could not load rather than showing an empty trail', async ({ page }) => {
+  await loginAs(page, OPERATOR.username);
+  await page.route(/\/api\/platform\/audit\?/, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database is locked' }) }));
+  await openAdmin(page, 'audit', 'Platform audit trail');
+  await expect(page.getByRole('alert').filter({ hasText: 'The audit trail could not load' })).toBeVisible();
+  await expect(page.getByText('Nothing matches')).toHaveCount(0);
 });
