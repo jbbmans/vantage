@@ -98,7 +98,7 @@ function Kinds({ data, kind, onKind }: { data?: TimelineResponse; kind: string; 
   const offered = [...KINDS.filter((k) => counts[k.key] || k.key === kind).map((k) => k.key), ...Object.keys(counts).filter((k) => !KINDS.some((x) => x.key === k))];
   const chip = (key: string, label: string, n: number | undefined) => (
     <Button key={key} size="sm" variant={kind === key ? 'primary' : 'default'} className="shrink-0" aria-pressed={kind === key} onClick={() => onKind(key)}>
-      {label}{n != null && <span className="fig opacity-75">{n}</span>}
+      {label}{n != null && <span className={kind === key ? 'fig' : 'fig opacity-75'}>{n}</span>}
     </Button>
   );
   return (

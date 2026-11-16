@@ -45,7 +45,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
         <button type="button" className="inline-flex items-center gap-1 hover:text-ink" onClick={() => setSort((p) => ({ key, dir: p.key === key && p.dir === 'desc' ? 'asc' : 'desc' }))}>
           {label}{sort.key === key && (sort.dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
         </button>
-        {definition && <Tooltip content={definition}><button type="button" className="rounded text-ink-3 hover:text-ink" aria-label={`What counts as ${label.toLowerCase()}: ${definition}`}><Info className="h-3 w-3" /></button></Tooltip>}
+        {definition && <Tooltip content={definition}><button type="button" className="-m-1.5 inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:text-ink" aria-label={`What counts as ${label.toLowerCase()}: ${definition}`}><Info className="h-3 w-3" /></button></Tooltip>}
       </span>
     </th>
   );

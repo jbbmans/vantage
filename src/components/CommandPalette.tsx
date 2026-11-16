@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ArrowRight, BookOpen, Building2, CornerDownLeft, History, Plus, Search } from 'lucide-react';
 import type { NavPage } from '@/config/nav';
 import * as api from '@/lib/api';
 import { useIdentity } from '@/lib/queries';
+import { useReturnFocus } from '@/components/ui/Dialog';
+import { shortcutsOn } from '@/lib/keyboard';
 import { useView, viewLabel } from '@/lib/view';
 import { recentVisits } from '@/lib/recent';
 import { cn } from '@/lib/utils';
@@ -21,6 +23,10 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
   const [active, setActive] = useState(0);
   const { data: identity } = useIdentity();
   const { view, views, setView } = useView(identity);
+  const keysOn = shortcutsOn(identity?.prefs);
+  // Closed, focus goes back to what opened it (the header's Search), or to the page that was chosen here.
+  useReturnFocus(open);
+  const leaving = useRef(false);
 
   useEffect(() => { if (open) { setQuery(''); setResults([]); setReference([]); setActive(0); } }, [open]);
   useEffect(() => {
@@ -43,20 +49,20 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
     // A typed apostrophe is straight; titles are set with curly ones (“What’s new”). Either finds either.
     const plain = (s: string) => s.replace(/[‘’]/g, "'");
     const more: Item[] = extra.filter((a) => !q || plain(`${a.title} ${a.keywords || ''}`.toLowerCase()).includes(plain(q))).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run }));
-    const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
+    const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: keysOn ? 'Press N anywhere' : undefined, kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
     // An action named by what was typed ("dark", "pdf") comes before the catch-all "log this sentence".
     const actions: Item[] = q ? (more.length ? [...more, log] : [log]) : [log];
-    const pages = nav.filter((n) => !q || `${n.label} ${n.hint} ${n.keywords || ''}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
+    const pages = nav.filter((n) => !q || `${n.label} ${n.hint} ${n.keywords || ''}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key && keysOn ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
     const switches = views.length > 1 ? views.filter((v) => v.id !== view?.id && (!q || `view ${viewLabel(v)} ${v.name}`.toLowerCase().includes(q))).map((v) => ({ id: `view-${v.id}`, title: `View ${viewLabel(v)}`, subtitle: v.teams ? `Whole command · ${v.teams} ${v.teams === 1 ? 'team' : 'teams'}` : v.level === 'full' ? 'Team' : 'Team overview', kind: 'view', run: () => setView(v.id) })) : [];
     const recent = recentVisits(identity?.user.id).slice(0, 5).map((r) => ({ id: `recent-${r.to}`, title: r.title, subtitle: r.kind === 'case' ? 'Case you opened' : r.kind === 'marine' ? 'Marine you opened' : 'Entry you opened', kind: 'recent', to: r.to }));
     if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3), ...more];
     return /^(view|switch)/.test(q) ? [...switches, ...actions, ...pages, ...results, ...reference] : [...results, ...reference, ...actions, ...switches, ...pages];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, results, reference, nav, onQuickLog, views, view, setView, open, identity?.user.id, extra]);
+  }, [query, results, reference, nav, onQuickLog, views, view, setView, open, identity?.user.id, extra, keysOn]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
-  const choose = (item: Item) => { onOpenChange(false); if (item.run) item.run(); else if (item.to) navigate(item.to); };
+  const choose = (item: Item) => { onOpenChange(false); if (item.run) item.run(); else if (item.to) { leaving.current = true; navigate(item.to); } };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(items.length - 1, a + 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
@@ -67,7 +73,9 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/45 backdrop-blur-[3px] animate-fade-in" />
-        <DialogPrimitive.Content aria-describedby="" className="fixed left-1/2 top-[12vh] z-50 w-[calc(100vw-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface shadow-modal animate-popover-in focus:outline-none">
+        <DialogPrimitive.Content aria-describedby=""
+          onCloseAutoFocus={(e) => { if (!leaving.current) return; leaving.current = false; e.preventDefault(); document.getElementById('main')?.focus({ preventScroll: true }); }}
+          className="fixed left-1/2 top-[12vh] z-50 w-[calc(100vw-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface shadow-modal animate-popover-in focus:outline-none">
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">
             <Search className="h-[18px] w-[18px] text-ink-3" />
@@ -92,7 +100,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
           <div className="flex items-center gap-4 border-t border-line bg-surface-2/60 px-5 py-2 text-2xs text-ink-3">
             <span className="flex items-center gap-1"><kbd className="kbd">↑</kbd><kbd className="kbd">↓</kbd> move</span>
             <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> open</span>
-            <span className="ml-auto">Press <kbd className="kbd">N</kbd> anywhere to log</span>
+            {keysOn && <span className="ml-auto">Press <kbd className="kbd">N</kbd> anywhere to log</span>}
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

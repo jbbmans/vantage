@@ -88,7 +88,7 @@ export default function ConsoleApp() {
     <ConsoleFrame
       // One address for everything puts the console under /console; a host of its own puts it at the root.
       basename={LINKS.split && !LINKS.console.endsWith('/console') ? '/' : '/console'}
-      documentTitle="Unit Manager console | Vantage"
+      documentTitle="Unit Manager console · Vantage"
       loaderLabel="Opening the Unit Manager console…"
       variant="console"
       admits={(identity) => consoleOrgs(identity).length > 0}

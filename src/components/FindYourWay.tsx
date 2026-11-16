@@ -39,7 +39,7 @@ export default function FindYourWay() {
                 {links.length || !x.otherwise ? x.a : x.otherwise}
                 {links.length > 0 && (
                   <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    {links.map((to) => <Link key={to} to={to} className="link text-xs font-medium">{placeName(to)}</Link>)}
+                    {links.map((to) => <Link key={to} to={to} className="link inline-flex min-h-6 items-center text-xs font-medium">{placeName(to)}</Link>)}
                   </span>
                 )}
               </dd>

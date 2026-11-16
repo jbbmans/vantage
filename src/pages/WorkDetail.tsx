@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useNavigate, useParams, Link, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Lock, Users } from 'lucide-react';
@@ -10,6 +9,7 @@ import { ProjectWork } from '@/components/ProjectWork';
 import { can, keys, useIdentity, unitName, useOrg } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
+import { usePageTitle } from '@/lib/title';
 
 const KINDS = {
   tasks: { label: 'Task', back: '/work/tasks', title: (r: Record<string, string>) => r.title },
@@ -36,28 +36,37 @@ export default function WorkDetail() {
 
   const kind = valid ? KINDS[table] : null;
   const heading = row && kind ? kind.title(row) : '';
-  useEffect(() => { if (heading) document.title = `${heading} · Vantage`; }, [heading]);
+  // Each outcome names the page, in the tab and in its one h1: the work itself, or why there is none to show.
+  const missing = kind ? `That ${kind.label.toLowerCase()} is not available` : '';
+  const named = !valid ? 'Nothing to open here' : heading || (!isPending ? missing : '');
+  usePageTitle(named && table !== 'activities' ? `${named} · Vantage` : null);
 
   if (table === 'activities') return <Navigate to={`/records/${id}`} replace />;
 
   if (!valid) {
     return (
-      <div className="page"><div className="card">
-        <EmptyState title="Nothing to open here" description="That is not a kind of work this page can show."
-          action={<Button onClick={() => navigate('/work')}>Back to work</Button>} />
-      </div></div>
+      <div className="page">
+        <h1 className="sr-only">Nothing to open here</h1>
+        <div className="card">
+          <EmptyState title="Nothing to open here" description="That is not a kind of work this page can show."
+            action={<Button onClick={() => navigate('/work')}>Back to work</Button>} />
+        </div>
+      </div>
     );
   }
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-8 w-40" /><Skeleton className="h-40" /><Skeleton className="h-48" /></div>;
   if (error || !row) {
     return (
-      <div className="page"><div className="card">
-        <EmptyState
-          title={`That ${kind!.label.toLowerCase()} is not available`}
-          description={api.errorText(error) || 'It may have been deleted, or it belongs to somebody whose work you cannot see.'}
-          action={<Button onClick={() => navigate(kind!.back)}>Back</Button>}
-        />
-      </div></div>
+      <div className="page">
+        <h1 className="sr-only">{missing}</h1>
+        <div className="card">
+          <EmptyState
+            title={missing}
+            description={api.errorText(error) || 'It may have been deleted, or it belongs to somebody whose work you cannot see.'}
+            action={<Button onClick={() => navigate(kind!.back)}>Back</Button>}
+          />
+        </div>
+      </div>
     );
   }
 

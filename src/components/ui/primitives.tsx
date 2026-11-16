@@ -205,12 +205,14 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
     onChange(options[next].value); refs.current[next]?.focus();
     return true;
   };
+  // One tab is always the way in, even when the value matches none of them.
+  const entry = options.some((o) => o.value === value) ? value : options[0]?.value;
   return (
     <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[10px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
-          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
+          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(var(--shadow-rgb)/.08)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
@@ -221,9 +223,26 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
+/** The id of the tab in a strip whose panel is `panel`, for the panel's aria-labelledby. */
+export const tabId = (panel: string, value: string) => `${panel}-tab-${value.replace(/[^\w-]/g, '_')}`;
+
+/**
+ * A strip of tabs, as the ARIA tabs pattern has them: one Tab stop (the chosen tab), the arrow keys, Home and End to
+ * move along it, and a name for the strip. Pass `panel`, the id of the TabPanel showing the chosen tab, and each tab
+ * says it controls that panel and the panel is named by the chosen tab.
+ */
+export function Tabs<T extends string>({ value, onChange, tabs, className, label, panel }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string; label?: string; panel?: string }) {
   const strip = React.useRef<HTMLDivElement | null>(null);
   const ink = React.useRef<HTMLSpanElement | null>(null);
+  const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const entry = tabs.some((t) => t.value === value) ? value : tabs[0]?.value;
+  const move = (from: number, key: string) => {
+    const last = tabs.length - 1;
+    const next = key === 'ArrowRight' ? (from === last ? 0 : from + 1) : key === 'ArrowLeft' ? (from === 0 ? last : from - 1) : key === 'Home' ? 0 : key === 'End' ? last : null;
+    if (next == null) return false;
+    onChange(tabs[next].value); refs.current[next]?.focus();
+    return true;
+  };
   const [measured, setMeasured] = React.useState(false);
   // On a narrow screen the strip scrolls. A fade on the side with more tabs says so; a hard edge looked like the end.
   const [more, setMore] = React.useState<{ left: boolean; right: boolean }>({ left: false, right: false });
@@ -235,8 +254,11 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
     setMore((m) => (m.left === left && m.right === right ? m : { left, right }));
   }, []);
   React.useEffect(() => {
-    const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    // The strip's own scroll, not scrollIntoView: in Chromium that also moves where the next Tab starts, and the first Tab
+    // on the page then skipped the skip link and everything before the chosen tab.
+    const bar = strip.current;
+    const el = bar?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
   }, [value]);
   React.useLayoutEffect(() => {
     const bar = strip.current;
@@ -259,13 +281,15 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
     return () => watch?.disconnect();
   }, [value, tabs.length, edges]);
   return (
-    <div ref={strip} role="tablist" data-ink={measured || undefined} data-more-left={more.left || undefined} data-more-right={more.right || undefined} onScroll={edges}
+    <div ref={strip} role="tablist" aria-label={label} data-ink={measured || undefined} data-more-left={more.left || undefined} data-more-right={more.right || undefined} onScroll={edges}
       className={cn('tab-bar relative scroll-x scroll-x-canvas scroll-x-quiet', className)}>
       <span ref={ink} className="tab-ink" style={{ opacity: measured ? 1 : 0 }} aria-hidden />
-      {tabs.map((t) => {
+      {tabs.map((t, i) => {
         const active = t.value === value;
         return (
-          <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
+          <button key={t.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active}
+            id={panel ? tabId(panel, t.value) : undefined} aria-controls={panel} tabIndex={t.value === entry ? 0 : -1}
+            onClick={() => onChange(t.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-ink')}>
             {t.label}{t.count != null && <span className={cn('fig rounded-md px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
@@ -273,6 +297,11 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
       })}
     </div>
   );
+}
+
+/** What a Tabs strip shows for its chosen tab. `id` is the one the strip was given as `panel`; `value` is the chosen tab. */
+export function TabPanel({ id, value, className, children }: { id: string; value: string; className?: string; children: React.ReactNode }) {
+  return <div role="tabpanel" id={id} aria-labelledby={tabId(id, value)} className={className}>{children}</div>;
 }
 
 export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
