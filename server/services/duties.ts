@@ -1,15 +1,19 @@
+import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
 import { PERMISSIONS, can, detailUnitsFor, isMember, orgOfUnit, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
 import { REDACTED } from '../../shared/constants.ts';
 import {
-  CLAIMED_CONDITIONS, DUTY_STATUS_LABELS, dutyConditions, dutyFacts, dutyFromActivity, dutyProblems, isDecidedDuty, readsLikeDuty, scoreDuty,
+  CLAIMED_CONDITIONS, DUTY_STATUSES, DUTY_STATUS_LABELS, dutyConditions, dutyFacts, dutyFromActivity, dutyProblems, isDecidedDuty, readsLikeDuty, scoreDuty,
   type DutyScoringVersion, type DutyStatus,
 } from '../../shared/duty.ts';
+import { isCalendarDay } from '../../shared/metrics.ts';
 import { isDrawnFromWork } from '../../shared/recordKinds.ts';
 import { listScoringPolicies, scoringToday } from './dutyScoring.ts';
 import { holdState, type HoldState } from './holds.ts';
-import { dutyReviewAuthority, type RecordRow } from '../authz/records.ts';
+import { periodClause } from './timeframes.ts';
+import { auditListedRecords } from './audit.ts';
+import { dutyReviewAuthority, readableClause, type RecordRow } from '../authz/records.ts';
 import { NO_REVIEW_OPTIONS, dutyReviewOptions, type DutyReviewOptions } from '../../shared/dutyReview.ts';
 
 /**
@@ -194,4 +198,121 @@ export function dutyCandidates(ctx: AppContext, user: SessionUser, problem: (row
     });
   }
   return { candidates: found.slice(0, 200), total: found.length };
+}
+
+// ——— The Duty page's lists, a page at a time ———
+
+/** How many duties a page of the Duty page's list holds unless it asks for fewer, and the most one may ask for. */
+export const DUTY_PAGE = 50;
+const DUTY_PAGE_MAX = 100;
+/**
+ * Duty counted for a list's size, at most. A battalion's history runs to tens of thousands of duties, and counting them
+ * all on every visit is a pass over every one; past this the page says "more than", as the notification badge does.
+ */
+export const DUTY_COUNTED = 1000;
+
+const listDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').refine(isCalendarDay, 'That date does not exist.');
+
+/**
+ * What one page of the Duty page asks for (GET /api/record/duty/list). `who` is the tab: the reader's own duty, the duty
+ * they recorded for their Marines, or every duty they may read that is not their own (which holds what they recorded).
+ */
+export const dutyListQuery = z.object({
+  who: z.enum(['mine', 'recorded', 'units']).default('mine'),
+  unit_id: z.string().trim().min(1).max(100).optional(),
+  from: listDay.optional(),
+  to: listDay.optional(),
+  status: z.enum(DUTY_STATUSES).optional(),
+  cursor: z.string().max(400).optional(),
+  limit: z.coerce.number().int().min(1).max(DUTY_PAGE_MAX).default(DUTY_PAGE),
+});
+export type DutyListQuery = z.infer<typeof dutyListQuery>;
+export type DutyTab = DutyListQuery['who'];
+
+/** Where a page ends, newest first: the order of idx_duties_live_order, whose last column breaks every tie. */
+interface DutyKey { date: string; start_time: string; created_at: string; id: string }
+const encodeDutyCursor = (r: DutyKey) => Buffer.from([r.date, r.start_time, r.created_at, r.id].join('|')).toString('base64url');
+function decodeDutyCursor(cursor: string): DutyKey {
+  const [date, start_time, created_at, ...rest] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+  const id = rest.join('|');
+  if (!date || !start_time || !created_at || !id) throw badRequest('That page of the list is out of date. Load the list again.', { fieldErrors: { cursor: 'Not a page of this list.' } });
+  return { date, start_time, created_at, id };
+}
+
+/**
+ * Which duties a tab holds, as SQL over `t`. What the reader may read comes first and is never left out: the same
+ * readableClause every record list uses, so another Unit Instance's duty, or a unit whose shared records the reader does
+ * not view, is out before anything is counted, ordered or cut to a page. The tab, the unit, the period and the status
+ * only narrow it further.
+ */
+export function dutyListWhere(ctx: AppContext, userId: string, scope: Scope, q: Pick<DutyListQuery, 'who'> & Partial<Pick<DutyListQuery, 'unit_id' | 'from' | 'to' | 'status'>>) {
+  const readable = readableClause(ctx, scope, userId, 't');
+  const where = ['t.deleted_at IS NULL', readable.clause];
+  const params: unknown[] = [...readable.params];
+  if (q.who === 'mine') { where.push('t.user_id = ?'); params.push(userId); }
+  else if (q.who === 'recorded') { where.push('t.user_id <> ?', 't.recorded_by = ?'); params.push(userId, userId); }
+  else { where.push('t.user_id <> ?'); params.push(userId); }
+  if (q.unit_id) { where.push('t.unit_id = ?'); params.push(q.unit_id); }
+  if (q.from || q.to) { const period = periodClause('duties', 't', q.from, q.to); where.push(period.sql); params.push(...period.params); }
+  if (q.status) { where.push('t.approval_status = ?'); params.push(q.status); }
+  return { where, params };
+}
+
+/** One page's SQL: the tab's rows after the cursor, newest first, and one more than the page, which says whether more follow. */
+export function dutyPageSql(ctx: AppContext, userId: string, scope: Scope, q: DutyListQuery) {
+  const { where, params } = dutyListWhere(ctx, userId, scope, q);
+  if (q.cursor) {
+    const after = decodeDutyCursor(q.cursor);
+    where.push('(t.date, t.start_time, t.created_at, t.id) < (?, ?, ?, ?)');
+    params.push(after.date, after.start_time, after.created_at, after.id);
+  }
+  return { sql: `SELECT t.* FROM duties t WHERE ${where.join(' AND ')} ORDER BY t.date DESC, t.start_time DESC, t.created_at DESC, t.id DESC LIMIT ?`, params: [...params, q.limit + 1] };
+}
+
+/** How many rows `where` holds, counted up to DUTY_COUNTED, and whether there are more than that. */
+function countedDuty(ctx: AppContext, where: string[], params: unknown[]): { n: number; more: boolean } {
+  const n = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM duties t WHERE ${where.join(' AND ')} LIMIT ?)`).get(...params, DUTY_COUNTED + 1) as { n: number }).n;
+  return { n: Math.min(n, DUTY_COUNTED), more: n > DUTY_COUNTED };
+}
+
+/**
+ * One page of a tab of the Duty page, newest first, with what each duty shows beside it (withDutyNames). `next` carries
+ * on from the last row, and is null on the last page. The first page also says how many the tab holds with its filters,
+ * counted up to DUTY_COUNTED. Reading a page is a read of the Marines on it, audited as any list of records is: the rows
+ * returned, not the history behind them.
+ */
+export function dutyList(ctx: AppContext, user: SessionUser, scope: Scope, q: DutyListQuery, ip?: string | null) {
+  const page = dutyPageSql(ctx, user.id, scope, q);
+  const rows = ctx.db.prepare(page.sql).all(...page.params) as Array<Row & DutyKey>;
+  const more = rows.length > q.limit;
+  const shown = more ? rows.slice(0, q.limit) : rows;
+  let counted: { n: number; more: boolean } | null = null;
+  if (!q.cursor) { const { where, params } = dutyListWhere(ctx, user.id, scope, q); counted = countedDuty(ctx, where, params); }
+  auditListedRecords(ctx, user.id, 'duties', shown, ip);
+  return {
+    duties: withDutyNames(ctx, user.id, shown, scope),
+    next: more ? encodeDutyCursor(shown.at(-1)!) : null,
+    ...(counted ? { total: counted.n, total_more: counted.more } : {}),
+  };
+}
+
+/**
+ * What the Duty page adds up, from all of the reader's duty rather than the page they have open: their own duty's count,
+ * hours and points; how many each tab holds (their own and what they recorded exactly, their units' counted up to
+ * DUTY_COUNTED); and the units its lists may be narrowed to. Each count is of rows the reader may read, by the clause the
+ * lists use. Totals of what the reader already reads, with no names, so nothing is audited.
+ */
+export function dutySummary(ctx: AppContext, user: SessionUser, scope: Scope) {
+  const own = dutyListWhere(ctx, user.id, scope, { who: 'mine' });
+  const mine = ctx.db.prepare(`SELECT COUNT(*) AS duties, COALESCE(SUM(t.hours), 0) AS hours, COALESCE(SUM(t.calculated_points), 0) AS calculated_points,
+      COALESCE(SUM(CASE WHEN t.approval_status = 'approved' THEN COALESCE(t.approved_points, 0) ELSE 0 END), 0) AS approved_points,
+      COALESCE(SUM(t.approval_status = 'pending'), 0) AS pending, COALESCE(SUM(t.approval_status = 'returned'), 0) AS returned
+    FROM duties t WHERE ${own.where.join(' AND ')}`).get(...own.params) as { duties: number; hours: number; calculated_points: number; approved_points: number; pending: number; returned: number };
+  const byMe = dutyListWhere(ctx, user.id, scope, { who: 'recorded' });
+  const recorded = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM duties t WHERE ${byMe.where.join(' AND ')}`).get(...byMe.params) as { n: number }).n;
+  const others = dutyListWhere(ctx, user.id, scope, { who: 'units' });
+  const units = countedDuty(ctx, others.where, others.params);
+  const unitIds = [...new Set([...scope.readableUnitIds, ...scope.unitIds])];
+  const named = unitIds.length ? ctx.db.prepare('SELECT id, COALESCE(short_name, name) AS name FROM units WHERE id IN (SELECT value FROM json_each(?)) ORDER BY name, id').all(JSON.stringify(unitIds)) as Array<{ id: string; name: string }> : [];
+  return { mine, tabs: { mine: mine.duties, recorded, units: units.n, units_more: units.more }, units: named };
 }

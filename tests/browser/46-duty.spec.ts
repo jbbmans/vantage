@@ -125,12 +125,25 @@ test('a Marine records duty, sees what it ran to before sending it, corrects it,
   await page.getByRole('status').filter({ hasText: 'Deleted.' }).getByRole('button', { name: 'Undo' }).click();
   await toast(page, 'Restored.');
   await expect(page.getByRole('row').filter({ hasText: 'Barracks Duty' })).toBeVisible();
+  // DH-10: each row's buttons say which duty they act on, so a list of controls is not a column of identical "Delete".
+  const restored = page.getByRole('row').filter({ hasText: 'Barracks Duty' });
+  for (const name of ['View', 'Edit', 'Delete']) await expect(restored.getByRole('button', { name, exact: true })).toHaveAccessibleDescription(/Barracks Duty/);
+  // DH-9: the table is named and every header cell says what its column holds, the buttons' column included.
+  await expect(page.getByRole('table', { name: 'Your duty' })).toBeVisible();
+  const practice = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').withTags(['wcag2a', 'wcag2aa', 'wcag22aa', 'best-practice']).analyze();
+  expect(practice.violations.map((v) => v.id), 'the duty table’s headers').not.toContain('empty-table-header');
 
   // A phone: the page and the form fit.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/record/duty');
   await expect(page.getByRole('heading', { name: 'Duty', level: 1 })).toBeVisible();
   await noSidewaysScroll(page, 'the duty page');
+  // DH-9: the columns that do not fit are reached from the keyboard, in a scroller named for its table.
+  await expect(page.getByRole('table', { name: 'Your duty' })).toBeVisible();
+  const scroller = page.getByRole('region', { name: 'Your duty' });
+  await scroller.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => scroller.evaluate((el) => el.scrollLeft), { message: 'the table scrolls from the keyboard' }).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Record duty' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Record duty' })).toBeVisible();
   await noSidewaysScroll(page, 'the duty form');
@@ -175,5 +188,84 @@ test('a leader records duty for a Marine from their page; the Marine sees it, to
   const view = page.getByRole('dialog', { name: 'SAF' });
   await expect(view).toContainText('recorded this duty for you, so only they or a records manager can change it');
   await expect(view.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  await lead.context.close();
+});
+
+test('a long duty record reads a page at a time and can be narrowed; a link opens duty from long ago, or says why not; a list that fails says so', async ({ page, browser }) => {
+  test.setTimeout(150_000);
+  const lead = await leader(browser);
+  await registerAs(page, unique('longwatch'));
+  await joinUnit(lead.page.request, page.request);
+  const options = await (await page.request.get('/api/record/duty/options')).json();
+  const type = (options.types as Array<{ id: string; code: string }>).find((t) => t.code === 'DNCO');
+  expect(type, 'duty type DNCO').toBeTruthy();
+  const stood = (p: Page, title: string, offset: number) => p.request.post('/api/records/duties', { headers: H, data: { duty_type_id: type!.id, unit_id: 'G8', title, date: day(offset), start_time: '0800', end_date: day(offset), end_time: '1600', visibility: 'unit' } });
+  const ids: string[] = [];
+  for (let i = 1; i <= 60; i++) {
+    const res = await stood(page, `Watch ${i}`, i);
+    expect(res.ok(), await res.text()).toBeTruthy();
+    ids.push((await res.json()).id);
+  }
+
+  // DH-1, DH-5: the newest 50 first, with what is shown said and the rest a step away. Focus goes on to the first new row.
+  await page.goto('/record/duty');
+  const table = page.getByRole('table', { name: 'Your duty' });
+  const watch = (n: number) => table.getByRole('button', { name: `Watch ${n}`, exact: true });
+  await expect(table.getByRole('row')).toHaveCount(51);
+  await expect(watch(1)).toBeVisible();
+  await expect(watch(51)).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 50 of 60, newest first.' })).toBeVisible();
+  // DH-2: the totals are of all of it, never of the page open.
+  await expect(page.getByText('60 entries')).toBeVisible();
+  expect(await axe(page), 'a long duty record').toEqual([]);
+  await page.getByRole('button', { name: 'Show more' }).click();
+  await expect(table.getByRole('row')).toHaveCount(61);
+  await expect(watch(51)).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 60 of 60, newest first.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+
+  // Narrowed by status and by period, each a labelled choice; a choice that leaves nothing says so and clears.
+  const narrow = page.getByRole('group', { name: 'Narrow the list' });
+  await narrow.getByRole('combobox', { name: 'Status' }).click();
+  await page.getByRole('option', { name: 'Approved' }).click();
+  await expect(page.getByText('No duty matches')).toBeVisible();
+  await expect(page.getByText('No duty recorded')).toHaveCount(0);
+  expect(await axe(page), 'a narrowed list with nothing in it').toEqual([]);
+  // Back to all of it, as far as it was read.
+  await page.getByRole('button', { name: 'Show all' }).click();
+  await expect(table.getByRole('row')).toHaveCount(61);
+  await narrow.getByRole('combobox', { name: 'Period' }).click();
+  await page.getByRole('option', { name: 'Last 30 days' }).click();
+  await expect(watch(2)).toBeVisible();
+  await expect(watch(45)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+
+  // DH-7: a link to duty older than the first page opens it all the same.
+  await page.goto(`/record/duty?open=${ids[59]}`);
+  await expect(page.getByRole('dialog', { name: 'Watch 60' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // A link to duty the reader may not read says so, and is set aside.
+  const theirs = await stood(lead.page, `Leader ${unique('own')}`, 2);
+  expect(theirs.ok(), await theirs.text()).toBeTruthy();
+  await page.goto(`/record/duty?open=${(await theirs.json()).id}`);
+  const refused = page.getByRole('region', { name: 'The duty this link opens' });
+  await expect(refused).toContainText('Not yours to see');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await axe(page), 'a link to duty that is not theirs').toEqual([]);
+  await refused.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(refused).toHaveCount(0);
+  await expect(page).not.toHaveURL(/open=/);
+
+  // DH-8: a list that fails to load says so, with a way to try again, and never reads as an empty record.
+  const listed = '**/api/record/duty/list**';
+  await page.route(listed, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Something went wrong.' }) }));
+  await page.goto('/record/duty');
+  await expect(page.getByRole('alert').filter({ hasText: 'Your duty could not load' })).toBeVisible();
+  await expect(page.getByText('No duty recorded')).toHaveCount(0);
+  expect(await axe(page), 'a list that failed to load').toEqual([]);
+  await page.unroute(listed);
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(table.getByRole('row')).toHaveCount(51);
   await lead.context.close();
 });

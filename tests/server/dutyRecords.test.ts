@@ -851,3 +851,23 @@ test('an imported copy of a duty a leader recorded, once anonymized, says it was
     assert.ok(!JSON.stringify(read.body).includes('Diaz'), JSON.stringify(read.body));
   }
 });
+
+test('the suggestions look up what ties each activity to work by index, never by reading all the work and drafts', async () => {
+  const entry = await post(okafor.token, '/api/records/activities', { title: 'Stood fire watch, barracks 9', date: '2026-04-06', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const db = app.ctx.db;
+  const prepare = db.prepare;
+  const seen: string[] = [];
+  db.prepare = ((sql: string) => { seen.push(sql); return prepare.call(db, sql); }) as typeof db.prepare;
+  let offered: Awaited<ReturnType<typeof get>>;
+  try { offered = await get(okafor.token, '/api/record/duty/candidates'); } finally { db.prepare = prepare; }
+  assert.equal(offered.status, 200);
+  assert.ok(offered.body.candidates.some((c: { id: string }) => c.id === entry.body.id));
+  const linked = seen.find((sql) => /FROM work_actions WHERE activity_id = \?/.test(sql) && /FROM record_drafts WHERE activity_id = \?/.test(sql));
+  assert.ok(linked, 'each suggestion asks whether work or a draft still points at it');
+  const plan = (db.prepare(`EXPLAIN QUERY PLAN ${linked}`).all(entry.body.id, entry.body.id) as Array<{ detail: string }>).map((r) => r.detail);
+  assert.ok(plan.some((d) => d.includes('idx_work_actions_activity')), plan.join('\n'));
+  assert.ok(plan.some((d) => d.includes('idx_record_drafts_activity')), plan.join('\n'));
+  assert.ok(!plan.some((d) => /^SCAN (work_actions|record_drafts)\b/.test(d)), plan.join('\n'));
+  assert.equal((await del(okafor.token, `/api/records/activities/${entry.body.id}`)).status, 200);
+});
