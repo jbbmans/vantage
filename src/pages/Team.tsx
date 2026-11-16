@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
@@ -527,22 +527,30 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS} />
+        <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS.map((s) => ({ ...s, id: `dashboard-tab-${s.value}`, controls: 'dashboard-panel' }))} />
         {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={WINDOWS} />}
         <span className="text-xs text-ink-3">{shown === 'output' ? `Shared entries only · ${formatRange(from, to)}` : shown === 'personnel' ? 'As of today' : formatRange(from, to)}</span>
         {canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}
       </div>
-      {shown === 'output'
-        ? <UnitOutput unitId={unitId} unitLabel={unitLabel} from={from} to={to} canExport={canExport} canDetail={canDetail} />
-        : <UnitAnalyticsPanel key={`${unitId}:${shown}`} unitId={unitId} section={shown} from={from} to={to} />}
+      {/* The tabs change the address, so one panel holds whichever is chosen, named by its tab. */}
+      <div id="dashboard-panel" role="tabpanel" aria-labelledby={`dashboard-tab-${shown}`}>
+        {shown === 'output'
+          ? <UnitOutput unitId={unitId} unitLabel={unitLabel} from={from} to={to} canExport={canExport} canDetail={canDetail} />
+          : <UnitAnalyticsPanel key={`${unitId}:${shown}`} unitId={unitId} section={shown} from={from} to={to} />}
+      </div>
     </div>
   );
 }
 
+/**
+ * Reading a unit's figures is audited, so a read is not repeated on focus or failure, and a minute-old answer is used
+ * as it is; a change to the records refreshes it.
+ */
+const AUDITED_READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as const;
+
 /** One area of the unit's analytics: every figure answers a question, and every bar opens the records it counts. */
 function UnitAnalyticsPanel({ unitId, section, from, to }: { unitId: string; section: AnalyticsSection; from: string; to: string }) {
-  // Reading analytics is audited, so it is not read again on focus or failure; a change to the records refreshes it.
-  const q = useQuery({ queryKey: keys.unitAnalytics(unitId, section, from, to), queryFn: () => api.unitAnalytics(unitId, section, from, to), staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
+  const q = useQuery({ queryKey: keys.unitAnalytics(unitId, section, from, to), queryFn: () => api.unitAnalytics(unitId, section, from, to), ...AUDITED_READ });
   const [drill, setDrill] = useState<DrillTarget | null>(null);
   if (q.isPending) return <Skeleton className="h-64" />;
   if (q.isError) return <div className="card"><QueryFailure error={q.error} onRetry={() => q.refetch()} what="These figures" /></div>;
@@ -571,23 +579,33 @@ function UnitAnalyticsPanel({ unitId, section, from, to }: { unitId: string; sec
   );
 }
 
+/** The Marines the Output tab lists before "Show all": enough to read, few enough that the page below stays a few Tab stops away. */
+const MEMBERS_SHOWN = 25;
+
 /**
  * What the unit produced in the window, from shared outcomes: the figures, one metric month by month and by category,
  * readiness, and the members behind it. Each month and category opens the outcomes it adds up.
  */
 function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { unitId: string; unitLabel: string; from: string; to: string; canExport: boolean; canDetail: boolean }) {
   const cfg = useMetrics();
-  const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
+  const dashboard = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to), ...AUDITED_READ });
+  const { data } = dashboard;
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
-  const unitMetrics = useMetricsReport(unitMetricParams);
+  const unitMetrics = useMetricsReport(unitMetricParams, true, AUDITED_READ);
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const series = unitMetrics.data?.monthly || [];
   const [picked, setPicked] = useState('');
   const top = series.find((m) => m.metricId === picked) || series[0];
   const total = top ? [...(unitMetrics.data?.headline || []), ...(unitMetrics.data?.tracked || [])].find((t) => t.metricId === top.metricId) : undefined;
-  const [opened, setOpened] = useState<{ only?: string[]; category?: string; value: number; outcomes: number; label: string } | null>(null);
-  if (isPending || !data) return <Skeleton className="h-64" />;
+  const [opened, setOpened] = useState<{ month?: string; category?: string; value: number; outcomes: number; label: string } | null>(null);
+  const [allMembers, setAllMembers] = useState(false);
+  const membersId = useId();
+  if (dashboard.isError) return <QueryFailure error={dashboard.error} onRetry={() => dashboard.refetch()} what="The unit’s output" />;
+  if (dashboard.isPending || !data) return <Skeleton className="h-64" />;
   const t = data.totals;
+  // The server lists only the Marines the reader may see by Marine; the page shows the first of them, and says so.
+  const members: any[] = data.members;
+  const listed = allMembers ? members : members.slice(0, MEMBERS_SHOWN);
   const format: FigureFormat = total?.kind === 'money' ? 'money' : total?.kind === 'duration' ? 'hours' : 'number';
   const noun = 'outcome';
   const months = top ? clientVisual({
@@ -605,7 +623,7 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
   const picker = series.length > 1 ? <Select aria-label="Figure" className="w-48" value={top?.metricId || ''} onValueChange={setPicked} options={series.map((m) => ({ value: m.metricId, label: m.metricLabel }))} /> : null;
   const onMonth: OnDrill = ({ bucket }) => {
     const point = top?.points.find((p) => p.key === bucket.key);
-    if (point) setOpened({ only: point.contributors, value: point.value, outcomes: point.outcomes, label: `in ${point.label}` });
+    if (point) setOpened({ month: point.key, value: point.value, outcomes: point.outcomes, label: `in ${point.label}` });
   };
   const onCategory: OnDrill = ({ bucket }) => setOpened({ category: bucket.key, value: bucket.value, outcomes: bucket.count, label: `under ${bucket.label}, ${formatRange(from, to)}` });
   return (
@@ -637,10 +655,20 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
-          {!data.members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
+          {!members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
+            <>
+            <div id={membersId}>
             <Table label="Members" head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
-              {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
+              {listed.map((m) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
             </Table>
+            </div>
+            {members.length > MEMBERS_SHOWN && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-xs text-ink-3">
+                {allMembers ? null : <span>Showing the first {MEMBERS_SHOWN} of {members.length}.</span>}
+                <button type="button" className="link no-print" aria-expanded={allMembers} aria-controls={membersId} onClick={() => setAllMembers(!allMembers)}>{allMembers ? 'Show fewer' : `Show all ${members.length}`}</button>
+              </p>
+            )}
+            </>
           )}
         </Panel>
       </div>
@@ -648,8 +676,7 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
       {opened && total && (
         <ContributorsDialog
           total={total}
-          params={opened.category ? { ...unitMetricParams, category: opened.category } : unitMetricParams}
-          only={opened.only}
+          params={{ ...unitMetricParams, category: opened.category, month: opened.month }}
           figure={{ value: opened.value, outcomes: opened.outcomes, label: opened.label }}
           onClose={() => setOpened(null)}
         />

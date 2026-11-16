@@ -16,8 +16,11 @@ test('the full analysis view reads the record like an analyst and exports its PD
   await expect(page.getByRole('heading', { name: 'Logging cadence' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Coverage' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Entry ledger' })).toBeVisible();
-  await page.getByRole('button', { name: 'Show all' }).click();
-  await expect(page.getByRole('cell', { name: /Processed 12 MIPRs/ }).first()).toBeVisible();
+  const show = page.getByRole('button', { name: 'Show the ledger' });
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await show.click();
+  await expect(page.getByRole('button', { name: 'Hide the ledger' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('table', { name: 'Entry ledger' }).getByRole('cell', { name: /Processed 12 MIPRs/ }).first()).toBeVisible();
 
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export analysis PDF' }).first().click();

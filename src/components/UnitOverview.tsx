@@ -9,6 +9,7 @@ import { formatDate, formatDollars } from '../../shared/metrics';
 import { cn, formatRange } from '@/lib/utils';
 import { CountUp } from '@/components/ui/motion';
 import * as api from '@/lib/api';
+import { QueryFailure } from '@/components/QueryFailure';
 
 export interface Overview {
   unit: { id: string; name: string; short_name: string | null };
@@ -17,13 +18,14 @@ export interface Overview {
   window: { from: string; to: string };
   totals: { members: number; teams: number; entries: number | null; contributors: number | null; dollars: number | null; withheld: boolean };
   teams: Array<{ unit_id: string; name: string; full_name: string; parent_id: string | null; members: number; entries: number | null; contributors: number | null; dollars: number | null; withheld: boolean }>;
-  roster: Array<{ id: string; name: string; rank_abbr: string | null; billet: string | null; team: string; unit_id: string }>;
+  /** Sent only when asked for: the pulse on Today shows totals, teams and goals, and the roster grows with the unit. */
+  roster?: Array<{ id: string; name: string; rank_abbr: string | null; billet: string | null; team: string; unit_id: string }>;
   goals: Array<{ id: string; title: string; status: string; unit_id: string; period_end: string | null; unit_label: string | null; target_value: number | null; current_value: number | null; progress: { percent?: number | null } | null }>;
   minimum_contributors: number;
 }
 
-export function useUnitOverview(unitId: string | null | undefined) {
-  return useQuery<Overview>({ queryKey: ['unit-overview', unitId], queryFn: () => api.unitOverview(unitId!), enabled: Boolean(unitId), staleTime: 60_000 });
+export function useUnitOverview(unitId: string | null | undefined, { roster = false }: { roster?: boolean } = {}) {
+  return useQuery<Overview>({ queryKey: ['unit-overview', unitId, roster ? 'roster' : 'pulse'], queryFn: () => api.unitOverview(unitId!, { roster }), enabled: Boolean(unitId), staleTime: 60_000 });
 }
 
 const share = (contributors: number | null, members: number) => (contributors == null || !members ? 0 : Math.min(100, Math.round((contributors / members) * 100)));
@@ -98,14 +100,15 @@ export function UnitPulse({ unitId }: { unitId: string }) {
 
 /** The full version for the Team page. */
 export function UnitOverviewPanel({ unitId }: { unitId: string }) {
-  const { data, isPending, isError } = useUnitOverview(unitId);
+  const { data, isPending, isError, error, refetch } = useUnitOverview(unitId, { roster: true });
   const byTeam = useMemo(() => {
-    const groups = new Map<string, Overview['roster']>();
+    const groups = new Map<string, NonNullable<Overview['roster']>>();
     for (const p of data?.roster || []) groups.set(p.team, [...(groups.get(p.team) || []), p]);
     return [...groups.entries()];
   }, [data]);
   if (isPending) return <Skeleton className="h-72" />;
-  if (isError || !data) return <div className="card"><EmptyState icon={Users} title="This view could not be loaded" description="Try another view from the switcher, or reload." /></div>;
+  if (isError) return <QueryFailure error={error} onRetry={() => refetch()} what="This view" />;
+  if (!data) return <div className="card"><EmptyState icon={Users} title="This view could not be loaded" description="Try another view from the switcher, or reload." /></div>;
   const t = data.totals;
   const whole = data.teams.length > 0;
   return (

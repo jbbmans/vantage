@@ -8,7 +8,7 @@ import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
-import type { MetricTotal } from '../../shared/metricEngine.ts';
+import type { MetricFigure, MetricPoint } from '../../shared/metricEngine.ts';
 import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { RecordRows } from '../../shared/types';
@@ -48,20 +48,23 @@ export interface Identity {
   instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; reportMarking?: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };
 }
 
-export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }
+export type MetricSeriesPoint = MetricPoint;
+/** The figures, without the outcome ids behind them: a figure's outcomes are read from /metrics/contributors. */
 export interface MetricsReport {
   period: { from: string; to: string };
   prior: { from: string; to: string };
-  headline: MetricTotal[];
-  tracked: MetricTotal[];
-  priorHeadline: MetricTotal[];
+  headline: MetricFigure[];
+  tracked: MetricFigure[];
+  priorHeadline: MetricFigure[];
   monthly: Array<{ metricId: string; metricLabel: string; unit: string; points: MetricSeriesPoint[] }>;
-  byCategory: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
-  byArea: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  byCategory: Array<{ dimension: string; value: string; totals: MetricFigure[] }>;
+  byArea: Array<{ dimension: string; value: string; totals: MetricFigure[] }>;
   catalog: Array<{ metricId: string; metricLabel: string; kind: string; unit: string; headline: boolean }>;
   outcomesWithMeasures: number;
 }
 export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; end_date: string | null; ongoing: boolean; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
+/** The outcomes behind one figure: how many in all, what they add to, and the first of them. */
+export interface MetricContributorList { count: number; value: number; records: MetricContributor[] }
 
 export const keys = {
   me: ['me'] as const,
@@ -282,12 +285,12 @@ export function useTrack(): Track {
   return trackForGrade(data?.user.rank?.grade);
 }
 
-export function useMetricsReport(params: Record<string, string | undefined>, enabled = true) {
-  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000 });
+export function useMetricsReport(params: Record<string, string | undefined>, enabled = true, options: { staleTime?: number; refetchOnWindowFocus?: boolean; retry?: boolean } = {}) {
+  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000, ...options });
 }
 /** The outcomes behind one figure, so every number on screen can be opened. */
 export function useMetricContributors(params: Record<string, string | undefined> | null) {
-  return useQuery<MetricContributor[]>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributor[]>, enabled: Boolean(params) });
+  return useQuery<MetricContributorList>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributorList>, enabled: Boolean(params) });
 }
 
 /** The outcomes that counted toward one goal. */

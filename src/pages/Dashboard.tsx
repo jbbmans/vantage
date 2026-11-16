@@ -3,10 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, CalendarClock, CheckCircle2, FilePen, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
-import { BarChart, clientVisual } from '@/components/analytics';
+import { BarChart, FigureFrame, FigureTable, clientVisual } from '@/components/analytics';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
+import { QueryFailure } from '@/components/QueryFailure';
 import { WorkRow } from '@/components/work';
 import {
   keys, useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useMyRequests, usePrefs, useReadiness,
@@ -384,6 +385,14 @@ function SectionOverview({ unitId }: { unitId: string }) {
   const unitLabel: string = w.data.unit_name || 'Your section';
   const teams: number = w.data.rolls_up || 0;
   const waitingBits = Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>);
+  // The same figure as a chart and as a table, so it can be read either way and prints with its numbers.
+  const holders = clientVisual({
+    id: 'holders', kind: 'bars', format: 'number', noun: 'item', question: 'Who holds what',
+    buckets: (w.data.members_visible ? w.data.members : []).filter((m) => m.assigned || m.documents_researched).map((m) => ({
+      key: m.id, label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, values: [m.assigned], counts: [m.assigned],
+      hint: `${m.assigned} held · ${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}`,
+    })),
+  });
   return (
     <section aria-labelledby="section-heading" className="mb-6">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -404,20 +413,16 @@ function SectionOverview({ unitId }: { unitId: string }) {
             <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item) => <WorkRow key={item.id} item={item} />)}</ul>
           )}
         </Panel>
-        <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${formatDate(w.data.window.from)}`}>
-          {!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
-            : !w.data.members.some((m) => m.assigned || m.documents_researched) ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
-            : (
-              <BarChart visual={clientVisual({
-                id: 'holders', kind: 'bars', format: 'number', noun: 'item', question: 'Who holds what',
-                buckets: w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({
-                  key: m.id, label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, values: [m.assigned], counts: [m.assigned],
-                  hint: `${m.assigned} held · ${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}`,
-                })),
-              })} />
-            )}
-          <p className="mt-3 text-xs text-ink-3">Counts show what was recorded. They do not measure effort or quality, and zero recorded is not zero work.</p>
-        </Panel>
+        <FigureFrame
+          question="Who holds what"
+          summary={`Open work held now, with documents researched since ${formatDate(w.data.window.from)}`}
+          note="Counts show what was recorded. They do not measure effort or quality, and zero recorded is not zero work."
+          chart={<BarChart visual={holders} />}
+          table={<FigureTable visual={holders} first="Marine" />}
+          empty={!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
+            : !holders.buckets.length ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
+            : undefined}
+        />
       </div>
     </section>
   );
@@ -478,11 +483,13 @@ function Outcomes() {
         <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {/^FY/.test(range.label) ? range.label : range.label.toLowerCase()}</h2>
         <PeriodSelect value={period} onChange={(v) => savePrefs.mutate({ dashboardPeriod: v })} className="w-44" />
       </div>
-      {report.isPending ? <Skeleton className="h-28" /> : (
+      {report.isPending ? <Skeleton className="h-28" /> : report.isError ? (
+        <QueryFailure error={report.error} onRetry={() => report.refetch()} what="Your outcomes" />
+      ) : (
         <MetricTotalsGrid
-          headline={report.data!.headline}
-          tracked={report.data!.tracked}
-          prior={report.data!.priorHeadline}
+          headline={report.data.headline}
+          tracked={report.data.tracked}
+          prior={report.data.priorHeadline}
           params={params}
           emptyTitle="No measured outcome in this period"
           emptyDescription="Write what you did the way you would say it. Vantage pulls out the date, the quantity, the value, and the evaluation area."

@@ -36,6 +36,15 @@ export interface MetricTotal {
 }
 
 /**
+ * A figure as the metrics report sends it: the total without its outcome ids, which can run to thousands. The page opens
+ * the outcomes behind a figure, or one month of it, from /metrics/contributors.
+ */
+export type MetricFigure = Omit<MetricTotal, 'contributors'>;
+
+/** One month of a figure's series, as the metrics report sends it. */
+export interface MetricPoint { key: string; label: string; value: number; outcomes: number }
+
+/**
  * One key for a unit's singular and plural, read as unitFor in bullets.ts reads a plural ("discrepancies",
  * "boxes", "ULOs"). The singulars of the -ie and -ches/-xes words fold the same way, so "calorie" and "calories" meet.
  */

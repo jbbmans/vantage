@@ -171,7 +171,10 @@ test('unit dashboard aggregates shared work and gates member rows', async () => 
   assert.ok(dash.body.weekly.length >= 1);
   const ncoDash = await app.call('GET', '/api/org/units/G8/dashboard', { token: (await app.login('nco')).body.token });
   assert.equal(ncoDash.status, 200);
-  assert.equal(ncoDash.body.members.length, 0);
+  // A Marine is listed only from a unit where the reader opens member records: none from G8 itself, only those of the
+  // section this NCO now leads.
+  assert.ok(ncoDash.body.members.length > 0);
+  assert.ok(ncoDash.body.members.every((m: { team: string | null }) => m.team === 'ACCT'), JSON.stringify(ncoDash.body.members));
   assert.equal((await app.call('GET', '/api/org/units/G8/dashboard', { token: (await app.login('marine')).body.token })).status, 403);
   assert.equal((await app.call('GET', '/api/org/units/G8/dashboard?from=2026-13-01', { token: sn })).status, 400);
   // A day that passes the pattern but is not on the calendar is refused too, and a far end fills no week not yet begun.
