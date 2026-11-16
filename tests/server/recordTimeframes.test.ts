@@ -314,7 +314,7 @@ test('lists, evaluation inputs, analysis, metrics, the timeline and the export a
   assert.equal(ulos!.value, 30, 'the whole amount, once');
   const contributors = await get(kim.token, `/api/metrics/contributors?scope=me&${feb}&metric_id=${encodeURIComponent(ulos!.metricId)}`);
   assert.equal(contributors.status, 200, JSON.stringify(contributors.body));
-  assert.deepEqual(contributors.body.map((c: { date: string; end_date: string | null; ongoing: boolean }) => [c.date, c.end_date, c.ongoing]), [['2025-01-20', '2025-03-10', false]], 'shown with its own dates');
+  assert.deepEqual(contributors.body.records.map((c: { date: string; end_date: string | null; ongoing: boolean }) => [c.date, c.end_date, c.ongoing]), [['2025-01-20', '2025-03-10', false]], 'shown with its own dates');
 
   const timeline = await get(kim.token, `/api/record/timeline?${feb}`);
   assert.equal(timeline.status, 200);

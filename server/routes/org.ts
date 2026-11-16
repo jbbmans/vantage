@@ -17,7 +17,7 @@ import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/recor
 import { withCourseDetail } from '../services/courses.ts';
 import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
-import { unitDashboard, unitOverview } from '../services/dashboard.ts';
+import { readableSubtree, unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
 import { ANALYTICS_MAX_DAYS, isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
@@ -71,9 +71,11 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view that unit dashboard.');
   const { from, to } = dashboardWindow(req);
-  const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
+  // The units beneath are read only where the reader views their records too, and Marines named only where they open
+  // member records, as the analytics and /metrics decide.
+  const reach = readableSubtree(req.ctx, scope, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'view_unit_dashboard', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${from}..${to}`, ip: clientIp(req) });
-  res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
+  res.json(unitDashboard(req.ctx, unitId, from, to, reach));
 }));
 
 /**
@@ -111,7 +113,9 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
   if (!scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
   const { from, to } = dashboardWindow(req);
   const goalUnits = [...new Set([...scope.readableUnitIds, ...scope.unitIds, ...ancestorIds(req.ctx, scope.unitIds)])];
-  res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
+  // Full figures unit by unit, where the reader views that unit's shared records; the roster only when asked for.
+  const readable = new Set(readableSubtree(req.ctx, scope, unitId).units);
+  res.json(unitOverview(req.ctx, unitId, { from, to, readable, goalUnits, roster: req.query.roster === '1' }));
 }));
 
 orgRouter.get('/units/:unitId/audit', wrap((req, res) => {

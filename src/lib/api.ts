@@ -308,7 +308,7 @@ export const createUnit = (payload: unknown) => api.post('/org/units', payload);
 export const updateUnit = (id: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(id)}`, payload);
 export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURIComponent(id)}`);
 export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
-export const unitOverview = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/overview`);
+export const unitOverview = (id: string, opts: { roster?: boolean } = {}) => api.get(`/org/units/${encodeURIComponent(id)}/overview${opts.roster ? '?roster=1' : ''}`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
 /** The unit's analytics (Task 21): one section's figures over a window, and the records behind one of them. */
 export const unitAnalytics = (id: string, section: AnalyticsSection, from: string, to: string) =>

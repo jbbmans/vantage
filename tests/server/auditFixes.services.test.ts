@@ -309,7 +309,7 @@ test('B20: a unit total is withheld when subtracting the shown teams would revea
   };
   await log('ovlone', 'OVT1', 7777);
   for (const [i, d] of [100, 200, 300].entries()) await log(`ovteam${i}`, 'OVT2', d);
-  const view = (full = false) => unitOverview(app.ctx, 'OV', { from: '2026-01-01', to: '2099-12-31', full, goalUnits: [] });
+  const view = (full = false) => unitOverview(app.ctx, 'OV', { from: '2026-01-01', to: '2099-12-31', readable: new Set(full ? ['OV', 'OVT1', 'OVT2'] : []), goalUnits: [] });
 
   const o = view();
   const teams = Object.fromEntries(o.teams.map((t) => [t.unit_id, t]));

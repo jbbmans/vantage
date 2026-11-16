@@ -144,12 +144,16 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
 
   if (!q.unit_id) throw badRequest('Choose the unit the report is about.', { fieldErrors: { unit_id: 'Required.' } });
   if (!getUnit(ctx, q.unit_id)) throw notFound('No such unit.');
-  const reads = can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id) || (q.type === 'personnel' && can(scope, PERMISSIONS.MANAGE_MEMBERS, q.unit_id));
-  if (!reads) throw forbidden(`You cannot run the ${spec.title} report for that unit.`);
+  const reads = (unitId: string) => can(scope, PERMISSIONS.VIEW_RECORDS, unitId) || (q.type === 'personnel' && can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId));
+  if (!reads(q.unit_id)) throw forbidden(`You cannot run the ${spec.title} report for that unit.`);
+  // A comparison is of one unit's series; every other unit report reads the units beneath it too, but only those the
+  // reader reads in their own right: a role that does not reach down (position 0) reports on its own unit, as the
+  // dashboard and the analytics do. Figures by Marine need opening member records in every unit read, so a report never
+  // names a Marine of a unit where the reader may not.
+  const unitIds = q.type === 'comparison' ? [q.unit_id] : subtreeIds(ctx, q.unit_id).filter(reads);
   return {
-    // A comparison is of one unit's series; every other unit report reads the units beneath it too.
-    type: q.type, subject, userId: null, unitId: q.unit_id, unitIds: q.type === 'comparison' ? [q.unit_id] : subtreeIds(ctx, q.unit_id),
-    detail: can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, q.unit_id), files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
+    type: q.type, subject, userId: null, unitId: q.unit_id, unitIds,
+    detail: unitIds.every((u) => can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, u)), files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
   };
 }
 
@@ -516,7 +520,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
 // ——— Unit performance and leadership: the unit dashboard ———
 
 const dashboardOf = (ctx: AppContext, t: ReportTarget, period: Period) =>
-  unitDashboard(ctx, t.unitId!, period.from || '1970-01-01', period.to || zonedDay(ctx.config.timezone), { includeMembers: t.detail });
+  unitDashboard(ctx, t.unitId!, period.from || '1970-01-01', period.to || zonedDay(ctx.config.timezone), { units: t.unitIds, detailIn: new Set(t.detail ? t.unitIds : []) });
 const memberLabel = (m: { rank_abbr: string | null; name: string }) => `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`;
 
 function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {

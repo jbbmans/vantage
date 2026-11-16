@@ -6,7 +6,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { sameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport } from '../services/reports.ts';
-import { metricsReport, metricContributors, defaultPeriod } from '../services/metrics.ts';
+import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
@@ -155,8 +155,10 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   res.send(text);
 }));
 
+// A window is two real days, the second not before the first. isoDate keeps both between 1940 and 2100, which holds
+// All time as the pages ask for it (1970-01-01 to today) and refuses a window that only costs the server.
 const metricsQuery = z.object({
-  from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  from: isoDate.optional(), to: isoDate.optional(),
   unit_id: z.string().max(64).optional(), user_id: z.string().max(64).optional(),
   scope: z.enum(['me', 'all']).default('me'),
   aggregation: z.enum(['sum', 'max', 'min', 'average', 'latest', 'distinct']).optional(),
@@ -172,10 +174,13 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const filters: Record<string, string | null> = {};
   if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
   if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
+  const from = q.from || fallback.from;
+  const to = q.to || fallback.to;
+  if (to < from) throw badRequest('The window ends before it starts.', { fieldErrors: { to: 'Must be on or after the start.' } });
   return {
     scope,
     opts: {
-      from: q.from || fallback.from, to: q.to || fallback.to,
+      from, to,
       unitId: q.unit_id || null, subjectId: q.user_id || null,
       mineOnly: q.scope === 'me' && !q.unit_id && !q.user_id,
       aggregation: q.aggregation,
@@ -186,14 +191,17 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
 
 miscRouter.get('/metrics', wrap((req, res) => {
   const { scope, opts } = metricTarget(req);
-  res.json(metricsReport(req.ctx, req.user, scope, opts));
+  // The figures go without the outcome ids behind them; a figure's outcomes are opened from /metrics/contributors.
+  res.json(metricsResponse(metricsReport(req.ctx, req.user, scope, opts)));
 }));
 
+const contributorsQuery = z.object({ metric_id: z.string().max(200).optional(), month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must be a month (YYYY-MM).').optional() });
+
 miscRouter.get('/metrics/contributors', wrap((req, res) => {
-  const metricId = String(req.query.metric_id || '');
+  const { metric_id: metricId, month } = parse(contributorsQuery, { metric_id: req.query.metric_id || undefined, month: req.query.month || undefined });
   if (!metricId) throw badRequest('Name the metric to open.');
   const { scope, opts } = metricTarget(req);
-  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId }));
+  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId, month: month ?? null }));
 }));
 
 miscRouter.get('/reports', wrap((req, res) => {

@@ -10,6 +10,22 @@ const INK = '#111827'; const INK2 = '#4b5563'; const MUTED = '#6b7280'; const RU
 
 interface Col { label: string; width: number; align?: 'left' | 'right'; key: string }
 
+/**
+ * Text cut to fit a width, with an ellipsis: the longest start of it that fits with the ellipsis after it, and never less
+ * than its first character. Found by halving rather than by dropping one character at a time, since every measure is a
+ * call into the font and a long ledger measures thousands of cells; the width of a start only grows as it lengthens, so
+ * the answer is the one the one-at-a-time cut gives.
+ */
+export function fitText(text: string, w: number, width: (s: string) => number): string {
+  if (width(text) <= w) return text;
+  let lo = 1; let hi = text.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (width(`${text.slice(0, mid)}…`) <= w) lo = mid; else hi = mid - 1;
+  }
+  return `${text.slice(0, Math.max(1, lo)).trimEnd()}…`;
+}
+
 export interface AnalysisPdfInput { report: AnalysisReport; narrative?: Narrative; pkg?: PackageGroup[]; classification?: string }
 
 export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
@@ -39,12 +55,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     const p = (t: string, color = INK2, size = 9.5) => { doc.font('Helvetica').fontSize(size).fillColor(color).text(t, { lineGap: 2 }); };
     const rule = () => { doc.moveDown(0.3); doc.strokeColor(RULE).lineWidth(0.6).moveTo(left, doc.y).lineTo(left + width, doc.y).stroke(); doc.moveDown(0.5); };
 
-    const fit = (text: string, w: number) => {
-      if (doc.widthOfString(text) <= w) return text;
-      let t = text;
-      while (t.length > 1 && doc.widthOfString(`${t}…`) > w) t = t.slice(0, -1);
-      return `${t.trimEnd()}…`;
-    };
+    const fit = (text: string, w: number) => fitText(text, w, (s) => doc.widthOfString(s));
     function table(cols: Col[], rows: Array<Record<string, unknown>>, opts: { zebra?: boolean; size?: number; emptyText?: string } = {}) {
       const size = opts.size ?? 8.5; const rowH = size + 7;
       const total = cols.reduce((n, c) => n + c.width, 0);
