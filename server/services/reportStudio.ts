@@ -1,13 +1,13 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, detailUnitsFor, PERMISSIONS, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { can, detailUnitsFor, PERMISSIONS, orgOfUnit } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
-import { canRead } from '../authz/records.ts';
-import { isRecordTable, getRecord } from './records.ts';
+import { canRead, finalCounselings, readableClause } from '../authz/records.ts';
+import { isRecordTable, hydrate } from './records.ts';
+import { trackOf } from './reports.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
-import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 
 export interface ReportDraft {
   id: string; user_id: string; subject_id: string; unit_id: string | null; visibility: string;
@@ -28,13 +28,6 @@ export interface SourceSnapshot extends SourceRef {
 export interface StaleSource { table: string; id: string; title: string; expected_version: number; actual_version: number | null; reason: string }
 
 const SOURCE_TABLES = new Set(['activities', 'trainings', 'awards', 'counselings']);
-
-function defaultTrack(ctx: AppContext, subjectId: string): Track {
-  const person = ctx.db.prepare(
-    'SELECT r.grade AS rank_grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?'
-  ).get(subjectId) as { rank_grade: string | null } | undefined;
-  return trackForGrade(person?.rank_grade);
-}
 
 function assertSubject(ctx: AppContext, user: SessionUser, scope: Scope, subjectId: string, unitId: string | null) {
   if (subjectId === user.id) return;
@@ -66,7 +59,7 @@ export function createDraft(
   ctx.db.prepare(
     `INSERT INTO report_drafts (id, user_id, subject_id, unit_id, visibility, title, period_start, period_end, track, latest_revision, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
-  ).run(id, user.id, subjectId, unitId, input.visibility || 'private', title, input.period_start, input.period_end, input.track === 'fitrep' || input.track === 'jepes' ? input.track : defaultTrack(ctx, subjectId), at, at);
+  ).run(id, user.id, subjectId, unitId, input.visibility || 'private', title, input.period_start, input.period_end, input.track === 'fitrep' || input.track === 'jepes' ? input.track : trackOf(ctx, subjectId), at, at);
   return getDraft(ctx, id)!;
 }
 
@@ -88,8 +81,33 @@ export function readableDraft(ctx: AppContext, user: SessionUser, scope: Scope, 
  */
 /** A counseling is cited once it is final (ADR-0027): a draft is its counselor's working copy, not yet the Marine's record. */
 const settled = (row: { stage?: unknown }) => row.stage === undefined || row.stage === 'final';
-const citable = (ctx: AppContext, draft: ReportDraft, row: { unit_id?: unknown }) =>
-  !draft.unit_id || !row.unit_id || sameInstance(ctx, draft.unit_id, String(row.unit_id));
+/** The check above for one package, reading each unit's Unit Instance once however many of its records are weighed. */
+function citableIn(ctx: AppContext, draft: ReportDraft) {
+  const org = draft.unit_id ? orgOfUnit(ctx, draft.unit_id) : null;
+  const orgs = new Map<string, string | null>();
+  return (row: { unit_id?: unknown }) => {
+    if (!draft.unit_id || !row.unit_id) return true;
+    const unit = String(row.unit_id);
+    if (!orgs.has(unit)) orgs.set(unit, orgOfUnit(ctx, unit));
+    return Boolean(org) && orgs.get(unit) === org;
+  };
+}
+
+/** The records a revision cites, read once per kind of record however many it cites; a deleted one is not there. */
+function citedRows(ctx: AppContext, refs: ReadonlyArray<{ table: RecordTable; id: string }>): Map<string, Record<string, unknown>> {
+  const byTable = new Map<RecordTable, string[]>();
+  for (const ref of refs) {
+    if (!isRecordTable(ref.table)) continue;
+    const ids = byTable.get(ref.table);
+    if (ids) ids.push(String(ref.id)); else byTable.set(ref.table, [String(ref.id)]);
+  }
+  const out = new Map<string, Record<string, unknown>>();
+  for (const [table, ids] of byTable) {
+    const rows = ctx.db.prepare(`SELECT * FROM ${table} WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`).all(JSON.stringify(ids)) as Array<Record<string, unknown>>;
+    for (const row of rows) out.set(`${table}:${row.id}`, hydrate(row, table)!);
+  }
+  return out;
+}
 
 /**
  * A report about another Marine placed in no unit still speaks for one Unit Instance: what it cites comes from one, so a
@@ -106,23 +124,63 @@ function assertAuthor(draft: ReportDraft, user: SessionUser) {
   if (draft.user_id !== user.id) throw forbidden('Only the person writing this report can save a revision of it.');
 }
 
-export function listDrafts(ctx: AppContext, user: SessionUser, scope: Scope) {
-  const units = scope.readableUnitIds;
-  const rows = units.length
-    ? ctx.db.prepare(`SELECT * FROM report_drafts WHERE deleted_at IS NULL AND (user_id = ? OR subject_id = ? OR (visibility = 'unit' AND unit_id IN (${units.map(() => '?').join(',')}))) ORDER BY updated_at DESC LIMIT 100`).all(user.id, user.id, ...units)
-    : ctx.db.prepare('SELECT * FROM report_drafts WHERE deleted_at IS NULL AND (user_id = ? OR subject_id = ?) ORDER BY updated_at DESC LIMIT 100').all(user.id, user.id);
-  return rows as ReportDraft[];
+/** The most packages one page of the list holds; the next page carries on from the last of them. */
+export const DRAFT_PAGE = 100;
+
+const encodeDraftCursor = (d: Pick<ReportDraft, 'updated_at' | 'id'>) => Buffer.from(`${d.updated_at}|${d.id}`).toString('base64url');
+/** Where a page of packages carries on from, or null for a cursor Vantage did not give. */
+function decodeDraftCursor(cursor: string): { at: string; id: string } | null {
+  const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+  return at && id ? { at, id } : null;
 }
 
+/**
+ * The packages one may open, newest first, a page at a time: one's own, those about oneself, and those shared with a
+ * unit whose shared records one views, as readableDraft decides. Who may open each is decided in the read, before the
+ * page is cut, so a page is never short of packages one could open; next_cursor says where the next page starts.
+ */
+export function listDrafts(ctx: AppContext, user: SessionUser, scope: Scope, opts: { before?: string | null; limit?: number } = {}) {
+  const limit = Math.min(Math.max(opts.limit ?? DRAFT_PAGE, 1), DRAFT_PAGE);
+  const after = opts.before ? decodeDraftCursor(opts.before) : null;
+  if (opts.before && !after) throw badRequest('That page of reports is not one Vantage gave. Reload the list.', { fieldErrors: { before: 'Not a page Vantage gave.' } });
+  const rows = ctx.db.prepare(
+    `SELECT * FROM report_drafts
+      WHERE deleted_at IS NULL
+        AND (user_id = ? OR subject_id = ? OR (visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))))
+        ${after ? 'AND (updated_at < ? OR (updated_at = ? AND id < ?))' : ''}
+      ORDER BY updated_at DESC, id DESC LIMIT ?`,
+  ).all(user.id, user.id, JSON.stringify(scope.readableUnitIds), ...(after ? [after.at, after.at, after.id] : []), limit + 1) as ReportDraft[];
+  const drafts = rows.slice(0, limit);
+  return { drafts, next_cursor: rows.length > limit ? encodeDraftCursor(drafts.at(-1)!) : null };
+}
+
+/** The most records of each kind a package offers to cite, the newest first. */
+export const SOURCE_LIMIT = 400;
+
+/**
+ * The records an author may cite in a package, newest first: the subject's, in the package's period, that the author
+ * may read, final if a counseling, and of the package's Unit Instance when it is placed in a unit. Each of those is
+ * decided in the read itself, before it is cut to SOURCE_LIMIT, so records one could never cite do not crowd out the
+ * ones one may (ADR-0008, ADR-0027). The same checks run again on each row as it is offered.
+ */
 export function availableSources(ctx: AppContext, user: SessionUser, scope: Scope, draft: ReportDraft): SourceSnapshot[] {
   const out: SourceSnapshot[] = [];
+  const org = draft.unit_id ? orgOfUnit(ctx, draft.unit_id) : null;
+  const citable = citableIn(ctx, draft);
   for (const table of ['activities', 'trainings', 'awards', 'counselings'] as RecordTable[]) {
-    const dateCol = 'date';
-    const rows = ctx.db.prepare(
-      `SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${dateCol} >= ? AND ${dateCol} <= ? ORDER BY ${dateCol} DESC LIMIT 400`
-    ).all(draft.subject_id, draft.period_start, draft.period_end) as Array<Record<string, unknown>>;
+    const readable = readableClause(ctx, scope, user.id, 't', { counselor: table === 'counselings' });
+    const where = ['t.user_id = ?', 't.deleted_at IS NULL', 't.date >= ?', 't.date <= ?', readable.clause];
+    const params: unknown[] = [draft.subject_id, draft.period_start, draft.period_end, ...readable.params];
+    if (table === 'counselings') where.push(finalCounselings('t'));
+    // A unit with no Unit Instance matches no other unit, as sameInstance has it: only records placed in no unit remain.
+    if (draft.unit_id) {
+      where.push(org ? '(t.unit_id IS NULL OR t.unit_id IN (SELECT id FROM units WHERE org_id = ?))' : 't.unit_id IS NULL');
+      if (org) params.push(org);
+    }
+    const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY t.date DESC LIMIT ${SOURCE_LIMIT}`)
+      .all(...params) as Array<Record<string, unknown>>;
     for (const row of rows) {
-      if (!canRead(scope, user.id, row as never) || !citable(ctx, draft, row) || !settled(row)) continue;
+      if (!canRead(scope, user.id, row as never) || !citable(row) || !settled(row)) continue;
       out.push(snapshotOf(table, row));
     }
   }
@@ -195,15 +253,17 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
     const stale: StaleSource[] = [];
     const snapshots: SourceSnapshot[] = [];
     const cited: Array<Record<string, unknown>> = [];
+    const rows = citedRows(ctx, input.sources);
+    const citable = citableIn(ctx, draft);
     for (const ref of input.sources) {
-      const row = getRecord(ctx, ref.table, ref.id) as Record<string, unknown> | null;
+      const row = rows.get(`${ref.table}:${ref.id}`);
       if (!row) {
         stale.push({ table: ref.table, id: ref.id, title: '', expected_version: Number(ref.version), actual_version: null, reason: 'It was deleted after you cited it.' });
         continue;
       }
       if (!canRead(scope, user.id, row as never)) throw forbidden('This report cites a record you cannot read.');
       if (String(row.user_id) !== draft.subject_id) throw badRequest('A report can only cite records belonging to the person it is about.');
-      if (!citable(ctx, draft, row)) throw forbidden('This report cites a record from another Unit Instance.', 'cross_instance');
+      if (!citable(row)) throw forbidden('This report cites a record from another Unit Instance.', 'cross_instance');
       if (!settled(row)) throw badRequest('A report cites only a final counseling. This one is still a draft.');
       cited.push(row);
       const actual = Number(row.version) || 1;
@@ -256,19 +316,21 @@ export function getRevision(ctx: AppContext, reportId: string, revision: number)
 export function listRevisions(ctx: AppContext, reportId: string) {
   const rows = ctx.db.prepare(
     `SELECT r.revision, r.title, r.period_start, r.period_end, r.note, r.created_at, r.created_by,
-            u.first_name, u.last_name, length(r.sections) AS section_bytes
+            u.first_name, u.last_name
        FROM report_revisions r JOIN users u ON u.id = r.created_by
       WHERE r.report_id = ? ORDER BY r.revision DESC`
   ).all(reportId) as Array<Record<string, unknown>>;
   return rows;
 }
 
-export function revisionDrift(ctx: AppContext, reportId: string, revision: number): StaleSource[] {
-  const saved = getRevision(ctx, reportId, revision);
+/** Which cited records changed or went since a revision was saved. A caller that already read the revision passes it. */
+export function revisionDrift(ctx: AppContext, reportId: string, revision: number, read?: ReturnType<typeof getRevision>): StaleSource[] {
+  const saved = read && read.revision === revision && read.report_id === reportId ? read : getRevision(ctx, reportId, revision);
   if (!saved) return [];
   const drift: StaleSource[] = [];
+  const rows = citedRows(ctx, saved.source_snapshots);
   for (const snap of saved.source_snapshots) {
-    const row = getRecord(ctx, snap.table, snap.id) as Record<string, unknown> | null;
+    const row = rows.get(`${snap.table}:${snap.id}`);
     if (!row) { drift.push({ table: snap.table, id: snap.id, title: snap.title, expected_version: snap.version, actual_version: null, reason: 'It has been deleted since this revision was saved.' }); continue; }
     const actual = Number(row.version) || 1;
     if (actual !== snap.version) drift.push({ table: snap.table, id: snap.id, title: snap.title, expected_version: snap.version, actual_version: actual, reason: 'It has been edited since this revision was saved.' });

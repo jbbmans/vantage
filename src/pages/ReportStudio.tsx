@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, Download, ExternalLink, Fi
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
+import { QueryFailure } from '@/components/QueryFailure';
 import { DateText, DescriptionList, PageShell, useParam } from '@/components/common';
 import { invalidateDomains, keys, useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -44,6 +45,10 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const drafts = useReportDrafts();
+  const list = useMemo(() => (drafts.data?.pages ?? []).flatMap((p) => p.drafts), [drafts.data]);
+  // The last page takes its button away, so the keyboard is left on the count that says the list is whole.
+  const count = useRef<HTMLParagraphElement>(null);
+  const more = async () => { const next = await drafts.fetchNextPage(); if (!next.hasNextPage && !next.isError) count.current?.focus(); };
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
   const [period, setPeriod] = useState('fiscalQuarter');
@@ -77,11 +82,12 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          {drafts.isPending ? <Skeleton className="h-40" /> : (drafts.data || []).length === 0 ? (
+          {drafts.isPending ? <Skeleton className="h-40" /> : drafts.isError && !list.length ? <QueryFailure error={drafts.error} what="Your packages" onRetry={() => drafts.refetch()} /> : list.length === 0 ? (
             <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>New report</Button>} /></div>
           ) : (
-            <ul className="space-y-2">
-              {(drafts.data || []).map((d: any) => (
+            <>
+            <ul className="space-y-2" aria-label="Packages">
+              {list.map((d) => (
                 <li key={d.id}>
                   <button type="button" onClick={() => onOpen(d.id)} className="lift flex w-full items-center gap-3 rounded-xl bg-surface px-4 py-3.5 text-left shadow-card transition-colors hover:bg-surface-2">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent"><FileText className="h-4 w-4" aria-hidden /></span>
@@ -98,6 +104,12 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
                 </li>
               ))}
             </ul>
+            {/* How many are shown is said as it changes; the button stays where it was pressed while more remain. */}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p ref={count} tabIndex={-1} role="status" className="text-xs text-ink-3">{drafts.hasNextPage ? `Showing the ${list.length} most recently changed.` : `${list.length} package${list.length === 1 ? '' : 's'}.`}</p>
+              {drafts.hasNextPage ? <Button size="sm" onClick={more} loading={drafts.isFetchingNextPage}>{drafts.isFetchNextPageError ? 'Try again' : 'Show more'}</Button> : null}
+            </div>
+            </>
           )}
         </div>
         {/* What a package is for, beside the list, so a first visit is not a blank page with one button. */}

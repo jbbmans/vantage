@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/primitives';
+import { ScrollRegion } from '@/components/common';
 import { chartBars, formatCell, isRightAligned, labelledColumn, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable, type ReportColumn } from '../../shared/reportCatalog';
 
 /**
@@ -38,7 +41,7 @@ export default function ReportDocumentView({ doc, variant = 'screen' }: { doc: R
           {s.lede ? <p className="report-lede">{s.lede}</p> : null}
           {s.figures?.length ? <Figures list={s.figures} fmt={fmt} label={s.heading} /> : null}
           {s.chart ? <Bars chart={s.chart} currency={doc.currency} source={s.tables.find((t) => t.id === s.chart!.table)} /> : null}
-          {s.tables.map((t) => <Table key={t.id} table={t} currency={doc.currency} />)}
+          {s.tables.map((t) => <Table key={t.id} table={t} currency={doc.currency} all={variant === 'print'} />)}
           {s.notes?.length ? <ul className="report-notes">{s.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
         </section>
       ))}
@@ -137,28 +140,52 @@ function Bars({ chart, currency, source }: { chart: ReportChart; currency: strin
   );
 }
 
-function Table({ table, currency }: { table: ReportTable; currency: string }) {
+/**
+ * On screen a table draws this many rows, and this many more at each press, so a report of thousands of rows opens at
+ * once on a phone. Printed, every row the document holds is drawn.
+ */
+export const SCREEN_ROWS = 200;
+const count = (n: number) => n.toLocaleString('en-US');
+
+function Table({ table, currency, all }: { table: ReportTable; currency: string; all: boolean }) {
   const total = table.columns.reduce((n, c) => n + (c.width || 10), 0);
+  const [limit, setLimit] = useState(SCREEN_ROWS);
+  const rows = all ? table.rows : table.rows.slice(0, limit);
+  const left = table.rows.length - rows.length;
+  const paged = !all && table.rows.length > SCREEN_ROWS;
+  // The last press takes its button away, so the keyboard is left on the count that says every row is shown.
+  const status = useRef<HTMLParagraphElement>(null);
+  const [moveFocus, setMoveFocus] = useState(false);
+  useEffect(() => { if (moveFocus && !left) { status.current?.focus(); setMoveFocus(false); } }, [moveFocus, left]);
+  const more = () => { if (left <= SCREEN_ROWS) setMoveFocus(true); setLimit((n) => n + SCREEN_ROWS); };
   return (
     <div className="report-table">
       {table.note ? <p className="report-table-note">{table.note}</p> : null}
       {!table.rows.length ? (
         <><p className="report-table-title">{table.title}</p><p className="report-empty">{table.empty}</p></>
       ) : (
-        // A wide table scrolls inside itself on a narrow screen, and the keyboard can reach it to scroll it.
-        <div className="report-table-scroll" tabIndex={0} role="region" aria-label={table.title}>
+        // A table wider than the screen scrolls inside itself, and only then is it a stop for the keyboard to scroll it.
+        <ScrollRegion label={table.title} className="report-table-scroll">
           <table>
             <caption>{table.title}</caption>
             <colgroup>{table.columns.map((c) => <col key={c.key} style={{ width: `${((c.width || 10) / total) * 100}%` }} />)}</colgroup>
             <thead><tr>{table.columns.map((c) => <th key={c.key} scope="col" className={cn(isRightAligned(c.kind) && 'num', c.kind === 'date' && 'date')}>{c.label}</th>)}</tr></thead>
             <tbody>
-              {table.rows.map((r, i) => (
+              {rows.map((r, i) => (
                 <tr key={i}>{table.columns.map((c) => { const text = formatCell(r[c.key], c.kind, currency); return <td key={c.key} className={cellClass(c, text)}>{text}</td>; })}</tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
+      {paged ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <p ref={status} tabIndex={-1} role="status" className="report-table-note">
+            {left ? `Showing ${count(rows.length)} of ${count(table.rows.length)} rows.` : `Showing all ${count(table.rows.length)} rows.`}
+          </p>
+          {left ? <Button size="sm" onClick={more}>Show {count(Math.min(SCREEN_ROWS, left))} more of {count(left)}</Button> : null}
+        </div>
+      ) : null}
       {table.total > table.rows.length ? <p className="report-table-note">The first {table.rows.length} of {table.total} rows. Narrow the filters for the rest.</p> : null}
     </div>
   );

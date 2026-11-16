@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
 import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
-import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
@@ -296,7 +296,11 @@ export function useGoalContributors(id: string | null) {
     queryKey: keys.goalContributors(id || ''), queryFn: () => api.goalContributors(id!), enabled: Boolean(id),
   });
 }
-export const useReportDrafts = () => useQuery({ queryKey: keys.reportDrafts, queryFn: api.listReportDrafts, staleTime: 30_000 });
+/** The packages one may open, a page at a time: the next page carries on from the last package of the one before. */
+export const useReportDrafts = () => useInfiniteQuery({
+  queryKey: keys.reportDrafts, queryFn: ({ pageParam }) => api.listReportDrafts(pageParam),
+  initialPageParam: null as string | null, getNextPageParam: (last: api.ReportDraftPage) => last.next_cursor, staleTime: 30_000,
+});
 export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.reportDraft(id || ''), queryFn: () => api.reportDraft(id!), enabled: Boolean(id) });
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });

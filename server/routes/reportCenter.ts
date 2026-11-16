@@ -27,6 +27,8 @@ reportCenterRouter.get('/export', wrap(async (req, res) => {
   const file = await exportReport(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, format, clientIp(req));
   res.setHeader('Content-Type', file.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  // A CSV has nowhere of its own to say it was cut, so the response says how many of the table's rows it holds.
+  if (file.rows) res.setHeader('X-Vantage-Rows', `${file.rows.shown}/${file.rows.total}`);
   res.send(file.body);
 }));
 
