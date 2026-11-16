@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
 import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
-import { QueryClient, keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
@@ -139,19 +139,43 @@ export function useCounselingStep() {
 }
 export const useDutyOptions = (forId?: string | null, enabled = true) => useQuery<DutyOptionsResponse>({ queryKey: ['duty-options', forId || null], queryFn: () => api.dutyOptions(forId), staleTime: 60_000, enabled });
 export const useDutyCandidates = (enabled = true) => useQuery<DutyCandidatesResponse>({ queryKey: ['duty-candidates'], queryFn: api.dutyCandidates, staleTime: 30_000, enabled });
-/** Duty waiting for the reader's decision (ADR-0024), and whether they review duty at all. */
-export const useDutyReviewQueue = (enabled = true) => useQuery({ queryKey: ['duty-review-queue'], queryFn: api.dutyReviewQueue, enabled });
+/**
+ * A tab of the Duty page a page at a time, newest first (ADR-0023). Under ['records', 'duties'], so whatever refreshes
+ * duty refreshes it; `enabled` is off while the page shows the review queue instead, so a decision there reads no list.
+ */
+export const useDutyPages = (who: api.DutyTab, filters: api.DutyListFilters, enabled = true) => useInfiniteQuery({
+  queryKey: ['records', 'duties', 'page', who, filters],
+  queryFn: ({ pageParam }) => api.dutyList(who, filters, pageParam),
+  initialPageParam: null as string | null,
+  getNextPageParam: (last: api.DutyPage) => last.next,
+  enabled,
+});
+/** What the Duty page adds up from all of the reader's duty, and how many each tab holds. */
+export const useDutySummary = () => useQuery({ queryKey: ['records', 'duties', 'summary'], queryFn: api.dutySummary });
+/** Duty waiting for the reader's decision (ADR-0024), in one unit or all they review it in, and whether they review duty at all. */
+export const useDutyReviewQueue = (unitId: string | null = null, enabled = true) => useQuery({ queryKey: ['duty-review-queue', unitId], queryFn: () => api.dutyReviewQueue(unitId), enabled });
 export const useDutyReviews = (id: string | null, enabled = true) => useQuery({ queryKey: ['duty-reviews', id], queryFn: () => api.dutyReviews(id!), enabled: Boolean(id) && enabled });
+
+const isDutyPages = (data: unknown): data is InfiniteData<api.DutyPage> => typeof data === 'object' && data !== null && Array.isArray((data as { pages?: unknown }).pages);
+/** A duty list as it is cached, a plain list or a tab's pages, with one duty in it replaced by the duty as it now stands. */
+function withDuty(data: unknown, saved: RecordRows['duties']): unknown {
+  const swap = (rows: Array<RecordRows['duties']>) => (rows.some((r) => r.id === saved.id) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows);
+  if (Array.isArray(data)) return swap(data as Array<RecordRows['duties']>);
+  if (isDutyPages(data)) return { ...data, pages: data.pages.map((p) => (Array.isArray(p?.duties) ? { ...p, duties: swap(p.duties) } : p)) };
+  return data;
+}
+
 /** One decision on one duty. Whatever the answer, the duty's lists are read again: a refusal usually means it changed. */
 export function useReviewDuty() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string } & api.DutyReviewBody) => api.reviewDuty(id, body),
-    // The duty as decided replaces the one the lists hold, and leaves the queue once it no longer waits, before they are read again.
+    // The duty as decided replaces the one the lists hold (a plain list or a tab's pages; the totals beside them are left
+    // for the read that follows), and leaves each queue once it no longer waits, before they are read again.
     onSuccess: (saved) => {
-      qc.setQueriesData<Array<RecordRows['duties']>>({ queryKey: ['records', 'duties'] }, (rows) => (Array.isArray(rows) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows));
-      qc.setQueryData<Awaited<ReturnType<typeof api.dutyReviewQueue>>>(['duty-review-queue'], (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
-        ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1) } : q));
+      qc.setQueriesData({ queryKey: ['records', 'duties'] }, (data: unknown) => withDuty(data, saved));
+      qc.setQueriesData<api.DutyReviewQueue>({ queryKey: ['duty-review-queue'] }, (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
+        ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1), units: q.units.map((u) => (u.id === saved.unit_id ? { ...u, count: Math.max(0, u.count - 1) } : u)) } : q));
     },
     // A decision closes the duty's open review requests, so its Discussion is read again too. By what was asked, not by
     // what came back: a refusal brings nothing back, and usually means someone else decided it first.

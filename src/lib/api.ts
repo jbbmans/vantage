@@ -4,7 +4,7 @@ import type { DirectoryResponse, MemberDetailResponse, OrgResponse, PersonnelBul
 import type { OrgMembersPage } from './tenancy';
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
-import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
+import type { DutyCandidatesResponse, DutyOptionsResponse, DutyStatus } from '../../shared/duty';
 import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../../shared/attachments';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
@@ -633,11 +633,31 @@ export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/mov
 // Duty (ADR-0023): what the form records it with, for oneself or a Marine one may record it for, and the activities that read like duty.
 export const dutyOptions = (forId?: string | null) => api.get<DutyOptionsResponse>(`/record/duty/options${forId ? `?for=${encodeURIComponent(forId)}` : ''}`);
 export const dutyCandidates = () => api.get<DutyCandidatesResponse>('/record/duty/candidates');
+/** A tab of the Duty page: one's own duty, the duty one recorded for one's Marines, or what one's units hold besides one's own. */
+export type DutyTab = 'mine' | 'recorded' | 'units';
+/** What narrows a tab. The server ANDs each with what the reader may read, so none of them widens it. */
+export interface DutyListFilters { unit_id?: string; from?: string; to?: string; status?: DutyStatus }
+/**
+ * One page of a tab, newest first; `next` asks for the page after it and is null on the last. The first page also says
+ * how many the tab holds with its filters, counted up to a thousand (`total_more` past that).
+ */
+export interface DutyPage { duties: Array<RecordRows['duties']>; next: string | null; total?: number; total_more?: boolean }
+/** What the Duty page adds up from all of the reader's duty, and how many each tab holds, whatever page is open. */
+export interface DutySummary {
+  mine: { duties: number; hours: number; calculated_points: number; approved_points: number; pending: number; returned: number };
+  tabs: { mine: number; recorded: number; units: number; units_more: boolean };
+  /** The units a tab may be narrowed to: those whose shared records the reader views, and their own. */
+  units: Array<{ id: string; name: string }>;
+}
+export const dutyList = (who: DutyTab, filters: DutyListFilters, cursor?: string | null) => api.get<DutyPage>(`/record/duty/list?${qs({ who, ...filters, cursor })}`);
+export const dutySummary = () => api.get<DutySummary>('/record/duty/summary');
 // Reviewing duty (ADR-0024): one decision on one duty as the reader saw it, its review history, and the duty waiting for the reader's decision.
 export interface DutyReviewBody { action: DutyReviewAction; version: number; reason?: string | null; points?: number | string | null }
 export const reviewDuty = (id: string, body: DutyReviewBody) => api.post<RecordRows['duties']>(`/records/duties/${encodeURIComponent(id)}/review`, body);
 export const dutyReviews = (id: string) => api.get<{ reviews: DutyReviewEntry[] }>(`/records/duties/${encodeURIComponent(id)}/reviews`);
-export const dutyReviewQueue = () => api.get<DutyReviewQueueResponse<RecordRows['duties']>>('/record/duty/review-queue');
+export type DutyReviewQueue = DutyReviewQueueResponse<RecordRows['duties']>;
+/** The duty waiting for the reader's decision, in one unit they review it in or all of them. */
+export const dutyReviewQueue = (unitId?: string | null) => api.get<DutyReviewQueue>(`/record/duty/review-queue${unitId ? `?unit_id=${encodeURIComponent(unitId)}` : ''}`);
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);
