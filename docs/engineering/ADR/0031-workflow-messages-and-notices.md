@@ -190,4 +190,17 @@ Marine across the boundary. There are no update triggers: a Marine's own comment
 
 - Notices can be re-checked, grouped, turned off, taken back, purged and expired, because each knows its record.
 - Reading notices costs one access check per record shown; it is batched (200 at a time, at most 2,000 scanned).
+- Every bounded read decides who or what qualifies before it cuts the result to its length, so nothing that qualifies is
+  passed over because rows that do not came first:
+  - The unread count checks each record once, over all of a person's unread notices, and stops counting at 999.
+  - The picker first narrows a Unit Instance's members in SQL to those who could read the record at all (its Marine,
+    counselor and assignee; for a record shared with its unit, also whoever holds a role or leads a unit, and the
+    unit's members when it has an assignee; for a case, its unit's members or its owner and holder). It then reads
+    them 100 at a time, at most 2,000 per lookup, and offers the first ten `speaks()` allows. It says when people were
+    left past its limit, and typing more of a name narrows what it reads.
+  - Asked of you and You asked read requests 200 at a time, at most 5,000, checked as they are read, and show 100.
+  - The weekly digest counts every request its reader can answer, up to the same 5,000, and says "or more" only when
+    some are left past them.
+  - Today's "Since you last looked" asks the server for the newest unread notices, so newer notices already read do
+    not hide older unread ones.
 - The words of old notices are gone after migration 038. Their titles remain.

@@ -9,7 +9,7 @@ import { now } from '../lib/ids.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { periodClause } from './timeframes.ts';
 import { scopeFor } from '../authz/scope.ts';
-import { myRequests } from './comments.ts';
+import { waitingOnYou } from './comments.ts';
 import { unreadCount } from './notifications.ts';
 
 interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null; timezone?: string | null }
@@ -51,13 +51,14 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   // What waits on them in Vantage, counted the way the app counts it: requests they can still answer, notices about what
   // they can still open (ADR-0031). Counts only: a digest carries nobody's words.
   const scope = scopeFor(ctx, { id: user.id });
-  const waiting = myRequests(ctx, user, scope).asked_of_you.filter((r) => r.can_answer).length;
+  const waiting = waitingOnYou(ctx, user, scope);
   const unread = unreadCount(ctx, user, scope);
 
   const sections: Array<{ heading: string; lines: string[] }> = [];
-  if (waiting || unread) {
+  if (waiting.count || unread) {
+    const many = waiting.count !== 1 || waiting.more;
     sections.push({ heading: 'Waiting in Vantage', lines: [
-      ...(waiting ? [`${waiting} ${waiting === 1 ? 'question or review is' : 'questions and reviews are'} waiting on you`] : []),
+      ...(waiting.count ? [`${waiting.count}${waiting.more ? ' or more' : ''} ${many ? 'questions and reviews are' : 'question or review is'} waiting on you`] : []),
       ...(unread ? [`${unread} unread ${unread === 1 ? 'notice' : 'notices'}`] : []),
     ] });
   }

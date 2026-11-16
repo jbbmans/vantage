@@ -9,8 +9,8 @@ import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkRow } from '@/components/work';
 import {
-  keys, useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useMyRequests, useNotifications, usePrefs, useReadiness,
-  useRecordSummary, useSavePrefs, useTasks, useTrack, useWorkload,
+  keys, useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useMyRequests, usePrefs, useReadiness,
+  useRecordSummary, useSavePrefs, useTasks, useTrack, useUnreadNotices, useWorkload,
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
@@ -280,10 +280,11 @@ function noticeCount(n: NoticeRow): string | null {
 const noticeHref = (n: NoticeRow) => (n.action_url && n.action_url.startsWith('/') && !n.action_url.startsWith('//') ? n.action_url : '/notifications');
 
 function Changes() {
-  const notices = useNotifications();
+  // Its own unread ones: the bell's newest notices may all be read while older unread ones wait.
+  const notices = useUnreadNotices(4);
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const rows = (notices.data?.rows || []).filter((n) => !n.read_at).slice(0, 4);
+  const rows = notices.data?.rows ?? [];
   const refresh = () => qc.invalidateQueries({ queryKey: keys.notifications });
   // Following a notice marks it read first, then goes there. A click that opens a new tab leaves this page as it is.
   const follow = async (e: React.MouseEvent<HTMLAnchorElement>, n: NoticeRow, to: string) => {

@@ -16,7 +16,7 @@ import { REDACTED } from '../../shared/constants.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import {
   MENTION_MAX, PEOPLE_MAX, answerSchema, commentBodySchema, isRequestKind, requestSchema,
-  type CommentKind, type DiscussionEntry, type RequestKind, type RequestState, type RequestSummary, type Speaker, type Told,
+  type CommentKind, type DiscussionEntry, type RequestKind, type RequestState, type RequestSummary, type Speaker, type SpeakersResponse, type Told,
 } from '../../shared/workflowMessages.ts';
 
 /**
@@ -132,7 +132,7 @@ export const whoActs = (user: Pick<SessionUser, 'first_name' | 'last_name' | 'us
 interface Candidate { id: string; username: string; first_name: string; last_name: string; rank: string | null }
 
 /** For a private entry, or one that would be private if said now, the pool is the counseling's two parties alone. */
-function pool(ctx: AppContext, host: Host, isPrivate: boolean, where: string, params: unknown[], limit: number): Candidate[] {
+function pool(ctx: AppContext, host: Host, isPrivate: boolean, where: string, params: unknown[], limit: number, offset = 0): Candidate[] {
   const party = isPrivate ? [...parties(host)] : null;
   const inPool = party
     ? 'u.id IN (SELECT value FROM json_each(?))'
@@ -140,8 +140,8 @@ function pool(ctx: AppContext, host: Host, isPrivate: boolean, where: string, pa
   const poolParams = party ? [JSON.stringify(party)] : [host.ownerId, host.orgId, host.orgId];
   return ctx.db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
-      WHERE u.active = 1 AND ${inPool} AND (${where}) ORDER BY u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE LIMIT ?`
-  ).all(...poolParams, ...params, limit) as Candidate[];
+      WHERE u.active = 1 AND ${inPool} AND (${where}) ORDER BY u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE, u.id LIMIT ? OFFSET ?`
+  ).all(...poolParams, ...params, limit, offset) as Candidate[];
 }
 
 /** `@name` not preceded by a letter, digit or name character, so an e-mail address is no mention. */
@@ -180,24 +180,67 @@ function resolveMentions(ctx: AppContext, host: Host, author: SessionUser, body:
 /** May this person be asked to review this duty: one who may decide it (ADR-0024), never its own Marine. */
 const reviewsDuty = (host: Host, userId: string, scope: Scope) => userId !== host.ownerId && dutyReviewAuthority(scope, userId, host.record!).review;
 
+/** How many of a Unit Instance's members the picker reads at a time while it looks for people it may offer. */
+const PEOPLE_PAGE = 100;
+/** The most members one lookup reads. Past them it stops, says so, and typing more of a name narrows what it reads. */
+export const PEOPLE_SCAN = 2000;
+
+/**
+ * Who could read a record or case at all, as SQL over `u`: cheap to test, and wider than who does, so the picker works
+ * out each member's authority only for those who might have it, not for a whole Unit Instance. `speaks()` still decides.
+ * It follows how a record is read (canRead) and a case (readable): a record not shared with its unit is read only by its
+ * Marine and counselor; one shared is read also by its assignee, by the members of its unit when it has one, and by
+ * whoever holds a role or leads a unit, where View shared records comes from; a case shared with its unit is read by
+ * that unit's members, any other by its owner and holder.
+ */
+function mightRead(host: Host): { where: string; params: unknown[] } {
+  const named = (ids: Array<unknown>) => JSON.stringify(ids.filter((v): v is string => typeof v === 'string' && v.length > 0));
+  if (host.item) {
+    const item = host.item;
+    if (item.visibility === 'unit' && item.unit_id) return { where: 'EXISTS (SELECT 1 FROM unit_members cm WHERE cm.user_id = u.id AND cm.unit_id = ?)', params: [item.unit_id] };
+    return { where: 'u.id IN (SELECT value FROM json_each(?))', params: [named([item.owner_id, item.claimed_by])] };
+  }
+  const r = host.record!;
+  if (r.visibility !== 'unit' || !r.unit_id) return { where: 'u.id IN (SELECT value FROM json_each(?))', params: [named([r.user_id, r.counselor_id])] };
+  return {
+    where: `(u.id IN (SELECT value FROM json_each(?)) OR EXISTS (SELECT 1 FROM member_roles mr WHERE mr.user_id = u.id)
+             OR EXISTS (SELECT 1 FROM units ou WHERE ou.owner_user_id = u.id)${r.assignee_id ? ' OR EXISTS (SELECT 1 FROM unit_members am WHERE am.user_id = u.id AND am.unit_id = ?)' : ''})`,
+    params: [named([r.user_id, r.counselor_id, r.assignee_id]), ...(r.assignee_id ? [r.unit_id] : [])],
+  };
+}
+
 /**
  * People who may be named or asked on a record, matching what was typed: for the composer's picker. Given the kind of
- * request being written, only those it may go to; any other kind is ignored.
+ * request being written, only those it may go to; any other kind is ignored. Who may be offered is decided before the
+ * list is cut to its length, so someone further down the alphabet is offered when those before them may not be.
+ * `more` says the lookup stopped at its limit before it had read every match.
  */
-export function listSpeakers(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, q: string, kind?: unknown): Speaker[] {
+export function listSpeakers(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, q: string, kind?: unknown): SpeakersResponse {
   const host = openHost(ctx, user, scope, table, id);
   const limited = limiters.peopleLookups.limited(user.id);
   if (limited) throw tooMany('Too many lookups in a short time. Try again shortly.', limited.retryAfter);
   limiters.peopleLookups.bump(user.id);
-  if (!speaks(ctx, host, user.id, scope)) return [];
+  if (!speaks(ctx, host, user.id, scope)) return { people: [], more: false };
   const term = `%${String(q || '').trim().toLowerCase().slice(0, 60).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = `lower(u.username) LIKE ? ESCAPE '\\' OR lower(u.first_name) LIKE ? ESCAPE '\\' OR lower(u.last_name) LIKE ? ESCAPE '\\' OR lower(u.first_name || ' ' || u.last_name) LIKE ? ESCAPE '\\'`;
   const dutyReview = host.table === 'duties' && kind === 'review_request';
   const scopeOf = scopes(ctx);
-  return pool(ctx, host, privateNow(host), `u.id <> ? AND (${like})`, [user.id, term, term, term, term], 50)
-    .filter((c) => speaks(ctx, host, c.id, scopeOf(c.id)) && (!dutyReview || reviewsDuty(host, c.id, scopeOf(c.id))))
-    .slice(0, PEOPLE_MAX)
-    .map((c) => ({ id: c.id, username: c.username, name: nameOf(c), rank: c.rank }));
+  const offered = (c: Candidate) => speaks(ctx, host, c.id, scopeOf(c.id)) && (!dutyReview || reviewsDuty(host, c.id, scopeOf(c.id)));
+  const reader = mightRead(host);
+  const candidates = (limit: number, offset: number) =>
+    pool(ctx, host, privateNow(host), `u.id <> ? AND (${like}) AND ${reader.where}`, [user.id, term, term, term, term, ...reader.params], limit, offset);
+  const people: Speaker[] = [];
+  for (let read = 0; read < PEOPLE_SCAN; read += PEOPLE_PAGE) {
+    const page = candidates(PEOPLE_PAGE, read);
+    for (const c of page) {
+      if (!offered(c)) continue;
+      people.push({ id: c.id, username: c.username, name: nameOf(c), rank: c.rank });
+      if (people.length === PEOPLE_MAX) return { people, more: false };
+    }
+    if (page.length < PEOPLE_PAGE) return { people, more: false };
+  }
+  // Read to the limit: there is more only if someone is left past it.
+  return { people, more: candidates(1, PEOPLE_SCAN).length > 0 };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -524,11 +567,25 @@ const REQUEST_LIST = `SELECT c.*, u.first_name AS author_first_name, u.last_name
 /** How long a request someone sent stays in their "You asked" list once it is answered or closed. */
 const RECENTLY_CLOSED_DAYS = 14;
 
-/** How many requests each list shows, and how many are read to find them (the rest are on records the reader can no longer open). */
+/** How many requests each list shows. */
 const REQUESTS_LISTED = 100;
-const REQUESTS_SCANNED = 1000;
+/** Requests read at a time while a list looks for ones its reader may still see. */
+const REQUESTS_PAGE = 200;
+/** The most requests one list reads. A list stops sooner, as soon as it has as many as it shows. */
+const REQUESTS_SCANNED = 5000;
 
-export function myRequests(ctx: AppContext, user: { id: string }, scope: Scope): { asked_of_you: RequestSummary[]; you_asked: RequestSummary[] } {
+const ASKED_OF = `${REQUEST_LIST} WHERE c.addressee_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.state = 'open' AND c.deleted_at IS NULL
+                    ORDER BY c.created_at DESC, c.id DESC`;
+const ASKED_BY = `${REQUEST_LIST} WHERE c.author_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.deleted_at IS NULL
+                    AND (c.state = 'open' OR c.closed_at > ?) ORDER BY c.state = 'open' DESC, c.created_at DESC, c.id DESC`;
+
+/**
+ * Reads a person's requests a page at a time, each checked as it is read: one on a record they no longer read, or a
+ * private one they may not see, is passed over. `visit` is given each that stands, and returns false to stop. The answer
+ * says whether reading stopped at the most it reads with rows still to read.
+ */
+function eachRequest(ctx: AppContext, user: { id: string }, scope: Scope, sql: string, params: unknown[],
+  answerer: (host: Host, r: RequestListRow) => boolean, visit: (r: RequestSummary) => boolean): { stopped: boolean } {
   const hosts = new Map<string, Host | null>();
   const hostOf = (table: string, id: string) => {
     const key = `${table}:${id}`;
@@ -538,31 +595,49 @@ export function myRequests(ctx: AppContext, user: { id: string }, scope: Scope):
     }
     return hosts.get(key)!;
   };
+  const statement = ctx.db.prepare(`${sql} LIMIT ? OFFSET ?`);
+  for (let read = 0; read < REQUESTS_SCANNED; read += REQUESTS_PAGE) {
+    const page = statement.all(...params, REQUESTS_PAGE, read) as RequestListRow[];
+    for (const r of page) {
+      const host = hostOf(r.record_table, r.record_id);
+      if (!host || (r.private && !seesPrivate(host, user.id))) continue;
+      const row = (host.record ?? host.item) as unknown as Record<string, unknown>;
+      const keepGoing = visit({
+        id: r.id, kind: r.kind as RequestKind, state: r.state as RequestState, body: r.body, record_table: r.record_table, record_id: r.record_id,
+        label: entityLabel(ctx, host.table, row), url: recordLink(host.table, host.id),
+        author_name: nameOf({ first_name: r.author_first_name, last_name: r.author_last_name, username: r.author_username, rank: r.author_rank }),
+        addressee_name: nameOf({ first_name: r.addressee_first_name, last_name: r.addressee_last_name, username: r.addressee_username, rank: r.addressee_rank }),
+        can_answer: r.state === 'open' && answerer(host, r), created_at: r.created_at, closed_at: r.closed_at,
+      });
+      if (!keepGoing) return { stopped: false };
+    }
+    if (page.length < REQUESTS_PAGE) return { stopped: false };
+  }
+  // Read to the limit: it stopped short only if a request is left past it.
+  return { stopped: statement.all(...params, 1, REQUESTS_SCANNED).length > 0 };
+}
+
+export function myRequests(ctx: AppContext, user: { id: string }, scope: Scope): { asked_of_you: RequestSummary[]; you_asked: RequestSummary[] } {
   const scopeOf = scopes(ctx);
-  const summarize = (rows: RequestListRow[], answerer: (host: Host, r: RequestListRow) => boolean): RequestSummary[] => rows.flatMap((r) => {
-    const host = hostOf(r.record_table, r.record_id);
-    if (!host || (r.private && !seesPrivate(host, user.id))) return [];
-    const row = (host.record ?? host.item) as unknown as Record<string, unknown>;
-    return [{
-      id: r.id, kind: r.kind as RequestKind, state: r.state as RequestState, body: r.body, record_table: r.record_table, record_id: r.record_id,
-      label: entityLabel(ctx, host.table, row), url: recordLink(host.table, host.id),
-      author_name: nameOf({ first_name: r.author_first_name, last_name: r.author_last_name, username: r.author_username, rank: r.author_rank }),
-      addressee_name: nameOf({ first_name: r.addressee_first_name, last_name: r.addressee_last_name, username: r.addressee_username, rank: r.addressee_rank }),
-      can_answer: r.state === 'open' && answerer(host, r), created_at: r.created_at, closed_at: r.closed_at,
-    }];
-  });
-  const asked = ctx.db.prepare(`${REQUEST_LIST} WHERE c.addressee_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.state = 'open' AND c.deleted_at IS NULL ORDER BY c.created_at DESC LIMIT ?`).all(user.id, REQUESTS_SCANNED) as RequestListRow[];
   const since = new Date(Date.now() - RECENTLY_CLOSED_DAYS * 86_400_000).toISOString();
-  const sent = ctx.db.prepare(`${REQUEST_LIST} WHERE c.author_id = ? AND c.kind IN ('review_request', 'clarification_request') AND c.deleted_at IS NULL
-                                 AND (c.state = 'open' OR c.closed_at > ?) ORDER BY c.state = 'open' DESC, c.created_at DESC LIMIT ?`).all(user.id, since, REQUESTS_SCANNED) as RequestListRow[];
-  // Checked first, then cut to the list's length, so a list is short only when there is no more to show.
+  // Checked as they are read, then cut to the list's length, so a list is short only when there is no more to show.
+  const list = (sql: string, params: unknown[], answerer: (host: Host, r: RequestListRow) => boolean) => {
+    const rows: RequestSummary[] = [];
+    eachRequest(ctx, user, scope, sql, params, answerer, (r) => rows.push(r) < REQUESTS_LISTED);
+    return rows;
+  };
   return {
-    asked_of_you: summarize(asked, (host) => speaks(ctx, host, user.id, scope)).slice(0, REQUESTS_LISTED),
-    you_asked: summarize(sent, (host, r) => speaks(ctx, host, r.addressee_id!, scopeOf(r.addressee_id!))).slice(0, REQUESTS_LISTED),
+    asked_of_you: list(ASKED_OF, [user.id], (host) => speaks(ctx, host, user.id, scope)),
+    you_asked: list(ASKED_BY, [user.id, since], (host, r) => speaks(ctx, host, r.addressee_id!, scopeOf(r.addressee_id!))),
   };
 }
 
-/** Open requests asked of a person, for the weekly digest's count. */
-export function openRequestCount(ctx: AppContext, userId: string): number {
-  return (ctx.db.prepare(`SELECT COUNT(*) AS n FROM comments WHERE addressee_id = ? AND kind IN ('review_request', 'clarification_request') AND state = 'open' AND deleted_at IS NULL`).get(userId) as { n: number }).n;
+/**
+ * Questions and review requests a person can answer now, for the weekly digest: each one counted, not only those the
+ * app lists. `more`: reading stopped at the most it reads, so there may be more.
+ */
+export function waitingOnYou(ctx: AppContext, user: { id: string }, scope: Scope): { count: number; more: boolean } {
+  let count = 0;
+  const { stopped } = eachRequest(ctx, user, scope, ASKED_OF, [user.id], (host) => speaks(ctx, host, user.id, scope), (r) => { if (r.can_answer) count++; return true; });
+  return { count, more: stopped };
 }

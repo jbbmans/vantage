@@ -14,7 +14,7 @@ import type { BulkWorkInput, BulkWorkResponse, HandoffCandidate } from '../../sh
 import type { CourseEntry, CourseLookup, CourseSourceRecord } from '../../shared/courses';
 import type { DraftsResponse, FormDraft, FormDraftKind } from '../../shared/drafts';
 import type { NoticeGroup, NoticesResponse } from '../../shared/notifications';
-import type { DiscussionEntry, RequestKind, RequestSummary, Speaker, Told } from '../../shared/workflowMessages';
+import type { DiscussionEntry, RequestKind, RequestSummary, SpeakersResponse, Told } from '../../shared/workflowMessages';
 import type {
   ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
@@ -240,7 +240,7 @@ export const withdrawRequest = (h: DiscussionHost, requestId: string) => api.pos
  * asked that: on a duty, a review goes only to someone who may decide it, never its Marine.
  */
 export const discussionPeople = (h: DiscussionHost, q: string, kind?: RequestKind) =>
-  api.get<{ people: Speaker[] }>(`${discussionBase(h)}/people?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`);
+  api.get<SpeakersResponse>(`${discussionBase(h)}/people?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`);
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put<DiscussionEntry & Told>(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 

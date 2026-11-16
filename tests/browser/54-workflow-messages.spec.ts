@@ -513,3 +513,60 @@ test('on Notifications, a notice that arrives is said once, by the bell, and not
   expect(await section.getByRole('status').textContent(), 'and the page does not say it again').toBe('');
   for (const c of [lead.context, me.context]) await c.close();
 });
+
+test('Today shows what is still unread, even behind newer notices already read', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context: leadContext, page: lead } = await leader(browser);
+  const m = await marine(browser, lead, 'wmseen');
+  const title = unique('Older question ');
+  const first = await sharedTask(lead, m.id, title);
+  const asked = await lead.request.post(`/api/records/tasks/${first}/requests`, { headers: H, data: { kind: 'clarification_request', addressee_id: m.id, body: 'Which batch is this one?' } });
+  expect(asked.ok(), await asked.text()).toBeTruthy();
+  // More than the bell holds arrive after it, and the Marine reads every one of them.
+  for (let n = 0; n < 12; n++) {
+    const id = await sharedTask(lead, m.id, unique(`Newer task ${n} `));
+    const said = await lead.request.post(`/api/records/tasks/${id}/comments`, { headers: H, data: { body: `@${m.username} this one too.` } });
+    expect(said.ok(), await said.text()).toBeTruthy();
+  }
+  const all = await notices(m.page);
+  const question = all.filter((n) => n.kind === 'clarification_request' && n.label === title);
+  expect(question).toHaveLength(1);
+  expect(all.length, 'more than the bell shows').toBeGreaterThan(20);
+  for (const n of all) if (n.id !== question[0].id) expect((await m.page.request.put(`/api/me/notifications/${n.id}/read`, { headers: H })).ok()).toBeTruthy();
+
+  await m.page.goto('/');
+  await expect(m.page.getByRole('heading', { level: 1, name: 'Today' })).toBeVisible();
+  const since = panel(m.page, 'Since you last looked');
+  await expect(since.getByRole('link', { name: /asked you a question/ })).toContainText(title);
+  await expect(since.getByText('Nothing new.')).toHaveCount(0);
+  await expect(bellButton(m.page)).toHaveAccessibleName('Notifications, 1 unread');
+  await m.context.close();
+  await leadContext.close();
+});
+
+test('when a lookup stops before it has read everyone who matches, the picker says so, and how to find them', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const lead = await leader(browser);
+  const m = await marine(browser, lead.page, 'wmmore');
+  const taskId = await sharedTask(lead.page, m.id, unique('A task in a large Unit Instance '));
+  // A Unit Instance too large for one lookup: the server stopped at its limit, with nobody or one person to offer so far.
+  let answer: { people: Array<{ id: string; username: string; name: string; rank: string | null }>; more: boolean } = { people: [], more: true };
+  await m.page.route(/\/api\/records\/tasks\/[^/]+\/people\?/, (route) => route.fulfill({ json: answer }));
+
+  await m.page.goto(`/records/tasks/${taskId}`);
+  const discussion = m.page.getByRole('heading', { level: 2, name: 'Discussion', exact: true }).locator('xpath=ancestor::section[1]');
+  await discussion.locator('label').filter({ hasText: 'Ask a question' }).click();
+  const whom = discussion.getByRole('combobox', { name: 'Ask whom' });
+  await whom.click();
+  await expect(discussion.getByText('Too many people to look through at once. To find someone, type a name.')).toBeVisible();
+  await whom.fill('sm');
+  await expect(discussion.getByText('Too many people to look through at once. To find someone, type more of the name.')).toBeVisible();
+
+  answer = { people: [{ id: m.id, username: 'smith', name: 'Sgt Sam Smith', rank: 'Sgt' }], more: true };
+  await whom.fill('smi');
+  await expect(discussion.getByRole('option', { name: /Sam Smith/ })).toBeVisible();
+  await expect(discussion.getByText('1 person to choose from. There may be others: type more of the name to find them.'), 'seen, not only heard').toBeVisible();
+  await bothThemes(m.page, 'the picker saying there may be others');
+  await m.context.close();
+  await lead.context.close();
+});

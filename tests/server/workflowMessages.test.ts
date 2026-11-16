@@ -5,6 +5,9 @@ import { resetLimiters } from '../../server/auth/limiter.ts';
 import { placeHold } from '../../server/services/retention.ts';
 import { buildPersonalExport } from '../../server/services/personalExport.ts';
 import { MENTION_MAX, PEOPLE_MAX } from '../../shared/workflowMessages.ts';
+import { PEOPLE_SCAN } from '../../server/services/comments.ts';
+import { addMember } from '../../server/services/org.ts';
+import { composeDigest } from '../../server/services/digest.ts';
 
 /**
  * Task 24 (ADR-0031): what is said is said on the record it is about, to people who already read it. A question or a
@@ -468,6 +471,58 @@ test('a frozen record keeps its discussion as it was: read, never spoken on', as
   }
 });
 
+test('Asked of you and the digest reach past requests their reader can no longer open or answer', async () => {
+  // One question Sato can answer, asked an hour ago.
+  const open = await unitTask();
+  const q = await asked(nunez.token, rec('tasks', open.id), 'clarification_request', sato.id, 'Which batch is this?');
+  const hourAgo = Date.now() - 3_600_000;
+  app.ctx.db.prepare('UPDATE comments SET created_at = ? WHERE id = ?').run(new Date(hourAgo).toISOString(), q.id);
+
+  // Copies, made since, of a question on a record: on a task gone private, which Sato no longer reads; on a frozen
+  // one, which Sato reads and nobody may speak on.
+  const made: string[] = [];
+  const copies = async (count: number, change: (taskId: string) => void, from: number) => {
+    const t = await unitTask();
+    const template = await asked(nunez.token, rec('tasks', t.id), 'clarification_request', sato.id, 'Is this one ours?');
+    made.push(template.id);
+    change(t.id);
+    const row = stored(template.id)!;
+    const columns = Object.keys(row);
+    const insert = app.ctx.db.prepare(`INSERT INTO comments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`);
+    app.ctx.db.transaction(() => {
+      for (let n = 0; n < count; n++) {
+        const own: Record<string, unknown> = { id: `${template.id}-${n}`, created_at: new Date(from + n * 1000).toISOString() };
+        insert.run(...columns.map((c) => (c in own ? own[c] : row[c])));
+        made.push(String(own.id));
+      }
+    })();
+    app.ctx.db.prepare('UPDATE comments SET created_at = ? WHERE id = ?').run(new Date(from).toISOString(), template.id);
+  };
+  /** What Sato's weekly digest says is waiting on them. */
+  const waiting = () => {
+    const user = app.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(sato.id) as Parameters<typeof composeDigest>[1];
+    return Number(/(\d+) questions? (?:and reviews are|or review is) waiting on you/.exec(composeDigest(app.ctx, user).text)?.[1] ?? 0);
+  };
+  const before = waiting();
+  assert.ok(before >= 1, 'the question is counted');
+  try {
+    await copies(1000, (id) => app.ctx.db.prepare("UPDATE tasks SET visibility = 'private' WHERE id = ?").run(id), hourAgo + 60_000);
+    let list = (await myRequests(sato.token)).asked_of_you;
+    assert.ok(list.some((r) => r.id === q.id && r.can_answer), 'listed past the thousand newer ones on a record Sato no longer reads');
+    assert.ok(!list.some((r) => made.includes(r.id)), 'and none of those is listed');
+    assert.equal(waiting(), before, 'the digest counts it still');
+
+    await copies(120, (id) => app.ctx.db.prepare('UPDATE tasks SET frozen_at = ? WHERE id = ?').run(new Date().toISOString(), id), hourAgo + 1_200_000);
+    list = (await myRequests(sato.token)).asked_of_you;
+    assert.equal(list.length, 100, 'the list shows the hundred newest it may');
+    assert.ok(!list.some((r) => r.id === q.id), 'the question is older than all of them');
+    assert.ok(list.filter((r) => made.includes(r.id)).every((r) => !r.can_answer), 'those on the frozen record nobody answers');
+    assert.equal(waiting(), before, 'the digest counts what Sato can answer, not only what the list shows');
+  } finally {
+    app.ctx.db.prepare('UPDATE comments SET deleted_at = ? WHERE id IN (SELECT value FROM json_each(?))').run(new Date().toISOString(), JSON.stringify([...made, q.id]));
+  }
+});
+
 test('a request whose addressee can no longer read the record says so, and its asker may withdraw it', async () => {
   const task = await unitTask();
   const base = rec('tasks', task.id);
@@ -659,6 +714,55 @@ test('asking for a review of duty, the picker offers only those who may decide i
   const task = await unitTask();
   assert.deepEqual(await offered(nunez.token, 'ford', 'review_request', rec('tasks', task.id)), [ford.id]);
   assert.deepEqual(await offered(op.token, 'ford', 'review_request', `/api/work/items/${(await unitCase('Match the October DD 1131')).id}`), [ford.id], 'nor on a case');
+});
+
+test('the picker decides who may be offered before it stops: members before them in the alphabet who may not are passed over', async () => {
+  // Members of G-8 whose names come before everyone else's: with no role, they read no shared duty or task; as Fire
+  // Team Leaders, they read a duty and do not review it.
+  const template = app.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(mills.id) as Record<string, unknown>;
+  const columns = Object.keys(template);
+  const insert = app.ctx.db.prepare(`INSERT INTO users (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`);
+  const crowd = (count: number, prefix: string, role?: string) => {
+    const ids: string[] = [];
+    app.ctx.db.transaction(() => {
+      for (let n = 0; n < count; n++) {
+        const id = `${prefix}-${n}`;
+        const own: Record<string, unknown> = { id, username: `${prefix}${n}`, first_name: 'Abe', last_name: `Aa${String(n).padStart(5, '0')}`, email: null, edipi: null, oidc_subject: null, oidc_issuer: null };
+        insert.run(...columns.map((c) => (c in own ? own[c] : template[c])));
+        addMember(app.ctx, id, 'G8', { invitedBy: null });
+        if (role) app.ctx.db.prepare('INSERT INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, NULL, ?)').run(id, `G8:${role}`, 'G8', new Date().toISOString());
+        ids.push(id);
+      }
+    })();
+    return ids;
+  };
+  const retire = (ids: string[]) => app.ctx.db.prepare('UPDATE users SET active = 0 WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(ids));
+  const few = crowd(PEOPLE_SCAN / 20, 'aafew');
+  try {
+    const duty = await millsDuty();
+    const reviewers = await people(mills.token, rec('duties', duty.id), '', 'review_request');
+    assert.equal(reviewers.status, 200, JSON.stringify(reviewers.body));
+    assert.ok(reviewers.body.people.some((p: { id: string }) => p.id === sato.id), `the SNCO is offered past ${few.length} who may not be: ${JSON.stringify(reviewers.body)}`);
+    assert.ok(reviewers.body.people.every((p: { id: string }) => !few.includes(p.id)));
+    assert.equal(reviewers.body.more, false);
+    const named = await people(nunez.token, rec('tasks', (await unitTask()).id), '');
+    assert.equal(named.body.people.length, PEOPLE_MAX, 'ten are offered on a task, all of them people who may speak on it');
+    assert.ok(named.body.people.every((p: { id: string }) => !few.includes(p.id)));
+
+    // Past the most one lookup reads, it says it stopped, and typing more of the name finds them.
+    const many = crowd(PEOPLE_SCAN, 'aamany', 'fire-team-leader');
+    try {
+      const stopped = await people(mills.token, rec('duties', duty.id), '', 'review_request');
+      assert.deepEqual(stopped.body, { people: [], more: true });
+      assert.deepEqual((await people(mills.token, rec('duties', duty.id), 'aamany', 'review_request')).body, { people: [], more: false },
+        'exactly as many match as one lookup reads: all were read, so it does not say there are more');
+      assert.deepEqual((await people(mills.token, rec('duties', duty.id), 'sato', 'review_request')).body, { people: [{ id: sato.id, username: 'sato', name: 'SSgt Kei Sato', rank: 'SSgt' }], more: false });
+    } finally {
+      retire(many);
+    }
+  } finally {
+    retire(few);
+  }
 });
 
 // ---------------------------------------------------------------------------------------------------------------------

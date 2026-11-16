@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { startApp, enroll, today, type TestApp } from './helpers.ts';
-import { expireNotifications, notify } from '../../server/services/notifications.ts';
+import { expireNotifications, notify, UNREAD_COUNTED } from '../../server/services/notifications.ts';
 import { purgeDeleted } from '../../server/services/records.ts';
 import { placeHold, releaseHold } from '../../server/services/retention.ts';
 import {
@@ -403,6 +403,29 @@ test('the unread count is the list’s: hidden notices are not counted', async (
     if (storedUnread(who.id) > all.unread) hiddenSomewhere = true;
   }
   assert.ok(hiddenSomewhere, 'some unread notices are stored but no longer shown');
+});
+
+test('the unread count reaches past many newer notices about a record its reader no longer opens', async () => {
+  const p = await app.register('counted', { rank_id: 'LCpl', last_name: 'Count' });
+  await enroll(app, op.token, 'G8', p.id);
+  const who = { id: p.id, token: await login('counted') };
+  const hidden = await made(rivera.token, 'tasks', { title: 'Not theirs', visibility: 'private' });
+  const own = await made(who.token, 'tasks', { title: 'Their own', visibility: 'private' });
+  const at = (s: number) => new Date(Date.now() - 3_600_000 + s * 1000).toISOString();
+  const insert = app.ctx.db.prepare('INSERT INTO notifications (id, user_id, kind, title, dedupe_key, created_at, entity, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  app.ctx.db.transaction(() => {
+    insert.run('nt-cap-own', who.id, 'comment_mention', 'Somebody mentioned you', 'nt-cap-own', at(0), 'tasks', own.id);
+    for (let i = 1; i <= UNREAD_COUNTED; i++) insert.run(`nt-cap-${i}`, who.id, 'comment_mention', 'Somebody mentioned you', `nt-cap-${i}`, at(i), 'tasks', hidden.id);
+  })();
+  const unread = await inbox(who, '?filter=unread');
+  assert.deepEqual(unread.rows.map((n) => n.id), ['nt-cap-own'], `the list reads past the ${UNREAD_COUNTED} newer ones`);
+  assert.equal(unread.unread, 1, 'and so does the count');
+  assert.equal((await inbox(who)).unread, 1);
+  assert.equal((await inbox(who, '?group=mentions')).unread, 1, 'and its group\u2019s count');
+
+  // Once as many as are counted may be opened, the count stops there.
+  app.ctx.db.prepare('UPDATE notifications SET entity_id = ? WHERE user_id = ? AND id <> ?').run(own.id, who.id, 'nt-cap-own');
+  assert.equal((await inbox(who)).unread, UNREAD_COUNTED);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------

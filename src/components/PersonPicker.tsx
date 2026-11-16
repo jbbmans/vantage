@@ -106,12 +106,16 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
     }
   };
 
+  // The lookup stopped at its limit before it read everyone who matched: a name, or more of one, finds who is left.
+  const more = Boolean(people.data?.more);
+  const narrow = query ? 'type more of the name' : 'type a name';
   const status = !open ? ''
     : people.isError ? api.errorText(people.error)
       : !settled && !rows.length ? 'Looking…'
-        : !rows.length ? (query ? 'Nobody by that name can be asked or named here.' : 'Nobody else can be asked or named here.')
-          : `${rows.length} ${rows.length === 1 ? 'person' : 'people'} to choose from.`;
-  const shownStatus = open && (people.isError || !rows.length) ? status : '';
+        : !rows.length && more ? `Too many people to look through at once. To find someone, ${narrow}.`
+          : !rows.length ? (query ? 'Nobody by that name can be asked or named here.' : 'Nobody else can be asked or named here.')
+            : `${rows.length} ${rows.length === 1 ? 'person' : 'people'} to choose from.${more ? ` There may be others: ${narrow} to find them.` : ''}`;
+  const shownStatus = open && (people.isError || !rows.length || more) ? status : '';
   const expanded = open && rows.length > 0;
   const activeId = expanded && active >= 0 && rows[active] ? optionId(rows[active]) : undefined;
 

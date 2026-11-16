@@ -62,6 +62,8 @@ export const assignmentNoteSchema = z.string().trim().max(ASSIGNMENT_NOTE_MAX, `
 
 /** One person who may be named or asked on a record. */
 export interface Speaker { id: string; username: string; name: string; rank: string | null }
+/** The picker's answer. `more`: it stopped at its limit before reading every match, so typing more of a name may find others. */
+export interface SpeakersResponse { people: Speaker[]; more: boolean }
 
 /** One entry of a record's discussion, as the server gives it. */
 export interface DiscussionEntry {

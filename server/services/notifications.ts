@@ -189,7 +189,8 @@ export function readableEntity(ctx: AppContext, user: { id: string }, scope: Sco
 }
 
 type Seen = { label: string; url: string } | null | true;
-type Check = (n: StoredNotice) => Seen;
+/** Whether a notice may be shown to its reader: worked out from what it is about alone, once per record. */
+type Check = (n: Pick<StoredNotice, 'entity' | 'entity_id'>) => Seen;
 
 function checker(ctx: AppContext, user: { id: string }, scope: Scope): Check {
   const seen = new Map<string, { label: string; url: string } | null>();
@@ -289,9 +290,15 @@ export function unreadCount(ctx: AppContext, user: { id: string }, scope: Scope,
   const { where, params } = filters(user, { unread: true, group });
   const plain = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${where.join(' AND ')} AND entity IS NULL`).get(...params) as { n: number }).n;
   if (plain >= UNREAD_COUNTED) return UNREAD_COUNTED;
-  const about = ctx.db.prepare(`${SELECT} WHERE ${where.join(' AND ')} AND entity IS NOT NULL ORDER BY created_at DESC LIMIT ?`).all(...params, UNREAD_COUNTED) as StoredNotice[];
+  // Counted record by record, each checked once and before anything is cut off: an older notice its reader may open
+  // still counts when many newer ones are about records they no longer may.
+  const about = ctx.db.prepare(`SELECT entity, entity_id, COUNT(*) AS n FROM notifications WHERE ${where.join(' AND ')} AND entity IS NOT NULL GROUP BY entity, entity_id`)
+    .all(...params) as Array<Pick<StoredNotice, 'entity' | 'entity_id'> & { n: number }>;
   let n = plain;
-  for (const row of about) if (check(row) && ++n >= UNREAD_COUNTED) break;
+  for (const row of about) {
+    if (check(row)) n += row.n;
+    if (n >= UNREAD_COUNTED) return UNREAD_COUNTED;
+  }
   return n;
 }
 

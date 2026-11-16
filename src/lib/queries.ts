@@ -303,6 +303,8 @@ export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: 
 export const useAiStatus = () => useQuery({ queryKey: keys.aiStatus, queryFn: api.aiStatus, staleTime: 5 * 60_000 });
 /** The newest notices, for the bell and Today: polled each minute. The notifications page pages its own (ADR-0031). */
 export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.notifications, queryFn: () => api.notifications({ limit: 20 }), refetchInterval: 60_000, enabled });
+/** The newest unread notices, picked by the server past any read ones, for Today. Under the notices key, so what refreshes them refreshes these. */
+export const useUnreadNotices = (limit: number) => useQuery({ queryKey: [...keys.notifications, 'unread', limit], queryFn: () => api.notifications({ limit, filter: 'unread' }), refetchInterval: 60_000 });
 /** Questions and review requests asked of you, and those you asked: polled with the notices. */
 export const useMyRequests = (enabled = true) => useQuery({ queryKey: keys.myRequests, queryFn: api.myRequests, refetchInterval: 60_000, enabled });
 /** A record's or a case's discussion (ADR-0031). */
