@@ -264,9 +264,10 @@ test('duty is submitted and waits: it counts nothing until a reviewer approves i
   assert.match(trail[0].detail, /calculated 3; approved 3; scoring version 1/);
   const told = notesFor(reyes.id, d.id);
   assert.equal(told.length, 1);
-  assert.equal(told[0].title, 'Duty approved');
-  assert.match(told[0].message, /Nguyen approved Duty NCO on \d{4}-\d\d-\d\d for 3 points\./);
-  assert.ok(!/Battalion|Quiet/.test(told[0].message + told[0].title), 'never the duty’s words');
+  // Task 24: the event, who and the points; the duty is named by its type and day when the notice is read.
+  assert.match(told[0].title, /Nguyen approved your duty for 3 points$/);
+  assert.deepEqual([told[0].entity, told[0].entity_id, told[0].message], ['duties', d.id, null]);
+  assert.ok(!/Battalion|Quiet/.test(String(told[0].message) + told[0].title), 'never the duty’s words');
   assert.deepEqual(notesFor(nguyen.id, d.id), [], 'nobody is told of what they did themselves');
 
   // Decided, it is not decided again, corrected or deleted.
@@ -297,8 +298,8 @@ test('returned with a reason, a duty is corrected and goes back for review by it
   assert.equal(mine.body.review_reason, 'Give the time you were relieved.', 'its Marine reads why');
   assert.match(String(mine.body.reviewer_name), /SSgt Nguyen/);
   const told = notesFor(reyes.id, d.id);
-  assert.equal(told.at(-1)!.title, 'Duty returned for correction');
-  assert.ok(!told.at(-1)!.message.includes('relieved'), 'the reason is read on the duty, not in a notification');
+  assert.match(told.at(-1)!.title, /returned your duty for correction$/);
+  assert.ok(!`${told.at(-1)!.title} ${told.at(-1)!.message}`.includes('relieved'), 'the reason is read on the duty, not in a notification');
   // Returned is not decided: it is not approved or rejected from there.
   assert.equal((await review(nguyen.token, d.id, { action: 'approve', version: returned.version })).body.code, 'duty_not_pending');
 
@@ -315,7 +316,7 @@ test('returned with a reason, a duty is corrected and goes back for review by it
   assert.equal(auditOf('duty_resubmitted', d.id)[0].subject_id, null, 'one’s own duty names no other subject');
   const back = notesFor(nguyen.id, d.id);
   assert.equal(back.length, 1);
-  assert.equal(back[0].title, 'Duty sent back for review');
+  assert.match(back[0].title, /sent back for review a duty you returned$/);
 
   // Returned again, it can go back as it is, with nothing changed.
   const again = await decide(nguyen.token, d.id, 'return', { reason: 'Still no relief time in the notes.' });
@@ -328,7 +329,7 @@ test('returned with a reason, a duty is corrected and goes back for review by it
   // Rejected: it stays as decided, for everyone, until a reviewer takes the decision back and says why.
   const rejected = await decide(nguyen.token, d.id, 'reject', { reason: 'Not on the duty roster for that day.' });
   assert.deepEqual([rejected.approval_status, rejected.review_reason], ['rejected', 'Not on the duty roster for that day.']);
-  assert.equal(notesFor(reyes.id, d.id).at(-1)!.title, 'Duty rejected');
+  assert.match(notesFor(reyes.id, d.id).at(-1)!.title, /rejected your duty$/);
   assert.equal((await put(reyes.token, `/api/records/duties/${d.id}`, { title: 'x' })).body.code, 'duty_decided');
   assert.equal((await review(reyes.token, d.id, { action: 'resubmit', version: rejected.version })).status, 403);
   const noReason = await review(top.token, d.id, { action: 'reopen', version: rejected.version });
@@ -336,8 +337,8 @@ test('returned with a reason, a duty is corrected and goes back for review by it
   const reopened = await decide(top.token, d.id, 'reopen', { reason: 'The roster was amended; look again.' });
   assert.deepEqual([reopened.approval_status, reopened.reviewed_by, reopened.review_reason, reopened.approved_points], ['pending', null, null, null]);
   assert.equal((await review(top.token, d.id, { action: 'reopen', reason: 'Again.', version: reopened.version })).body.code, 'duty_not_decided');
-  assert.equal(notesFor(reyes.id, d.id).at(-1)!.title, 'Duty reopened for review');
-  assert.equal(notesFor(nguyen.id, d.id).at(-1)!.title, 'A duty you decided was reopened', 'the reviewer whose decision was undone is told');
+  assert.match(notesFor(reyes.id, d.id).at(-1)!.title, /reopened your duty for review/);
+  assert.match(notesFor(nguyen.id, d.id).at(-1)!.title, /reopened a duty you decided$/, 'the reviewer whose decision was undone is told');
   history = historyOf(d.id);
   assert.deepEqual(history.map((h) => h.event), ['returned', 'resubmitted', 'returned', 'resubmitted', 'rejected', 'reopened']);
   assert.equal(history.at(-1)!.reason, 'The roster was amended; look again.');
@@ -352,7 +353,7 @@ test('returned with a reason, a duty is corrected and goes back for review by it
   assert.equal(ok.approved_points, ok.calculated_points);
   const undone = await decide(top.token, d.id, 'reopen', { reason: 'Approved by mistake.' });
   assert.deepEqual([undone.approval_status, undone.approved_points], ['pending', null]);
-  assert.match(notesFor(reyes.id, d.id).at(-1)!.message, /does not count until it is approved/);
+  assert.match(notesFor(reyes.id, d.id).at(-1)!.title, /does not count until it is approved/);
   assert.match(auditOf('duty_reopened', d.id).at(-1)!.detail, /was approved; approved points \d+(\.\d+)? withdrawn/);
 });
 
@@ -477,8 +478,8 @@ test('nobody decides their own duty by reviewing: not its Marine, not an SNCO, n
   assert.equal((await review(reyes.token, forReyes.body.id, { action: 'approve', version: forReyes.body.version })).body.code, 'duty_own_review');
   const done = await decide(nguyen.token, forReyes.body.id, 'approve');
   assert.equal(done.approval_status, 'approved');
-  assert.equal(notesFor(diaz.id, forReyes.body.id).at(-1)!.title, 'Duty you recorded was approved');
-  assert.equal(notesFor(reyes.id, forReyes.body.id).at(-1)!.title, 'Duty approved');
+  assert.match(notesFor(diaz.id, forReyes.body.id).at(-1)!.title, /approved duty you recorded/);
+  assert.match(notesFor(reyes.id, forReyes.body.id).at(-1)!.title, /approved your duty/);
 });
 
 test('approving your own duty takes a role that names it, which someone else grants: nobody gives it to themselves, the Unit Leader included', async () => {
@@ -740,7 +741,7 @@ test('approved points apart from the calculated ones take the override permissio
   const changed = await decide(top.token, d.id, 'change_points', { points: 4, reason: 'One hour of it was on the roster.' });
   assert.deepEqual([changed.approval_status, changed.approved_points, changed.points_override_reason, changed.calculated_points], ['approved', 4, 'One hour of it was on the roster.', 3]);
   assert.equal(rowOf('duties', d.id)!.reviewed_by, top.id, 'who approved it stays who approved it');
-  assert.equal(notesFor(reyes.id, d.id).at(-1)!.title, 'Approved duty points changed');
+  assert.match(notesFor(reyes.id, d.id).at(-1)!.title, /changed your duty's approved points to/);
   // Back to the calculated points: the override is withdrawn, with its reason in the history.
   const withdrawn = await decide(op.token, d.id, 'change_points', { points: 3, reason: 'The roster had it after all.' });
   const end = rowOf('duties', d.id)!;

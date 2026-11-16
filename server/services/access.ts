@@ -3,6 +3,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify, notifyOrg } from './notifications.ts';
+import { orgOfUnit } from '../authz/scope.ts';
 import { getOrg, orgSettings } from './organizations.ts';
 
 /**
@@ -63,7 +64,8 @@ export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string
   notifyOrg(ctx, orgId, 'org.access', {
     kind: 'system',
     title: immediate ? `Vantage support is looking at ${org.name}` : `Vantage support asks to look at ${org.name}`,
-    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the Unit Manager console.'}`,
+    // Who and for how long; the reason is read in the console, never carried in a notice (ADR-0031).
+    message: `${staff.first_name} ${staff.last_name}, for ${hours}.${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Read the reason, then approve or deny it, in the Unit Manager console.'}`,
     actionUrl: '/console/access',
     dedupeKey: `access:${id}`,
   });
@@ -87,8 +89,8 @@ export function decideAccess(ctx: AppContext, actor: SessionUser, orgId: string,
   notify(ctx, g.staff_user_id, {
     kind: 'system',
     title: approve ? `Access to ${g.org_name} approved` : `Access to ${g.org_name} denied`,
-    message: approve ? `Read-only, until ${new Date(Date.now() + g.minutes * 60_000).toISOString().slice(11, 16)}Z.${note ? ` “${note.trim().slice(0, 200)}”` : ''}` : note?.trim().slice(0, 200) || undefined,
-    actionUrl: '/admin/access',
+    message: approve ? `Read-only, until ${new Date(Date.now() + g.minutes * 60_000).toISOString().slice(11, 16)}Z.` : undefined,
+    actionUrl: '/admin/access', orgId: g.org_id,
   });
   return load(ctx, id);
 }
@@ -102,7 +104,7 @@ export function endAccess(ctx: AppContext, actor: SessionUser, id: string, by: '
   const status = by === 'org' ? 'revoked' : g.status === 'pending' ? 'withdrawn' : 'ended';
   ctx.db.prepare('UPDATE access_grants SET status = ?, ended_at = ?, ended_by = ? WHERE id = ?').run(status, now(), actor.id, id);
   record(ctx, actor.id, g, `vantage_access_${status}`, null, ip);
-  if (by === 'org') notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} was ended by its Lead Unit Managers`, actionUrl: '/admin/access' });
+  if (by === 'org') notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} was ended by its Lead Unit Managers`, actionUrl: '/admin/access', orgId: g.org_id });
   else notifyOrg(ctx, g.org_id, 'org.access', { kind: 'system', title: `Vantage support ${status === 'withdrawn' ? 'withdrew its request' : 'finished looking'}`, message: `${g.staff_name}.`, actionUrl: '/console/access' });
   return load(ctx, id);
 }
@@ -141,7 +143,7 @@ export function sweepExpiries(ctx: AppContext, at = now()) {
   for (const r of unitRoles) {
     ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ? AND unit_id = ?').run(r.user_id, r.role_id, r.unit_id);
     audit(ctx, { actor_id: null, action: 'role_expired', entity: 'role', entity_id: r.role_id, unit_id: r.unit_id, subject_id: r.user_id, detail: r.name });
-    notify(ctx, r.user_id, { kind: 'unit', title: `Your ${r.name} role ended`, message: 'It was granted until today.', actionUrl: '/team', dedupeKey: `role-expired:${r.role_id}:${r.user_id}:${at.slice(0, 10)}` });
+    notify(ctx, r.user_id, { kind: 'unit', title: `Your ${r.name} role ended`, message: 'It was granted until today.', actionUrl: '/team', orgId: orgOfUnit(ctx, r.unit_id), dedupeKey: `role-expired:${r.role_id}:${r.user_id}:${at.slice(0, 10)}` });
     result.unitRoles++;
   }
   const orgRoles = ctx.db.prepare('SELECT org_id, user_id, role FROM org_roles WHERE expires_at IS NOT NULL AND expires_at <= ?').all(at) as Array<{ org_id: string; user_id: string; role: string }>;
@@ -156,6 +158,6 @@ export function sweepExpiries(ctx: AppContext, at = now()) {
 /** Tell staff whose access ends soon, once, so they are not cut off mid-task without warning. */
 export function warnEndingAccess(ctx: AppContext, withinMinutes = 15) {
   const soon = ctx.db.prepare(`${SELECT} WHERE g.status = 'active' AND g.expires_at > ? AND g.expires_at <= ?`).all(now(), until(withinMinutes)) as AccessGrant[];
-  for (const g of soon) notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} ends soon`, message: `At ${g.expires_at!.slice(11, 16)}Z.`, actionUrl: '/admin/access', dedupeKey: `access-ending:${g.id}` });
+  for (const g of soon) notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} ends soon`, message: `At ${g.expires_at!.slice(11, 16)}Z.`, actionUrl: '/admin/access', orgId: g.org_id, dedupeKey: `access-ending:${g.id}` });
   return soon.length;
 }

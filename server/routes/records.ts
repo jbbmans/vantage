@@ -16,7 +16,7 @@ import { MalwareRejected, scanUpload } from '../services/scanner.ts';
 import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
-import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
+import { listComments, addComment, editComment, deleteComment, addRequest, answerRequest, withdrawRequest, listSpeakers } from '../services/comments.ts';
 import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services/recordMoves.ts';
 import { newId, now } from '../lib/ids.ts';
 import { buildRecordExport } from '../services/personalExport.ts';
@@ -349,4 +349,22 @@ recordsRouter.put('/:table/:id/comments/:commentId', wrap((req, res) => {
 
 recordsRouter.delete('/:table/:id/comments/:commentId', wrap((req, res) => {
   res.json(deleteComment(...commentArgs(req), String(req.params.commentId), clientIp(req)));
+}));
+
+// Workflow messages (ADR-0031): a question or a review request to one named person on the record, its answer, and who
+// may be named or asked there.
+recordsRouter.post('/:table/:id/requests', wrap((req, res) => {
+  res.status(201).json(addRequest(...commentArgs(req), req.body, clientIp(req)));
+}));
+
+recordsRouter.post('/:table/:id/requests/:requestId/answer', wrap((req, res) => {
+  res.json(answerRequest(...commentArgs(req), String(req.params.requestId), req.body, clientIp(req)));
+}));
+
+recordsRouter.post('/:table/:id/requests/:requestId/withdraw', wrap((req, res) => {
+  res.json(withdrawRequest(...commentArgs(req), String(req.params.requestId), clientIp(req)));
+}));
+
+recordsRouter.get('/:table/:id/people', wrap((req, res) => {
+  res.json(listSpeakers(...commentArgs(req), String(req.query.q ?? ''), req.query.kind));
 }));

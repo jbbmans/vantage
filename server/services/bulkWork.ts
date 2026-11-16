@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
-import { scopeFor, type Scope } from '../authz/scope.ts';
+import { scopeFor, orgOfUnit, type Scope } from '../authz/scope.ts';
 import { HttpError, badRequest } from '../lib/errors.ts';
 import { parse } from '../lib/http.ts';
 import { getItem, readable, mayClaim, mayReassign, claimItem, releaseItem } from './work.ts';
 import { handOff, handoffCandidates } from './cases.ts';
+import { notify } from './notifications.ts';
+import { whoActs } from './comments.ts';
 import { replayedWorkRequest } from './workRequests.ts';
 import { BULK_WORK_LIMIT, type BulkWorkInput, type BulkWorkResponse, type BulkWorkResult, type HandoffCandidate } from '../../shared/bulkWork.ts';
 
@@ -55,34 +57,75 @@ export function previewBulkWork(ctx: AppContext, user: SessionUser, scope: Scope
 export function runBulkWork(ctx: AppContext, user: SessionUser, scope: Scope, input: BulkWorkInput, key: string): BulkWorkResponse {
   if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key)) throw badRequest('A valid request identifier is required. Preview the selection again.');
   const results: BulkWorkResult[] = [];
-  for (const item of input.items) {
-    const row = getItem(ctx, item.id);
-    if (!row || !readable(scope, user, row)) {
-      results.push({ id: item.id, reference: null, ok: false, message: 'This work is unavailable to you.', code: 'unavailable' });
-      continue;
+  // One notice per person and Unit Instance at the end, never one per case (ADR-0031): who was handed work, and whose
+  // claims went. Each counts only the cases this attempt applied: a retry reports what it applied itself, and a replay none.
+  type Summary = { who: string; orgId: string | null; ids: string[] };
+  const handedTo = new Map<string, Summary>();
+  const tookFrom = new Map<string, Summary>();
+  const tally = (into: Map<string, Summary>, who: string | null | undefined, row: { id: string; unit_id: string | null }) => {
+    if (!who || who === user.id) return;
+    const orgId = orgOfUnit(ctx, row.unit_id);
+    const at = `${who}|${orgId ?? ''}`;
+    const t = into.get(at) || { who, orgId, ids: [] };
+    t.ids.push(row.id);
+    into.set(at, t);
+  };
+  const cases = (n: number) => (n === 1 ? 'a case' : `${n} cases`);
+  const keyOf = (t: Summary) => `${t.who}:${t.orgId ?? 'none'}:${createHash('sha256').update([...t.ids].sort().join(',')).digest('hex').slice(0, 16)}`;
+  const tell = () => {
+    for (const t of handedTo.values()) {
+      notify(ctx, t.who, { kind: 'work_assigned', title: `${whoActs(user)} handed you ${cases(t.ids.length)}`, actionUrl: '/work', actorId: user.id, orgId: t.orgId, dedupeKey: `bulk-handoff:${key}:${keyOf(t)}` });
     }
-    const reference = row.reference || row.title;
-    const fingerprint = createHash('sha256').update(JSON.stringify([input.action, item, input.to_user_id ?? null, input.note ?? null])).digest('hex');
-    const request = { key, fingerprint };
-    try {
-      const kind = input.action === 'assign' ? 'handed_off' : input.action === 'claim' ? 'claimed' : 'released';
-      if (replayedWorkRequest(ctx, user, item.id, request, kind)) {
-        results.push({ id: item.id, reference, ok: true, message: 'Already applied.', replayed: true });
+    for (const t of tookFrom.values()) {
+      notify(ctx, t.who, {
+        kind: input.action === 'release' ? 'work_released' : 'work_moved',
+        title: input.action === 'release' ? `${whoActs(user)} released your claim on ${cases(t.ids.length)}` : `${whoActs(user)} handed ${cases(t.ids.length)} you held to someone else`,
+        actionUrl: '/work', actorId: user.id, orgId: t.orgId, dedupeKey: `bulk-${input.action}:${key}:${keyOf(t)}`,
+      });
+    }
+  };
+  try {
+    for (const item of input.items) {
+      const row = getItem(ctx, item.id);
+      if (!row || !readable(scope, user, row)) {
+        results.push({ id: item.id, reference: null, ok: false, message: 'This work is unavailable to you.', code: 'unavailable' });
         continue;
       }
-      const preview = previewBulkWork(ctx, user, scope, { ...input, items: [item] }).results[0];
-      if (!preview.ok) { results.push(preview); continue; }
-      if (input.action === 'claim') claimItem(ctx, user, scope, item.id, item.version, request);
-      else if (input.action === 'release') releaseItem(ctx, user, scope, item.id, item.version, request);
-      else handOff(ctx, user, scope, item.id, { to_user_id: input.to_user_id, note: input.note, version: item.version }, request);
-      results.push({ id: item.id, reference, ok: true, message: 'Applied.' });
-    } catch (error) {
-      // Only an expected per-case refusal is a partial result. An infrastructure error must reach the normal error
-      // handler; pretending the batch finished would conceal a broken database or audit trail.
-      if (!(error instanceof HttpError) || error.status >= 500) throw error;
-      results.push({ id: item.id, reference, ok: false, message: error.message, code: error.code ?? undefined });
+      const reference = row.reference || row.title;
+      const fingerprint = createHash('sha256').update(JSON.stringify([input.action, item, input.to_user_id ?? null, input.note ?? null])).digest('hex');
+      const request = { key, fingerprint };
+      try {
+        const kind = input.action === 'assign' ? 'handed_off' : input.action === 'claim' ? 'claimed' : 'released';
+        if (replayedWorkRequest(ctx, user, item.id, request, kind)) {
+          results.push({ id: item.id, reference, ok: true, message: 'Already applied.', replayed: true });
+          continue;
+        }
+        const preview = previewBulkWork(ctx, user, scope, { ...input, items: [item] }).results[0];
+        if (!preview.ok) { results.push(preview); continue; }
+        if (input.action === 'claim') claimItem(ctx, user, scope, item.id, item.version, request);
+        else if (input.action === 'release') {
+          releaseItem(ctx, user, scope, item.id, item.version, request, { quiet: true });
+          tally(tookFrom, row.claimed_by, row);
+        } else {
+          handOff(ctx, user, scope, item.id, { to_user_id: input.to_user_id, note: input.note, version: item.version }, request, { quiet: true });
+          tally(handedTo, input.to_user_id, row);
+          if (row.claimed_by !== input.to_user_id) tally(tookFrom, row.claimed_by, row);
+        }
+        results.push({ id: item.id, reference, ok: true, message: 'Applied.' });
+      } catch (error) {
+        // Only an expected per-case refusal is a partial result. An infrastructure error must reach the normal error
+        // handler; pretending the batch finished would conceal a broken database or audit trail.
+        if (!(error instanceof HttpError) || error.status >= 500) throw error;
+        results.push({ id: item.id, reference, ok: false, message: error.message, code: error.code ?? undefined });
+      }
     }
+  } catch (error) {
+    // Each case commits on its own, so the cases applied before an infrastructure error stay applied and their people are
+    // told. A notice that then fails too must not replace the error that stopped the run.
+    try { tell(); } catch { /* the error that stopped the run is the one reported */ }
+    throw error;
   }
+  tell();
   return resultOf(results);
 }
 

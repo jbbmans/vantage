@@ -69,6 +69,37 @@ Passkey challenges live in the database for restart continuity, expire after fiv
 - The per-person workload breakdown needs `VIEW_MEMBER_DETAIL` in the unit, and each view is audited
   (`view_team_workload`). Section totals need `VIEW_RECORDS`.
 
+## Discussion and notices
+
+What is said on a record or a work case, and what Vantage tells people about it (ADR-0031,
+`server/services/comments.ts`, `server/services/notifications.ts`).
+
+- **Who may speak** is one rule, `speaks()`: an active person who reads the record by their own access, on a record
+  neither frozen nor anonymized, and who belongs to its Unit Instance, or is its Marine on a record that is private or
+  in no unit. Their permissions are recomputed without Vantage access (`ownScope`), so staff reading through an access
+  grant never write, are never asked or named, and are never told what is said. The same rule decides who may be
+  asked, named, offered in the person picker or told of a new comment. Anyone else who reads the record reads its
+  discussion and is refused a write (403 `not_a_speaker`). Removing another's comment takes `MANAGE_RECORDS` in the
+  record's unit by one's own access.
+- **Mentions** are looked up only among the record's Marine and the members of its Unit Instance, then kept only where
+  that person speaks. A message names at most 10 people (400); an e-mail address is no mention.
+- **A counseling's comments before it was final** (`private`) are read only by its counselor and its Marine, after it
+  is final too, and every action on one answers 404 to anyone else. While a counseling is a draft or in review, its
+  mentions and requests reach only those two.
+- **Rate limits:** 30 questions and review requests an hour per person; the person picker has its own limit (300
+  lookups in 15 minutes) and offers at most 10 people.
+- **Notices carry no words.** One about a record holds the event and who; the record's name is read when the notice is
+  read, after the access check. `GET /api/me/notifications` hides, and leaves out of the unread count, any notice whose
+  record or work case its reader can no longer open. A person's export applies the same check.
+- **Lifecycle:** notices are kept 180 days, except under a legal hold on the person or their Unit Instance; a destroyed
+  or anonymized record takes its notices with it, and anonymizing redacts every comment, request and answer on it,
+  except what a person under a legal hold said, which goes at the next run after the hold is released. A record
+  anonymized before migration 038 has its discussion redacted at the next run of its schedule. A notice about a Unit
+  Instance names it even when it names no record, so an instance hold keeps it.
+- **One Unit Instance:** a `BEFORE INSERT` trigger (`comments_same_org_insert`, migration 038) refuses an entry whose
+  unit is in another Unit Instance than its record's, and `instanceBoundaryViolations` counts live entries by anyone
+  but the record's Marine across the boundary.
+
 ## Browser and network
 
 - The page loads nothing from third parties. Google Tag Manager was removed, the CSP is

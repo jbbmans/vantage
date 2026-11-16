@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Bell, Building2, CalendarClock, CheckCircle2, FilePen, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, CalendarClock, CheckCircle2, FilePen, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarChart, clientVisual } from '@/components/analytics';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -9,12 +9,14 @@ import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkRow } from '@/components/work';
 import {
-  useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
-  useSavePrefs, useTasks, useTrack, useWorkload,
+  keys, useAssignedWork, useCareer, useDrafts, useGoals, useIdentity, useMetricsReport, useMyRequests, usePrefs, useReadiness,
+  useRecordSummary, useSavePrefs, useTasks, useTrack, useUnreadNotices, useWorkload,
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { DRAFT_KIND_LABELS } from '../../shared/drafts';
+import { NOTICE_KINDS, isNoticeKind, type NoticeRow } from '../../shared/notifications';
+import { REQUEST_KIND_LABELS, type RequestSummary } from '../../shared/workflowMessages';
 import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { goalPace } from '../../shared/metricEngine';
@@ -41,10 +43,16 @@ export default function Dashboard() {
   const myTasks = useMemo(() => (tasks || []).filter((t) => (t.assignee_id || t.user_id) === me && t.status !== 'completed'), [tasks, me]);
   const working = (assigned.data || []).filter((a) => !['waiting', 'blocked'].includes(a.stage));
   const waiting = (assigned.data || []).filter((a) => ['waiting', 'blocked'].includes(a.stage));
+  // Questions and review requests still open: asked of you (yours to answer), and those you asked (waiting on others).
+  const requests = useMyRequests();
+  const askedOfYou = (requests.data?.asked_of_you || []).filter((r) => r.state === 'open');
+  const youAsked = (requests.data?.you_asked || []).filter((r) => r.state === 'open');
+  const waitingCount = waiting.length + youAsked.length;
 
   const parts = [
+    askedOfYou.length ? `${askedPhrase(askedOfYou)} asked of you` : null,
     working.length ? `${working.length} ${working.length === 1 ? 'item' : 'items'} in your hands` : null,
-    waiting.length ? `${waiting.length} waiting on someone else` : null,
+    waitingCount ? `${youAsked.length >= REQUESTS_LISTED ? `${waitingCount} or more` : waitingCount} waiting on someone else` : null,
     myTasks.length ? `${myTasks.length} ${myTasks.length === 1 ? 'task' : 'tasks'} open` : null,
   ].filter(Boolean);
   const lede = assigned.isPending ? '' : parts.length ? `${parts.join(', ')}.` : 'Nothing in your hands right now. Claim work from the queue, or log what you did.';
@@ -64,9 +72,12 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
-          <Panel title="Your work" subtitle="What you hold, and the next useful step on each" padded={false}
+          <Panel title="Your work" subtitle="What you are asked, what you hold, and the next useful step on each" padded={false}
             action={<Link to="/record" className="text-xs text-accent hover:underline">Your record</Link>}>
-            {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (
+            {askedOfYou.length > 0 && <RequestGroup title="Asked of you" side="asked_of_you" rows={askedOfYou} />}
+            {requests.isError && !requests.data && <RequestsFailed onRetry={() => requests.refetch()} />}
+            {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (<>
+              {askedOfYou.length > 0 && <SubHead>In your hands</SubHead>}
               <ul className="divide-y divide-line">
                 {working.map((item) => <WorkRow key={item.id} item={item} />)}
                 {myTasks.slice(0, 4).map((t) => (
@@ -81,12 +92,16 @@ export default function Dashboard() {
                   </li>
                 ))}
               </ul>
-            ) : <AvailableWork />}
+            </>) : <AvailableWork />}
           </Panel>
 
-          {waiting.length > 0 && (
+          {waitingCount > 0 && (
             <Panel title="Waiting on someone else" subtitle="Elapsed time, shown separately from work. Nothing here needs you until it moves." padded={false}>
-              <ul className="divide-y divide-line">{waiting.map((item) => <WorkRow key={item.id} item={item} />)}</ul>
+              {youAsked.length > 0 && <RequestGroup title="You asked" side="you_asked" rows={youAsked} />}
+              {waiting.length > 0 && (<>
+                {youAsked.length > 0 && <SubHead>Work</SubHead>}
+                <ul className="divide-y divide-line">{waiting.map((item) => <WorkRow key={item.id} item={item} />)}</ul>
+              </>)}
             </Panel>
           )}
 
@@ -183,27 +198,134 @@ function QuickCapture() {
   );
 }
 
-function Changes() {
-  const { data } = useNotifications();
-  const rows: any[] = (data?.rows || []).filter((n: any) => !n.read_at).slice(0, 4);
+/** The server lists at most this many requests each way, so a list this long may have more than it shows. */
+const REQUESTS_LISTED = 100;
+/** How many requests Today shows in each list; the rest are on the notifications page. */
+const REQUESTS_SHOWN = 5;
+const howMany = (n: number) => (n >= REQUESTS_LISTED ? `${REQUESTS_LISTED} or more` : String(n));
+
+/** "2 questions and 1 review request", for the lede. */
+function askedPhrase(rows: RequestSummary[]): string {
+  if (rows.length >= REQUESTS_LISTED) return `${REQUESTS_LISTED} or more questions and review requests`;
+  const questions = rows.filter((r) => r.kind === 'clarification_request').length;
+  const reviews = rows.length - questions;
+  return [
+    questions ? `${questions} ${questions === 1 ? 'question' : 'questions'}` : null,
+    reviews ? `${reviews} review ${reviews === 1 ? 'request' : 'requests'}` : null,
+  ].filter(Boolean).join(' and ');
+}
+
+function SubHead({ id, children }: { id?: string; children: React.ReactNode }) {
+  return <h3 id={id} className="px-4 pb-1 pt-3 text-2xs font-semibold uppercase tracking-[0.12em] text-ink-3">{children}</h3>;
+}
+
+/** Open questions and review requests: asked of you (in "Your work"), or asked by you (in "Waiting on someone else"). */
+function RequestGroup({ title, side, rows }: { title: string; side: 'asked_of_you' | 'you_asked'; rows: RequestSummary[] }) {
+  const id = useId();
   return (
-    <Panel title="Since you last looked" action={<Bell className="h-4 w-4 text-ink-3" aria-hidden />} padded={false}>
-      {rows.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing new.</p> : (
-        <ul className="divide-y divide-line">
-          {rows.map((n) => (
-            <li key={n.id}>
-              {n.action_url ? (
-                <Link to={n.action_url} className="block px-4 py-2.5 hover:bg-surface-2">
-                  <span className="block text-sm text-ink">{n.title}</span>
-                  <span className="block text-xs text-ink-3">{n.message ? `${n.message} · ` : ''}{timeAgo(n.created_at)}</span>
-                </Link>
-              ) : (
-                <div className="px-4 py-2.5"><span className="block text-sm text-ink">{n.title}</span><span className="block text-xs text-ink-3">{timeAgo(n.created_at)}</span></div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+    <section aria-labelledby={id} className="border-line [&:not(:last-child)]:border-b">
+      <div className="flex items-baseline gap-2 pr-4">
+        <SubHead id={id}>{title}</SubHead>
+        <span className="fig text-2xs text-ink-3">{howMany(rows.length)} open</span>
+        {rows.length > REQUESTS_SHOWN && (
+          <Link to="/notifications?tab=asked" className="tap ml-auto inline-flex items-center text-xs text-accent hover:underline">
+            {side === 'asked_of_you' ? `All ${howMany(rows.length)} asked of you` : `All ${howMany(rows.length)} you asked`}
+          </Link>
+        )}
+      </div>
+      <ul className="divide-y divide-line">
+        {rows.slice(0, REQUESTS_SHOWN).map((r) => (
+          <li key={r.id}>
+            <Link to={r.url} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-start sm:gap-3">
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start gap-2">
+                  <Badge tone={r.kind === 'review_request' ? 'info' : 'neutral'} className="shrink-0">{REQUEST_KIND_LABELS[r.kind]}</Badge>
+                  <span className="line-clamp-2 text-sm font-medium text-ink sm:line-clamp-1" title={r.label}>{r.label}</span>
+                </span>
+                <span className="mt-0.5 block text-xs text-ink-3">{side === 'asked_of_you' ? `Asked by ${r.author_name}` : `You asked ${r.addressee_name}`}</span>
+                {!r.can_answer && (
+                  <span className="mt-0.5 block text-xs text-ink-2">
+                    {side === 'asked_of_you' ? 'You can no longer answer this. Whoever asked can withdraw it.' : `${r.addressee_name} can no longer answer this. You can withdraw it on the record.`}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs text-ink-3">{timeAgo(r.created_at)}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RequestsFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 border-b border-line px-4 py-3 text-sm text-ink-2">
+      Your questions and review requests could not load.
+      <button type="button" onClick={onRetry} className="tap inline-flex items-center text-sm font-medium text-accent hover:underline">Try again</button>
+    </p>
+  );
+}
+
+/** What a notice that stands for several events adds ("3 new comments"), unless its title already says so. */
+function noticeCount(n: NoticeRow): string | null {
+  if (!n.count || n.count < 2 || !isNoticeKind(n.kind)) return null;
+  const spec = NOTICE_KINDS[n.kind];
+  if (!('many' in spec)) return null;
+  const text = `${n.count} ${spec.many}`;
+  return n.title === text ? null : text;
+}
+
+/** Where a notice opens: its own link when it is one of ours, otherwise the notifications page, where it is listed. */
+const noticeHref = (n: NoticeRow) => (n.action_url && n.action_url.startsWith('/') && !n.action_url.startsWith('//') ? n.action_url : '/notifications');
+
+function Changes() {
+  // Its own unread ones: the bell's newest notices may all be read while older unread ones wait.
+  const notices = useUnreadNotices(4);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const rows = notices.data?.rows ?? [];
+  const refresh = () => qc.invalidateQueries({ queryKey: keys.notifications });
+  // Following a notice marks it read first, then goes there. A click that opens a new tab leaves this page as it is.
+  const follow = async (e: React.MouseEvent<HTMLAnchorElement>, n: NoticeRow, to: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { api.markRead(n.id).then(refresh, () => undefined); return; }
+    e.preventDefault();
+    await api.markRead(n.id).catch(() => undefined);
+    refresh();
+    navigate(to);
+  };
+  return (
+    <Panel title="Since you last looked" padded={false}
+      action={<Link to="/notifications" className="tap inline-flex items-center text-xs text-accent hover:underline">See all<span className="sr-only"> notifications</span></Link>}>
+      {notices.isPending ? <Skeleton className="m-4 h-16" />
+        : !notices.data && notices.isError ? (
+          <p className="flex flex-wrap items-center gap-x-2 px-4 py-3 text-sm text-ink-2">
+            Your notifications could not load.
+            <button type="button" onClick={() => notices.refetch()} className="tap inline-flex items-center text-sm font-medium text-accent hover:underline">Try again</button>
+          </p>
+        )
+        : rows.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing new.</p> : (
+          <ul className="divide-y divide-line">
+            {rows.map((n) => {
+              const to = noticeHref(n);
+              const count = noticeCount(n);
+              return (
+                <li key={n.id}>
+                  <Link to={to} onClick={(e) => follow(e, n, to)} className="block px-4 py-2.5 transition-colors hover:bg-surface-2">
+                    <span className="block text-sm text-ink">{n.title}</span>
+                    {n.label && <span className="block truncate text-sm text-ink-2">{n.label}</span>}
+                    {n.message && <span className="block text-xs leading-snug text-ink-2">{n.message}</span>}
+                    <span className="block text-xs text-ink-3">
+                      {count && `${count} · `}
+                      {n.org_name && <><span className="sr-only">Unit Instance: </span>{n.org_name} · </>}
+                      <time dateTime={n.created_at}>{timeAgo(n.created_at)}</time>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
     </Panel>
   );
 }

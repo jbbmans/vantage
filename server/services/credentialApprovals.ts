@@ -137,7 +137,8 @@ export function requestApproval(
     notify(ctx, staff, {
       kind: 'security',
       title: `${actor.first_name} ${actor.last_name} asks to ${what} for ${target.first_name} ${target.last_name}`,
-      message: `“${row.reason.slice(0, 200)}” They hold authority, so a second member of Vantage staff approves first. Answer it under Accounts.`,
+      // The reason is read under Accounts, never carried in a notice (ADR-0031).
+      message: 'They hold authority, so a second member of Vantage staff approves first. Read the reason and answer it under Accounts.',
       actionUrl: '/admin/accounts',
       dedupeKey: `credential_approval:${id}:${staff}`,
     });
@@ -168,7 +169,7 @@ export function decideApproval(ctx: AppContext, actor: SessionUser, id: string, 
   notify(ctx, after.requested_by, {
     kind: 'security',
     title: approve ? `${actor.first_name} ${actor.last_name} approved your request to ${what} for ${after.target_name}` : `${actor.first_name} ${actor.last_name} denied your request to ${what} for ${after.target_name}`,
-    message: approve ? `Make the change from Accounts before ${new Date(after.expires_at).toUTCString()}.${text ? ` “${text.slice(0, 200)}”` : ''}` : `“${(text ?? '').slice(0, 200)}”`,
+    message: approve ? `Make the change from Accounts before ${new Date(after.expires_at).toUTCString()}.` : 'Their note is under Accounts.',
     actionUrl: '/admin/accounts',
     dedupeKey: `credential_approval:${id}:decided`,
   });

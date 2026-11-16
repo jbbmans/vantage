@@ -10,7 +10,7 @@ import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/component
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, StatusBadge, CategoryDot } from '@/components/common';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
-import { Comments } from '@/components/Comments';
+import { Discussion } from '@/components/Comments';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
 import DownloadMenu, { recordDownloads } from '@/components/DownloadMenu';
@@ -157,7 +157,7 @@ export default function RecordDetail() {
         </div>
       </div>
 
-      <Comments table="activities" id={id} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
+      <Discussion host={{ kind: 'record', table: 'activities', id }} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('activities', d))} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
       <MoveRecordDialog store="activities" row={canMove ? a : null} open={moving} onOpenChange={setMoving} onMoved={goTo} onUndone={goTo} />

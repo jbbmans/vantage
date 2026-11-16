@@ -217,6 +217,37 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   before is its owner's only. Nothing moves on its own: migration 023 moved nothing, and each Marine
   moves the entries they choose (John, 2026-10-17, "Marine confirms").
 
+## Discussion and notices
+
+See [ADR-0031](../engineering/ADR/0031-workflow-messages-and-notices.md). Nothing here is a chat: what is said hangs on
+the record or work case it is about, and is read by exactly those who read it.
+
+- **Discussion entry** (`comments`): one thing said on a record (activity, project, task, goal, training, award,
+  counseling, duty) or a work case, by its author, in the record's unit. Its `kind` is one of:
+  - **comment**: a remark, with the people it names (`mentions`). Its author edits it, and its author or a records
+    manager of its unit removes it; removed comments go with the recycle bin after 30 days. A work case takes none.
+  - **clarification request** ("Ask a question") and **review request** ("Ask for review"): asked of one named person
+    (`addressee_id`). Its `state` is `open` until it is `answered` (a question), `looks_right` or `needs_changes` (a
+    review), `withdrawn` by its author, or `closed` by its workflow (a review request on a duty once the duty is
+    decided, any request on a case once it is closed, or on a record deleted or anonymized); `closed_by` and
+    `closed_at` say who and when. One is open at a time per author, addressee, kind and record. A duty is asked for
+    review only of someone who may decide it; a counseling takes no review request.
+  - **answer**: the answer to a request (`reply_to`), on the same record.
+  - **assignment note**: what a task or goal assignment to someone else says to its assignee (`addressee_id`), written
+    with the assignment.
+
+  Requests, answers and assignment notes are kept as said. An entry said on a counseling while it is a draft or in
+  review is `private`: only its counselor and its Marine read it, after it is final too. A Marine's own entries move
+  with their record; what others said keeps a record in the Unit Instance where it was said.
+- **Notice** (`notifications`): telling one person about one event. Its `kind` is named in `shared/notifications.ts`,
+  which puts it in a group (Asked of you, Decisions on your records, Mentions, Discussion, Work updates, Your unit,
+  Announcements, Security, Operations); a person may turn off Discussion, Work updates and Announcements. It names its
+  Unit Instance (`org_id`), the record or work case it is about (`entity`, `entity_id`), who acted (`actor_id`), and,
+  for a kind that coalesces, how many events one unread notice stands for (`count`). A notice about a record holds the
+  event and who, never anybody's words, and the record's name is read when the notice is. It is shown only while its
+  person may still open that record, follows the record when it moves, goes when it is destroyed or anonymized, and is
+  kept 180 days unless a legal hold keeps it.
+
 ## Career
 
 `career_steps` (owner-only next steps, each with its source and the date it was last checked) and

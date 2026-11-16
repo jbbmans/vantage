@@ -321,3 +321,50 @@ test('the same invoice recorded twice counts once; unreferenced invoices each co
   ]);
   assert.ok(unreferenced.ok && unreferenced.invoice_total_cents === 100, 'without a reference there is nothing to say they are the same invoice');
 });
+
+const caseRow = (id: string) => app.ctx.db.prepare('SELECT * FROM work_items WHERE id = ?').get(id) as Record<string, any>;
+const noticesTo = (userId: string, kind: string, id: string) =>
+  app.ctx.db.prepare('SELECT * FROM notifications WHERE user_id = ? AND kind = ? AND entity_id = ?').all(userId, kind, id) as Array<Record<string, any>>;
+
+test('a return for correction, by any route, tells whoever asked for verification and closes the review request', async () => {
+  const made = await post(op.token, '/api/work/items', { unit_id: 'G8', title: 'Synthetic case sent back', reference: `SYN-${crypto.randomUUID()}` });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  assert.equal((await post(avery.token, `/api/work/items/${id}/claim`, {})).status, 200);
+  const routes: Array<[string, () => ReturnType<typeof post>]> = [
+    ['a leader returning it from its stage', () => post(op.token, `/api/work/items/${id}/stage`, { stage: 'researching', reason: 'The award total is from the wrong mod.', version: caseRow(id).version })],
+    ['its holder taking it back from its stage', () => post(avery.token, `/api/work/items/${id}/stage`, { stage: 'researching', version: caseRow(id).version })],
+    ['its holder editing its state', () => app.call('PATCH', `/api/work/items/${id}`, { token: avery.token, body: { state: 'in_progress', version: caseRow(id).version } })],
+    ['its holder recording an action', () => entry(avery.token, id, { kind: 'action_submitted', step: 'submit', text: 'Submitted again.' })],
+  ];
+  for (const [n, [how, send]] of routes.entries()) {
+    const toVerify = await post(avery.token, `/api/work/items/${id}/stage`, { stage: 'verification_required', version: caseRow(id).version });
+    assert.equal(toVerify.status, 200, `${how}: ${JSON.stringify(toVerify.body)}`);
+    // Chen asks the same person every time: an earlier return left no request open in the way.
+    const asked = await post(chen.token, `/api/work/items/${id}/requests`, { kind: 'review_request', addressee_id: op.id, body: 'Verify the correction, please.' });
+    assert.equal(asked.status, 201, `${how}: ${JSON.stringify(asked.body)}`);
+    const returned = await send();
+    assert.ok(returned.status === 200 || returned.status === 201, `${how}: ${JSON.stringify(returned.body)}`);
+    assert.notEqual(caseRow(id).stage, 'verification_required', how);
+    assert.equal(noticesTo(chen.id, 'work_returned', id).length, n + 1, `${how}: whoever asked for verification is told`);
+    const request = app.ctx.db.prepare('SELECT state FROM comments WHERE id = ?').get(asked.body.id) as { state: string };
+    assert.equal(request.state, 'closed', `${how}: the review request is closed with it`);
+    assert.equal(app.ctx.db.prepare('SELECT 1 FROM notifications WHERE user_id = ? AND dedupe_key = ?').get(op.id, `request:${asked.body.id}`), undefined, `${how}: its notice is taken back`);
+  }
+});
+
+test('setting a closed case’s state again by an edit tells its holder nothing more', async () => {
+  const made = await post(op.token, '/api/work/items', { unit_id: 'G8', title: 'Synthetic case closed twice', reference: `SYN-${crypto.randomUUID()}` });
+  const id = made.body.id as string;
+  assert.equal((await post(avery.token, `/api/work/items/${id}/claim`, {})).status, 200);
+  const first = await app.call('PATCH', `/api/work/items/${id}`, { token: op.token, body: { state: 'resolved' } });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const resolvedAt = caseRow(id).resolved_at;
+  assert.ok(resolvedAt);
+  assert.equal(noticesTo(avery.id, 'work_moved', id).length, 1, 'its holder is told it was closed');
+  const again = await app.call('PATCH', `/api/work/items/${id}`, { token: op.token, body: { state: 'resolved', title: 'Synthetic case closed twice, renamed' } });
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.equal(caseRow(id).title, 'Synthetic case closed twice, renamed');
+  assert.equal(noticesTo(avery.id, 'work_moved', id).length, 1, 'once, however often the edit is sent');
+  assert.equal(caseRow(id).resolved_at, resolvedAt, 'when it was resolved does not move');
+});

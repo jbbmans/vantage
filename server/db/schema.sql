@@ -503,7 +503,16 @@ CREATE TABLE IF NOT EXISTS notifications (
   action_url TEXT,
   dedupe_key TEXT,
   read_at    TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- What a notice is about (Task 24, ADR-0031, migration 038): its Unit Instance, the record or work case it names (so it
+  -- is checked again when read, follows the record when it moves and goes when it is destroyed), who acted, and how many
+  -- events one unread notice stands for when its kind coalesces (shared/notifications.ts). A coalescing notice names a
+  -- record and has no dedupe key. Its indexes (idx_notifications_coalesce, _entity, _created) are migration 038's.
+  org_id     TEXT,
+  entity     TEXT,
+  entity_id  TEXT CHECK ((entity IS NULL) = (entity_id IS NULL)),
+  actor_id   TEXT REFERENCES users(id),
+  count      INTEGER CHECK (count IS NULL OR (count >= 1 AND dedupe_key IS NULL AND entity IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
@@ -960,7 +969,21 @@ CREATE TABLE IF NOT EXISTS comments (
   mentions     TEXT NOT NULL DEFAULT '[]',
   edited_at    TEXT,
   deleted_at   TEXT,
-  created_at   TEXT NOT NULL
+  created_at   TEXT NOT NULL,
+  -- Workflow messages (Task 24, ADR-0031, migration 038). A comment, a request (a question or a review request) to one
+  -- named person, the answer to one, or the note an assignment carries. A request stands open until it is answered,
+  -- withdrawn or closed by its workflow; an answer is on its request's record (comments_reply_same_record). A comment said
+  -- on a counseling before it was final stays between its counselor and its Marine (private). Its index
+  -- (idx_comments_addressee) is migration 038's.
+  kind         TEXT NOT NULL DEFAULT 'comment' CHECK (kind IN ('comment', 'review_request', 'clarification_request', 'answer', 'assignment_note')),
+  addressee_id TEXT REFERENCES users(id),
+  state        TEXT CHECK ((state IS NULL) = (kind NOT IN ('review_request', 'clarification_request'))
+                      AND (state IS NULL OR state IN ('open', 'answered', 'looks_right', 'needs_changes', 'withdrawn', 'closed'))
+                      AND (kind NOT IN ('review_request', 'clarification_request') OR addressee_id IS NOT NULL)),
+  reply_to     TEXT CHECK ((reply_to IS NULL) = (kind <> 'answer')),
+  closed_by    TEXT REFERENCES users(id),
+  closed_at    TEXT CHECK ((closed_at IS NULL) = (state IS NULL OR state = 'open')),
+  private      INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_comments_record ON comments(record_table, record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);

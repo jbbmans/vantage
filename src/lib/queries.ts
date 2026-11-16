@@ -75,6 +75,8 @@ export const keys = {
   personnel: (id: string) => ['personnel', 'record', id] as const,
   roles: ['roles'] as const,
   notifications: ['notifications'] as const,
+  /** Under ['notifications'], so whatever refreshes the notices refreshes the requests too. */
+  myRequests: ['notifications', 'requests'] as const,
   readiness: ['readiness'] as const,
   aiStatus: ['ai-status'] as const,
   maradmins: ['maradmins'] as const,
@@ -148,7 +150,13 @@ export function useReviewDuty() {
       qc.setQueryData<Awaited<ReturnType<typeof api.dutyReviewQueue>>>(['duty-review-queue'], (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
         ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1) } : q));
     },
-    onSettled: () => { invalidateDomains(qc, 'duty'); qc.invalidateQueries({ queryKey: ['notifications'] }); },
+    // A decision closes the duty's open review requests, so its Discussion is read again too. By what was asked, not by
+    // what came back: a refusal brings nothing back, and usually means someone else decided it first.
+    onSettled: (_saved, _error, v) => {
+      invalidateDomains(qc, 'duty');
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+      qc.invalidateQueries({ queryKey: discussionKey({ kind: 'record', table: 'duties', id: v.id }) });
+    },
   });
 }
 
@@ -293,7 +301,15 @@ export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.r
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });
 export const useAiStatus = () => useQuery({ queryKey: keys.aiStatus, queryFn: api.aiStatus, staleTime: 5 * 60_000 });
-export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.notifications, queryFn: () => api.notifications(40), refetchInterval: 60_000, enabled });
+/** The newest notices, for the bell and Today: polled each minute. The notifications page pages its own (ADR-0031). */
+export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.notifications, queryFn: () => api.notifications({ limit: 20 }), refetchInterval: 60_000, enabled });
+/** The newest unread notices, picked by the server past any read ones, for Today. Under the notices key, so what refreshes them refreshes these. */
+export const useUnreadNotices = (limit: number) => useQuery({ queryKey: [...keys.notifications, 'unread', limit], queryFn: () => api.notifications({ limit, filter: 'unread' }), refetchInterval: 60_000 });
+/** Questions and review requests asked of you, and those you asked: polled with the notices. */
+export const useMyRequests = (enabled = true) => useQuery({ queryKey: keys.myRequests, queryFn: api.myRequests, refetchInterval: 60_000, enabled });
+/** A record's or a case's discussion (ADR-0031). */
+export const discussionKey = (h: api.DiscussionHost) => (h.kind === 'work' ? ['comments', 'work_items', h.id] as const : ['comments', h.table, h.id] as const);
+export const useDiscussion = (h: api.DiscussionHost, enabled = true) => useQuery({ queryKey: discussionKey(h), queryFn: () => api.discussion(h), enabled: enabled && Boolean(h.id) });
 export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled });
 export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
 

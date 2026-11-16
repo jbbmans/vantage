@@ -1,5 +1,5 @@
 import {
-  Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
+  Award, BarChart3, Bell, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
   Gauge, GraduationCap, HeartPulse, History, Inbox, KeyRound, LayoutDashboard, Library, LifeBuoy, ListChecks, Mail, MessagesSquare,
   NotebookPen, ScrollText, Settings2, ShieldCheck, Target, Timer, UserPlus, Users, UsersRound, Workflow,
   type LucideIcon,
@@ -41,6 +41,8 @@ export interface NavPage {
   count?: Count;
   /** Opens a console of its own, outside the application. */
   away?: boolean;
+  /** Other words people search the command palette with for this page ("bell", "mentions"). */
+  keywords?: string;
 }
 
 export interface NavGroup {
@@ -135,8 +137,17 @@ export const FOOTER: NavPage[] = [
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', hint: 'Your profile, security and preferences' },
 ];
 
+/**
+ * Pages the header opens rather than the menu: the bell's "See all", and Today's links to what was asked of you, lead to
+ * Notifications (ADR-0031). Each has a title, a place in the palette and a G key like any page, and belongs to no group,
+ * as Today and Settings do. G then B, for the bell: N logs an activity and V switches the view, so neither can follow G.
+ */
+export const HEADER_PAGES: NavPage[] = [
+  { to: '/notifications', label: 'Notifications', icon: Bell, key: 'b', hint: 'What happened on your records, and what you were asked', keywords: 'notices bell alerts unread mentions comments asked of you you asked questions reviews' },
+];
+
 /** Every page, for the command palette, the shortcuts and the header. */
-export const ALL_PAGES: NavPage[] = [HOME, ...GROUPS.flatMap((g) => g.pages), ...FOOTER];
+export const ALL_PAGES: NavPage[] = [HOME, ...GROUPS.flatMap((g) => g.pages), ...FOOTER, ...HEADER_PAGES];
 
 const under = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 

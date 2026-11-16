@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Lock, Users } from 'lucide-react';
 import { Button, Badge, Panel, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { DescriptionList, DateText, StatusBadge } from '@/components/common';
-import { Comments } from '@/components/Comments';
+import { Discussion } from '@/components/Comments';
 import { Attachments } from '@/components/Attachments';
 import { ProjectWork } from '@/components/ProjectWork';
 import { can, keys, useIdentity, unitName, useOrg } from '@/lib/queries';
@@ -99,7 +99,7 @@ export default function WorkDetail() {
       {table === 'projects' && <ProjectWork projectId={id} unitId={row.unit_id ?? null} canAdd={canEdit} />}
 
       <Attachments table={table as api.Store} id={id} canEdit={canEdit} />
-      <Comments table={table as api.Store} id={id} canModerate={steward} />
+      <Discussion host={{ kind: 'record', table: table as api.Store, id }} canModerate={steward} />
     </div>
   );
 }

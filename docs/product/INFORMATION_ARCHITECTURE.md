@@ -7,7 +7,7 @@ page's eyebrow and every sentence that names a place read it from there.
 
 | Destination | Question it answers | Pages | Route |
 |---|---|---|---|
-| **Today** (D) | What do I need to do, what am I waiting on, what changed, what can I quickly record? | Leader: your section (unassigned, overdue, blocked, waiting; needs a decision; who holds what). Everyone: your work with next steps; waiting on someone else; open to claim; quick capture; since you last looked; record and development; outcomes you logged | `/` |
+| **Today** (D) | What do I need to do, what am I waiting on, what changed, what can I quickly record? | Leader: your section (unassigned, overdue, blocked, waiting; needs a decision; who holds what). Everyone: your work with next steps, and what is asked of you; waiting on someone else, and what you asked; open to claim; quick capture; since you last looked; record and development; outcomes you logged | `/` |
 | **Work** (W) | What work exists, what is mine, what can I claim, where does it stand? | Queue, Tasks, Projects, Correspondence, Reference (F) | `/work/…`, `/reference` |
 | Work item | What is this, what happened, what comes next? | Header with stage and holder; next step with help and a form for that step; candidate calculation; add any entry; history; procedure checklist; who worked this; source; correspondence | `/work/items/:id` |
 | **Records** (R) | What have I done, and what backs it up? | Overview, Timeline, Activities, Awards, Counseling, Drafts, Contributions | `/record/…`, `/career/awards`, `/career/counseling`, `/records/:id` |
@@ -15,8 +15,9 @@ page's eyebrow and every sentence that names a place read it from there.
 | **Training & Development** (C) | Where am I headed, and what have I completed toward it? | Training, Career plan, Goals (G), Readiness, MARADMINs (M, when enabled) | `/career/…`, `/goals`, `/maradmins` |
 | **Reports & Analytics** (P) | What evaluation input do the records give, and what do they show? | Packages, Analysis, Unit dashboard (leaders) | `/reports`, `/reports/analysis`, `/team/dashboard` |
 | **Administration** (A) | Who may do what, and who opened what? | Invitations, Roles, Units, Access log, Unit Manager console (O), Vantage Administrator console | `/team/…`, `/console`, `/admin` |
+| Notifications (B, from the header's bell; not in the rail) | What changed on what I am part of, and what is asked of me? | Notices (unread or all, by group, each with its Unit Instance's name); Asked of you / You asked. The bell previews the newest and links here | `/notifications` |
 | Help (H, at the foot) | How does Vantage work, and who can I ask? | Field guide (opens with Find your way), Support | `/help`, `/support` |
-| Settings (S, at the foot) | My profile, security, appearance, digest and data | Profile, Security, Appearance, Weekly digest, Your data | `/settings` |
+| Settings (S, at the foot) | My profile, security, appearance, notices and data | Profile, Security, Appearance, Notifications (with the weekly digest), Your data | `/settings` |
 
 A group appears only with a page the person may open; the server authorizes every page's data regardless.
 
@@ -56,6 +57,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | How to export | Export activities; Export analysis PDF and Export JEPES input PDF (Reports & Analytics → Analysis); Settings → Your data |
 | How to view performance | Reports & Analytics → Analysis; Training & Development → Readiness; the Unit dashboard for leaders |
 | How to view duty | Logged as an activity and filed under Operations; Activities filtered to Operations, and the Timeline (duty records are Task 17) |
+| Where notices and questions are | The bell and Notifications; what is asked of you, and what you asked, on Today too; the Discussion on each record |
 | How to find help | Help → Field guide, ⌘K or /, ? for shortcuts, Help → Support |
 
 ## Audit (2026-10-19, desktop 1440px and phone 390px, every page in the menu)
@@ -73,6 +75,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Duplicate workflows | Two ways in for awards and training (an activity, or its own record) | Settled by Task 9's move suggestions; Find your way points to the right place | — |
 | Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: Task 26; duty records: Task 17 |
 | Drafts | Records → Drafts held only entries drawn from work; a goal, award, training entry, task or billet change had no draft, and closing its form lost the text | Each form saves a draft in context and asks before closing with unsaved text; each page lists its own drafts; Records → Drafts lists every kind, each opening where it is finished, and says who else can read it; Today shows the newest; the menu counts what waits on you | Done in Task 23 (ADR-0030) |
+| Messages and notices | Comments on records only, written by anyone who could read the record; a review request, a question or an assignment note had nowhere to go; the bell was the only list of notices, with no groups and no way to turn any off | Discussion on each record and requests on a work case, to one named person; a Notifications page with Notices and Asked of you / You asked; Today shows both; Settings → Notifications turns off Discussion, Work updates and Announcements | Task 24 (ADR-0031) |
 
 ## Retired paths
 

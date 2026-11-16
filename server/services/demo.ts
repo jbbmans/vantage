@@ -311,9 +311,10 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
   task.run(newId(), ids.leader, ids.marine, unitId, projectId, 'Send Q4 UMT status notes to SSgt Diaz', 'Two lines on what is waiting and why.', 'high', dayOffset(3), at, at);
   task.run(newId(), ids.leader, ids.leader, unitId, projectId, 'Decide who takes the overdue unassigned UMTs', null, 'high', dayOffset(1), at, at);
 
-  const note = ctx.db.prepare('INSERT INTO notifications (id, user_id, kind, title, message, action_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  note.run(newId(), ids.marine, 'work', 'Twelve UMTs are waiting to be claimed', 'FY26 Q4 2-Way UMT review', '/work', isoAt(0.2, 12));
-  note.run(newId(), ids.marine, 'work', `${docNumber(33)} is resolved`, 'Verified cleared on the Q4 UMT report.', `/work/items/${itemIds.get(33)}`, isoAt(1, 15));
+  // Notices of kinds the catalogue names (shared/notifications.ts). One about a case names it, so it is checked when read.
+  const note = ctx.db.prepare('INSERT INTO notifications (id, user_id, kind, title, message, action_url, created_at, entity, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  note.run(newId(), ids.marine, 'work_released', 'Twelve UMTs are waiting to be claimed', 'FY26 Q4 2-Way UMT review', '/work', isoAt(0.2, 12), null, null);
+  note.run(newId(), ids.marine, 'work_moved', 'SSgt Diaz marked work you held resolved', null, `/work/items/${itemIds.get(33)}`, isoAt(1, 15), 'work_items', itemIds.get(33));
   return [...itemIds.values()];
 }
 

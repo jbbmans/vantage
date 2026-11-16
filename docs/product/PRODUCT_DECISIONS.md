@@ -142,3 +142,29 @@ screens (`docs/demo/BOARD_DEMO.md`). This is not yet an approved visual directio
 See ADR-0003 and MIGRATION_PLAN.
 **Why.** Every service is written against a synchronous SQLite API. Moving to PostgreSQL is a rewrite
 of the data layer, and it should follow the owner accepting the experience rather than precede it.
+
+## PD-016 · Workflow messages and notices: what is said lives on the record
+
+**Decision.** There is no chat (ADR-0031). What is said is said on the record or work case it is about: a comment, a
+question or a review request to one named person, its answer, or the note an assignment carries. A notice names the
+event and who did it, and is shown only while its person may still open the record. These are defaults John can change,
+without a decision card:
+- **Notices never quote what was written.** A comment, a question, a note or a reason is read on the record, behind its
+  permissions. The exceptions are notices about no record: a leader's team message, a MARADMIN's number and title, a
+  suspension or withheld-feature reason, and operations notes.
+- **Discussion, Work updates and Announcements can be turned off;** the rest always arrive: what is asked of you,
+  decisions on your records (with what your counselor or Marine says on a counseling), mentions, your unit, security
+  and operations.
+- **Notices are kept 180 days,** read or not, unless a legal hold keeps them.
+- **Comments said on a counseling before it was final stay between its counselor and its Marine,** after it is final
+  too.
+- **At most 10 people are named in one message.** More is refused, never cut.
+- **A work case takes questions and review requests, but no free comments.** Its notes stay in its sealed history.
+
+**Why.** The specification asks for workflow communication (comments, mentions, review and clarification requests,
+return for correction, approval and rejection notes, assignment notes), not generic chat, and for notices of meaningful
+state changes without spam, within Unit Instance and record permissions. Keeping the words on the record keeps them
+behind its permissions and lets a retention schedule clear them.
+**Skeptic.** Notices without words are less useful at a glance, and three groups that can be turned off may hide
+something a person wanted. **Judge.** BUILD. A notice opens the record in one click, a comment's notices coalesce into
+one per record, and nothing anyone is asked to do can be turned off.

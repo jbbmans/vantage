@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle2, Circle, Clock, FolderKanban, ListTodo } from 'lucide-react';
 import { Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
@@ -13,8 +13,13 @@ import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
+import { ASSIGNMENT_NOTE_MAX } from '../../shared/workflowMessages';
 
-interface TaskDraft { id?: string; version?: number; title: string; notes: string; status: string; priority: string; due_date: string; project_id: string | null; assignee_id: string | null; visibility: 'private' | 'unit'; unit_id: string | null }
+interface TaskDraft {
+  id?: string; version?: number; title: string; notes: string; status: string; priority: string; due_date: string; project_id: string | null; assignee_id: string | null; visibility: 'private' | 'unit'; unit_id: string | null;
+  /** What the assignee is told with a new assignment (ADR-0031): sent only with one, and kept in a saved draft. */
+  assignment_note?: string;
+}
 interface ProjectDraft { id?: string; version?: number; name: string; description: string; status: string; priority: string; progress: number | string; start_date: string; target_date: string; organization: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
 /** Tasks or projects: two pages of Work, at /work/tasks and /work/projects. */
@@ -67,6 +72,12 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
   const canAssign = unitsWith(identity, PERMISSIONS.CREATE_SHARED_WORK).length > 0;
   const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   const canToggleRow = (r: any) => canEditRow(r) || (r.assignee_id === me && r.visibility === 'unit');
+  // Whom the form assigns the task to, by name, when that is someone else and not who the task already had: the only time
+  // it takes an assignment note.
+  const newAssignee = (d: TaskDraft) => {
+    const before = d.id ? (tasks || []).find((t) => t.id === d.id)?.assignee_id ?? null : null;
+    return canAssign && d.visibility === 'unit' && d.assignee_id && d.assignee_id !== me && d.assignee_id !== before ? nameOf(d.assignee_id) : null;
+  };
 
   return (
     <PageShell
@@ -147,6 +158,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
               <Field label="Project"><Select value={d.project_id || '__none'} onValueChange={(v) => set('project_id', v === '__none' ? null : v)} options={[{ value: '__none', label: 'None' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} /></Field>
             </div>
             {canAssign && d.visibility === 'unit' && <Field label="Assign to" hint="members of the shared unit"><Select value={d.assignee_id || '__me'} onValueChange={(v) => set('assignee_id', v === '__me' ? null : v)} options={[{ value: '__me', label: 'Myself' }, ...roster.filter((r) => r.id !== me && r.memberships.some((m: any) => m.unit_id === d.unit_id)).map((r) => ({ value: r.id, label: `${r.rank_abbr || ''} ${r.last_name}, ${r.first_name}`.trim() }))]} /></Field>}
+            <AssignmentNote to={newAssignee(d)} value={d.assignment_note} error={errors.assignment_note} onChange={(v) => set('assignment_note', v)} />
             <Field label="Notes"><Textarea rows={3} value={d.notes} onChange={onText(set, 'notes')} /></Field>
             <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_WORK} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
             {d.id && <div className="flex justify-end"><Button size="xs" variant="danger" onClick={() => { setConfirm({ store: 'tasks', row: d }); setTaskDraft(null); }}>Delete task</Button></div>}
@@ -170,6 +182,27 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
         )} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={`Delete this ${confirm?.store === 'tasks' ? 'task' : 'project'}?`} body="It moves to the recycle bin for 30 days." onConfirm={async () => { try { const { store, row } = confirm!; await (store === 'tasks' ? deleteTask : deleteProject).mutateAsync(row.id); toast.success(store === 'tasks' ? 'Task deleted.' : 'Project deleted.', { label: 'Undo', onClick: () => (store === 'tasks' ? restoreTask : restoreProject).mutateAsync(row.id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }} />
     </PageShell>
+  );
+}
+
+/**
+ * The note a new assignment carries (ADR-0031), kept on the task where its assignee reads it; the notice they get names
+ * the task, never the note. The server takes one only with an assignment to someone else, so it is offered only then,
+ * and let go of when the form stops assigning it (back to Myself, or made private).
+ */
+function AssignmentNote({ to, value, error, onChange }: { to: string | null; value: string | undefined; error?: string; onChange: (v: string | undefined) => void }) {
+  const uid = useId();
+  const orphaned = !to && value !== undefined;
+  useEffect(() => { if (orphaned) onChange(undefined); }, [orphaned, onChange]);
+  if (!to) return null;
+  const text = value ?? '';
+  return (
+    <div>
+      <Field label={`Note for ${to}`} hint={`optional · ${text.length} of ${ASSIGNMENT_NOTE_MAX}`} error={error}>
+        <Textarea rows={2} value={text} maxLength={ASSIGNMENT_NOTE_MAX} aria-describedby={`${uid}-kept`} placeholder="What they should know to start" onChange={(e) => onChange(e.target.value)} />
+      </Field>
+      <p id={`${uid}-kept`} className="mt-1 text-xs text-ink-3">It stays on the task, where they read it. The notice they get does not quote it.</p>
+    </div>
   );
 }
 

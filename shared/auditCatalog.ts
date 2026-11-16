@@ -53,6 +53,9 @@ const USER = [
   'view_readiness', 'view_unit_dashboard', 'view_unit_analytics', 'drill_unit_analytics', 'view_team_workload', 'acknowledge_counseling', 'counseling_amended', 'upload_attachment',
   'upload_rejected', 'download_attachment', 'update_attachment', 'delete_attachment', 'comment_added', 'comment_edited', 'comment_deleted',
   'comment_removed_by_moderator', 'export', 'export_csv', 'export_pdf', 'team_message',
+  // A question or a review request to one named person on a record or a case, and each one answered, withdrawn or closed
+  // by its workflow (ADR-0031). The words are on the record; the entry names the request by id.
+  'request_sent', 'request_closed',
   // An entry its owner moved to the record type it belongs in, and a move undone (ADR-0015).
   'record_moved', 'record_move_undone', 'record_kind_confirmed',
   // A counseling's workflow (ADR-0027): a draft shared with its Marine and taken back, finalized, and printed.
@@ -120,7 +123,7 @@ const ENTERPRISE = [
   'vantage_access_withdrawn', 'vantage_access_ended', 'vantage_access_expired', 'vantage_access_lapsed',
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
-  'maintenance_off', 'maintenance_task', 'purge_deleted', 'drafts_expired',
+  'maintenance_off', 'maintenance_task', 'purge_deleted', 'drafts_expired', 'notifications_expired',
   // What the service does to itself: a new build, each schema migration it runs, and what counting rows around them found.
   'release_deployed', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
   // Features turned off for one Unit Instance, and given back.

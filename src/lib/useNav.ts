@@ -1,12 +1,13 @@
 import { useCallback, useMemo } from 'react';
-import { FOOTER, GROUPS, HOME, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
+import { FOOTER, GROUPS, HEADER_PAGES, HOME, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { useIdentity } from '@/lib/queries';
 import { useView } from '@/lib/view';
 
 /**
  * The menu as this person may use it: the groups and pages they may open, for the rail, the drawer, ⌘K, the shortcuts
- * and Help's map of where things are. Every one of them reads it here, so none offers a page another hides.
+ * and Help's map of where things are. Every one of them reads it here, so none offers a page another hides. The pages
+ * the header opens (Notifications) are offered by ⌘K and the shortcuts, though the rail does not list them.
  */
 export function useNav(): { groups: NavGroup[]; footer: NavPage[]; visibleNav: NavPage[]; allowed: (when?: Requirement) => boolean; teams: Set<TeamSection> } {
   const { data: identity } = useIdentity();
@@ -26,11 +27,13 @@ export function useNav(): { groups: NavGroup[]; footer: NavPage[]; visibleNav: N
   }, [identity, teams, view]);
   const groups = useMemo(() => GROUPS.filter((g) => allowed(g.when)).map((g) => ({ ...g, pages: g.pages.filter((p) => allowed(p.when)) })).filter((g) => g.pages.length), [allowed]);
   const footer = useMemo(() => FOOTER.filter((p) => allowed(p.when)), [allowed]);
+  const header = useMemo(() => HEADER_PAGES.filter((p) => allowed(p.when)), [allowed]);
   /** Every page offered, titled with its group where the label alone is ambiguous ("Overview"). */
   const visibleNav = useMemo(() => [
     HOME,
+    ...header,
     ...groups.flatMap((g) => g.pages.map((p) => ({ ...p, label: g.pages.length > 1 && !p.key ? `${g.label}: ${p.label}` : p.label }))),
     ...footer,
-  ], [groups, footer]);
+  ], [groups, footer, header]);
   return { groups, footer, visibleNav, allowed, teams };
 }

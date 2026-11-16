@@ -293,3 +293,92 @@ test('anonymized entries are done: the next run neither counts nor touches them 
     assert.deepEqual([second.eligible, second.acted], [0, 0], 'the same two rows used to be reported and rewritten at every run');
   } finally { await app.close(); }
 });
+
+test('an anonymize run keeps what a person under a legal hold said, as it keeps their files, and takes it once the hold is released', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const sato = await app.register('sato');
+    await enroll(app, op.token, 'G8', sato.id, 'sncoic');
+    sato.token = (await app.login('sato')).body.token;
+    const entry = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Reconciled the ledger', date: daysAgo(900), category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8' } });
+    const base = `/api/records/activities/${entry.body.id}`;
+    const said = await app.call('POST', `${base}/comments`, { token: sato.token, body: { body: 'Evidence: the ledger was altered on 3 May.' } });
+    assert.equal(said.status, 201, JSON.stringify(said.body));
+    const noted = await app.call('POST', `${base}/comments`, { token: op.token, body: { body: 'Noted, @sato.' } });
+    assert.equal(noted.status, 201, JSON.stringify(noted.body));
+    assert.deepEqual(noted.body.mentions, [sato.id]);
+    const asked = await app.call('POST', `${base}/requests`, { token: op.token, body: { kind: 'clarification_request', addressee_id: sato.id, body: 'Which ledger?' } });
+    assert.equal(asked.status, 201, JSON.stringify(asked.body));
+
+    placeHold(app.ctx, 'G8', { scope: 'user', subject_id: sato.id, reason: 'IG inquiry 2026-14' }, op.id);
+    saveSchedule(app.ctx, 'G8', { record_type: 'activities', retain_days: 365, disposition: 'anonymize', enabled: true }, op.id);
+    const line = runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.equal(line.acted, 1, 'the entry is anonymized: its owner is not under the hold');
+    const comment = (id: string) => ({ ...(app.ctx.db.prepare('SELECT body, mentions, state FROM comments WHERE id = ?').get(id) as { body: string; mentions: string; state: string | null }) });
+    assert.deepEqual(comment(said.body.id), { body: 'Evidence: the ledger was altered on 3 May.', mentions: '[]', state: null }, 'the hold keeps what Sato said; it used to be redacted');
+    assert.deepEqual(comment(noted.body.id), { body: REDACTED, mentions: '[]', state: null }, 'what the operator said goes with the entry’s words');
+    assert.deepEqual(comment(asked.body.id), { body: REDACTED, mentions: '[]', state: 'closed' });
+
+    // Released, the hold keeps it no longer: the next run takes it, though the entry itself is done.
+    app.ctx.db.prepare('UPDATE legal_holds SET released_at = ?, released_by = ?').run(new Date().toISOString(), op.id);
+    const next = runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([next.eligible, next.acted, next.discussions], [0, 0, 1]);
+    assert.equal(comment(said.body.id).body, REDACTED);
+  } finally { await app.close(); }
+});
+
+test('a record anonymized before its discussion went with its words has the discussion taken at the next run, and a run with nothing left changes nothing', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const rivera = await app.register('rivera');
+    await enroll(app, op.token, 'G8', rivera.id);
+    const db = app.ctx.db;
+    const at = longAgo(800);
+    // As a run before migration 038 left them: the entries anonymized, what was said on them as it was said.
+    const anonymized = db.prepare("INSERT INTO activities (id, user_id, unit_id, visibility, date, title, result, notes, created_at, updated_at) VALUES (?, ?, 'G8', 'unit', ?, ?, ?, ?, ?, ?)");
+    anonymized.run('a-op', op.id, daysAgo(900), REDACTED, REDACTED, REDACTED, at, at);
+    anonymized.run('a-rivera', rivera.id, daysAgo(900), REDACTED, REDACTED, REDACTED, at, at);
+    const say = db.prepare("INSERT INTO comments (id, record_table, record_id, author_id, unit_id, body, mentions, kind, addressee_id, state, created_at) VALUES (?, 'activities', ?, ?, 'G8', ?, ?, ?, ?, ?, ?)");
+    say.run('k-op', 'a-op', op.id, 'Words said before the upgrade, @rivera.', JSON.stringify([rivera.id]), 'comment', null, null, at);
+    say.run('k-ask', 'a-op', op.id, 'Which vendor was it?', '[]', 'clarification_request', rivera.id, 'open', at);
+    say.run('k-on-rivera', 'a-rivera', op.id, 'Words on an entry whose Marine is under a hold.', '[]', 'comment', null, null, at);
+    db.prepare("INSERT INTO notifications (id, user_id, kind, title, org_id, entity, entity_id, created_at) VALUES ('n-ask', ?, 'clarification_request', 'A question for you', 'G8', 'activities', 'a-op', ?)").run(rivera.id, at);
+    placeHold(app.ctx, 'G8', { scope: 'user', subject_id: rivera.id, reason: 'Personnel action' }, op.id);
+    // What the held person said on an entry that is not theirs is kept by the hold, and is no work left for a run.
+    say.run('k-rivera', 'a-op', rivera.id, 'What the held Marine said.', '[]', 'comment', null, null, at);
+    saveSchedule(app.ctx, 'G8', { record_type: 'activities', retain_days: 365, disposition: 'anonymize', enabled: true }, op.id);
+    const comments = () => db.prepare('SELECT id, body, mentions, state FROM comments ORDER BY id').all().map((r) => ({ ...(r as object) }));
+    const runs = () => (db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'disposition_run'").get() as { n: number }).n;
+    const before = comments();
+
+    const preview = runDisposition(app.ctx, { orgId: 'G8', dryRun: true, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([preview.eligible, preview.acted, preview.discussions], [0, 0, 1], 'a preview names the discussion it would take');
+    assert.deepEqual(comments(), before, 'and takes nothing');
+    // The console asks for its preview over the route, and offers a run only when the preview names work for one.
+    const shown = await app.call('POST', '/api/orgs/G8/retention/run', { token: op.token });
+    assert.equal(shown.status, 200, JSON.stringify(shown.body));
+    assert.equal(shown.body.lines.find((l: { record_type: string }) => l.record_type === 'activities').discussions, 1);
+    assert.deepEqual(comments(), before);
+
+    const applied = runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([applied.eligible, applied.acted, applied.held, applied.discussions], [0, 0, 1, 1]);
+    assert.deepEqual(comments(), [
+      { id: 'k-ask', body: REDACTED, mentions: '[]', state: 'closed' },
+      { id: 'k-on-rivera', body: 'Words on an entry whose Marine is under a hold.', mentions: '[]', state: null },
+      { id: 'k-op', body: REDACTED, mentions: '[]', state: null },
+      { id: 'k-rivera', body: 'What the held Marine said.', mentions: '[]', state: null },
+    ], 'words said before the upgrade used to stay for good');
+    assert.equal(db.prepare("SELECT 1 FROM notifications WHERE id = 'n-ask'").get(), undefined, 'its notices go');
+    assert.equal(runs(), 1, 'the run is audited');
+    assert.match((db.prepare("SELECT detail FROM disposition_runs WHERE record_type = 'activities' AND dry_run = 0").get() as { detail: string }).detail, /discussion on 1 record anonymized earlier redacted/);
+
+    // Nothing is left to take: the next run changes nothing and audits nothing.
+    const after = comments();
+    const again = runDisposition(app.ctx, { orgId: 'G8', dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([again.eligible, again.acted, again.discussions], [0, 0, undefined]);
+    assert.deepEqual(comments(), after);
+    assert.equal(runs(), 1);
+  } finally { await app.close(); }
+});

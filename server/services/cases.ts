@@ -1,11 +1,12 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { createHash } from 'node:crypto';
 import type { Scope } from '../authz/scope.ts';
-import { can, scopeFor, PERMISSIONS } from '../authz/scope.ts';
+import { can, scopeFor, orgOfUnit, PERMISSIONS } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
+import { closeRequests, openReviewRequesters, whoActs } from './comments.ts';
 import { sealEvent, caseIntegrity } from './caseSeal.ts';
 import { STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, type ProcedurePick, type Stage, type WaitingCategory } from '../../shared/caseModel.ts';
 import { entrySchema, stageChangeSchema, handoffSchema, type EntryInput } from '../../shared/caseSchemas.ts';
@@ -306,8 +307,13 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
     let next: Stage | null = null;
     if (stage === 'not_started') next = 'researching';
     if (input.kind === 'action_submitted') next = input.then_wait ? 'waiting' : 'submitted';
+    const returning = Boolean(next && next !== stage && isReturn(stage, next));
+    if (returning && row.claimed_by !== user.id) {
+      throw conflict('This work is waiting to be verified. Return it for correction from its stage first, saying what needs correcting.', 'reason_required');
+    }
     if (next && next !== stage) {
       moveStage(ctx, row, user.id, next, { reason: null, category: input.kind === 'action_submitted' ? (input.then_wait ?? null) : null, correlationId: event.id });
+      if (returning) tellReturned(ctx, user, row);
     } else {
       ctx.db.prepare('UPDATE work_items SET version = version + 1, updated_at = ? WHERE id = ?').run(now(), id);
     }
@@ -349,6 +355,37 @@ export function moveStage(
   );
 }
 
+/**
+ * Leaving "Verification required" for a working stage sends the case back for correction (ADR-0031). Whoever does it says
+ * what needs correcting, unless its holder takes it back themselves; its holder and whoever asked for it to be verified
+ * are told. The reason is on the case's sealed history, never in the notice. A return closes the review requests open on
+ * it: nothing waits to be verified until it comes back, and then it can be asked for again.
+ */
+export const isReturn = (from: Stage, to: Stage) => from === 'verification_required' && to !== 'verification_required' && !CLOSED_STAGES.has(to);
+
+export function tellReturned(ctx: AppContext, user: SessionUser, row: CaseRow) {
+  const told = new Set([row.claimed_by, ...openReviewRequesters(ctx, 'work_items', row.id)].filter((x): x is string => Boolean(x)));
+  closeRequests(ctx, 'work_items', row.id, user.id, 'review_request');
+  for (const id of told) {
+    notify(ctx, id, {
+      kind: 'work_returned', title: `${whoActs(user)} returned work for correction`, actionUrl: `/work/items/${row.id}`,
+      entity: 'work_items', entityId: row.id, actorId: user.id, dedupeKey: `work-returned:${row.id}:${id}:v${row.version}`,
+    });
+  }
+}
+
+/** A case closed by someone other than its holder tells its holder; closing it closes the requests still open on it. */
+export function caseClosed(ctx: AppContext, user: SessionUser, row: CaseRow, to: Stage) {
+  closeRequests(ctx, 'work_items', row.id, user.id);
+  if (row.claimed_by && row.claimed_by !== user.id) {
+    notify(ctx, row.claimed_by, {
+      kind: 'work_moved', title: `${whoActs(user)} marked work you held ${to === 'resolved' ? 'resolved' : 'not applicable'}`,
+      actionUrl: `/work/items/${row.id}`, entity: 'work_items', entityId: row.id, actorId: user.id,
+      dedupeKey: `work-closed:${row.id}:${row.claimed_by}:v${row.version}`,
+    });
+  }
+}
+
 export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown) {
   const input = parse(stageChangeSchema, body);
   return ctx.db.transaction(() => {
@@ -370,13 +407,24 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
     if (to === 'blocked' && !input.reason) throw badRequest('Say what is blocking it.', { fieldErrors: { reason: 'Required.' } });
     if (to === 'not_applicable' && row.procedure_key && !input.reason) throw badRequest('Say why this does not apply.', { fieldErrors: { reason: 'Required.' } });
     if (to === 'resolved') assertMayResolveCase(ctx, row);
+    const returning = isReturn(from, to);
+    if (returning && row.claimed_by !== user.id && !input.reason) {
+      throw badRequest('Say what needs correcting.', { fieldErrors: { reason: 'Required.' } });
+    }
     moveStage(ctx, row, user.id, to, { reason: input.reason ?? null, category: (input.waiting_category ?? null) as WaitingCategory | null, expectedBy: input.expected_by ?? null });
     if (closing || reopening) audit(ctx, { actor_id: user.id, action: closing ? 'work_closed' : 'work_reopened', entity: 'work_items', entity_id: id, unit_id: row.unit_id, detail: to });
+    if (returning) tellReturned(ctx, user, row);
+    if (closing) caseClosed(ctx, user, row, to);
     return getItem(ctx, id)!;
   })();
 }
 
-export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, request?: WorkRequest) {
+/**
+ * Hands a case to somebody. Its new holder is told, never in the note's words (they are on the case); its previous holder
+ * is told it went to someone else when another person moved it. A bulk run passes `quiet` and sends one notice per person
+ * and Unit Instance at its end instead (ADR-0031).
+ */
+export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, request?: WorkRequest, opts: { quiet?: boolean } = {}) {
   const input = parse(handoffSchema, body);
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
@@ -400,12 +448,23 @@ export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: st
     appendEvent(ctx, { item: row, actorId: user.id, kind: 'handed_off', subjectId: target.id, body: { note: input.note, from: fromHolder, ...(request ? { request_fingerprint: request.fingerprint } : {}) }, ...(request ? { idempotencyKey: workRequestKey(user.id, id, request) } : {}) });
     if (stageOf(row) === 'not_started') moveStage(ctx, getItem(ctx, id)!, user.id, 'researching', { reason: null, category: null });
     audit(ctx, { actor_id: user.id, action: 'work_handed_off', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
-    notify(ctx, target.id, {
-      kind: 'work_assigned', title: `${user.first_name} ${user.last_name} handed you work`,
-      message: `${row.reference || row.title}: ${input.note}`.slice(0, 200), actionUrl: `/work/items/${id}`, dedupeKey: `work-handoff:${id}:${at}`,
-    });
+    if (!opts.quiet) {
+      notify(ctx, target.id, {
+        kind: 'work_assigned', title: `${whoActs(user)} handed you work`, actionUrl: `/work/items/${id}`,
+        entity: 'work_items', entityId: id, actorId: user.id, dedupeKey: `work-handoff:${id}:${at}`,
+      });
+      if (fromHolder && fromHolder !== target.id) tellHandedAway(ctx, user, fromHolder, `${whoActs(user)} handed work you held to ${whoActs(target)}`, row.unit_id, `work-handed-away:${id}:${fromHolder}:${at}`);
+    }
     return getItem(ctx, id)!;
   })();
+}
+
+/**
+ * Tells someone that work they held went to someone else. It names no case: they may no longer be able to open it, and a
+ * notice never points at what its reader cannot read.
+ */
+export function tellHandedAway(ctx: AppContext, user: SessionUser, holderId: string, title: string, unitId: string | null, dedupeKey: string) {
+  notify(ctx, holderId, { kind: 'work_moved', title, actionUrl: '/work', actorId: user.id, orgId: orgOfUnit(ctx, unitId), dedupeKey });
 }
 
 export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: string, stepKey?: string | null) {

@@ -182,7 +182,7 @@ orgsRouter.post('/:orgId/members/:userId/logout', inOrg('org.members'), wrap((re
   const revoked = invalidateUserSessions(req.ctx, userId);
   audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: userId, subject_id: userId, org_id: org.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
   tellOtherInstances(req.ctx, userId, org.id, `ended this account's sessions (${revoked})`, ip(req));
-  if (userId !== req.user.id) notify(req.ctx, userId, { kind: 'security', title: `${org.name} signed you out everywhere`, message: 'Sign in again to carry on. If you did not expect this, ask your Unit Manager why.', actionUrl: '/settings' });
+  if (userId !== req.user.id) notify(req.ctx, userId, { kind: 'security', orgId: org.id, title: `${org.name} signed you out everywhere`, message: 'Sign in again to carry on. If you did not expect this, ask your Unit Manager why.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -289,7 +289,7 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   const revoked = edipi !== before && user_id !== req.user.id ? invalidateUserSessions(ctx, user_id) : 0;
   audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, org_id: org.id, detail: `${edipi ? `EDIPI ${edipi}` : 'EDIPI cleared'}; sessions revoked: ${revoked}`, ip: ip(req) });
   if (edipi !== before && user_id !== req.user.id) {
-    notify(ctx, user_id, { kind: 'security', title: edipi ? 'A CAC was linked to your account' : 'The CAC link on your account was removed', message: `${org.name} ${edipi ? `linked the card with DoD ID ending ${edipi.slice(-4)}` : 'removed the card link'}. If that is not your card, contact your Unit Manager or Vantage support.`, actionUrl: '/settings' });
+    notify(ctx, user_id, { kind: 'security', orgId: org.id, title: edipi ? 'A CAC was linked to your account' : 'The CAC link on your account was removed', message: `${org.name} ${edipi ? `linked the card with DoD ID ending ${edipi.slice(-4)}` : 'removed the card link'}. If that is not your card, contact your Unit Manager or Vantage support.`, actionUrl: '/settings' });
   }
   res.json({ ok: true });
 }));

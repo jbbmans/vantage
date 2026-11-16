@@ -1,6 +1,83 @@
 # Progress
 
-_Updated 2026-11-14_
+_Updated 2026-11-15_
+
+## What changed (2026-11-15: workflow messages and notices)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+What is said in Vantage is said on the record or work case it is about, to people who already read it, and every
+notice knows which record it is about ([ADR-0031](engineering/ADR/0031-workflow-messages-and-notices.md), migration 038).
+
+- **No chat.** A record's Discussion (activity, project, task, goal, training, award, counseling, duty) holds comments,
+  questions and review requests to one named person, their answers, and the note a task or goal assignment carries. A
+  request stays open until it is answered (a review: "Looks right", or "Needs changes" with what), withdrawn by its
+  author, or closed by its workflow. Requests, answers and assignment notes are kept as said, by the server and by a
+  trigger. One request is open at a time per author, addressee, kind and record (409 `request_open`), and a person
+  sends at most 30 an hour. A comment cannot be edited while a legal hold covers its record type, its Marine, its
+  author or the instance.
+- **One rule for who may speak** (`speaks()` in `server/services/comments.ts`): an active person who reads the record
+  by their own access, never through Vantage access, on a record neither frozen nor anonymized, who belongs to its Unit
+  Instance or is its Marine on a record that is private or in no unit. The same rule decides who may be asked, named,
+  offered in the person picker or told of a new comment. Mentions are looked up only among the record's Marine and its
+  Unit Instance's members. A message names at most 10 people (400, never cut), an e-mail address is no mention, and the
+  answer says who was told and which names were not.
+- **Where each kind lives.** A duty is asked for review only of someone who may decide it, never its Marine, and
+  approving, returning or rejecting it closes the review requests still open on it. A counseling takes no review
+  request (sharing it is the review); comments between its counselor and its Marine while it is a draft or in review
+  stay theirs alone, after it is final too. A work case takes questions and review requests, never free comments.
+  Moving it out of "Verification required" to a working stage is a return for correction: whoever does it says what
+  needs correcting, unless its holder does it, and its holder and whoever asked for it to be verified are told. A state
+  PATCH or a recorded action that would return it, by anyone but its holder, is refused (409 `reason_required`), since
+  neither carries a reason. Closing a case closes its open requests. A task or goal assigned to someone else may carry
+  a note of up to 1000 characters, written in the assignment's transaction and kept in its saved draft.
+- **Notices know what they are about.** Each names its Unit Instance, its record or work case, who acted and how many
+  events it stands for. `shared/notifications.ts` names every kind and its group, and `notify()` refuses any other. It
+  never tells someone about their own action or tells an inactive person, and it skips a group its person turned off:
+  Discussion, Work updates and Announcements can be turned off, and the rest always arrive.
+- **No words in a notice.** One about a record names the event and who; the record's own name is read when the notice
+  is read. Support, access and credential notices no longer quote a subject, a reply, a reason or a note, and
+  migration 038 clears the words old notices quoted. The stated exceptions are notices about no record: a leader's team
+  message, a MARADMIN's number and title, a suspension or withheld-feature reason, and operations notes.
+- **Checked again when read.** `GET /api/me/notifications` hides a notice whose record or case its reader can no longer
+  open and counts unread the same way. A moved record's notices follow it to where it is now. Each row carries its Unit
+  Instance's name; paging is by cursor, with `filter=unread`, `group=` and an integer `limit` from 1 to 100.
+  `GET /api/me/requests` gives Asked of you (open) and You asked (open, and closed in the last 14 days).
+- **Less noise.** A new comment coalesces into one unread notice per person, kind and record ("3 new comments"). A
+  bulk hand-off or release sends one notice per person. Handing work to oneself tells nobody. Dedupe keys are dated
+  where the event can happen again, a leader's profile save tells the Marine only when the rank changed, and a person
+  given a Unit Instance role is told once.
+- **New notices:** a question or review request asked of you and its answer; work returned for correction; a claim
+  that lapsed or that someone else released; work you held handed to someone else or closed by someone else; a task you
+  set done; a task or goal reassigned away from you (naming no record); your help request resolved; your award's status
+  changed by someone else.
+- **Lifecycle.** Notices are kept 180 days and swept every six hours (`notifications_expire`), except a held person's
+  and a held Unit Instance's; a hold on every instance stops the sweep. A run that finds notices due is recorded as a
+  disposition run, and audited (`notifications_expired`) when it removes anything. A destroyed or anonymized record
+  takes its notices with it, and anonymizing redacts every comment, request and answer on it and closes its open
+  requests, except what a person under a legal hold said, which goes at the next run after the hold is released. A
+  record anonymized before migration 038 has its discussion redacted at the next run of its schedule, which the
+  Governance console counts in its preview. Deleting a record closes its requests. A withdrawn or closed request takes back its unread notice.
+  Soft-deleted comments go with the recycle bin after 30 days unless a hold keeps them.
+- **Unit Instance boundary.** A trigger refuses a comment whose unit is in another Unit Instance than its record's
+  (`comments_same_org_insert`), and `instanceBoundaryViolations` counts any left by someone other than the record's
+  Marine. A record with a question or review request still open with someone other than its Marine does not move to
+  another instance.
+- **Audit and data.** `request_sent` and `request_closed` name the request by id; comment audits name the comment by
+  id. The privacy inventory declares every new column. A person's export checks notices as the list does and leaves out
+  others' removed comments on their records. An instance archive from before 038 is backfilled as it loads.
+- **In the app:** a Notifications page (`/notifications`, G then B, in ⌘K) with Notices (unread or all, by group, with
+  the Unit Instance's name, mark read, mark all read, more) and Asked of you / You asked; the bell as a preview with See
+  all; Today's Asked of you and You asked; Settings → Notifications with the weekly digest folded in; the Discussion
+  panel with Ask a question, Ask for review, answer, withdraw, who was told, and a person picker (an ARIA 1.2 combobox);
+  a case's requests, its return for correction and "Ask someone to verify it"; the assignment note on task and goal
+  forms (the goal form gains Assign to, as the task form has); approving duty with a note. The weekly digest counts the
+  questions and reviews waiting on its reader and their unread notices.
+- **Defaults John can change** are in PD-016: notices never quote what was written; three groups can be turned off;
+  notices are kept 180 days; a counseling's comments before final stay between its counselor and its Marine; at most 10
+  people in one message; a work case takes requests but no free comments.
+- **Not done:** direct messages, channels or a free-text inbox; per-event e-mail; a notice to duty reviewers on every
+  submission; a per-record mute; a required note on an access-request denial.
 
 ## What changed (2026-11-14: drafts in context)
 

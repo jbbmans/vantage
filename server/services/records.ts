@@ -50,7 +50,9 @@ import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
 import { audit } from './audit.ts';
 import { heldUsersClause, holdState, recordDispositionRun, type HoldState } from './holds.ts';
-import { notify } from './notifications.ts';
+import { forgetNotices, notify } from './notifications.ts';
+import { addAssignmentNote, closeRequests } from './comments.ts';
+import { assignmentNoteSchema } from '../../shared/workflowMessages.ts';
 import { statSync } from 'node:fs';
 
 interface TableSpec { fields: string[]; json: string[]; shareFlag: number; personal?: boolean; memberReadable?: boolean; counselor?: boolean; assignee?: boolean; orderBy: string }
@@ -252,18 +254,29 @@ export function mayLeaveInstance(ctx: AppContext, from: string | null, to: strin
 }
 
 /**
- * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments and attachments, and
- * for a project, the work filed under it. None of that leaves the instance it was written in, even with its owner.
- * Each is judged by the unit it was added in; one added where there was no unit, by whether its author serves there.
+ * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments, answers and
+ * attachments, and for a project, the work filed under it. None of that leaves the instance it was written in, even
+ * with its owner. Each is judged by the unit it was added in; one added where there was no unit, by whether its author
+ * serves there.
  */
 export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
   const servesThere = (userId: string) => scopeFor(ctx, { id: userId }).unitIds.some((u) => sameInstance(ctx, u, unitId));
   const crosses = (added: { who: string; unit_id: string | null }) => (added.unit_id ? !sameInstance(ctx, added.unit_id, unitId) : !servesThere(added.who));
+  // A request someone else answered carries their verdict, with or without a note of theirs: it is theirs, in the unit
+  // it was asked in. One its asker withdrew is only the asker's words, and goes with the record (ADR-0031).
   const added = ctx.db.prepare(`SELECT author_id AS who, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND author_id <> ? AND deleted_at IS NULL
+                                UNION SELECT closed_by, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND state IN ('answered', 'looks_right', 'needs_changes')
+                                  AND closed_by IS NOT NULL AND closed_by <> ? AND deleted_at IS NULL
                                 UNION SELECT uploaded_by, unit_id FROM attachments WHERE record_table = ? AND record_id = ? AND uploaded_by <> ? AND deleted_at IS NULL`)
-    .all(table, row.id, row.user_id, table, row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
+    .all(table, row.id, row.user_id, table, row.id, row.user_id, table, row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
   if (added.some(crosses)) {
-    throw forbidden('Other people commented on this record or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
+    throw forbidden('Other people commented on this record, answered a request on it or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
+  }
+  // A question or review its Marine asked of someone there is still waiting on them there (ADR-0031): it does not follow.
+  const asking = ctx.db.prepare(`SELECT 1 FROM comments WHERE record_table = ? AND record_id = ? AND state = 'open' AND addressee_id IS NOT NULL AND addressee_id <> ? AND deleted_at IS NULL LIMIT 1`)
+    .get(table, row.id, row.user_id);
+  if (asking) {
+    throw forbidden('A question or review request on this record is still open with someone in its Unit Instance. Withdraw it first, or wait for their answer.', 'cross_instance');
   }
   // A duty's review history is its reviewers' words in the Unit Instance that reviewed it (ADR-0024): it stays there,
   // and the duty with it. The database refuses the same move (duties_reviews_same_org).
@@ -350,8 +363,26 @@ function changedFields(spec: TableSpec, row: Record<string, unknown>, data: Reco
  */
 export interface CreateOptions { importId?: string; fingerprint?: string; review?: boolean; /** Sent from a saved draft (ADR-0030). */ fromDraft?: boolean }
 
+/**
+ * The note an assignment carries (ADR-0031), read from the body before its record's schema, which does not hold it. Only a
+ * task or a goal takes one, and only when it is assigned to someone other than whoever assigns it.
+ */
+function assignmentNoteOf(table: RecordTable, body: unknown): string | null {
+  const raw = body && typeof body === 'object' ? (body as Record<string, unknown>).assignment_note : undefined;
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (table !== 'tasks' && table !== 'goals') throw badRequest('Only a task or a goal carries an assignment note.', { fieldErrors: { assignment_note: 'Not taken here.' } });
+  const result = assignmentNoteSchema.safeParse(raw);
+  if (!result.success) throw badRequest(result.error.issues[0]?.message || 'Check the assignment note.', { fieldErrors: { assignment_note: result.error.issues[0]?.message || 'Check it.' } });
+  return result.data || null;
+}
+
+const noAssignmentForNote = () => badRequest('A note goes with assigning this to someone else.', { fieldErrors: { assignment_note: 'Choose someone to assign it to first.' } });
+
+const whoDid = (user: SessionUser) => `${user.first_name} ${user.last_name}`.trim() || user.username;
+
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string, opts: CreateOptions = {}) {
   const spec = TABLES[table];
+  const assignmentNote = assignmentNoteOf(table, body);
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
   checkValueType(ctx, table, data);
   checkTimeframe(table, data);
@@ -427,8 +458,14 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     cols.push(f);
     vals.push(spec.json.includes(f) ? JSON.stringify(data[f] ?? []) : data[f]);
   }
+  const assigned = spec.assignee && data.assignee_id && data.assignee_id !== user.id ? String(data.assignee_id) : null;
+  if (assignmentNote && !assigned) throw noAssignmentForNote();
   try {
-    ctx.db.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+    // The record and the note its assignment carries are written together, or neither is.
+    ctx.db.transaction(() => {
+      ctx.db.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+      if (assigned && assignmentNote) addAssignmentNote(ctx, user.id, table as 'tasks' | 'goals', id, unitId, assigned, assignmentNote);
+    })();
   } catch (error) {
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
@@ -448,22 +485,28 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     else if (!data.eval_area) record(ctx, 'quality.record_missing_measure', { missing: 'area' }, { id: user.id });
     else if (data.quantity != null && !data.unit_label) record(ctx, 'quality.record_missing_measure', { missing: 'unit' }, { id: user.id });
   }
+  // Each notice names its record, whose name is read when the notice is (ADR-0031): none of them holds what it says.
   if (table === 'awards' && onBehalf) {
-    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: `/career/awards?open=${id}`, dedupeKey: `award:${id}` });
+    notify(ctx, ownerId, { kind: 'award', title: `${whoDid(user)} recommended you for an award`, actionUrl: `/career/awards?open=${id}`, dedupeKey: `award:${id}`, entity: 'awards', entityId: id, actorId: user.id });
   }
   if (table === 'duties' && onBehalf && !opts.review) {
-    const type = ctx.db.prepare('SELECT name FROM duty_types WHERE id = ?').get(data.duty_type_id) as { name: string } | undefined;
-    notify(ctx, ownerId, { kind: 'duty', title: 'Duty recorded for you', message: `${user.first_name} ${user.last_name} recorded ${type?.name ?? 'duty'} on ${String(data.date)} for you.`, actionUrl: `/record/duty?open=${id}`, dedupeKey: `duty:${id}` });
+    notify(ctx, ownerId, { kind: 'duty', title: `${whoDid(user)} recorded duty for you`, actionUrl: `/record/duty?open=${id}`, dedupeKey: `duty:${id}`, entity: 'duties', entityId: id, actorId: user.id });
   }
   // Its Marine is told once it is final, or shared with them to review; a draft is its counselor's alone.
-  if (table === 'counselings' && counselorId && stage === 'final') tellFinal(ctx, user, ownerId, id, data.type);
+  if (table === 'counselings' && counselorId && stage === 'final') tellFinal(ctx, user, ownerId, id);
   if (table === 'counselings' && counselorId && stage === 'review') {
-    notify(ctx, ownerId, { kind: 'counseling', title: 'Counseling draft to review', message: `${user.first_name} ${user.last_name} shared a counseling draft with you. Read it and answer in its comments before it is final.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}:review:1` });
+    notify(ctx, ownerId, { kind: 'counseling', title: 'Counseling draft to review', message: `${user.first_name} ${user.last_name} shared a counseling draft with you. Read it and answer in its comments before it is final.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}:review:1`, entity: 'counselings', entityId: id, actorId: user.id });
   }
-  if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
-    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned` });
-  }
+  if (assigned) tellAssigned(ctx, user, table, id, assigned, 1);
   return readBack(ctx, table, id, user.id);
+}
+
+/** A task or goal given to someone: told once for each time it is given to them, never silenced by an earlier one. */
+function tellAssigned(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, assigneeId: string, version: number) {
+  notify(ctx, assigneeId, {
+    kind: 'assignment', title: `${whoDid(user)} assigned you ${table === 'tasks' ? 'a task' : 'a goal'}`, actionUrl: `/records/${table}/${id}`,
+    dedupeKey: `assignment:${table}:${id}:${assigneeId}:v${version}`, entity: table as 'tasks' | 'goals', entityId: id, actorId: user.id,
+  });
 }
 
 export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, body: unknown, reqKey: object, ip?: string) {
@@ -476,6 +519,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'edit');
   const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
   if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
+  const assignmentNote = assignmentNoteOf(table, body);
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
   if (assigneeOnly) {
     const allowed = new Set([...(ASSIGNEE_FIELDS[table] || []), 'version']);
@@ -541,6 +585,10 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const newest = () => (table === 'trainings' ? withCourseDetail(ctx, [getRecord(ctx, table, id)!])[0] : getRecord(ctx, table, id));
   let result;
   let tellReviewer: (() => void) | null = null;
+  // Who it goes to now, when that changed and is not the person changing it: told, with the note the change carries.
+  const reassigned = spec.assignee && data.assignee_id !== undefined && (data.assignee_id || null) !== (row.assignee_id ?? null);
+  const newAssignee = reassigned && data.assignee_id && data.assignee_id !== user.id ? String(data.assignee_id) : null;
+  if (assignmentNote && !newAssignee) throw noAssignmentForNote();
   try {
     ctx.db.transaction(() => {
       if (expected !== undefined) {
@@ -550,6 +598,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
         const changed = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id).changes;
         if (resubmits && !changed) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: newest() });
       }
+      // Written once the record is where it is going, so a note said on a task moved to another unit is said there.
+      if (newAssignee && assignmentNote) addAssignmentNote(ctx, user.id, table as 'tasks' | 'goals', id, finalUnit, newAssignee, assignmentNote);
       if (resubmits) tellReviewer = resubmittedByCorrection(ctx, user, row, finalUnit as string, String(vals[0]), ip);
     })();
   } catch (error) {
@@ -559,8 +609,20 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   (tellReviewer as (() => void) | null)?.();
   const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
   auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended });
-  if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
-    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
+  const after = getRecord(ctx, table, id) as (RecordRow & Record<string, unknown>) | undefined;
+  const version = Number(after?.version ?? 0);
+  if (newAssignee) tellAssigned(ctx, user, table, id, newAssignee, version);
+  // Whoever it was given to before hears that it moved, with no record named: it may no longer be theirs to open.
+  if (reassigned && row.assignee_id && row.assignee_id !== user.id && row.assignee_id !== row.user_id) {
+    notify(ctx, String(row.assignee_id), { kind: 'work_moved', title: `${whoDid(user)} gave ${table === 'tasks' ? 'a task' : 'a goal'} you were assigned to someone else`, dedupeKey: `unassigned:${table}:${id}:${row.assignee_id}:v${version}`, actorId: user.id, orgId: orgOfUnit(ctx, finalUnit) });
+  }
+  // A task its assignee or anyone else set done tells the person who set it.
+  if (table === 'tasks' && data.status === 'completed' && row.status !== 'completed') {
+    notify(ctx, row.user_id, { kind: 'task_done', title: `${whoDid(user)} completed a task you set`, actionUrl: `/records/tasks/${id}`, dedupeKey: `task-done:${id}:v${version}`, entity: 'tasks', entityId: id, actorId: user.id });
+  }
+  // An award recommendation moved on by someone else tells its Marine: approved, presented, declined and the rest.
+  if (table === 'awards' && data.status !== undefined && data.status !== row.status) {
+    notify(ctx, row.user_id, { kind: 'award', title: `${whoDid(user)} marked your award ${String(data.status)}`, actionUrl: `/career/awards?open=${id}`, dedupeKey: `award:${id}:${String(data.status)}:v${version}`, entity: 'awards', entityId: id, actorId: user.id });
   }
   return readBack(ctx, table, id, user.id);
 }
@@ -575,6 +637,8 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   let detail: string | undefined;
   ctx.db.transaction(() => {
     ctx.db.prepare(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(now(), now(), id);
+    // Nobody can answer a request on a record in the bin: its open requests close, and their notices are taken back.
+    closeRequests(ctx, table, id, user.id);
     if (table === 'projects') {
       const tasks = (ctx.db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE project_id = ?').get(id) as { n: number }).n;
       const acts = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE project_id = ?').get(id) as { n: number }).n;
@@ -691,6 +755,8 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   forgetImportSnapshots(ctx, table, ids);
   const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
+  // Its notices go too: nothing is left to open, and none of them names it again (ADR-0031).
+  forgetNotices(ctx, table, ids);
   if (table === 'activities') {
     ctx.db.prepare(`UPDATE work_actions SET activity_id = NULL WHERE activity_id ${each}`).run(list);
     ctx.db.prepare(`DELETE FROM record_drafts WHERE activity_id ${each}`).run(list);
@@ -838,6 +904,10 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
     }
     const guard = keep.length ? ` AND NOT (${keep.join(' OR ')})` : '';
     attachments += ctx.db.prepare(`DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?${guard}`).run(cutoff, ...keepParams).changes;
+    // A comment its author or a moderator removed goes with the bin too (ADR-0031), unless a hold keeps it: a hold on its
+    // author, on the Marine whose record it is on, or on its record type.
+    comments += ctx.db.prepare(`DELETE FROM comments WHERE deleted_at IS NOT NULL AND deleted_at < ? AND kind = 'comment'${guard.replace(/uploaded_by IN/g, 'author_id IN')}`)
+      .run(cutoff, ...keepParams).changes;
     sweepLineage(ctx, holds);
   })();
   if (records || attachments || comments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days${heldTotal ? `; ${heldTotal} kept under hold` : ''}` });

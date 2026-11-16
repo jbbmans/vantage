@@ -16,7 +16,8 @@ Node 22 · Express 5 · TypeScript run directly (no server build step)
    ├─ services/  work (queue, claims), cases (history, stages, entries, handoffs, calculation),
    │             record (Record, workload, drafts, career), records, recordMoves (moves and their
    │             lineage), timeline, intake (imports), demo, org, metrics,
-   │             reports, correspondence, retention, personnel, audit, telemetry, ai, email
+   │             reports, correspondence, retention, personnel, audit, telemetry, ai, email,
+   │             comments (discussion and requests), notifications
    └─ db/        schema.sql (idempotent), numbered migrations, ranks seed
    ▼
 SQLite (better-sqlite3, WAL) on a local volume · attachments and source files as BLOBs today
@@ -43,6 +44,7 @@ SQLite (better-sqlite3, WAL) on a local volume · attachments and source files a
 | Record and career | projections of events; drafts; career | cases (read), records |
 | Records (personal documentation) | activities, training, awards, counseling, goals; moves between activities, awards and training, and their lineage | metrics, reports, the timeline (read-only) |
 | Reporting | metrics, reports, analysis, workload | read-only over the above |
+| Discussion and notices | `comments` (comments, requests, answers, assignment notes), `notifications`, the notice catalogue | records and work (read), authz |
 | Audit and telemetry | audit chain, product events | written by all |
 | Administration | runtime settings, governance, exports | operators only |
 | Demo | synthetic workspaces | org, work, cases (demo database only) |
@@ -111,6 +113,25 @@ A draft lives with its kind: a goal, award, training entry, task or personnel ch
 its kind's own route with `?draft=`, which checks it as any new record and removes it in the same transaction
 (`consumeDraft` in `server/services/drafts.ts`). `GET /api/drafts` reads every kind of draft from where each is kept,
 on request, and stores nothing ([ADR-0030](ADR/0030-drafts-in-context.md)).
+What is said is said on the record or work case it is about, never in a chat ([ADR-0031](ADR/0031-workflow-messages-and-notices.md),
+migration 038). Its Discussion is the `comments` table, whose `kind` is a comment, a question or a review request to one
+named person (open until answered, withdrawn or closed by its workflow), the answer to one, or the note a task or goal
+assignment carries; a work case takes requests but no free comments. One rule, `speaks()` in
+`server/services/comments.ts`, says who may write, be asked, be named, be offered in the picker or be told of a comment:
+someone who reads the record by their own access (`ownScope` in `server/authz/scope.ts` leaves out Vantage access) and
+belongs to its Unit Instance, or is its Marine on a record that is private or in no unit. Every notice is of a kind
+named in `shared/notifications.ts`, which puts it in a group. `notify()` refuses any other kind, never tells someone
+about their own action or tells an inactive person, and skips a group its person turned off (only Discussion, Work
+updates and Announcements may be). A notice names its Unit Instance, the record or case it is about (`entity`,
+`entity_id`) and who acted; one about a record never carries what anybody wrote. A kind that coalesces
+(`comment_added`, `counseling_comment`) keeps one unread notice per person, kind and record and counts what it stands
+for (`count`, under a partial unique index); every other kind is sent at most once per dedupe key.
+`GET /api/me/notifications` checks each notice again as it is read (`readableEntity`, batched, at most 2,000 scanned
+per page), hides one whose record its reader can no longer open, counts unread the same way, and reads the record's
+name only then. A destroyed or anonymized record takes its notices with it (`forgetNotices`), and a moved one takes
+them along (`moveNotices`). The `notifications_expire` job runs every six hours and removes notices older than 180 days,
+except those a person's or a Unit Instance's legal hold keeps, and a hold on every Unit Instance stops it; a run that
+finds any due is recorded as a disposition run.
 The person's timeline (`GET /api/record/timeline`)
 is read from each store on request and never stored. An owner moves an entry between activities, awards and
 training, or from an activity to duty, in one transaction that carries its files and comments, keeps the row as it stood in

@@ -28,6 +28,9 @@ import { buildPersonalExport, buildPersonalExportCsv, buildPersonalExportWorkboo
 import { cancelImport, commitImport, getImport, listImports, planImport, stageImport, undoImport } from '../services/recordImport.ts';
 import { CATEGORY_KEYS } from '../../shared/recordTransfer.ts';
 import { demoStatus } from '../services/demo.ts';
+import { listNotices, markAllRead } from '../services/notifications.ts';
+import { myRequests } from '../services/comments.ts';
+import { NOTICE_GROUPS } from '../../shared/notifications.ts';
 
 export const meRouter = Router();
 meRouter.use(requireAuth);
@@ -304,11 +307,21 @@ meRouter.get('/readiness/:id', wrap((req, res) => {
   res.json(ctx.db.prepare(READINESS_SELECT).get(id) || {});
 }));
 
+// A person's notices, each checked again as it is read: one about a record they may no longer open is not shown or
+// counted, and a record's name is read now, never stored (ADR-0031).
+const noticeQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(40),
+  cursor: z.string().max(200).optional(),
+  filter: z.enum(['all', 'unread']).default('all'),
+  group: z.enum(NOTICE_GROUPS).optional(),
+});
 meRouter.get('/notifications', wrap((req, res) => {
-  const limit = Math.min(Math.max(Number(req.query.limit) || 40, 1), 100);
-  const rows = req.ctx.db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(req.user.id, limit);
-  const unread = (req.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(req.user.id) as { n: number }).n;
-  res.json({ rows, unread });
+  const q = parse(noticeQuery, req.query);
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(listNotices(req.ctx, req.user, scope, { limit: q.limit, cursor: q.cursor ?? null, unread: q.filter === 'unread', group: q.group ?? null }));
+}));
+meRouter.get('/requests', wrap((req, res) => {
+  res.json(myRequests(req.ctx, req.user, scopeFor(req.ctx, req.user, req)));
 }));
 meRouter.put('/notifications/:id/read', wrap((req, res) => {
   const r = req.ctx.db.prepare('UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE id = ? AND user_id = ?').run(now(), String(req.params.id), req.user.id);
@@ -316,8 +329,8 @@ meRouter.put('/notifications/:id/read', wrap((req, res) => {
   res.json({ ok: true });
 }));
 meRouter.post('/notifications/read-all', wrap((req, res) => {
-  const r = req.ctx.db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(now(), req.user.id);
-  res.json({ ok: true, updated: r.changes });
+  const { group } = parse(z.object({ group: z.enum(NOTICE_GROUPS).optional() }), req.body ?? {});
+  res.json({ ok: true, updated: markAllRead(req.ctx, req.user, group ?? null) });
 }));
 
 meRouter.get('/audit', wrap((req, res) => {

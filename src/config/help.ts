@@ -128,7 +128,7 @@ export const HELP: HelpSection[] = [
   {
     id: 'work',
     title: 'Work and the queue',
-    lede: 'Tasks, projects, spreadsheets and the email behind them.',
+    lede: 'Tasks, projects, spreadsheets and the email behind them, and what you are asked.',
     topic: 'work',
     answers: [
       {
@@ -165,6 +165,27 @@ export const HELP: HelpSection[] = [
           'That is the point of the queue: the work and the evidence of the work are the same keystroke.',
         ],
         also: ['assign', 'take', 'own'],
+      },
+      {
+        id: 'notifications',
+        q: 'Where do I see what I was asked, and what happened on my records?',
+        a: [
+          'Notifications, from the bell at the top of every page, or G then B. Notices says what happened: a question or a review request for you, a decision on one of your records, someone naming you, a new comment on a record you are part of. Asked of you / You asked lists the questions and review requests waiting on your answer, and the ones you sent.',
+          'A notice says what happened and where, never what anybody wrote. Open the record to read it there. A notice about something you can no longer open is not shown, and several new comments on one record are one notice until you open it.',
+          'Discussion, Work updates and Announcements can be turned off in Settings → Notifications. The rest always arrive, because they are things you are asked to do or must know. Notices are kept for 180 days.',
+        ],
+        also: ['notices', 'bell', 'alerts', 'unread', 'mentions', 'asked of you', 'you asked', 'mute', 'turn off'],
+      },
+      {
+        id: 'ask',
+        q: 'How do I ask someone about a record?',
+        a: [
+          'Open the record and, in its discussion, choose Ask a question or Ask for review, then choose whom to ask. You can ask someone who already reads the record and belongs to its Unit Instance, or its Marine. Only the person asked answers, and you can withdraw it while it is open.',
+          'A question is answered in words. A review comes back Looks right, or Needs changes with what needs changing. Requests and answers stay on the record as they were said. Open ones are listed under Notifications → Asked of you / You asked.',
+          'On a counseling, sharing it with the Marine is the review, so ask a question instead. On a duty, a review request goes only to someone who may decide it. A work case takes questions and review requests but no free comments, because its notes are its own sealed history.',
+          'Name someone in a comment with @ and their username, and they are told. At most 10 people in one message; Vantage says who was told, and which names matched nobody who reads the record.',
+        ],
+        also: ['question', 'review', 'clarification', 'mention', '@', 'comment', 'discussion', 'answer', 'withdraw'],
       },
     ],
   },
@@ -248,7 +269,7 @@ export const HELP: HelpSection[] = [
         id: 'counseling',
         q: 'How does counseling work?',
         a: [
-          'Write a counseling from the Marine’s page. Save it as a draft only you see, share it with the Marine for review, or finalize it. A Marine reads a draft you shared and answers in its comments; they acknowledge it once it is final.',
+          'Write a counseling from the Marine’s page. Save it as a draft only you see, share it with the Marine for review, or finalize it. A Marine reads a draft you shared and answers in its comments; they acknowledge it once it is final. What the two of you say in its comments before it is final stays between you.',
           'Once final, a counseling changes only by amendment: say what changed and why. What it said before is kept in its amendment history, and the Marine is asked to acknowledge the amended text. Acknowledging means they read it, not that they agree.',
           'Print a counseling, or download it as a PDF, as a worksheet in the layout of NAVMC 2795 (User’s Guide to Counseling) Appendix A: Figure A-1 for a Lance Corporal and below, Figure A-2 for a Corporal and above. It is not an official form, and it never shows an SSN. The record stays the source; the PDF is one way to read it.',
           'Your own notes of a counseling you received are always final and yours to edit.',

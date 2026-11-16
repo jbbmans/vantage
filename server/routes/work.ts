@@ -17,6 +17,7 @@ import {
 } from '../services/work.ts';
 import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
 import { validateExample, withdrawExample } from '../services/caseGuidance.ts';
+import { listComments, addRequest, answerRequest, withdrawRequest, listSpeakers } from '../services/comments.ts';
 import { exampleSchema, retireSchema } from '../../shared/caseGuidance.ts';
 import { teamWorkload, parseWindow } from '../services/record.ts';
 import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
@@ -168,6 +169,15 @@ workRouter.get('/items/:id', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(itemDetail(req.ctx, req.user, scope, String(req.params.id)));
 }));
+
+// A case's questions and review requests (ADR-0031): asked of one named person, kept with the case, apart from its sealed
+// history. A case takes no free comments; its notes are in its history.
+const caseArgs = (req: express.Request) => [req.ctx, req.user, scopeFor(req.ctx, req.user, req), 'work_items', String(req.params.id)] as const;
+workRouter.get('/items/:id/comments', wrap((req, res) => { res.json({ comments: listComments(...caseArgs(req)) }); }));
+workRouter.post('/items/:id/requests', wrap((req, res) => { res.status(201).json(addRequest(...caseArgs(req), req.body, clientIp(req))); }));
+workRouter.post('/items/:id/requests/:requestId/answer', wrap((req, res) => { res.json(answerRequest(...caseArgs(req), String(req.params.requestId), req.body, clientIp(req))); }));
+workRouter.post('/items/:id/requests/:requestId/withdraw', wrap((req, res) => { res.json(withdrawRequest(...caseArgs(req), String(req.params.requestId), clientIp(req))); }));
+workRouter.get('/items/:id/people', wrap((req, res) => { res.json(listSpeakers(...caseArgs(req), String(req.query.q ?? ''), req.query.kind)); }));
 
 // A unit leader holds a resolved, verified case up as an example for the next one like it (ADR-0022). Never the person
 // who resolved it; withdrawn with a reason, never removed.

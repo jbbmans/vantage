@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { Check, CornerUpLeft, History, RotateCcw, Send, SlidersHorizontal, X } from 'lucide-react';
+import { Check, CornerUpLeft, History, MessageSquareText, RotateCcw, Send, SlidersHorizontal, X } from 'lucide-react';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, Textarea } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -14,7 +14,8 @@ import type { Duty } from '../../shared/types';
  * Reviewing a duty (Task 18, ADR-0024). The server sends, with each duty, the decisions open to its reader (`review`);
  * these controls offer exactly those and nothing else, and the server decides again when one is asked. A decision that
  * takes a reason (a return, a rejection, a reopening, points apart from the calculated ones) asks for it first, and the
- * reason is kept with the duty where its Marine reads it.
+ * reason is kept with the duty where its Marine reads it. An approval may carry a note the same way, if its reviewer has
+ * something to say (ADR-0031).
  */
 
 const points = (n: number | null | undefined) => (n == null ? 'no points' : `${formatNumber(n)} ${n === 1 ? 'point' : 'points'}`);
@@ -26,10 +27,16 @@ export function ApprovedPoints({ row: r }: { row: Duty }) {
   return <>{r.approved_points == null ? <span className="text-ink-3">None</span> : formatNumber(r.approved_points)}{isOverridden(r) && <span className="block text-2xs text-ink-3">override</span>}</>;
 }
 
-/** The decisions that say why before they are made. */
-type Ask = 'approve_with_points' | 'return' | 'reject' | 'reopen' | 'change_points';
+/** The decisions that say why before they are made, and an approval with a note. */
+type Ask = 'approve_with_note' | 'approve_with_points' | 'return' | 'reject' | 'reopen' | 'change_points';
 
-const ASKS: Record<Ask, { action: DutyReviewAction; title: string; confirm: string; reason: string; placeholder: string; withPoints: boolean; danger?: boolean; done: string; lede: (r: Duty, me?: string) => string }> = {
+const ASKS: Record<Ask, { action: DutyReviewAction; title: string; confirm: string; reason: string; placeholder: string; withPoints: boolean; danger?: boolean; done: string; lede: (r: Duty, me?: string) => string;
+  /** The words may be left out: the decision stands without them. */
+  optional?: boolean }> = {
+  approve_with_note: {
+    action: 'approve', title: 'Approve with a note', confirm: 'Approve', reason: 'Note', placeholder: 'Anything its Marine should know', withPoints: false, optional: true, done: 'Approved.',
+    lede: (r) => `It is approved for ${points(r.calculated_points)}, the points the scoring gave it. The note is optional. Its Marine reads it on the duty.`,
+  },
   approve_with_points: {
     action: 'approve', title: 'Approve with different points', confirm: 'Approve', reason: 'Why these points', placeholder: 'What the scoring could not know', withPoints: true, done: 'Approved.',
     lede: (r) => `The scoring gave this duty ${points(r.calculated_points)}${r.scoring_version != null ? ` under version ${r.scoring_version}` : ''}. Give the points it should count for, and why. Both are kept with the duty, and its Marine reads them.`,
@@ -94,6 +101,7 @@ export function DutyReviewActions({ row, me, onDone, onCorrect, brief = false, c
       {o.approve && (own
         ? <Button size={size} variant="soft" onClick={() => setConfirmOwn(true)} disabled={busy}><Check className="h-3.5 w-3.5" />Approve my own duty</Button>
         : <Button size={size} variant={brief ? 'soft' : 'primary'} onClick={() => send('approve', `Approved for ${points(row.calculated_points)}.`)} loading={busy && decide.variables?.action === 'approve'} disabled={busy} aria-label={`Approve ${what} for ${points(row.calculated_points)}`}><Check className="h-3.5 w-3.5" />Approve{row.calculated_points != null ? ` · ${formatNumber(row.calculated_points)}` : ''}</Button>)}
+      {o.approve && !own && !brief && <Button size={size} onClick={() => setAsk('approve_with_note')} disabled={busy}><MessageSquareText className="h-3.5 w-3.5" />Approve with a note…</Button>}
       {o.approve_with_points && !brief && <Button size={size} onClick={() => setAsk('approve_with_points')} disabled={busy}><SlidersHorizontal className="h-3.5 w-3.5" />Different points…</Button>}
       {o.return && <Button size={size} variant={brief ? 'ghost' : 'default'} onClick={() => setAsk('return')} disabled={busy} aria-label={`Return ${what} for correction`}><CornerUpLeft className="h-3.5 w-3.5" />Return…</Button>}
       {o.reject && <Button size={size} variant={brief ? 'ghost' : 'default'} onClick={() => setAsk('reject')} disabled={busy} aria-label={`Reject ${what}`}><X className="h-3.5 w-3.5" />Reject…</Button>}
@@ -126,14 +134,14 @@ function AskDialog({ ask, row, me, onClose, onDone }: { ask: Ask; row: Duty; me?
   const submit = async () => {
     if (sending.current) return;
     const found: Record<string, string> = {};
-    if (!reason.trim()) found.reason = 'Required.';
+    if (!spec.optional && !reason.trim()) found.reason = 'Required.';
     if (spec.withPoints && value.trim() === '') found.points = 'Required.';
     else if (spec.withPoints && overridePoints(value) == null) found.points = `A number from 0 to ${DUTY_REVIEW_LIMITS.points.toLocaleString('en-US')}.`;
     if (Object.keys(found).length) { setErrors(found); setProblem(null); return; }
     setErrors({}); setProblem(null);
     sending.current = true;
     try {
-      const saved = await decide.mutateAsync({ id: row.id, action: spec.action, version: row.version, reason: reason.trim(), ...(spec.withPoints ? { points: overridePoints(value) } : {}) });
+      const saved = await decide.mutateAsync({ id: row.id, action: spec.action, version: row.version, reason: reason.trim() || null, ...(spec.withPoints ? { points: overridePoints(value) } : {}) });
       toast.success(spec.done);
       onClose();
       onDone?.(saved);
@@ -156,7 +164,7 @@ function AskDialog({ ask, row, me, onClose, onDone }: { ask: Ask; row: Duty; me?
             <Input inputMode="decimal" autoComplete="off" value={value} maxLength={9} onChange={(e) => { setValue(e.target.value); if (errors.points) setErrors(({ points: _p, ...rest }) => rest); }} className="max-w-[10rem]" />
           </Field>
         )}
-        <Field label={spec.reason} required error={errors.reason} hint={`${reason.length} of ${DUTY_REVIEW_LIMITS.reason}`}>
+        <Field label={spec.reason} required={!spec.optional} error={errors.reason} hint={`${spec.optional ? 'optional · ' : ''}${reason.length} of ${DUTY_REVIEW_LIMITS.reason}`}>
           <Textarea rows={3} value={reason} maxLength={DUTY_REVIEW_LIMITS.reason} placeholder={spec.placeholder} onChange={(e) => { setReason(e.target.value); if (errors.reason) setErrors(({ reason: _r, ...rest }) => rest); }} />
         </Field>
         {problem && <p id={`${uid}-problem`} role="alert" className="rounded-md border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{problem}</p>}

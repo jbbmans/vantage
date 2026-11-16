@@ -8,6 +8,9 @@ import { isSummable } from '../../shared/constants.ts';
 import { now } from '../lib/ids.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { periodClause } from './timeframes.ts';
+import { scopeFor } from '../authz/scope.ts';
+import { waitingOnYou } from './comments.ts';
+import { unreadCount } from './notifications.ts';
 
 interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null; timezone?: string | null }
 
@@ -45,7 +48,20 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   const maradmins = db.prepare(`SELECT number, title FROM maradmins WHERE published_at >= ? ORDER BY published_at DESC LIMIT 6`).all(new Date(at.getTime() - 7 * 86_400_000).toISOString()) as Array<{ number: string; title: string }>;
   const followUps = db.prepare(`SELECT c.follow_up_date, u.first_name, u.last_name FROM counselings c JOIN users u ON u.id = c.user_id WHERE c.counselor_id = ? AND c.deleted_at IS NULL AND c.stage = 'final' AND c.follow_up_date >= ? AND c.follow_up_date <= ? ORDER BY c.follow_up_date LIMIT 5`).all(user.id, todayIso, soon) as Array<{ follow_up_date: string; first_name: string; last_name: string }>;
 
+  // What waits on them in Vantage, counted the way the app counts it: requests they can still answer, notices about what
+  // they can still open (ADR-0031). Counts only: a digest carries nobody's words.
+  const scope = scopeFor(ctx, { id: user.id });
+  const waiting = waitingOnYou(ctx, user, scope);
+  const unread = unreadCount(ctx, user, scope);
+
   const sections: Array<{ heading: string; lines: string[] }> = [];
+  if (waiting.count || unread) {
+    const many = waiting.count !== 1 || waiting.more;
+    sections.push({ heading: 'Waiting in Vantage', lines: [
+      ...(waiting.count ? [`${waiting.count}${waiting.more ? ' or more' : ''} ${many ? 'questions and reviews are' : 'question or review is'} waiting on you`] : []),
+      ...(unread ? [`${unread} unread ${unread === 1 ? 'notice' : 'notices'}`] : []),
+    ] });
+  }
   // The totals lead the message as figures; this section is what is behind them.
   sections.push({ heading: 'Last 7 days', lines: [
     ...(noOutcome ? [`${noOutcome} recent ${noOutcome === 1 ? 'entry is' : 'entries are'} missing an outcome`] : []),

@@ -11,7 +11,7 @@ import { REDACTED } from '../../shared/constants.ts';
 import { DEFAULT_REPORT_MARKING } from '../../shared/reportCatalog.ts';
 import { counselingSchema } from '../../shared/schemas.ts';
 import {
-  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, counselingDocument, counselingOptions, counselingTypeLabel, counselorWritten,
+  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, counselingDocument, counselingOptions, counselorWritten,
   type CounselingAuthority, type CounselingDocument, type CounselingField, type CounselingOptions, type CounselingParticulars, type CounselingRevision, type CounselingStage,
 } from '../../shared/counseling.ts';
 import { audit } from './audit.ts';
@@ -140,7 +140,6 @@ const amendBody = counselingSchema.pick(CONTENT_SHAPE).partial().extend({
 });
 
 const who = (u: SessionUser) => `${u.first_name} ${u.last_name}`;
-const about = (row: CounselingRow) => `${counselingTypeLabel(row.type).toLowerCase()} counseling${row.date ? ` of ${row.date}` : ''}`;
 const openUrl = (id: string) => `/career/counseling?open=${encodeURIComponent(id)}`;
 
 /** Loads a counseling for a workflow action: one the reader may not read is no such record to them. */
@@ -182,7 +181,7 @@ export function shareCounseling(ctx: AppContext, user: SessionUser, id: string, 
     move(ctx, id, input.version, ['draft'], ["stage = 'review'", 'updated_at = ?'], [at]);
     audit(ctx, { actor_id: user.id, action: 'counseling_shared', entity: 'counselings', entity_id: id, subject_id: row.user_id, unit_id: row.unit_id, detail: 'draft shared with the Marine for review', ip });
   })();
-  notify(ctx, row.user_id, { kind: 'counseling', title: 'Counseling draft to review', message: `${who(user)} shared a ${about(row)} draft with you. Read it and answer in its comments before it is final.`, actionUrl: openUrl(id), dedupeKey: `counseling:${id}:review:${input.version}` });
+  notify(ctx, row.user_id, { kind: 'counseling', title: `${who(user)} shared a counseling draft for you to review`, actionUrl: openUrl(id), entity: 'counselings', entityId: id, actorId: user.id, dedupeKey: `counseling:${id}:review:${input.version}` });
   return counselingBack(ctx, user, id, scope);
 }
 
@@ -216,13 +215,13 @@ export function finalizeCounseling(ctx: AppContext, user: SessionUser, id: strin
     move(ctx, id, input.version, ['draft', 'review'], ["stage = 'final'", 'revision = 1', 'finalized_at = ?', 'finalized_by = ?', 'particulars = ?', 'updated_at = ?'], [stamp.finalized_at, stamp.finalized_by, stamp.particulars, at]);
     audit(ctx, { actor_id: user.id, action: 'counseling_finalized', entity: 'counselings', entity_id: id, subject_id: row.user_id, unit_id: row.unit_id, detail: `from ${row.stage}; revision 1`, ip });
   })();
-  tellFinal(ctx, user, row.user_id, id, row.type);
+  tellFinal(ctx, user, row.user_id, id);
   return counselingBack(ctx, user, id, scope);
 }
 
 /** Tells a Marine a counseling about them is final: the notice it was given as it was written before 035. */
-export function tellFinal(ctx: AppContext, user: SessionUser, subjectId: string, id: string, type: unknown) {
-  notify(ctx, subjectId, { kind: 'counseling', title: 'New counseling recorded', message: `${who(user)} recorded a ${String(type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: openUrl(id), dedupeKey: `counseling:${id}` });
+export function tellFinal(ctx: AppContext, user: SessionUser, subjectId: string, id: string) {
+  notify(ctx, subjectId, { kind: 'counseling', title: `${who(user)} recorded a counseling for you`, actionUrl: openUrl(id), entity: 'counselings', entityId: id, actorId: user.id, dedupeKey: `counseling:${id}` });
 }
 
 const contentOf = (row: Row) => Object.fromEntries(COUNSELING_CONTENT.map((f) => [f, (row[f] as string | null | undefined) ?? null])) as Record<CounselingField, string | null>;
@@ -262,9 +261,9 @@ export function amendCounseling(ctx: AppContext, user: SessionUser, id: string, 
     audit(ctx, { actor_id: user.id, action: 'counseling_amended', entity: 'counselings', entity_id: id, subject_id: row.user_id, unit_id: row.unit_id,
       detail: `${how}; revision ${row.revision + 1}; changed: ${changed.join(', ')}${row.acknowledged_at ? '; acknowledgement cleared' : ''}`, ip });
   })();
-  notify(ctx, row.user_id, { kind: 'counseling', title: 'Counseling amended', message: `${who(user)} amended a ${about(row)}. Read the amended text and acknowledge it.`, actionUrl: openUrl(id), dedupeKey: `counseling:${id}:r${row.revision + 1}` });
+  notify(ctx, row.user_id, { kind: 'counseling', title: `${who(user)} amended a counseling; read it and acknowledge it`, actionUrl: openUrl(id), entity: 'counselings', entityId: id, actorId: user.id, dedupeKey: `counseling:${id}:r${row.revision + 1}` });
   if (!authority.counselor && row.counselor_id && row.counselor_id !== user.id && canRead(scopeFor(ctx, { id: row.counselor_id }), row.counselor_id, row)) {
-    notify(ctx, row.counselor_id, { kind: 'counseling', title: 'A counseling you wrote was amended', message: `${who(user)} amended a ${about(row)} you wrote.`, actionUrl: openUrl(id), dedupeKey: `counseling:${id}:r${row.revision + 1}:counselor` });
+    notify(ctx, row.counselor_id, { kind: 'counseling', title: `${who(user)} amended a counseling you wrote`, actionUrl: openUrl(id), entity: 'counselings', entityId: id, actorId: user.id, dedupeKey: `counseling:${id}:r${row.revision + 1}:counselor` });
   }
   return counselingBack(ctx, user, id, scope);
 }
@@ -286,7 +285,7 @@ export function acknowledgeCounseling(ctx: AppContext, user: SessionUser, id: st
     audit(ctx, { actor_id: user.id, action: 'acknowledge_counseling', entity: 'counselings', entity_id: row.id, unit_id: row.unit_id, detail: `revision ${row.revision}`, ip });
   })();
   if (row.counselor_id && canRead(scopeFor(ctx, { id: row.counselor_id }), row.counselor_id, row)) {
-    notify(ctx, row.counselor_id, { kind: 'counseling', title: 'Counseling acknowledged', message: `${who(user)} acknowledged the ${about(row)}${row.revision > 1 ? ` (revision ${row.revision})` : ''}.`, actionUrl: openUrl(id), dedupeKey: `counseling:${id}:ack:${row.revision}` });
+    notify(ctx, row.counselor_id, { kind: 'counseling', title: `${who(user)} acknowledged a counseling you wrote${row.revision > 1 ? ` (revision ${row.revision})` : ''}`, actionUrl: openUrl(id), entity: 'counselings', entityId: id, actorId: user.id, dedupeKey: `counseling:${id}:ack:${row.revision}` });
   }
   return counselingBack(ctx, user, id, scope);
 }

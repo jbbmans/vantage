@@ -237,6 +237,21 @@ export const chainBits = (scope: Scope, unitId: string) =>
   (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
 
 /**
+ * What a person holds by their own place in units, leaving out Vantage access (ADR-0031): read-only access lets staff read
+ * a Unit Instance's records, never speak on them, be asked about them or be told what is said on them.
+ */
+export function ownScope(scope: Scope): Scope {
+  if (!scope.vantageAccess.length) return scope;
+  const permissions: Record<string, number> = {};
+  for (const [unitId, list] of Object.entries(scope.sources)) {
+    const bits = list.filter((s) => s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+    if (bits) permissions[unitId] = bits;
+  }
+  const readableUnitIds = Object.entries(permissions).filter(([, bits]) => has(bits, PERMISSIONS.VIEW_RECORDS)).map(([id]) => id);
+  return { ...scope, permissions, readableUnitIds, vantageAccess: [] };
+}
+
+/**
  * A Unit Instance role confers authority only while its holder belongs to a unit of that Unit Instance (ADR-0010): it is
  * scoped to the instance it was assigned in, and whatever path takes the person out of the instance takes the authority
  * with it. An SQL condition on an org_roles row aliased `alias`.

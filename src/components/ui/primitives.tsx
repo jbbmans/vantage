@@ -298,13 +298,14 @@ export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: strin
 
 export function Switch({ checked, onChange, label, description, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: React.ReactNode; description?: React.ReactNode; disabled?: boolean }) {
   return (
-    <label className={cn('flex cursor-pointer items-start justify-between gap-4 rounded-md px-1 py-2', disabled && 'cursor-not-allowed opacity-50')}>
+    // Off-limits, only the toggle dims: its words stay readable, since they say why it cannot be changed.
+    <label className={cn('flex cursor-pointer items-start justify-between gap-4 rounded-md px-1 py-2', disabled && 'cursor-not-allowed')}>
       <span className="min-w-0">
-        <span className="block text-base font-medium text-ink">{label}</span>
+        <span className={cn('block text-base font-medium', disabled ? 'text-ink-2' : 'text-ink')}>{label}</span>
         {description && <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{description}</span>}
       </span>
       <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}
-        className={cn('relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors', checked ? 'border-accent bg-accent' : 'border-line-strong bg-surface-3')}>
+        className={cn('relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors', checked ? 'border-accent bg-accent' : 'border-line-strong bg-surface-3', disabled && 'opacity-50')}>
         <span className={cn('absolute top-[2px] h-[14px] w-[14px] rounded-full shadow-card transition-[left] duration-150', checked ? 'left-[18px] bg-accent-ink' : 'left-[2px] bg-surface')} />
       </button>
     </label>
