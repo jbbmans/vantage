@@ -456,9 +456,15 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
  * them must sit in the same organization as the unit they are being enrolled in.
  */
 export function mayEnrollDirectly(ctx: AppContext, _actor: SessionUser, scope: Scope, targetId: string, destinationUnitId: string): boolean {
-  const destinationOrg = orgOfUnit(ctx, destinationUnitId);
+  return leadsForEnrollment(scope, scopeFor(ctx, { id: targetId }), orgOfUnit(ctx, destinationUnitId));
+}
+
+/**
+ * mayEnrollDirectly's rule from what it is decided on: the target's scope and the destination's Unit Instance. A search
+ * that checks many candidates reads their scopes together (scopesFor) and the destination once.
+ */
+export function leadsForEnrollment(scope: Scope, target: Scope, destinationOrg: string | null): boolean {
   if (!destinationOrg) return false;
-  const target = scopeFor(ctx, { id: targetId });
   return target.unitIds.some((u) => target.unitOrg[u] === destinationOrg && can(scope, PERMISSIONS.MANAGE_MEMBERS, u) && positionIn(scope, u) > positionIn(target, u));
 }
 

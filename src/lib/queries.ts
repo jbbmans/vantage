@@ -310,7 +310,8 @@ export const useMyRequests = (enabled = true) => useQuery({ queryKey: keys.myReq
 /** A record's or a case's discussion (ADR-0031). */
 export const discussionKey = (h: api.DiscussionHost) => (h.kind === 'work' ? ['comments', 'work_items', h.id] as const : ['comments', h.table, h.id] as const);
 export const useDiscussion = (h: api.DiscussionHost, enabled = true) => useQuery({ queryKey: discussionKey(h), queryFn: () => api.discussion(h), enabled: enabled && Boolean(h.id) });
-export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled });
+/** The team list is an audited read (each fetch is logged), so it is not fetched again on returning to the window. */
+export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled, staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
 export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
 
 /** Whether the person holds `flag` in the unit. ADMINISTRATOR holds every permission, as it does on the server. */

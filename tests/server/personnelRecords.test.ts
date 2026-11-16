@@ -207,9 +207,12 @@ test('a supervisor is someone else in the same Unit Instance, and supervision ne
   const far = await put(op.token, `/api/org/units/G8/members/${chain[0].id}`, { supervisor_id: chain[11].id });
   assert.equal(far.status, 400, JSON.stringify(far.body)); assert.equal(far.body.code, 'supervisor_cycle');
   // Candidates are members of this Unit Instance the reader can see, never the Marine themselves.
-  const found = await get(op.token, `/api/org/units/G8/supervisor-candidates?q=ch&except=${delta.id}`);
+  const found = await get(op.token, `/api/org/units/G8/supervisor-candidates?q=char&except=${delta.id}`);
   assert.equal(found.status, 200);
   assert.ok(found.body.results.some((p: any) => p.id === charlie.id));
+  // Thirteen match "ch" (Charlie and the chain): ten are offered, and the answer says more match.
+  const many = await get(op.token, `/api/org/units/G8/supervisor-candidates?q=ch&except=${delta.id}`);
+  assert.deepEqual([many.body.results.length, many.body.more], [10, true]);
   assert.ok(!(await get(op.token, '/api/org/units/G8/supervisor-candidates?q=gone')).body.results.length, 'nobody from another Unit Instance');
   assert.equal((await get(charlie.token, '/api/org/units/G8/supervisor-candidates?q=al')).status, 403);
 });

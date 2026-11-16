@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Lock, PenLine, Plus, Trash2, UserRound, History, ListChecks } from 'lucide-react';
 import { Button, Field, Input, Select, Panel, EmptyState, Badge, RoleBadge, type Tone } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
@@ -10,6 +10,7 @@ import * as api from '@/lib/api';
 import type { DraftRef } from '@/lib/api';
 import { invalidateDomains, keys } from '@/lib/queries';
 import { DraftStrip, LeaveDialog, LostDraft, ResumedNote, lostFrom, useResumeDraft, type Lost } from '@/components/FormDrafts';
+import { PersonPicker, type PersonSearch } from '@/components/PersonPicker';
 import { formatStamp, fullName } from '@/lib/utils';
 import { formatDate } from '../../shared/metrics';
 import type { AssignmentDraftPayload, FormDraft } from '../../shared/drafts';
@@ -59,27 +60,32 @@ function eventSentence(e: PersonnelEvent): string {
   return `${field} changed from ${from} to ${to}`;
 }
 
-/** A Marine named by a search of the Unit Instance, for a supervisor. Only another active member the reader can see. */
+/**
+ * A Marine named by a search of the Unit Instance, for a supervisor. Only another active member the reader can see. The
+ * search is the shared picker, so a screen reader hears how many match and that typing more finds the rest.
+ */
 export function SupervisorPicker({ unitId, exceptId, value, onChange, label = 'Supervisor', error }: { unitId: string; exceptId?: string; value: PersonnelPersonRef | null; onChange: (p: PersonnelPersonRef | null) => void; label?: string; error?: string | null }) {
-  const [q, setQ] = useState('');
-  const listId = useId();
-  const term = q.trim();
-  const { data, isFetching } = useQuery({ queryKey: ['supervisor-candidates', unitId, term, exceptId], queryFn: () => api.supervisorCandidates(unitId, term, exceptId), enabled: !value && term.length >= 2, staleTime: 30_000 });
-  const results = value || term.length < 2 ? [] : data?.results ?? [];
-  return (
-    <div>
-      <Field label={label} error={error} hint={value ? undefined : 'Type two letters of their name.'}>
-        <Input value={value ? fullName(value) : q} readOnly={Boolean(value)} onChange={(e) => setQ(e.target.value)} placeholder={value ? undefined : 'Name'} aria-controls={results.length ? listId : undefined} />
-      </Field>
-      {value ? <Button size="xs" variant="ghost" className="mt-1" onClick={() => { onChange(null); setQ(''); }}>Clear the supervisor</Button>
-        : term.length >= 2 && (
-          <ul id={listId} aria-label={`Marines matching ${term}`} className="mt-1 max-h-48 overflow-auto rounded-md border border-line">
-            {results.map((p) => <li key={p.id}><button type="button" className="w-full px-3 py-1.5 text-left text-sm text-ink hover:bg-surface-2 focus-visible:bg-surface-2" onClick={() => { onChange(p); setQ(''); }}>{fullName(p)}</button></li>)}
-            {!results.length && <li className="px-3 py-1.5 text-xs text-ink-3">{isFetching ? 'Searching…' : 'Nobody in this command by that name.'}</li>}
-          </ul>
-        )}
-    </div>
-  );
+  // Who each offered name is, to hand back the reference the form saves rather than the picker's own row.
+  const found = useRef(new Map<string, PersonnelPersonRef>());
+  const search = useMemo<PersonSearch>(() => ({
+    key: ['supervisor-candidates', unitId, exceptId ?? null],
+    load: async (q) => {
+      const r = await api.supervisorCandidates(unitId, q, exceptId);
+      for (const p of r.results) found.current.set(p.id, p);
+      return { people: r.results.map((p) => ({ id: p.id, username: '', name: fullName(p), rank: p.rank_abbr })), more: r.more };
+    },
+    minLength: 2,
+    none: 'Nobody in this command by that name.',
+  }), [unitId, exceptId]);
+  if (value) {
+    return (
+      <div>
+        <Field label={label} error={error}><Input value={fullName(value)} readOnly /></Field>
+        <Button size="xs" variant="ghost" className="mt-1" onClick={() => onChange(null)}>Clear the supervisor</Button>
+      </div>
+    );
+  }
+  return <PersonPicker search={search} label={label} hint="Type two letters of their name." placeholder="Name" error={error} onChoose={(p) => onChange(found.current.get(p.id) ?? null)} />;
 }
 
 /** Whose assignment, in which unit, and what it says now. */

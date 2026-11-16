@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
 import { AssignmentDialog, ACCOUNT_STATUS, type AssignmentTarget } from '@/components/PersonnelRecord';
+import { PersonPicker, type PersonSearch } from '@/components/PersonPicker';
 import PersonnelBulkDialog from '@/components/PersonnelBulk';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -17,12 +18,12 @@ import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
 import { ECHELONS } from '../../shared/constants';
 import { formatDate, formatDollars } from '../../shared/metrics';
-import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays } from '@/lib/utils';
+import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays, useMediaQuery } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
-import type { PersonnelRosterRow, TeamPerson, TeamResponse, Unit } from '../../shared/types';
+import type { DirectoryCandidate, PersonnelRosterRow, TeamPerson, Unit } from '../../shared/types';
 import { groupFor } from '@/config/nav';
 import type { ReportType } from '../../shared/reportCatalog';
 import type { AnalyticsSection, FigureFormat } from '../../shared/unitAnalytics';
@@ -56,7 +57,6 @@ const SECTION_PATHS: Record<TeamSection, string> = {
 export default function Team({ section }: { section: TeamSection }) {
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
-  const { data: team, isPending } = useTeam();
   const { view, views, setView } = useView(identity);
   const [linked, setLinked] = useParam('unit', '');
   useEffect(() => { if (linked && views.some((v) => v.id === linked)) { setView(linked); setLinked(''); } }, [linked, views]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -75,6 +75,8 @@ export default function Team({ section }: { section: TeamSection }) {
   const allowed = teamSections(identity, view);
   // A section this view does not offer (a team-level view has no roster) shows the overview instead.
   const shown: TeamSection = allowed.has(section) ? section : 'overview';
+  // Only the Units section reads the whole team list (for leaders' names), so every other section paints without it.
+  const team = useTeam(shown === 'units');
   const [messaging, setMessaging] = useState(false);
   const [dashboardShow] = useParam('show', 'output');
   const [dashboardDays] = useParam('days', DEFAULT_WINDOW);
@@ -98,17 +100,18 @@ export default function Team({ section }: { section: TeamSection }) {
         {!missing && unit && report && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit, ...(printWindow || {}) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
-      {isPending ? <Skeleton className="h-64" /> : missing ? (
+      {missing ? (
         <div className="card"><EmptyState icon={Users} title={`Not part of the ${where} view`} description={elsewhere ? `Pick a view above that includes ${SECTION_LABELS[section]}, or open the overview of this one.` : views.length > 1 ? `None of your views includes ${SECTION_LABELS[section]}. The overview shows what this one does include.` : `Your role in ${where} does not include ${SECTION_LABELS[section]}. The overview shows what it does include.`} action={<Button asChild><Link to="/team">Open the overview</Link></Button>} /></div>
       ) : (
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
-          {shown === 'roster' && unit && <Roster key={unit} team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} subtree={subtree} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
+          {shown === 'roster' && unit && <Roster key={unit} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} subtree={subtree} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
           {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
           {shown === 'invites' && <><Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /><JoinCodes unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /></>}
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
-          {shown === 'units' && <Units units={units} manageUnits={manageUnits} orgAdmin={Boolean(identity?.orgs?.some((o) => o.permissions.includes('org.units')))} roster={team?.roster || []} />}
+          {shown === 'units' && (team.isPending ? <Skeleton className="h-64" /> : team.error && !team.data ? <QueryFailure error={team.error} onRetry={() => team.refetch()} what="The units" />
+            : <Units units={units} manageUnits={manageUnits} orgAdmin={Boolean(identity?.orgs?.some((o) => o.permissions.includes('org.units')))} roster={team.data?.roster || []} />)}
           {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
         </>
       )}
@@ -118,6 +121,8 @@ export default function Team({ section }: { section: TeamSection }) {
 }
 
 type RosterFilter = 'all' | 'no_supervisor' | 'no_billet' | 'ending';
+/** How many Marines the roster puts on the page at a time; "Show more" adds as many again. */
+const ROSTER_PAGE = 100;
 const ROSTER_FILTERS: Array<{ value: RosterFilter; label: string; test: (r: PersonnelRosterRow, soon: string) => boolean }> = [
   { value: 'all', label: 'Everyone', test: () => true },
   { value: 'no_supervisor', label: 'No supervisor', test: (r) => !r.supervisor },
@@ -130,10 +135,14 @@ const ROSTER_FILTERS: Array<{ value: RosterFilter; label: string; test: (r: Pers
  * supervisor, dates, responsibilities and roles; account status for those the reader manages. Those who manage members
  * change one Marine from the row, or several at once from a selection, previewed before it applies.
  */
-function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { team: TeamResponse | undefined; unit: string; unitLabel: (id: string) => string; canManage: boolean; subtree: string[]; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
-  const { data, isPending, error } = useQuery({ queryKey: keys.personnelRoster(unit), queryFn: () => api.personnelRoster(unit), enabled: Boolean(unit) });
+function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: string; unitLabel: (id: string) => string; canManage: boolean; subtree: string[]; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
+  // Each read of the roster is logged, so it is not read again on returning to the window.
+  const { data, isPending, error, refetch } = useQuery({ queryKey: keys.personnelRoster(unit), queryFn: () => api.personnelRoster(unit), enabled: Boolean(unit), staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<RosterFilter>('all');
+  const [limit, setLimit] = useState(ROSTER_PAGE);
+  // One layout at a time: a phone gets the list, anything wider the table, never both in the page.
+  const wide = useMediaQuery('(min-width: 640px)');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState(false);
   const [enroll, setEnroll] = useState(false);
@@ -160,10 +169,14 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
   const soon = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 90); return isoDay(d); }, []);
   const term = q.trim().toLowerCase();
   const matching = useMemo(() => (data?.rows || []).filter((r) => !term || [r.first_name, r.last_name, r.rank_abbr, r.mos, r.assignment.billet, r.team_label, r.supervisor?.last_name, ...r.responsibilities].filter(Boolean).join(' ').toLowerCase().includes(term)), [data, term]);
-  const shown = matching.filter((r) => ROSTER_FILTERS.find((f) => f.value === filter)!.test(r, soon));
+  const shown = useMemo(() => matching.filter((r) => ROSTER_FILTERS.find((f) => f.value === filter)!.test(r, soon)), [matching, filter, soon]);
+  // A new search or filter starts from the top of what it finds.
+  useEffect(() => { setLimit(ROSTER_PAGE); }, [term, filter]);
+  const visible = useMemo(() => shown.slice(0, limit), [shown, limit]);
   const selectable = (r: PersonnelRosterRow) => manage && r.canManage && !r.self;
   const chosen = useMemo(() => (data?.rows || []).filter((r) => selected.has(r.id) && selectable(r)), [data, selected]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shownSelectable = shown.filter(selectable);
+  // "Everyone shown" is everyone on screen: those past "Show more" are not chosen unseen.
+  const shownSelectable = visible.filter(selectable);
   const allShown = shownSelectable.length > 0 && shownSelectable.every((r) => selected.has(r.id));
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleShown = () => setSelected((s) => { const n = new Set(s); for (const r of shownSelectable) { if (allShown) n.delete(r.id); else n.add(r.id); } return n; });
@@ -172,11 +185,12 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
   const roles = (p: PersonnelRosterRow) => p.roles.map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>);
   const status = (p: PersonnelRosterRow) => (p.status && p.status !== 'active' ? <Badge tone={ACCOUNT_STATUS[p.status].tone}>{ACCOUNT_STATUS[p.status].label}</Badge> : null);
   const dates = (p: PersonnelRosterRow) => [p.checked_in_on && `In ${formatDate(p.checked_in_on)}`, p.assignment.assignment_end && `Ends ${formatDate(p.assignment.assignment_end)}`].filter(Boolean).join(' · ');
-  const checkbox = (p: PersonnelRosterRow) => (selectable(p) ? <input type="checkbox" className="h-4 w-4 accent-accent" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${nameOf(p)}`} /> : null);
+  // The box sits in a label a finger can hit (44 px), as the rest of the row's controls are.
+  const checkbox = (p: PersonnelRosterRow, className: string) => (selectable(p) ? <label className={cn('inline-flex shrink-0 cursor-pointer items-center justify-center', className)}><input type="checkbox" className="h-4 w-4 accent-accent" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${nameOf(p)}`} /></label> : null);
   // The same controls in the table and in the phone list, so the two never offer different things.
   const actions = (p: PersonnelRosterRow) => {
     const m = p.assignment;
-    const memberships = team?.roster.find((x) => x.id === p.id)?.memberships ?? [{ unit_id: m.unit_id }];
+    const memberships = (p.unit_ids.length ? p.unit_ids : [m.unit_id]).map((unit_id) => ({ unit_id }));
     return (
       <span className="inline-flex items-center gap-1">{manage && p.canManage && !p.self && <>
         <Button size="xs" variant="ghost" onClick={() => edit(p)} aria-label={`Change ${p.last_name}’s billet`} title="Billet, dates, supervisor and check-in"><PenLine className="h-3.5 w-3.5" /></Button>
@@ -186,6 +200,16 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
     );
   };
   const counts = (f: (typeof ROSTER_FILTERS)[number]) => matching.filter((r) => f.test(r, soon)).length;
+  const total = data?.rows.length ?? 0;
+  const left = shown.length - visible.length;
+  // Showing more keeps the keyboard on the button; when the last of them appear and the button goes, it moves to the
+  // first of those, so nobody is sent back to the top of the page.
+  const showMore = () => {
+    const next = shown[visible.length];
+    setLimit((l) => l + ROSTER_PAGE);
+    if (left <= ROSTER_PAGE && next) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-person="${next.id}"] a`)?.focus());
+  };
+  const showing = !data ? '' : shown.length === total ? `Showing ${visible.length} of ${total} ${total === 1 ? 'Marine' : 'Marines'}.` : `Showing ${visible.length} of ${shown.length} matching, ${total} on the roster.`;
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -200,14 +224,15 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear selection</Button>
         </div>
       )}
-      {isPending ? <Skeleton className="h-64" /> : error ? <div className="card"><EmptyState icon={Users} title="The roster could not be loaded" description={api.errorText(error)} /></div>
+      <p role="status" aria-live="polite" className={cn('mb-2 text-xs text-ink-3', !showing && 'sr-only')}>{showing}</p>
+      {isPending ? <Skeleton className="h-64" /> : error && !data ? <QueryFailure error={error} onRetry={() => refetch()} what="The roster" />
         : !shown.length ? <div className="card"><EmptyState icon={Users} title={data?.rows.length ? 'Nobody matches' : 'No members here yet'} description={data?.rows.length ? 'Try another search or show everyone.' : canManage ? 'Invite Marines from the Invitations page, or enroll an account that already exists.' : 'Nobody has joined this unit yet.'} /></div> : (
         <>
         {/* A phone gets a list: the table's columns leave a name two words wide and the controls off the screen. */}
-        <ul className="card divide-y divide-line overflow-hidden p-0 sm:hidden" aria-label="Roster">
-          {shown.map((p) => (
-            <li key={p.id} className="flex items-start gap-3 px-4 py-3">
-              {checkbox(p) ?? <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink" aria-hidden>{initialsOf(p)}</span>}
+        {!wide ? <ul className="card divide-y divide-line overflow-hidden p-0" aria-label="Roster">
+          {visible.map((p) => (
+            <li key={p.id} data-person={p.id} className="flex items-start gap-3 px-4 py-3">
+              {checkbox(p, '-m-1 h-11 w-11') ?? <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink" aria-hidden>{initialsOf(p)}</span>}
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span>
                 <span className="block text-xs text-ink-3">{[p.assignment.billet, p.mos, rollup ? p.team_label : p.assignment.is_primary ? null : 'secondary', p.supervisor && `under ${nameOf(p.supervisor)}`, dates(p)].filter(Boolean).join(' · ')}</span>
@@ -216,12 +241,12 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
               <span className="shrink-0">{actions(p)}</span>
             </li>
           ))}
-        </ul>
-        <div className="card hidden sm:block" style={{ overflow: 'hidden' }}>
-          <Table label="Roster" head={<>{manage && <th className="w-8">{shownSelectable.length > 0 && <input type="checkbox" className="h-4 w-4 accent-accent" checked={allShown} onChange={toggleShown} aria-label="Select everyone shown" />}</th>}<th>Marine</th>{rollup && <th className="w-40">Team</th>}<th>Billet</th><th className="w-40">Supervisor</th><th className="w-32">Dates</th><th>Roles</th><th className="w-28"></th></>}>
-            {shown.map((p) => (
-              <tr key={p.id}>
-                {manage && <td>{checkbox(p)}</td>}
+        </ul> : (
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <Table label="Roster" head={<>{manage && <th scope="col" className="w-8">{shownSelectable.length > 0 ? <label className="tap -m-1 inline-flex min-w-[2.75rem] cursor-pointer items-center justify-center p-1"><input type="checkbox" className="h-4 w-4 accent-accent" checked={allShown} onChange={toggleShown} aria-label="Select everyone shown" /></label> : <span className="sr-only">Select</span>}</th>}<th scope="col">Marine</th>{rollup && <th scope="col" className="w-40">Team</th>}<th scope="col">Billet</th><th scope="col" className="w-40">Supervisor</th><th scope="col" className="w-32">Dates</th><th scope="col">Roles</th><th scope="col" className="relative w-28"><span className="sr-only">Actions</span></th></>}>
+            {visible.map((p) => (
+              <tr key={p.id} data-person={p.id}>
+                {manage && <td>{checkbox(p, 'tap -m-1 min-w-[2.75rem] p-1')}</td>}
                 <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{initialsOf(p)}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{[p.mos, rollup ? null : `${p.team_label}${p.assignment.is_primary ? '' : ' (secondary)'}`].filter(Boolean).join(' · ')}</span></span></span></td>
                 {rollup && <td className="text-xs text-ink-2">{p.team_label}{p.assignment.is_primary ? '' : ' (secondary)'}</td>}
                 <td className="text-xs text-ink-2"><span className="block">{p.assignment.billet || ''}</span>{p.responsibilities.length > 0 && <span className="block text-2xs text-ink-3">{p.responsibilities.join(', ')}</span>}</td>
@@ -233,6 +258,12 @@ function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { te
             ))}
           </Table>
         </div>
+        )}
+        {left > 0 && (
+          <div className="mt-3 flex justify-center">
+            <Button onClick={showMore}>Show {Math.min(left, ROSTER_PAGE)} more</Button>
+          </div>
+        )}
         </>
       )}
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
@@ -316,18 +347,40 @@ function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: Mov
 function EnrollDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean; onOpenChange: (o: boolean) => void; unitId: string; unitLabel: string }) {
   const toast = useToast(); const qc = useQueryClient();
   const { data: rolesData } = useRoles(open);
-  const [q, setQ] = useState(''); const [results, setResults] = useState<any[]>([]); const [picked, setPicked] = useState<any>(null);
+  const [picked, setPicked] = useState<DirectoryCandidate | null>(null);
   const [roleId, setRoleId] = useState(''); const [billet, setBillet] = useState(''); const [primary, setPrimary] = useState(false); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!open) { setQ(''); setResults([]); setPicked(null); setRoleId(''); setBillet(''); } }, [open]);
-  useEffect(() => { if (q.trim().length < 2) { setResults([]); return; } const t = setTimeout(() => api.directory(unitId, q.trim()).then((r) => setResults(r.results || [])).catch(() => setResults([])), 200); return () => clearTimeout(t); }, [q, unitId]);
+  useEffect(() => { if (!open) { setPicked(null); setRoleId(''); setBillet(''); } }, [open]);
+  // Who each offered name is, to enroll the account itself rather than the picker's row.
+  const found = useRef(new Map<string, DirectoryCandidate>());
+  const search = useMemo<PersonSearch>(() => ({
+    key: ['directory', unitId],
+    load: async (q) => {
+      const r = await api.directory(unitId, q);
+      for (const c of r.results) found.current.set(c.id, c);
+      return { people: r.results.map((c) => ({ id: c.id, username: c.username, name: `${c.rank_abbr || ''} ${c.last_name}, ${c.first_name}`.trim(), rank: c.rank_abbr })), more: r.more };
+    },
+    minLength: 2,
+    none: 'Nobody you lead matches. Send an invitation from the Invitations page instead.',
+  }), [unitId]);
   const roles = (rolesData?.roles || []).filter((r) => r.unit_id === unitId && r.key !== 'unit-leader' && !r.is_default);
-  const submit = async () => { setBusy(true); try { await api.addMember(unitId, { user_id: picked.id, role_id: roleId || null, billet: billet || null, primary }); qc.invalidateQueries({ queryKey: keys.team }); toast.success(`${picked.last_name} enrolled in ${unitLabel}.`); onOpenChange(false); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const submit = async () => {
+    if (!picked) return;
+    setBusy(true);
+    try {
+      await api.addMember(unitId, { user_id: picked.id, role_id: roleId || null, billet: billet || null, primary });
+      qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['personnel'] });
+      toast.success(`${picked.last_name} enrolled in ${unitLabel}.`); onOpenChange(false);
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={`Enroll in ${unitLabel}`} description="For Marines you already lead in another unit you manage. Anyone else joins with an invitation they accept themselves." size="sm" footer={<><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={submit} loading={busy} disabled={!picked}>Enroll</Button></>}>
       <div className="space-y-3">
-        <Field label="Find by username or last name"><Input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setPicked(null); }} /></Field>
-        {results.length > 0 && !picked && <ul className="max-h-40 overflow-y-auto rounded-md border border-line">{results.map((r) => <li key={r.id}><button type="button" className="row flex w-full items-center justify-between px-3 py-2 text-left text-sm" onClick={() => { setPicked(r); setQ(`${r.rank_abbr || ''} ${r.last_name}, ${r.first_name}`.trim()); }}><span>{r.rank_abbr || ''} {r.last_name}, {r.first_name}</span><span className="text-xs text-ink-3">@{r.username}</span></button></li>)}</ul>}
-        {q.trim().length >= 2 && results.length === 0 && !picked && <p className="text-sm text-ink-3">Nobody you lead matches. Send an invitation from the Invitations tab instead.</p>}
+        {picked ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm">
+            <span><span className="block font-medium text-ink">{picked.rank_abbr || ''} {picked.last_name}, {picked.first_name}</span><span className="block text-xs text-ink-3">@{picked.username}</span></span>
+            <Button size="xs" variant="ghost" onClick={() => setPicked(null)} aria-label={`Change from ${picked.last_name} to someone else`}>Change</Button>
+          </div>
+        ) : <PersonPicker search={search} label="Find by username or last name" hint="Two letters or more" autoFocus onChoose={(p) => setPicked(found.current.get(p.id) ?? null)} />}
         {picked && <><Field label="Role" hint="Marine is always granted"><Select value={roleId || '__none'} onValueChange={(v) => setRoleId(v === '__none' ? '' : v)} options={[{ value: '__none', label: 'Marine (default)' }, ...roles.map((r) => ({ value: r.id, label: r.name }))]} /></Field><Field label="Billet"><Input value={billet} onChange={(e) => setBillet(e.target.value)} placeholder="Budget Analyst" /></Field><Switch checked={primary} onChange={setPrimary} label="Make this their primary unit" description="New entries default to sharing here." /></>}
       </div>
     </Dialog>
@@ -355,7 +408,7 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
       </Panel>
       <Panel title="Open invitations" className="lg:col-span-2" padded={false}>
         {!data?.invites?.length ? <EmptyState title="No open invitations" /> : (
-          <Table label="Open invitations" head={<><th>Invitee</th><th>Role · billet</th><th className="w-28">Expires</th><th className="w-28">By</th><th className="w-20"></th></>}>
+          <Table label="Open invitations" head={<><th scope="col">Invitee</th><th scope="col">Role · billet</th><th scope="col" className="w-28">Expires</th><th scope="col" className="w-28">By</th><th scope="col" className="relative w-20"><span className="sr-only">Actions</span></th></>}>
             {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
           </Table>
         )}
@@ -405,7 +458,7 @@ function JoinCodes({ unitId, unitLabel }: { unitId: string; unitLabel: (id: stri
       </Panel>
       <Panel title="Join codes" className="lg:col-span-2" padded={false}>
         {!codes.length ? <EmptyState title="No join codes" description="Create one to enroll a group at once." /> : (
-          <Table label="Join codes" head={<><th>Code</th><th>Role · note</th><th className="w-20">Used</th><th className="w-28">Expires</th><th className="w-24"></th></>}>
+          <Table label="Join codes" head={<><th scope="col">Code</th><th scope="col">Role · note</th><th scope="col" className="w-20">Used</th><th scope="col" className="w-28">Expires</th><th scope="col" className="relative w-24"><span className="sr-only">Actions</span></th></>}>
             {codes.map((c) => { const state = joinCodeState(c); return (
               <tr key={c.id}><td className="font-mono text-xs text-ink">{c.code_hint}-·····</td><td className="text-xs text-ink-2">{roles.find((r) => r.id === c.role_id)?.name || 'Marine'}{c.note ? ` · ${c.note}` : ''}</td><td className="fig text-xs">{c.uses}{c.max_uses != null ? ` of ${c.max_uses}` : ''}</td><td className="text-xs">{c.expires_at ? <DateText value={c.expires_at} /> : <span className="text-ink-3">Until revoked</span>}</td><td className="text-right">{state.label === 'Live' ? <Button size="xs" variant="ghost" aria-label={`Revoke join code ${c.code_hint}`} onClick={() => setRevoking(c)}>Revoke</Button> : <Badge tone={state.tone}>{state.label}</Badge>}</td></tr>
             ); })}
@@ -479,7 +532,7 @@ function Units({ units, manageUnits, orgAdmin, roster }: { units: Unit[]; manage
     <>
       <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Units you can manage. Authority flows down: leading a command reaches every team beneath it, and leading a team reaches nothing above it.</p><Button variant="primary" onClick={() => setEditing({ name: '', short_name: '', echelon: 'section', location: '', parent_id: manageUnits[0] || '' })} disabled={!manageUnits.length}><Building2 className="h-4 w-4" />New unit</Button></div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        <Table label="Units" head={<><th>Unit</th><th className="w-36">Echelon</th><th className="w-40">Leader</th><th className="w-40"></th></>}>
+        <Table label="Units" head={<><th scope="col">Unit</th><th scope="col" className="w-36">Echelon</th><th scope="col" className="w-40">Leader</th><th scope="col" className="relative w-40"><span className="sr-only">Actions</span></th></>}>
           {[...rows, ...orphans].map((u) => { const owner = roster.find((p) => p.id === u.owner_user_id); const canManage = manageUnits.includes(u.id); return (
             <tr key={u.id}><td><span style={{ paddingLeft: `${u.depth * 16}px` }} className="flex items-center gap-2"><span className="font-medium text-ink">{u.name}</span>{u.short_name && <span className="text-xs text-ink-3">{u.short_name}</span>}<span className="fig text-2xs text-ink-3">{u.code}</span></span></td><td className="text-xs text-ink-2">{ECHELONS.find((e) => e.value === u.echelon)?.label || humanize(u.echelon)}</td><td className="text-xs text-ink-2">{owner ? `${owner.rank_abbr || ''} ${owner.last_name}` : u.owner_user_id === identity?.user.id ? 'You' : u.owner_user_id ? 'Set' : <span className="text-warn">Unclaimed</span>}</td>
               <td className="text-right">{canManage && <span className="flex justify-end gap-1"><Button size="xs" variant="ghost" onClick={() => setEditing({ ...u, short_name: u.short_name || '', location: u.location || '', parent_id: u.parent_id || '' })}>Edit</Button>{(u.owner_user_id === identity?.user.id || orgAdmin) && <Button size="xs" variant="ghost" onClick={() => { setTransfer(u); setNewOwner(''); }}>Transfer</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm(u)}>Archive</Button></span>}</td></tr>
