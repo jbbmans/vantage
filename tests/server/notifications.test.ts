@@ -680,6 +680,41 @@ test('after comments, requests, duty, counseling and hand-offs, no notice about 
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Your unit
+
+test('enrolling someone already in the unit tells them nothing new; adding them again after a removal does', async () => {
+  const unit = await post(g1lead.token, '/api/org/units', { name: 'G-1 Admin', short_name: 'ADMIN', parent_id: 'G1' });
+  assert.equal(unit.status, 201, JSON.stringify(unit.body));
+  const admin = unit.body.id as string;
+  const added = () => storedFor(g1member.id).filter((n) => n.title === 'Added to a unit');
+  const enrol = async () => {
+    const res = await post(g1lead.token, `/api/org/units/${admin}/members`, { user_id: g1member.id });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+  };
+  await enrol();
+  assert.equal(added().length, 1, 'joining the unit tells them');
+  await enrol();
+  assert.equal(added().length, 1, 'a second enrolment, a retry or a second leader at the same time, is not news');
+  assert.equal((await del(g1lead.token, `/api/org/units/${admin}/members/${g1member.id}`)).status, 200);
+  await enrol();
+  assert.equal(added().length, 2, 'added again after a removal, they are told again');
+});
+
+test('a Unit Instance that signs someone out or changes their CAC link names itself on the notice, so its hold keeps it', async () => {
+  const titled = (title: string) => storedFor(g1member.id).filter((n) => n.title === title).at(-1);
+  const out = await post(g1lead.token, `/api/orgs/G1/members/${g1member.id}/logout`);
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.equal(titled('MARFORRES G-1 signed you out everywhere')?.org_id, 'G1');
+  const linked = await post(g1lead.token, '/api/orgs/G1/personnel/link', { user_id: g1member.id, edipi: '1234567890' });
+  assert.equal(linked.status, 200, JSON.stringify(linked.body));
+  assert.equal(titled('A CAC was linked to your account')?.org_id, 'G1');
+  const cleared = await post(g1lead.token, '/api/orgs/G1/personnel/link', { user_id: g1member.id, edipi: null });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+  assert.equal(titled('The CAC link on your account was removed')?.org_id, 'G1');
+  g1member.token = await login('g1member');
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Kept 180 days, unless a hold keeps them. Last, as its holds bind every sweep while they stand.
 
 test('notices older than 180 days are swept, except a held person’s and a held Unit Instance’s, and each run is recorded', async () => {
@@ -730,4 +765,47 @@ test('notices older than 180 days are swept, except a held person’s and a held
   assert.deepEqual(expireNotifications(app.ctx), { expired: 2, held: 0, blocked: false });
   assert.deepEqual([heldPerson, heldInstance].map(exists), [false, false]);
   assert.equal(runs().length, 3);
+});
+
+test('an instance hold keeps its notices that name no record: a leader’s message, a member added or moved, a help request', async () => {
+  const team = async (name: string, short_name: string) => {
+    const res = await post(g1lead.token, '/api/org/units', { name, short_name, parent_id: 'G1' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    return res.body.id as string;
+  };
+  const ops = await team('G-1 Operations', 'OPS');
+  const plans = await team('G-1 Plans', 'PLANS');
+  const latest = (userId: string, title: string | RegExp) => {
+    const row = storedFor(userId).filter((n) => (typeof title === 'string' ? n.title === title : title.test(n.title))).at(-1);
+    assert.ok(row, `a notice titled ${String(title)}`);
+    return row;
+  };
+
+  assert.equal((await post(g1lead.token, `/api/org/units/${ops}/members`, { user_id: g1member.id })).status, 201);
+  const added = latest(g1member.id, 'Added to a unit');
+  assert.equal((await post(g1lead.token, `/api/org/units/${ops}/members/${g1member.id}/move`, { to: plans })).status, 200);
+  const moved = latest(g1member.id, 'Moved to a new team');
+  const sent = await post(g1lead.token, '/api/org/units/G1/message', { subject: 'Formation', body: 'Formation at 0700 on the parade deck.' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const message = latest(g1member.id, /: Formation$/);
+  assert.equal(message.message, 'Formation at 0700 on the parade deck.', 'a leader’s message keeps its words');
+  g1member.token = await login('g1member');
+  const ticket = await post(g1member.token, '/api/support/tickets', { subject: 'Orders', body: 'My orders do not show.', unit_id: 'G1' });
+  assert.equal(ticket.status, 201, JSON.stringify(ticket.body));
+  const asked = latest(g1lead.id, 'A new help request');
+
+  const kept = [added, moved, message, asked];
+  assert.deepEqual(kept.map((n) => n.org_id), ['G1', 'G1', 'G1', 'G1'], 'each names its Unit Instance');
+  for (const n of kept) app.ctx.db.prepare('UPDATE notifications SET created_at = ? WHERE id = ?').run(ago(NOTICE_RETENTION_DAYS + 1), n.id);
+  const exists = (id: string) => Boolean(app.ctx.db.prepare('SELECT 1 FROM notifications WHERE id = ?').get(id));
+
+  const hold = placeHold(app.ctx, 'G1', { scope: 'instance', reason: 'Synthetic inquiry into G-1' }, g1lead.id);
+  try {
+    assert.deepEqual(expireNotifications(app.ctx), { expired: 0, held: 4, blocked: false });
+    assert.deepEqual(kept.map((n) => exists(n.id)), [true, true, true, true]);
+  } finally {
+    releaseHold(app.ctx, hold.org_id, hold.id, hold.placed_by);
+  }
+  assert.deepEqual(expireNotifications(app.ctx), { expired: 4, held: 0, blocked: false });
+  assert.deepEqual(kept.map((n) => exists(n.id)), [false, false, false, false]);
 });

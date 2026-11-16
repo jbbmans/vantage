@@ -401,7 +401,7 @@ about, never in a chat, and gives every notice the record it is about (`server/s
   no message; the record's name is read when the notice is read, after the access check, and is "A record its retention
   schedule anonymized" once it is. Help request, access request and credential approval notices no longer quote a
   subject, a reply, a reason or a note: they are read where they were written. Migration 038 cleared the words old
-  notices quoted. The stated exceptions are notices about no record: a leader's team message, a MARADMIN's number and
+  notices quoted, the old help request, access and credential notices among them. The stated exceptions are notices about no record: a leader's team message, a MARADMIN's number and
   title, a Unit Instance's suspension reason and a withheld-feature reason, and operations notes.
 - **Checked again when read.** `GET /api/me/notifications` checks each notice's record or case against its reader's
   access now (`readableEntity`) and hides one they can no longer open: deleted, moved out of reach, back in draft, or
@@ -412,7 +412,9 @@ about, never in a chat, and gives every notice the record it is about (`server/s
   person under a legal hold and those of a Unit Instance under an instance hold; a hold on every instance stops the
   sweep. A run that finds any due is recorded as a disposition run, and audited (`notifications_expired`) when it removes
   anything. A destroyed or anonymized record takes its notices with it; anonymizing also redacts every comment, request
-  and answer on it and closes its open requests.
+  and answer on it and closes its open requests. What a person under a legal hold said stays until the hold is
+  released and goes at the next run after that, as their files do; a record anonymized before migration 038 has its
+  discussion redacted, its open requests closed and its notices removed at the next run of its schedule.
 - **One Unit Instance.** A `BEFORE INSERT` trigger on `comments` (`comments_same_org_insert`) refuses an entry whose
   unit is in another Unit Instance than its record's. There is no update trigger, because a Marine's own comments
   travel with their record (ADR-0008); `instanceBoundaryViolations` counts live entries by anyone but the record's

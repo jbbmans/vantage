@@ -366,5 +366,5 @@ recordsRouter.post('/:table/:id/requests/:requestId/withdraw', wrap((req, res) =
 }));
 
 recordsRouter.get('/:table/:id/people', wrap((req, res) => {
-  res.json({ people: listSpeakers(...commentArgs(req), String(req.query.q ?? '')) });
+  res.json({ people: listSpeakers(...commentArgs(req), String(req.query.q ?? ''), req.query.kind) });
 }));

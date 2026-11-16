@@ -150,7 +150,13 @@ export function useReviewDuty() {
       qc.setQueryData<Awaited<ReturnType<typeof api.dutyReviewQueue>>>(['duty-review-queue'], (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
         ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1) } : q));
     },
-    onSettled: () => { invalidateDomains(qc, 'duty'); qc.invalidateQueries({ queryKey: ['notifications'] }); },
+    // A decision closes the duty's open review requests, so its Discussion is read again too. By what was asked, not by
+    // what came back: a refusal brings nothing back, and usually means someone else decided it first.
+    onSettled: (_saved, _error, v) => {
+      invalidateDomains(qc, 'duty');
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+      qc.invalidateQueries({ queryKey: discussionKey({ kind: 'record', table: 'duties', id: v.id }) });
+    },
   });
 }
 

@@ -51,7 +51,7 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
   const orgId = orgOfUnit(ctx, unitId);
   let emailed = 0; let queued = 0; let failed = 0;
   for (const r of list) {
-    notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team' });
+    notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team', orgId });
     if (!r.email || !ctx.mailer.enabled) continue;
     const result = await ctx.mailer.send({ to: r.email, subject: `[${unitLabel}] ${message.subject}`, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null, orgId });
     if (result.ok && result.queued) queued++;

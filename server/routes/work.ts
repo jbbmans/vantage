@@ -177,7 +177,7 @@ workRouter.get('/items/:id/comments', wrap((req, res) => { res.json({ comments: 
 workRouter.post('/items/:id/requests', wrap((req, res) => { res.status(201).json(addRequest(...caseArgs(req), req.body, clientIp(req))); }));
 workRouter.post('/items/:id/requests/:requestId/answer', wrap((req, res) => { res.json(answerRequest(...caseArgs(req), String(req.params.requestId), req.body, clientIp(req))); }));
 workRouter.post('/items/:id/requests/:requestId/withdraw', wrap((req, res) => { res.json(withdrawRequest(...caseArgs(req), String(req.params.requestId), clientIp(req))); }));
-workRouter.get('/items/:id/people', wrap((req, res) => { res.json({ people: listSpeakers(...caseArgs(req), String(req.query.q ?? '')) }); }));
+workRouter.get('/items/:id/people', wrap((req, res) => { res.json({ people: listSpeakers(...caseArgs(req), String(req.query.q ?? ''), req.query.kind) }); }));
 
 // A unit leader holds a resolved, verified case up as an example for the next one like it (ADR-0022). Never the person
 // who resolved it; withdrawn with a reason, never removed.

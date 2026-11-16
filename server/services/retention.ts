@@ -150,6 +150,12 @@ export interface DispositionLine {
   skipped?: string;
   /** Under an anonymize schedule: the files on the records it anonymizes or has anonymized, which a run removes (ADR-0025). */
   files?: number;
+  /**
+   * Under an anonymize schedule: the records anonymized earlier that still have something said on them, which a run takes
+   * now (ADR-0031). That is what was said before migration 038, when a record's discussion did not yet go with its words,
+   * and what a person said while under a legal hold that has since been released.
+   */
+  discussions?: number;
 }
 
 export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: boolean; actorId: string | null; at?: Date }): { lines: DispositionLine[]; blocked: string | null } {
@@ -181,9 +187,12 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
     const table = schedule.record_type as RecordTable;
     const heldUsers = [...holds.users];
     const exclusion = heldUsers.length ? ` AND user_id NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
+    // A hold on a person keeps what they wrote, on anyone's record: the files they added and what they said.
+    const authored = heldUsers.length ? ` AND author_id NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
     // An anonymized row stays past the cutoff for good. It is done, not due again at every run.
     const columns = schedule.disposition === 'anonymize' ? identifyingColumns(ctx, table) : [];
-    const done = columns.length ? ` AND NOT (${columns.map((c) => `${c} IS ?`).join(' AND ')})` : '';
+    const anonymized = columns.map((c) => `${c} IS ?`).join(' AND ');
+    const done = columns.length ? ` AND NOT (${anonymized})` : '';
     const owned = ` AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))`;
     const due = `${clock} IS NOT NULL AND ${clock} < ?${owned}${exclusion}${done}`;
     const params = [cutoff, orgUnits, ...heldUsers, ...columns.map(() => REDACTED)];
@@ -201,7 +210,6 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
     const anonymizes = schedule.disposition === 'anonymize' && columns.length > 0;
     let fileIds: string[] = [];
     if (anonymizes) {
-      const anonymized = columns.map((c) => `${c} IS ?`).join(' AND ');
       const records = `SELECT id FROM ${table} WHERE visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))${exclusion} AND ((${clock} IS NOT NULL AND ${clock} < ?) OR (${anonymized}))`;
       // A hold on a person keeps the files they added, on anyone's record, as the recycle-bin purge does.
       const uploader = heldUsers.length ? ` AND a.uploaded_by NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
@@ -213,10 +221,33 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
     }
     let files = fileIds.length;
 
+    // What was said on a record goes with its words (ADR-0031): every comment, request, answer and assignment note on it
+    // keeps who said what kind of thing and when, and loses what it said, except what a person under a hold said. Its
+    // notices go; open requests close.
+    const silence = (list: string[]) => {
+      if (!list.length) return;
+      const json = JSON.stringify(list);
+      ctx.db.prepare(`UPDATE comments SET body = ?, mentions = '[]' WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?)) AND body IS NOT ?${authored}`).run(REDACTED, table, json, REDACTED, ...heldUsers);
+      ctx.db.prepare(`UPDATE comments SET state = 'closed', closed_at = ? WHERE record_table = ? AND state = 'open' AND record_id IN (SELECT value FROM json_each(?))`).run(stamp, table, json);
+      forgetNotices(ctx, table, list);
+    };
+    // A record anonymized earlier can still have words on it: what was said before migration 038, and what a hold kept
+    // until it was released. A run takes them, as it takes the files of records anonymized earlier: only the ones with
+    // something left to take, so a run with nothing left changes nothing.
+    let earlier: string[] = [];
+    if (anonymizes) {
+      const json = JSON.stringify((ctx.db.prepare(`SELECT id FROM ${table} WHERE ${anonymized}${owned}${exclusion}`)
+        .all(...columns.map(() => REDACTED), orgUnits, ...heldUsers) as Array<{ id: string }>).map((r) => r.id));
+      earlier = (ctx.db.prepare(`SELECT record_id AS id FROM comments WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?)) AND ((body IS NOT ?${authored}) OR state = 'open')
+        UNION SELECT entity_id FROM notifications WHERE entity = ? AND entity_id IN (SELECT value FROM json_each(?))`)
+        .all(table, json, REDACTED, ...heldUsers, table, json) as Array<{ id: string }>).map((r) => r.id);
+    }
+    const discussions = earlier.length;
+
     let acted = 0;
-    if (!opts.dryRun && (eligible > 0 || files > 0)) {
+    if (!opts.dryRun && (eligible > 0 || files > 0 || discussions > 0)) {
       ctx.db.transaction(() => {
-        if (eligible === 0) { /* nothing to anonymize or destroy; only files left on records already anonymized */ }
+        if (eligible === 0) { /* nothing to anonymize or destroy; only files or discussion left on records already anonymized */ }
         else if (schedule.disposition === 'destroy') {
           const ids = (ctx.db.prepare(`SELECT id FROM ${table} WHERE ${due}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
           acted = destroyRecords(ctx, table, ids, holds).records;
@@ -228,11 +259,7 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
           // so does what it said before an import changed it, which an undo would otherwise write back (ADR-0019).
           destroyLineage(ctx, table, ids, holds);
           forgetImportSnapshots(ctx, table, ids);
-          // What was said on it goes with its words (ADR-0031): every comment, request, answer and assignment note on it
-          // keeps who said what kind of thing and when, and loses what it said. Its notices go; open requests close.
-          ctx.db.prepare(`UPDATE comments SET body = ?, mentions = '[]' WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?)) AND body IS NOT ?`).run(REDACTED, table, JSON.stringify(ids), REDACTED);
-          ctx.db.prepare(`UPDATE comments SET state = 'closed', closed_at = ? WHERE record_table = ? AND state = 'open' AND record_id IN (SELECT value FROM json_each(?))`).run(stamp, table, JSON.stringify(ids));
-          forgetNotices(ctx, table, ids);
+          silence(ids);
           // A duty's reviewers' words go with its own (ADR-0024): the reason its points were set apart, and every reason
           // in its review history. Who decided, when, and the points stay, as its score does.
           if (table === 'duties') {
@@ -253,18 +280,19 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
             ctx.db.prepare('UPDATE counseling_revisions SET content = ?, reason = ? WHERE counseling_id IN (SELECT value FROM json_each(?))').run(REDACTED, REDACTED, JSON.stringify(ids));
           }
         }
+        silence(earlier);
         if (fileIds.length) files = ctx.db.prepare('DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(fileIds)).changes;
       })();
     }
 
-    lines.push({ record_type: schedule.record_type, disposition: schedule.disposition, retain_days: schedule.retain_days, cutoff, eligible, held, acted, ...(files ? { files } : {}) });
+    lines.push({ record_type: schedule.record_type, disposition: schedule.disposition, retain_days: schedule.retain_days, cutoff, eligible, held, acted, ...(files ? { files } : {}), ...(discussions ? { discussions } : {}) });
     ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at, org_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}${files ? `; ${files} attached file${files === 1 ? '' : 's'} ${opts.dryRun ? 'to remove' : 'removed'}` : ''}`, stamp, opts.orgId);
+      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}${files ? `; ${files} attached file${files === 1 ? '' : 's'} ${opts.dryRun ? 'to remove' : 'removed'}` : ''}${discussions ? `; the discussion on ${discussions} record${discussions === 1 ? '' : 's'} anonymized earlier ${opts.dryRun ? 'to redact' : 'redacted'}` : ''}`, stamp, opts.orgId);
   }
 
-  if (!opts.dryRun && lines.some((l) => l.acted > 0 || l.files)) {
-    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', org_id: opts.orgId, detail: lines.filter((l) => l.acted || l.files).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}${l.files ? `, ${l.files} files` : ''}`).join('; ') });
+  if (!opts.dryRun && lines.some((l) => l.acted > 0 || l.files || l.discussions)) {
+    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', org_id: opts.orgId, detail: lines.filter((l) => l.acted || l.files || l.discussions).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}${l.files ? `, ${l.files} files` : ''}${l.discussions ? `, ${l.discussions} earlier discussions` : ''}`).join('; ') });
   }
   return { lines, blocked: null };
 }

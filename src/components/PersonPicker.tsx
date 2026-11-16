@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search } from 'lucide-react';
 import * as api from '@/lib/api';
 import { discussionKey } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import type { Speaker } from '../../shared/workflowMessages';
+import type { RequestKind, Speaker } from '../../shared/workflowMessages';
 
 /** How long typing must pause before the people on a record are looked up. The lookup is rate limited. */
 const DEBOUNCE_MS = 250;
@@ -15,8 +15,10 @@ const DEBOUNCE_MS = 250;
  * Down opens the list and moves through it, Enter chooses, Escape closes the list, then clears what was typed, then
  * cancels. The list is part of the page, not a floating layer, so it is never cut off inside a dialog.
  */
-export function PersonPicker({ host, label, hideLabel = false, hint, onChoose, onCancel, autoFocus = false, placeholder = 'Type a name', inputRef, className }: {
+export function PersonPicker({ host, kind, label, hideLabel = false, hint, onChoose, onCancel, autoFocus = false, placeholder = 'Type a name', inputRef, className }: {
   host: api.DiscussionHost;
+  /** What they are to be asked, when they are asked something: the server offers only those who may be asked it. */
+  kind?: RequestKind;
   /** What the field is for: "Ask whom", "Name someone". */
   label: string;
   hideLabel?: boolean;
@@ -48,13 +50,16 @@ export function PersonPicker({ host, label, hideLabel = false, hint, onChoose, o
   }, [text]);
 
   const people = useQuery({
-    // Not under the discussion's own key: refreshing what was said must not look the people up again.
-    queryKey: ['discussion-people', ...discussionKey(host).slice(1), query],
-    queryFn: () => api.discussionPeople(host, query),
+    // Not under the discussion's own key: refreshing what was said must not look the people up again. By kind, since who
+    // may be asked for a review is not always who may be named.
+    queryKey: ['discussion-people', ...discussionKey(host).slice(1), kind ?? null, query],
+    queryFn: () => api.discussionPeople(host, query, kind),
     enabled: open && Boolean(host.id),
     staleTime: 30_000,
     retry: false,
-    placeholderData: keepPreviousData,
+    // Earlier rows stay up while the next lookup runs, but only for the same kind: a review may go to fewer people than a
+    // question, so rows looked up for one are never offered for the other.
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey.at(-2) === (kind ?? null) ? previous : undefined),
   });
   const rows: Speaker[] = people.data?.people ?? [];
   const optionId = (p: Speaker) => `${uid}-option-${p.id}`;

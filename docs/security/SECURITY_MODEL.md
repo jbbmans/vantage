@@ -92,7 +92,10 @@ What is said on a record or a work case, and what Vantage tells people about it 
   read, after the access check. `GET /api/me/notifications` hides, and leaves out of the unread count, any notice whose
   record or work case its reader can no longer open. A person's export applies the same check.
 - **Lifecycle:** notices are kept 180 days, except under a legal hold on the person or their Unit Instance; a destroyed
-  or anonymized record takes its notices with it, and anonymizing redacts every comment, request and answer on it.
+  or anonymized record takes its notices with it, and anonymizing redacts every comment, request and answer on it,
+  except what a person under a legal hold said, which goes at the next run after the hold is released. A record
+  anonymized before migration 038 has its discussion redacted at the next run of its schedule. A notice about a Unit
+  Instance names it even when it names no record, so an instance hold keeps it.
 - **One Unit Instance:** a `BEFORE INSERT` trigger (`comments_same_org_insert`, migration 038) refuses an entry whose
   unit is in another Unit Instance than its record's, and `instanceBoundaryViolations` counts live entries by anyone
   but the record's Marine across the boundary.

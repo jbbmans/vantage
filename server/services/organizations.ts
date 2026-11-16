@@ -106,7 +106,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
     }
   })();
   audit(ctx, { actor_id: actor.id, action: 'organization_created', entity: 'organization', entity_id: code, org_id: code, subject_id: owner?.id ?? null, detail: name, ip });
-  if (owner) notify(ctx, owner.id, { kind: 'unit', title: `You are Lead Unit Manager of ${name} on Vantage`, message: 'Open the Unit Manager console to set it up: units, members, roles and the personnel feed.', actionUrl: '/console', dedupeKey: `org-owner:${code}:${owner.id}` });
+  if (owner) notify(ctx, owner.id, { kind: 'unit', title: `You are Lead Unit Manager of ${name} on Vantage`, message: 'Open the Unit Manager console to set it up: units, members, roles and the personnel feed.', actionUrl: '/console', orgId: code, dedupeKey: `org-owner:${code}:${owner.id}` });
   return publicOrg(getOrg(ctx, code)!);
 }
 
@@ -178,7 +178,7 @@ export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string,
   audit(ctx, { actor_id: actor.id, action: 'org_role_granted', category, entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: target.id, detail: `${input.role}${expires ? ` until ${expires.toISOString().slice(0, 10)}` : ''}`, ip });
   const label = ORG_ROLES[input.role as OrgRole].label;
   const orgName = getOrg(ctx, orgId)?.name ?? 'a Unit Instance';
-  notify(ctx, target.id, { kind: 'unit', title: `You are now ${label} of ${orgName}`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console' });
+  notify(ctx, target.id, { kind: 'unit', title: `You are now ${label} of ${orgName}`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console', orgId });
   notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${target.first_name} ${target.last_name} was made ${label}`, message: `By ${actor.first_name} ${actor.last_name}${expires ? `, until ${expires.toISOString().slice(0, 10)}` : ''}.`, actionUrl: '/console/people' }, [actor.id, target.id]);
   return orgRoleHolders(ctx, orgId);
 }
@@ -221,7 +221,7 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
   invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: 'owner', ip });
   audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: owner`, ip });
-  notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console' });
+  notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console', orgId });
   return orgRoleHolders(ctx, orgId);
 }
 
@@ -253,7 +253,7 @@ export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string
   const roles = revokeOrgRole(ctx, actor, orgId, userId, role, ip, 'enterprise');
   const label = ORG_ROLES[role].label;
   audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${role} (${label})`, ip });
-  notify(ctx, userId, { kind: 'unit', title: `You are no longer ${label} of ${org.name}`, message: 'A Vantage Administrator removed the role. Ask your Lead Unit Manager if you did not expect this.', actionUrl: '/settings' });
+  notify(ctx, userId, { kind: 'unit', title: `You are no longer ${label} of ${org.name}`, message: 'A Vantage Administrator removed the role. Ask your Lead Unit Manager if you did not expect this.', actionUrl: '/settings', orgId });
   notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${person.first_name} ${person.last_name} is no longer ${label}`, message: `Removed by Vantage (${actor.first_name} ${actor.last_name}).`, actionUrl: '/console/people' }, userId);
   return roles;
 }
@@ -326,7 +326,7 @@ export function setUnitLeader(ctx: AppContext, actor: SessionUser, orgId: string
   guardUnprovenOwnAccount(ctx, actor, userId, { scope, unitId, bits: PERMISSIONS.ADMINISTRATOR });
   const { previous, sessionsRevoked } = claimUnit(ctx, unitId, userId);
   audit(ctx, { actor_id: actor.id, action: 'unit_leader_set', entity: 'unit', entity_id: unitId, unit_id: unitId, org_id: orgId, subject_id: userId, detail: `${previous || 'unled'} -> ${userId}`, ip });
-  notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team' });
+  notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', orgId });
   return { ok: true, sessionsRevoked };
 }
 

@@ -493,7 +493,8 @@ const MIGRATIONS: Migration[] = [
     // new one, last and in order. Every comment already written is a comment; one said on a counseling before it was
     // final becomes private to its counselor and its Marine, as it was when it was said. Every notice already sent that
     // links to a record is given that record, so it is checked again when read; the words old notices quoted from a
-    // comment, a hand-off or a task are cleared, because a notice carries nobody's words. No row is removed.
+    // comment, a hand-off, a task, a help request, or a reason or note about Vantage access or a sign-in change are
+    // cleared, because a notice carries nobody's words. No row is removed.
     run: (db) => {
       const comments = columnsOf(db, 'comments');
       if (!comments.has('kind')) db.exec(`ALTER TABLE comments ADD COLUMN kind TEXT NOT NULL DEFAULT 'comment' CHECK (kind IN ('comment', 'review_request', 'clarification_request', 'answer', 'assignment_note'))`);
@@ -561,8 +562,9 @@ const NOTICE_LINKS: ReadonlyArray<[RegExp, string]> = [
  * (importInstance). A comment said on a counseling before it was final is private to its counselor and its Marine, as it
  * was when it was said: while it is still a draft or in review, or before the moment it was finalized. A notice that
  * links to a record or a work case is given it, with its Unit Instance, so it is checked again when read; one whose kind
- * quoted what somebody wrote (a comment, a hand-off's note, a task's title) keeps its title and loses the words. Safe to
- * run again: it only fills what is empty and clears what a notice must not hold.
+ * quoted what somebody wrote (a comment, a hand-off's note, a task's title, a help request or a reply on it, a reason or a
+ * note given about Vantage access or a sign-in change) keeps its title and loses the words. Safe to run again: it only
+ * fills what is empty and clears what a notice must not hold.
  */
 export function backfillWorkflowMessages(db: Db) {
   if (columnsOf(db, 'comments').has('private') && columnsOf(db, 'counselings').has('stage')) {
@@ -589,6 +591,15 @@ export function backfillWorkflowMessages(db: Db) {
     }
   }
   db.exec(`UPDATE notifications SET message = NULL WHERE message IS NOT NULL AND kind IN ('comment_added', 'comment_mention', 'work_assigned', 'assignment')`);
+  // So do the notices that quoted a help request's subject or a reply on it, the reason Vantage support gave for asking
+  // to look at a Unit Instance or the note it was answered with (a denial was the note alone, with no quotation marks),
+  // and the reason for a change to a sign-in or the note it was answered with. The ones sent beside them quote nobody,
+  // and keep what they said: who finished looking or withdrew the request, and when access ends.
+  db.exec(`UPDATE notifications SET message = NULL WHERE message IS NOT NULL AND (
+    kind IN ('support_ticket', 'support_reply', 'support_assigned')
+    OR (kind = 'system' AND action_url = '/console/access' AND dedupe_key LIKE 'access:%')
+    OR (kind = 'system' AND action_url = '/admin/access' AND (dedupe_key IS NULL OR dedupe_key NOT LIKE 'access-ending:%'))
+    OR (kind = 'security' AND action_url = '/admin/accounts'))`);
   // The demonstration's old "work" notices were about work that moved; the catalogue names that kind now.
   db.exec(`UPDATE notifications SET kind = 'work_moved' WHERE kind = 'work'`);
   // A training has no page of its own under /records: its notices open it where it lives.

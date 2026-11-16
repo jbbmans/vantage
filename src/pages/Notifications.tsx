@@ -65,8 +65,8 @@ function manyText(n: NoticeRow): string | null {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * A polite status line that says something once, then clears, so the same words can be said again later. Two things
- * said together ("Marked read." as a refresh brings "1 new notice") are both kept.
+ * A polite status line for what the person did here ("Marked read."): it says something once, then clears, so the same
+ * words can be said again later. New notices are not said here: the bell's status line, on every page, says them once.
  */
 function useStatus(): [string, (text: string) => void] {
   const [text, setText] = useState('');
@@ -87,7 +87,6 @@ function Notices() {
   const [groupParam, setGroup] = useParam('group', 'all');
   const show: Show = showParam === 'unread' ? 'unread' : 'all';
   const group: NoticeGroup | null = isGroup(groupParam) ? groupParam : null;
-  const view = `${show}:${group ?? 'all'}`;
   const [status, say] = useStatus();
   const [marking, setMarking] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -106,19 +105,6 @@ function Notices() {
     return (list.data?.pages ?? []).flatMap((p) => p.rows).filter((r) => !ids.has(r.id) && (ids.add(r.id), true));
   }, [list.data]);
   const unread = list.data?.pages[0]?.unread ?? 0;
-
-  // A refresh that brings unread notices that were not there says so. Older ones loaded by "Show more" are not new.
-  const seen = useRef<{ view: string; ids: Set<string> } | null>(null);
-  useEffect(() => {
-    const pages = list.data?.pages;
-    if (!pages) return;
-    const all = pages.flatMap((p) => p.rows);
-    if (seen.current?.view !== view) { seen.current = { view, ids: new Set(all.map((r) => r.id)) }; return; }
-    const known = seen.current.ids;
-    const fresh = (pages[0]?.rows ?? []).filter((r) => !r.read_at && !known.has(r.id)).length;
-    for (const r of all) known.add(r.id);
-    if (fresh) say(plural(fresh, 'new notice', 'new notices'));
-  }, [list.data, view, say]);
 
   const refresh = () => qc.invalidateQueries({ queryKey: keys.notifications });
 

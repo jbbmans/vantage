@@ -393,9 +393,10 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
         throw conflict('This work is waiting to be verified. Return it for correction from its stage, saying what needs correcting.', 'reason_required');
       }
       if (returning) after.push(() => tellReturned(ctx, user, row as never));
-      if (closing) after.push(() => caseClosed(ctx, user, row as never, STATE_TO_STAGE[patch.state!] as Stage));
+      // Only a case that really closes now tells its holder: sending the same closed state again changes nothing.
+      if (closing && stageNow !== STATE_TO_STAGE[patch.state]) after.push(() => caseClosed(ctx, user, row as never, STATE_TO_STAGE[patch.state!] as Stage));
       sets.push('state = ?'); params.push(patch.state);
-      sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
+      if (patch.state !== row.state) { sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null); }
       const toStage = STATE_TO_STAGE[patch.state];
       sets.push('stage = ?'); params.push(toStage);
       if (patch.state !== 'waiting') { sets.push('waiting_category = NULL', 'waiting_since = NULL'); }

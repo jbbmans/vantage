@@ -61,12 +61,13 @@ export function primaryOrgOf(ctx: AppContext, userId: string): { unitId: string;
 /**
  * Seat a person in a unit. The account is not touched: whoever they were before, they are still (ADR-0009). `reason`
  * is written on the membership period this opens, and only when it opens one: re-seating a member changes no history.
+ * Returns whether they joined, which is false for someone already a member of the unit.
  */
-export function addMember(ctx: AppContext, userId: string, unitId: string, { invitedBy = null, primary = false, billet = null, reason = null }: { invitedBy?: string | null; primary?: boolean; billet?: string | null; reason?: StartReason | null } = {}) {
+export function addMember(ctx: AppContext, userId: string, unitId: string, { invitedBy = null, primary = false, billet = null, reason = null }: { invitedBy?: string | null; primary?: boolean; billet?: string | null; reason?: StartReason | null } = {}): boolean {
   const current = primaryOrgOf(ctx, userId);
   // Enrollment in one Unit Instance never takes the primary unit a person holds in another: that one is theirs to move.
   const isPrimary = !current || (primary && current.orgId === orgOfUnit(ctx, unitId)) ? 1 : 0;
-  ctx.db.transaction(() => {
+  return ctx.db.transaction(() => {
     const joining = !ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId);
     if (isPrimary) ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId);
     ctx.db.prepare(
@@ -80,6 +81,7 @@ export function addMember(ctx: AppContext, userId: string, unitId: string, { inv
     const role = def && !ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, def)
       ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(def) as { name: string; permissions: number } | undefined : undefined;
     if (def && role && mayCarryRole(ctx, invitedBy, userId, unitId, role, invitedBy)) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
+    return joining;
   })();
 }
 
@@ -301,7 +303,7 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
     sessionsRevoked += invalidateUserSessions(ctx, successor.id);
   })();
   audit(ctx, { actor_id: actor.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId, subject_id: successor.id, unit_id: unitId, detail: `${unit.owner_user_id || 'unowned'} -> ${successor.id}`, ip });
-  notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}:${now()}` });
+  notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', orgId: orgOfUnit(ctx, unitId), dedupeKey: `owner:${unitId}:${successor.id}:${now()}` });
   return { ok: true, sessionsRevoked };
 }
 
@@ -416,7 +418,7 @@ export function mayCarryRole(ctx: AppContext, grantorId: string | null, targetId
   if (tell) notify(ctx, grantorId, {
     kind: 'unit', title: `${person ?? 'A new member'} joined ${unit?.short_name || unit?.name || 'the unit'} without ${role.name}`,
     message: 'You created or invited this account, and it hasn’t signed in with its own CAC or the organization’s sign-in yet, so a role that reads records waits. Another Unit Manager or the chain of command can grant it.',
-    actionUrl: '/team',
+    actionUrl: '/team', orgId: orgOfUnit(ctx, unitId),
   });
   return false;
 }

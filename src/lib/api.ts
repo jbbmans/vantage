@@ -235,8 +235,12 @@ export const askRequest = (h: DiscussionHost, body: { kind: RequestKind; address
 export const answerRequest = (h: DiscussionHost, requestId: string, body: { outcome?: 'looks_right' | 'needs_changes'; body?: string }) =>
   api.post<{ request: DiscussionEntry; answer: DiscussionEntry | null }>(`${discussionBase(h)}/requests/${encodeURIComponent(requestId)}/answer`, body);
 export const withdrawRequest = (h: DiscussionHost, requestId: string) => api.post<DiscussionEntry>(`${discussionBase(h)}/requests/${encodeURIComponent(requestId)}/withdraw`);
-/** Who may be named or asked on it: up to ten, by rank and name, matching `q`. */
-export const discussionPeople = (h: DiscussionHost, q: string) => api.get<{ people: Speaker[] }>(`${discussionBase(h)}/people?q=${encodeURIComponent(q)}`);
+/**
+ * Who may be named or asked on it: up to ten, by rank and name, matching `q`. With a request kind, only those who may be
+ * asked that: on a duty, a review goes only to someone who may decide it, never its Marine.
+ */
+export const discussionPeople = (h: DiscussionHost, q: string, kind?: RequestKind) =>
+  api.get<{ people: Speaker[] }>(`${discussionBase(h)}/people?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`);
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put<DiscussionEntry & Told>(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 

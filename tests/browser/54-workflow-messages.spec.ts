@@ -9,6 +9,8 @@ import { ensureSetup, joinUnit, loginAs, logout, registerAs, unique, OPERATOR } 
  * sees the answer and is told it came. A notice names the event, who and the record, never anybody's words. Discussion is
  * one of the three groups a person may turn off in Settings, and the choice holds. Every view reads cleanly to assistive
  * technology in both themes, including the open bell and the open person picker, and the Notifications page fits a phone.
+ * A request its record's workflow closes (a duty decided, a case closed), or its asker takes back, shows so on the page
+ * that is open, and a new notice is said once, by the bell, on every page.
  */
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -318,4 +320,196 @@ test('Notifications fits a phone: both tabs, the bell and the record the questio
   await expect(entryFor(discussion, question).getByLabel(/^Your answer/)).toBeVisible();
   await noSidewaysScroll(page, 'a question to answer at 390px');
   for (const c of [lead.context, asker.context, phone.context]) await c.close();
+});
+
+/** Duty types and a scoring version in force in G-8, so a Marine's duty can be recorded and decided. */
+async function dutyInForce(lead: Page) {
+  for (const path of ['/api/orgs/G8/duty-types/standard', '/api/__test/duty-scoring?org=G8']) {
+    const res = await lead.request.post(path, { headers: H });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  }
+}
+
+/** A duty the Marine on `page` stood three days ago and recorded for themselves: it waits for review. */
+async function dutyStood(page: Page, title: string) {
+  const options = await (await page.request.get('/api/record/duty/options')).json();
+  const type = (options.types as Array<{ id: string; code: string }>).find((t) => t.code === 'DNCO');
+  expect(type, 'the DNCO duty type').toBeTruthy();
+  const day = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const res = await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: type!.id, unit_id: 'G8', title, date: day, start_time: '0800', end_date: day, end_time: '1600', visibility: 'unit' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  return (await res.json()).id as string;
+}
+
+test('on a duty, Ask for review offers only who may decide it, and the decision shows the request closed in the open dialog', async ({ browser }) => {
+  test.setTimeout(150_000);
+  const lead = await leader(browser);
+  await dutyInForce(lead.page);
+  const owner = await marine(browser, lead.page, 'wmf');
+  const title = `DNCO ${unique('d')}`;
+  const dutyId = await dutyStood(owner.page, title);
+  const words = `The DNCO log has the relief at 1600. ${unique('w')}`;
+
+  // The Marine asks for review from their duty's Discussion, of someone who may decide it.
+  const m = owner.page;
+  await m.goto(`/record/duty?open=${dutyId}`);
+  const own = m.getByRole('dialog', { name: title });
+  const discussion = own.getByRole('heading', { name: 'Discussion', exact: true }).locator('xpath=ancestor::section[1]');
+  await discussion.locator('label').filter({ hasText: 'Ask for review' }).click();
+  await expect(discussion).toContainText('Ask someone who reviews duty in its unit. Its Marine cannot review it.');
+  await discussion.getByRole('combobox', { name: 'Ask whom' }).fill(OPERATOR.username);
+  const reviewer = discussion.getByRole('option', { name: new RegExp(`${OPERATOR.last_name}.*@${OPERATOR.username}`) });
+  await expect(reviewer).toBeVisible();
+  await reviewer.click();
+  await discussion.getByLabel('What should they review', { exact: true }).fill(words);
+  await discussion.getByRole('button', { name: 'Ask for review', exact: true }).click();
+  await expect(discussion.getByRole('status').filter({ hasText: /^Asked .*Boletz\. They are told/ })).toBeVisible();
+  await expect(entryFor(discussion, words)).toContainText('Open');
+
+  // The reviewer opens it from the notice's link and sees the request open.
+  const l = lead.page;
+  await l.goto(`/record/duty?open=${dutyId}`);
+  const deciding = l.getByRole('dialog', { name: title });
+  const theirs = deciding.getByRole('heading', { name: 'Discussion', exact: true }).locator('xpath=ancestor::section[1]');
+  const request = entryFor(theirs, words);
+  await expect(request).toContainText('Review request to you');
+  await expect(request).toContainText('Open');
+  await expect(request.getByRole('button', { name: 'Looks right' })).toBeVisible();
+  // A question may go to the duty's Marine, a review never: the picker offers them for the one and not the other.
+  await theirs.locator('label').filter({ hasText: 'Ask a question' }).click();
+  const whom = theirs.getByRole('combobox', { name: 'Ask whom' });
+  const lookedUp = l.waitForResponse((r) => {
+    const u = new URL(r.url());
+    return u.pathname.endsWith('/people') && u.searchParams.get('q') === owner.username;
+  });
+  await whom.fill(owner.username);
+  await lookedUp;
+  const theMarine = theirs.getByRole('option', { name: new RegExp(`@${owner.username}`) });
+  await expect(theMarine, 'a question, to its Marine').toBeVisible();
+  await theMarine.click();
+  const chosen = theirs.getByRole('button', { name: new RegExp(`^Change who to ask, now .*${owner.name}`) });
+  await expect(chosen).toBeVisible();
+  // Turning the question into a review lets go of the Marine, and the picker comes back to choose who may review it.
+  await theirs.locator('label').filter({ hasText: 'Ask for review' }).click();
+  await expect(chosen, 'the Marine chosen for a question is not kept for a review').toHaveCount(0);
+  await expect(theirs.getByText('Asking', { exact: true })).toHaveCount(0);
+  await expect(whom).toBeVisible();
+  await expect(theirs).toContainText('Ask someone who reviews duty in its unit. Its Marine cannot review it.');
+  await whom.fill(owner.username);
+  await expect(theirs.getByText('Nobody by that name can be asked or named here.'), 'a review, never to its Marine').toBeVisible();
+  await expect(theirs.getByRole('option')).toHaveCount(0);
+  await whom.press('Escape');
+  // Names looked up for a question are not offered for a review, not even while the review's own lookup is on its way.
+  const fresh = owner.username.slice(1);
+  await theirs.locator('label').filter({ hasText: 'Ask a question' }).click();
+  const forQuestion = l.waitForResponse((r) => {
+    const u = new URL(r.url());
+    return u.pathname.endsWith('/people') && u.searchParams.get('q') === fresh;
+  });
+  await whom.fill(fresh);
+  await forQuestion;
+  await expect(theMarine, 'a question, to its Marine').toBeVisible();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const forReview = (url: URL) => url.pathname.endsWith('/people') && url.searchParams.get('kind') === 'review_request' && url.searchParams.get('q') === fresh;
+  await l.route(forReview, async (route) => { await held; await route.continue(); });
+  const reviewAsked = l.waitForRequest((r) => forReview(new URL(r.url())));
+  await theirs.locator('label').filter({ hasText: 'Ask for review' }).click();
+  await whom.click();
+  await reviewAsked;
+  await expect(theirs.getByRole('status').filter({ hasText: 'Looking…' }), 'the review lookup is still on its way').toBeVisible();
+  await expect(theMarine, 'nothing looked up for a question is offered meanwhile').toHaveCount(0);
+  release();
+  await expect(theirs.getByText('Nobody by that name can be asked or named here.')).toBeVisible();
+  await l.unroute(forReview);
+  await whom.press('Escape');
+
+  // Deciding the duty in the same dialog closes the request, and the Discussion beside it says so at once.
+  await deciding.getByRole('region', { name: 'Your decision' }).getByRole('button', { name: /^Approve .* for 3 points$/ }).click();
+  await toast(l, 'Approved for 3 points.');
+  await expect(request).toContainText('Closed');
+  await expect(request).not.toContainText('Open');
+  await expect(request.getByRole('button', { name: 'Looks right' }), 'nothing is left to answer').toHaveCount(0);
+  for (const c of [lead.context, owner.context]) await c.close();
+});
+
+test('closing a case shows what was asked on it closed in its Discussion at once', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const lead = await leader(browser);
+  const asked = await marine(browser, lead.page, 'wmh');
+  const reference = unique('CASE');
+  const made = await lead.page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Match the October DD 1131 ${reference}`, reference } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const caseId = (await made.json()).id as string;
+  const question = `Which mod is the award total from? ${unique('q')}`;
+  const sent = await lead.page.request.post(`/api/work/items/${caseId}/requests`, { headers: H, data: { kind: 'clarification_request', addressee_id: asked.id, body: question } });
+  expect(sent.ok(), await sent.text()).toBeTruthy();
+
+  const p = lead.page;
+  await p.goto(`/work/items/${caseId}`);
+  const discussion = panel(p, 'Discussion');
+  const mine = entryFor(discussion, question);
+  await expect(mine).toContainText('Open');
+  await expect(mine.getByRole('button', { name: /^Withdraw/ })).toBeVisible();
+  await p.getByRole('combobox', { name: 'Move to stage' }).click();
+  await p.getByRole('option', { name: 'Not applicable', exact: true }).click();
+  await p.getByRole('dialog', { name: 'Move to not applicable' }).getByRole('button', { name: 'Move it' }).click();
+  await toast(p, 'Moved to not applicable.');
+  await expect(mine).toContainText('Closed');
+  await expect(mine.getByRole('button', { name: /^Withdraw/ }), 'nothing open is left to withdraw').toHaveCount(0);
+  for (const c of [lead.context, asked.context]) await c.close();
+});
+
+test('an answer to a question taken back meanwhile says why it failed, and the question shows as it now stands', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const lead = await leader(browser);
+  const asker = await marine(browser, lead.page, 'wmi');
+  const asked = await marine(browser, lead.page, 'wmj');
+  const title = `Total the October TAD vouchers ${unique('t')}`;
+  const taskId = await sharedTask(lead.page, asker.id, title);
+  const question = `Do the two late vouchers go in October? ${unique('q')}`;
+  const sent = await asker.page.request.post(`/api/records/tasks/${taskId}/requests`, { headers: H, data: { kind: 'clarification_request', addressee_id: asked.id, body: question } });
+  expect(sent.ok(), await sent.text()).toBeTruthy();
+  const requestId = (await sent.json()).id as string;
+
+  const b = asked.page;
+  await b.goto(`/records/tasks/${taskId}`);
+  const discussion = panel(b, 'Discussion');
+  const toThem = entryFor(discussion, question);
+  await expect(toThem).toContainText('Open');
+  await toThem.getByLabel(/^Your answer/).fill('Yes, both of them.');
+  // The asker takes it back while the answer is being written.
+  const withdrawn = await asker.page.request.post(`/api/records/tasks/${taskId}/requests/${requestId}/withdraw`, { headers: H });
+  expect(withdrawn.ok(), await withdrawn.text()).toBeTruthy();
+  await toThem.getByRole('button', { name: 'Answer', exact: true }).click();
+  await expect(discussion.getByRole('status').filter({ hasText: 'This request is no longer open.' })).toBeVisible();
+  await expect(toThem).toContainText('Withdrawn');
+  await expect(toThem.getByLabel(/^Your answer/), 'no form left to fail again').toHaveCount(0);
+  await expect(toThem, 'focus moves to the entry, not to the page, once its form has gone').toBeFocused();
+  for (const c of [lead.context, asker.context, asked.context]) await c.close();
+});
+
+test('on Notifications, a notice that arrives is said once, by the bell, and not again by the page', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const lead = await leader(browser);
+  const me = await marine(browser, lead.page, 'wmk');
+  const title = `Sort the October receipts ${unique('t')}`;
+  const taskId = await sharedTask(lead.page, me.id, title);
+  const page = me.page;
+  await page.clock.install();
+  await page.goto('/notifications');
+  await expect(page.getByRole('heading', { level: 1, name: 'Notifications' })).toBeVisible();
+  const section = page.getByRole('region', { name: 'Notices' });
+  await expect(section.getByRole('list', { name: 'Notices' }).or(section.getByText('No notices yet'))).toBeVisible();
+
+  // A comment on their task arrives while they are on the page. The bell and the page are each read again every minute.
+  const commented = await lead.page.request.post(`/api/records/tasks/${taskId}/comments`, { headers: H, data: { body: 'Staple them by date.' } });
+  expect(commented.ok(), await commented.text()).toBeTruthy();
+  await expect.poll(async () => (await notices(page)).filter((n) => n.kind === 'comment_added' && n.label === title).length).toBe(1);
+  await page.clock.fastForward(61_000);
+  await expect(section.getByRole('list', { name: 'Notices' }).getByRole('listitem').filter({ hasText: 'commented' }).filter({ hasText: title })).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: '1 new notification' }), 'the bell says it').toHaveCount(1);
+  // Read once, not waited on: the page's status line clears itself after a few seconds, so waiting would always pass.
+  expect(await section.getByRole('status').textContent(), 'and the page does not say it again').toBe('');
+  for (const c of [lead.context, me.context]) await c.close();
 });

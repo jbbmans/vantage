@@ -365,7 +365,12 @@ function AnswerForm({ host, request, asker, say, refresh, onAnswered }: {
         : `Answered. ${asker} ${asker === 'You' ? 'are' : 'is'} told.`);
       onAnswered();
       refresh(true);
-    } catch (e) { setError(api.errorText(e)); }
+    } catch (e) {
+      // Withdrawn, or closed by its record, since it was shown: read again. It no longer offers this form, so the reason
+      // goes to the panel's status line, said once, and focus moves to the entry as after an answer, not to the page.
+      if (e instanceof api.ApiError && e.status === 409) { say(api.errorText(e)); onAnswered(); refresh(true); }
+      else setError(api.errorText(e));
+    }
     finally { setBusy(null); }
   };
 
@@ -485,7 +490,12 @@ function Composer({ host, modes, privateNow, between, say, refresh, textarea }: 
               return (
                 <label key={m.value} className="relative">
                   <input type="radio" name={`${uid}-mode`} value={m.value} checked={mode === m.value} className="peer sr-only"
-                    onChange={() => { setMode(m.value); setError(null); setNaming(false); }} />
+                    onChange={() => {
+                      setMode(m.value); setError(null); setNaming(false);
+                      // On a duty a review goes to fewer people than a question, never to its Marine, so whoever was
+                      // chosen is chosen again from those who may review it.
+                      if (table === 'duties' && m.value === 'review_request') { setPerson(null); setPicking(false); }
+                    }} />
                   <span className="tap inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-ink-2 ring-1 ring-inset ring-line transition-colors hover:bg-surface-2 hover:text-ink peer-checked:bg-accent-soft peer-checked:text-accent peer-checked:ring-accent/30 peer-focus-visible:shadow-[0_0_0_2px_rgb(var(--surface)),0_0_0_4px_rgb(var(--accent)/.6)]">
                     <ModeIcon className="h-3.5 w-3.5" aria-hidden />{m.label}
                   </span>
@@ -503,7 +513,7 @@ function Composer({ host, modes, privateNow, between, say, refresh, textarea }: 
           <Button size="xs" variant="ghost" className="[@media(pointer:coarse)]:min-w-11" aria-label={`Change who to ask, now ${person.name}`} onClick={() => setPicking(true)}>Change</Button>
         </p>
       ) : (
-        <PersonPicker host={host} label="Ask whom" hint={askHint} autoFocus={picking} inputRef={picker}
+        <PersonPicker host={host} kind={mode} label="Ask whom" hint={askHint} autoFocus={picking} inputRef={picker}
           onChoose={(p) => { setPerson(p); setPicking(false); setError(null); focusText(); }}
           onCancel={person ? () => { setPicking(false); focusText(); } : undefined} />
       ))}

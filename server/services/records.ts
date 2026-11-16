@@ -254,18 +254,23 @@ export function mayLeaveInstance(ctx: AppContext, from: string | null, to: strin
 }
 
 /**
- * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments and attachments, and
- * for a project, the work filed under it. None of that leaves the instance it was written in, even with its owner.
- * Each is judged by the unit it was added in; one added where there was no unit, by whether its author serves there.
+ * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments, answers and
+ * attachments, and for a project, the work filed under it. None of that leaves the instance it was written in, even
+ * with its owner. Each is judged by the unit it was added in; one added where there was no unit, by whether its author
+ * serves there.
  */
 export function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
   const servesThere = (userId: string) => scopeFor(ctx, { id: userId }).unitIds.some((u) => sameInstance(ctx, u, unitId));
   const crosses = (added: { who: string; unit_id: string | null }) => (added.unit_id ? !sameInstance(ctx, added.unit_id, unitId) : !servesThere(added.who));
+  // A request someone else answered carries their verdict, with or without a note of theirs: it is theirs, in the unit
+  // it was asked in. One its asker withdrew is only the asker's words, and goes with the record (ADR-0031).
   const added = ctx.db.prepare(`SELECT author_id AS who, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND author_id <> ? AND deleted_at IS NULL
+                                UNION SELECT closed_by, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND state IN ('answered', 'looks_right', 'needs_changes')
+                                  AND closed_by IS NOT NULL AND closed_by <> ? AND deleted_at IS NULL
                                 UNION SELECT uploaded_by, unit_id FROM attachments WHERE record_table = ? AND record_id = ? AND uploaded_by <> ? AND deleted_at IS NULL`)
-    .all(table, row.id, row.user_id, table, row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
+    .all(table, row.id, row.user_id, table, row.id, row.user_id, table, row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
   if (added.some(crosses)) {
-    throw forbidden('Other people commented on this record or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
+    throw forbidden('Other people commented on this record, answered a request on it or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
   }
   // A question or review its Marine asked of someone there is still waiting on them there (ADR-0031): it does not follow.
   const asking = ctx.db.prepare(`SELECT 1 FROM comments WHERE record_table = ? AND record_id = ? AND state = 'open' AND addressee_id IS NOT NULL AND addressee_id <> ? AND deleted_at IS NULL LIMIT 1`)
@@ -586,7 +591,6 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (assignmentNote && !newAssignee) throw noAssignmentForNote();
   try {
     ctx.db.transaction(() => {
-      if (newAssignee && assignmentNote) addAssignmentNote(ctx, user.id, table as 'tasks' | 'goals', id, finalUnit, newAssignee, assignmentNote);
       if (expected !== undefined) {
         result = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ? AND version = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id, expected);
         if (result.changes === 0) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: newest() });
@@ -594,6 +598,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
         const changed = ctx.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?${resubmits ? " AND approval_status = 'returned'" : ''}`).run(...vals, id).changes;
         if (resubmits && !changed) throw conflict('This record changed while you were editing it. Reload to see the latest version.', 'stale', { current: newest() });
       }
+      // Written once the record is where it is going, so a note said on a task moved to another unit is said there.
+      if (newAssignee && assignmentNote) addAssignmentNote(ctx, user.id, table as 'tasks' | 'goals', id, finalUnit, newAssignee, assignmentNote);
       if (resubmits) tellReviewer = resubmittedByCorrection(ctx, user, row, finalUnit as string, String(vals[0]), ip);
     })();
   } catch (error) {

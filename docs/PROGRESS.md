@@ -55,7 +55,9 @@ notice knows which record it is about ([ADR-0031](engineering/ADR/0031-workflow-
   and a held Unit Instance's; a hold on every instance stops the sweep. A run that finds notices due is recorded as a
   disposition run, and audited (`notifications_expired`) when it removes anything. A destroyed or anonymized record
   takes its notices with it, and anonymizing redacts every comment, request and answer on it and closes its open
-  requests. Deleting a record closes its requests. A withdrawn or closed request takes back its unread notice.
+  requests, except what a person under a legal hold said, which goes at the next run after the hold is released. A
+  record anonymized before migration 038 has its discussion redacted at the next run of its schedule, which the
+  Governance console counts in its preview. Deleting a record closes its requests. A withdrawn or closed request takes back its unread notice.
   Soft-deleted comments go with the recycle bin after 30 days unless a hold keeps them.
 - **Unit Instance boundary.** A trigger refuses a comment whose unit is in another Unit Instance than its record's
   (`comments_same_org_insert`), and `instanceBoundaryViolations` counts any left by someone other than the record's

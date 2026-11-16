@@ -53,7 +53,8 @@ export default function WorkItemPage() {
   const [stageOpen, setStageOpen] = useState<Stage | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = () => invalidateWork(qc, id);
+  // Closing a case closes what was asked on it, so its Discussion is read again with the case.
+  const refresh = () => { invalidateWork(qc, id); void qc.invalidateQueries({ queryKey: discussionKey({ kind: 'work', id }) }); };
   const run = async (fn: () => Promise<unknown>, done?: string) => {
     setBusy(true);
     try { await fn(); if (done) toast.success(done); refresh(); return true; }

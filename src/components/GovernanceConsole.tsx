@@ -192,8 +192,10 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
   const pendingCount: number = (preview?.lines || []).reduce((n: number, l: any) => n + (l.disposition === 'review' ? 0 : l.eligible), 0);
   // Files left on records an earlier run anonymized are work for a run too, with no record left to count (ADR-0025).
   const pendingFiles: number = (preview?.lines || []).reduce((n: number, l: { files?: number }) => n + (l.files || 0), 0);
+  // So are words left on records anonymized earlier: said before migration 038, or kept by a hold since released (ADR-0031).
+  const pendingDiscussions: number = (preview?.lines || []).reduce((n: number, l: { discussions?: number }) => n + (l.discussions || 0), 0);
   // A run acts on a preview, never on the result of the run before it: after one, see what is eligible again.
-  const wouldAct = Boolean(preview) && !preview.applied && !preview.blocked && (pendingCount > 0 || pendingFiles > 0);
+  const wouldAct = Boolean(preview) && !preview.applied && !preview.blocked && (pendingCount > 0 || pendingFiles > 0 || pendingDiscussions > 0);
 
   return (
     <div className="space-y-4">
@@ -235,7 +237,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
               <Table minWidth={620} head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
                 {preview.lines.map((l: any) => (
                   <tr key={l.record_type}>
-                    <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}{l.files ? <span className="block text-xs text-ink-3">{l.files.toLocaleString()} attached {l.files === 1 ? 'file' : 'files'} {preview.applied ? 'removed' : 'would be removed'}</span> : null}</td>
+                    <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}{l.files ? <span className="block text-xs text-ink-3">{l.files.toLocaleString()} attached {l.files === 1 ? 'file' : 'files'} {preview.applied ? 'removed' : 'would be removed'}</span> : null}{l.discussions ? <span className="block text-xs text-ink-3">The discussion on {l.discussions.toLocaleString()} {l.discussions === 1 ? 'record' : 'records'} anonymized earlier {preview.applied ? 'was redacted' : 'would be redacted'}</span> : null}</td>
                     <td className="text-xs">{humanize(l.disposition)}</td>
                     <td className="fig text-xs">{l.cutoff}</td>
                     <td className="fig text-right">{l.eligible.toLocaleString()}</td>
@@ -330,7 +332,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
       <ConfirmDialog
         open={confirmRun} onOpenChange={setConfirmRun} danger
         title="Run disposition now?"
-        body={`This acts on ${pendingCount.toLocaleString()} records${pendingFiles ? `, removes ${pendingFiles.toLocaleString()} attached ${pendingFiles === 1 ? 'file' : 'files'}` : ''} and cannot be undone.`}
+        body={`This acts on ${pendingCount.toLocaleString()} records${pendingFiles ? `, removes ${pendingFiles.toLocaleString()} attached ${pendingFiles === 1 ? 'file' : 'files'}` : ''}${pendingDiscussions ? `, redacts the discussion on ${pendingDiscussions.toLocaleString()} ${pendingDiscussions === 1 ? 'record' : 'records'} anonymized earlier` : ''} and cannot be undone.`}
         confirmLabel="Run disposition" onConfirm={() => run(true)} loading={busy}
       />
     </div>

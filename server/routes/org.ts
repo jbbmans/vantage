@@ -172,16 +172,19 @@ orgRouter.post('/units/:unitId/members', wrap((req, res) => {
   if (!target) throw badRequest('No such active account.', { fieldErrors: { user_id: 'No such active account.' } });
   if (!mayEnrollDirectly(ctx, req.user, scope, user_id, unitId)) throw forbidden('You can enroll directly only Marines you already lead in this Unit Instance. Send this Marine an invitation or a join code instead; they accept it themselves.', 'invite_required');
   const role = role_id ? (ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined) : undefined;
-  ctx.db.transaction(() => {
-    addMember(ctx, user_id, unitId, { invitedBy: req.user.id, primary: Boolean(primary), billet: billet || null, reason: 'enrolled' });
+  const joined = ctx.db.transaction(() => {
+    const joining = addMember(ctx, user_id, unitId, { invitedBy: req.user.id, primary: Boolean(primary), billet: billet || null, reason: 'enrolled' });
     if (role_id) {
       validateRoleGrant(ctx, req.user, scope, role, unitId, user_id);
       ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(user_id, role_id, unitId, req.user.id, now());
     }
+    return joining;
   })();
   const revoked = invalidateUserSessions(ctx, user_id);
   audit(ctx, { actor_id: req.user.id, action: 'add_member', entity: 'unit', entity_id: unitId, subject_id: user_id, unit_id: unitId, detail: `${role?.name || 'default role'}; sessions revoked: ${revoked}`, ip: clientIp(req) });
-  notify(ctx, user_id, { kind: 'unit', title: 'Added to a unit', message: `${req.user.first_name} ${req.user.last_name} added you to ${getUnit(ctx, unitId)?.name}. Sign in again to see it.`, actionUrl: '/', actorId: req.user.id, dedupeKey: `member:${unitId}:${user_id}:${now()}` });
+  // Told only when they join. Enrolling someone already in the unit (a retry, or two leaders at once) is not news. The
+  // key is dated, so someone added again after a removal is told again.
+  if (joined) notify(ctx, user_id, { kind: 'unit', title: 'Added to a unit', message: `${req.user.first_name} ${req.user.last_name} added you to ${getUnit(ctx, unitId)?.name}. Sign in again to see it.`, actionUrl: '/', actorId: req.user.id, orgId: orgOfUnit(ctx, unitId), dedupeKey: `member:${unitId}:${user_id}:${now()}` });
   res.status(201).json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -278,7 +281,7 @@ orgRouter.post('/units/:unitId/members/:userId/move', wrap((req, res) => {
   const from = getUnit(ctx, unitId)!;
   const to = getUnit(ctx, body.to)!;
   audit(ctx, { actor_id: req.user.id, action: 'move_member', entity: 'unit', entity_id: body.to, subject_id: userId, unit_id: unitId, detail: `from ${from.short_name || from.name} to ${to.short_name || to.name}; roles kept: ${moved.roles.join(', ') || 'none'}; not carried: ${moved.rolesSkipped.join(', ') || 'none'}; entries ${body.entries === 'move' ? `moved: ${moved.entriesMoved}` : `stayed (frozen: ${moved.recordsFrozen})`}; sessions revoked: ${moved.sessionsRevoked}`, ip: clientIp(req) });
-  notify(ctx, userId, { kind: 'unit', title: 'Moved to a new team', message: `${req.user.first_name} ${req.user.last_name} moved you from ${from.name} to ${to.name}. Sign in again to see it.`, actionUrl: '/team', actorId: req.user.id, dedupeKey: `move:${body.to}:${userId}:${now()}` });
+  notify(ctx, userId, { kind: 'unit', title: 'Moved to a new team', message: `${req.user.first_name} ${req.user.last_name} moved you from ${from.name} to ${to.name}. Sign in again to see it.`, actionUrl: '/team', actorId: req.user.id, orgId: orgOfUnit(ctx, body.to), dedupeKey: `move:${body.to}:${userId}:${now()}` });
   res.json({ ok: true, ...moved });
 }));
 
@@ -596,7 +599,7 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
     ctx.db.prepare(`UPDATE users SET ${entries.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...entries.map(([, v]) => v), now(), id));
   audit(ctx, { actor_id: req.user.id, action: 'edit_member_profile', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0] || null, detail: entries.map(([k]) => k).join(', '), ip: clientIp(req) });
   // Told only when the rank really changed (ADR-0031): saving the same rank, or a name alone, is not news to them.
-  if (entries.some(([k, v]) => k === 'rank_id' && v !== target.rank_id)) notify(ctx, id, { kind: 'profile', title: 'Profile updated by your leadership', message: `${req.user.first_name} ${req.user.last_name} updated: ${entries.map(([k]) => k).join(', ')}.`, actionUrl: '/settings', actorId: req.user.id });
+  if (entries.some(([k, v]) => k === 'rank_id' && v !== target.rank_id)) notify(ctx, id, { kind: 'profile', title: 'Profile updated by your leadership', message: `${req.user.first_name} ${req.user.last_name} updated: ${entries.map(([k]) => k).join(', ')}.`, actionUrl: '/settings', actorId: req.user.id, orgId: orgOfUnit(ctx, units[0]) });
   res.json({ ok: true, changed: entries.map(([k]) => k) });
 }));
 

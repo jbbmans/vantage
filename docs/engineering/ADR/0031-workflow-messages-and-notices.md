@@ -51,19 +51,27 @@ schedule's redaction). A request's `state` is `open`, `answered`, `looks_right`,
 hour per person.
 
 **Where each kind lives:**
-- **Duty:** "Ask for review" only of someone who may decide it (`dutyReviewAuthority().review`), never its Marine. A
-  decision (approve, return, reject) closes the review requests still open on it. Approving takes an optional note,
+- **Duty:** "Ask for review" only of someone who may decide it (`dutyReviewAuthority().review`), never its Marine; the
+  person picker offers the same people for a review (`/people?kind=review_request`), and lets go of someone chosen for a
+  question when the request turns into a review. A decision (approve, return, reject) closes the review requests still
+  open on it. Approving takes an optional note,
   kept on the duty where its Marine reads it.
 - **Counseling:** no review request: sharing it with its Marine is the review (ADR-0027). Comments between its counselor
-  and its Marine while it is a draft or in review are `private`: only those two read them, after it is final too.
+  and its Marine while it is a draft or in review are `private`: only those two read them, after it is final too. An
+  edit of one, after it is final too, can name only those two.
 - **Work case:** questions and review requests only, no free comments (the case has its own sealed notes, ADR-0022).
   Moving a case out of "Verification required" to a working stage is a **return for correction**: whoever does it says
   what needs correcting (kept on the case's sealed history), unless its holder takes it back themselves; its holder and
-  whoever asked for it to be verified are told. Every route that moves a stage applies it: the stage change, a state
-  PATCH (refused, 409 `reason_required`, because a PATCH has no reason) and a recorded action. Resolving or closing a
-  case closes its open requests and tells its holder when someone else closed it.
+  whoever asked for it to be verified are told. A return closes the review requests open on the case, after telling
+  whoever asked: nothing waits to be verified until it comes back, and then it can be asked for again. Every route that
+  moves a stage applies it: the stage change, a state PATCH (refused, 409 `reason_required`, because a PATCH has no
+  reason) and a recorded action. Resolving or closing a case closes its open requests and tells its holder when someone
+  else closed it, once: a repeated request that changes nothing tells nobody again.
 - **Task and goal:** an assignment to someone else may carry a note (`assignment_note`, up to 1000 characters), kept in
-  task and goal drafts (ADR-0030) until the form is sent.
+  task and goal drafts (ADR-0030) until the form is sent. The note is written after the record's own change, in the same
+  transaction, so a task moved to another Unit Instance and given to someone there carries its note with it, and a stale
+  edit writes neither. Whoever a task was given to before is not told what is said on it once it is someone else's: an
+  addressee hears a record's discussion only while a question or review request names them.
 
 ### 2. One rule for who may speak: `speaks()`
 
@@ -104,7 +112,16 @@ skips a group its recipient turned off (`prefs.notifications.muted`, Settings โ
 `counseling_comment`) keeps one unread notice per person, kind and record: the next one adds to its `count` ("3 new
 comments") instead of adding a row. A partial unique index on `(user_id, kind, entity, entity_id) WHERE read_at IS NULL
 AND count IS NOT NULL` does it in one statement. Every other kind dedupes by `dedupe_key`, now dated where the event can
-happen again (re-adding a member, a second move, a second hand-off).
+happen again (re-adding a member, a second move, a second hand-off). Enrolling someone already in a unit tells them
+nothing new.
+
+**A bulk hand-off or release** sends one summary per person per Unit Instance, counting only the cases that run
+applied, and sends it even when the run stops on a server error. A retry with the same key reports what it applied
+itself; a pure replay sends nothing.
+
+**A notice about a Unit Instance names it** (`org_id`) even when it names no record: a member added or moved, a role, a
+leader's message, a help request, an access grant, a sign-out or a CAC link made by that Unit Instance. An instance
+hold therefore keeps it (ยง6).
 
 ### 4. A notice never carries anybody's words
 
@@ -113,7 +130,8 @@ The record's own name (a task's current title, a duty's type and day, a case's r
 read**, after the access check, and is "A record its retention schedule anonymized" once it is. Never a comment, a
 question, a note or a reason: those are on the record, behind its permissions. Support ticket notices no longer quote
 the subject or the reply; access and credential notices no longer quote the reason or the note (they are read in the
-console). Migration 038 clears the words old notices quoted.
+console). Migration 038 clears the words old notices quoted: comment notices, and the old support ticket, access
+request, access decision and credential notices.
 
 Stated exceptions, notices about no record: a leader's team message (its subject and body, as sent to the unit), a
 MARADMIN's number and title, a Unit Instance's suspension reason and the withheld-feature reason (the notice is how
@@ -134,11 +152,16 @@ they lost access (a counseling taken back, claims released because they left) is
   due is recorded as a disposition run, as the drafts sweep is (ADR-0030); one that removed anything is audited
   (`notifications_expired`).
 - A destroyed or anonymized record takes its notices with it. Anonymizing a record also redacts every comment, request
-  and answer on it and closes its open requests. A moved record's notices and discussion follow it.
+  and answer on it and closes its open requests, except what a person under a legal hold said, which stays until the
+  hold is released and goes at the next run after that, as their files do. A record anonymized before migration 038 has
+  its discussion redacted, its open requests closed and its notices removed at the next run of its schedule; the
+  Governance console counts these in its preview and lets a run start for them alone. A moved record's notices and
+  discussion follow it.
 - Soft-deleted comments are purged with the recycle bin after 30 days.
 - A withdrawn or closed request takes back its unread notice.
 - A record with a question or review request still open with someone other than its Marine does not move to another
-  Unit Instance until it is answered or withdrawn (ADR-0008). Others' comments and answers already keep it there.
+  Unit Instance until it is answered or withdrawn (ADR-0008). Others' comments and answers, a review's verdict among
+  them even with no note, already keep it there; a withdrawn request does not.
 
 ### 7. Unit Instance boundary
 

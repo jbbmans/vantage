@@ -50,7 +50,8 @@ const ask = (token: string, base: string, kind: 'review_request' | 'clarificatio
 const answer = (token: string, base: string, requestId: string, body: Record<string, unknown>) => post(token, `${base}/requests/${requestId}/answer`, body);
 const withdraw = (token: string, base: string, requestId: string) => post(token, `${base}/requests/${requestId}/withdraw`);
 const say = (token: string, base: string, body: string) => post(token, `${base}/comments`, { body });
-const people = (token: string, base: string, q: string) => get(token, `${base}/people?q=${encodeURIComponent(q)}`);
+const people = (token: string, base: string, q: string, kind?: string) =>
+  get(token, `${base}/people?q=${encodeURIComponent(q)}${kind === undefined ? '' : `&kind=${encodeURIComponent(kind)}`}`);
 
 async function discussion(token: string, base: string) {
   const res = await get(token, `${base}/comments`);
@@ -374,6 +375,41 @@ test('duty is asked for review only of someone who may decide it, never of its M
   await asked(ford.token, cBase, 'clarification_request', mills.id, 'Does the follow-up date work for you?');
 });
 
+test('a record reviewed in its Unit Instance stays there, even when the review came back with no note; one whose request was withdrawn may move', async () => {
+  // A Marine of G-8 who also serves in G-1, and so may take her own records there.
+  const dual = await app.register('dual', { first_name: 'Dee', last_name: 'Dual', rank_id: 'Cpl' });
+  await enroll(app, op.token, 'G8', dual.id);
+  await enroll(app, g1lead.token, 'G1', dual.id);
+  dual.token = await login('dual');
+  const share = async (title: string) => {
+    const res = await post(dual.token, '/api/records/activities', { title, date: day(-2), category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    return res.body as Record<string, any>;
+  };
+  const placed = (id: string) => app.ctx.db.prepare('SELECT unit_id, version FROM activities WHERE id = ?').get(id) as { unit_id: string; version: number };
+
+  // Sato's verdict is his, given in G-8, though nothing but her own request records it.
+  const reviewed = await share('Closed out 9 ULOs');
+  const rBase = rec('activities', reviewed.id);
+  const review = await asked(dual.token, rBase, 'review_request', sato.id, 'Is the count right?');
+  const fine = await answer(sato.token, rBase, review.id, { outcome: 'looks_right' });
+  assert.equal(fine.status, 200, JSON.stringify(fine.body));
+  assert.equal(fine.body.answer, null, 'no note, so no answer of his own');
+  const moved = await put(dual.token, rBase, { unit_id: 'G1', version: placed(reviewed.id).version });
+  assert.equal(moved.status, 403, JSON.stringify(moved.body));
+  assert.equal(moved.body.code, 'cross_instance');
+  assert.equal(placed(reviewed.id).unit_id, 'G8', 'it stays where it was reviewed');
+
+  // Withdrawn, the request is only her own words: the record goes with them.
+  const unasked = await share('Closed out 10 ULOs');
+  const uBase = rec('activities', unasked.id);
+  const taken = await asked(dual.token, uBase, 'review_request', sato.id, 'Is the count right?');
+  assert.equal((await withdraw(dual.token, uBase, taken.id)).status, 200);
+  const went = await put(dual.token, uBase, { unit_id: 'G1', version: placed(unasked.id).version });
+  assert.equal(went.status, 200, JSON.stringify(went.body));
+  assert.equal(placed(unasked.id).unit_id, 'G1');
+});
+
 test('a decided duty closes the review requests open on it, and takes back their notices', async () => {
   const duty = await millsDuty();
   const base = rec('duties', duty.id);
@@ -598,6 +634,33 @@ test('the picker offers at most ten people, and only those who may speak on the 
   assert.deepEqual((await people(nunez.token, rec('tasks', assigned.id), 'mills')).body.people.map((p: { id: string }) => p.id), [mills.id]);
 });
 
+test('asking for a review of duty, the picker offers only those who may decide it, never its Marine', async () => {
+  const duty = await millsDuty();
+  const base = rec('duties', duty.id);
+  const offered = async (token: string, q: string, kind?: string, on = base) => {
+    const res = await people(token, on, q, kind);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    return res.body.people.map((p: { id: string }) => p.id) as string[];
+  };
+  // To name, or to ask a question of: anyone who speaks on it.
+  assert.deepEqual(await offered(mills.token, 'ford'), [ford.id]);
+  assert.deepEqual(await offered(mills.token, 'ford', 'clarification_request'), [ford.id]);
+  assert.deepEqual(await offered(sato.token, 'mills'), [mills.id]);
+  // To ask for a review: one who reviews duty in its unit, and never the Marine who stood it.
+  assert.deepEqual(await offered(mills.token, 'ford', 'review_request'), [], 'a Fire Team Leader reads duty but does not review it');
+  assert.deepEqual(await offered(mills.token, 'sato', 'review_request'), [sato.id]);
+  assert.deepEqual(await offered(sato.token, 'mills', 'review_request'), [], 'never its own Marine');
+  assert.deepEqual(await offered(mills.token, 'ford', 'comment'), [ford.id], 'a kind that is no request is ignored');
+  // Everyone offered may be asked.
+  const reviewers = await offered(mills.token, '', 'review_request');
+  assert.ok(reviewers.includes(sato.id), JSON.stringify(reviewers));
+  for (const id of reviewers) await asked(mills.token, base, 'review_request', id, 'Please review my duty.');
+  // On anything but duty, a review may be asked of anyone who speaks on it.
+  const task = await unitTask();
+  assert.deepEqual(await offered(nunez.token, 'ford', 'review_request', rec('tasks', task.id)), [ford.id]);
+  assert.deepEqual(await offered(op.token, 'ford', 'review_request', `/api/work/items/${(await unitCase('Match the October DD 1131')).id}`), [ford.id], 'nor on a case');
+});
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Work cases
 
@@ -712,6 +775,49 @@ test('an assignment carries a note, kept on the record for its assignee, and a n
   assert.equal(activity.status, 400, 'only a task or a goal carries one');
 });
 
+test('a task moved to another Unit Instance and given to someone there carries its note with it', async () => {
+  // An NCO of G-8 who also serves in G-1, and so may take her own task there.
+  const twice = await app.register('twice', { first_name: 'Tia', last_name: 'Twice', rank_id: 'Sgt' });
+  await enroll(app, op.token, 'G8', twice.id, 'nco');
+  await enroll(app, g1lead.token, 'G1', twice.id, 'nco');
+  twice.token = await login('twice');
+  const task = await unitTask(twice.token);
+  const base = rec('tasks', task.id);
+  const notes = () => app.ctx.db.prepare("SELECT * FROM comments WHERE record_table = 'tasks' AND record_id = ? AND kind = 'assignment_note'").all(task.id) as Array<Record<string, any>>;
+
+  // Edited from an older version, nothing is written: neither the move nor its note.
+  const stale = await put(twice.token, base, { unit_id: 'G1', assignee_id: gomez.id, assignment_note: 'Start with the G-1 binder.', version: task.version - 1 });
+  assert.equal(stale.status, 409, JSON.stringify(stale.body));
+  assert.equal(stale.body.code, 'stale');
+  assert.deepEqual(notes(), []);
+
+  const moved = await put(twice.token, base, { unit_id: 'G1', assignee_id: gomez.id, assignment_note: 'Start with the G-1 binder.', version: task.version });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.unit_id, 'G1');
+  assert.equal(moved.body.assignee_id, gomez.id);
+  const kept = notes();
+  assert.deepEqual(kept.map((n) => [n.unit_id, n.addressee_id, n.author_id, n.body]), [['G1', gomez.id, twice.id, 'Start with the G-1 binder.']], 'said where the task now is');
+  assert.deepEqual((await discussion(gomez.token, base)).map((e) => [e.kind, e.body]), [['assignment_note', 'Start with the G-1 binder.']]);
+  assert.equal(noticesAbout(gomez.id, 'assignment', task.id).length, 1, 'its new assignee is told');
+});
+
+test('whoever a task was given to before stops hearing what is said on it, whether or not it came with a note', async () => {
+  for (const note of [null, 'Start with the October file.']) {
+    const task = await unitTask(nunez.token, { assignee_id: sato.id, ...(note ? { assignment_note: note } : {}) });
+    const base = rec('tasks', task.id);
+    const given = await put(nunez.token, base, { assignee_id: ford.id, version: task.version });
+    assert.equal(given.status, 200, JSON.stringify(given.body));
+    assert.equal((await say(nunez.token, base, 'Ford has it now.')).status, 201);
+    assert.equal(noticesAbout(ford.id, 'comment_added', task.id).length, 1, 'its assignee hears it');
+    assert.equal(noticesAbout(sato.id, 'comment_added', task.id).length, 0, `its former assignee does not, ${note ? 'with' : 'without'} a note`);
+
+    // Somebody asked on it is told what is said there after.
+    await asked(nunez.token, base, 'clarification_request', pickers[0].id, 'Can you check the totals?');
+    assert.equal((await say(nunez.token, base, 'Totals are in the share drive.')).status, 201);
+    assert.equal(noticesAbout(pickers[0].id, 'comment_added', task.id).length, 1, 'the person asked hears it');
+  }
+});
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Counseling, holds and the personal export
 
@@ -761,6 +867,31 @@ test('what a counselor and their Marine say before a counseling is final stays b
   // The personal export: the parties' words travel with each of them, the unit's reader takes none of them.
   assert.ok(buildPersonalExport(app.ctx, mills.id).comments.some((r: any) => r.id === fromCounselor.body.id), 'the Marine takes what was said to her on her record');
   assert.ok(!buildPersonalExport(app.ctx, sato.id).comments.some((r: any) => privateIds.includes(r.id)));
+});
+
+test('an edit of what was said before a counseling was final names only its two parties, once it is final too', async () => {
+  const c = await counselingInReview();
+  const base = rec('counselings', c.id);
+  const said = await say(ford.token, base, 'Let us settle the follow-up date before I finalize.');
+  assert.equal(said.status, 201, JSON.stringify(said.body));
+  assert.equal(said.body.private, true);
+  const current = app.ctx.db.prepare('SELECT version FROM counselings WHERE id = ?').get(c.id) as { version: number };
+  assert.equal((await post(ford.token, `${base}/finalize`, { version: current.version })).status, 200);
+
+  // Final, the unit reads the counseling, but nobody of it is named into what was said between the two of them.
+  const edited = await put(ford.token, `${base}/comments/${said.body.id}`, { body: 'Let us settle the follow-up date before I finalize. @sato @mills' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(edited.body.private, true);
+  assert.deepEqual(edited.body.told.map((t: { id: string }) => t.id), [mills.id], 'its Marine is named');
+  assert.deepEqual(edited.body.not_told, ['@sato'], 'nobody else is');
+  assert.deepEqual(edited.body.mentions, [mills.id]);
+  assert.equal(noticesAbout(sato.id, 'comment_mention', c.id).length, 0, 'nor told of it');
+
+  // What is said now is the unit's, and names it as anything else does.
+  const later = await say(ford.token, base, 'Noted for @sato.');
+  assert.equal(later.status, 201, JSON.stringify(later.body));
+  assert.equal(later.body.private, false);
+  assert.deepEqual(later.body.told.map((t: { id: string }) => t.id), [sato.id]);
 });
 
 test('a legal hold keeps a discussion as it is: nobody edits a comment while it stands', async () => {

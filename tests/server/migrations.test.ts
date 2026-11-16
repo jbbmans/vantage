@@ -1077,3 +1077,57 @@ test('038 types every comment, gives every notice its record and Unit Instance, 
     db.close();
   } finally { cleanup(); }
 });
+
+test('038 clears the words old help desk, Vantage access and sign-in change notices quoted, and keeps what the notices beside them said', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(37, (db) => {
+    db.exec('DROP TABLE notifications;');
+    db.exec(`CREATE TABLE notifications (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), kind TEXT NOT NULL, title TEXT NOT NULL, message TEXT,
+      action_url TEXT, dedupe_key TEXT, read_at TEXT, created_at TEXT NOT NULL)`);
+    const user = db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    user.run('u1', 'u1', 'x', 'Ana', 'Diaz', at, at); // a Marine who asked for help, and a Lead Unit Manager of G-8
+    user.run('u2', 'u2', 'x', 'Ben', 'Cole', at, at); // Vantage staff
+    const notice = db.prepare('INSERT INTO notifications (id, user_id, kind, title, message, action_url, dedupe_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    // As each was sent before 038: the help desk quoted a request's subject or a reply.
+    notice.run('n-ticket', 'u2', 'support_ticket', 'A new help request', 'My pay is wrong since my SSN changed', '/support/t1', 'ticket:t1:u2', at);
+    notice.run('n-reply', 'u1', 'support_reply', 'A reply on your help request', 'Send your old SSN so we can match it.', '/support/t1', `ticket-reply:t1:${at}:u1`, at);
+    notice.run('n-assigned', 'u2', 'support_assigned', 'A help request was assigned to you', 'My pay is wrong since my SSN changed', '/support/t1', `ticket-assign:t1:${at}`, at);
+    // A request to look at a Unit Instance quoted its reason; its answer quoted the note, or on a denial was the note.
+    notice.run('n-asks', 'u1', 'system', 'Vantage support asks to look at G-8', 'Ben Cole, for 2 hours: “Diaz says her pay sync failed.” Approve or deny it in the Unit Manager console.', '/console/access', 'access:g1', at);
+    notice.run('n-approved', 'u2', 'system', 'Access to G-8 approved', 'Read-only, until 14:00Z. “Only the pay tables.”', '/admin/access', null, at);
+    notice.run('n-denied', 'u2', 'system', 'Access to G-8 denied', 'Not during the IG inspection.', '/admin/access', null, at);
+    // A request to change a sign-in quoted its reason; its answer quoted the note.
+    notice.run('n-credential', 'u2', 'security', 'Cal Reyes asks to reset the second factor for Ana Diaz', '“She lost her phone on leave.” They hold authority, so a second member of Vantage staff approves first. Answer it under Accounts.', '/admin/accounts', 'credential_approval:ca1:u2', at);
+    notice.run('n-credential-denied', 'u2', 'security', 'Cal Reyes denied your request to reset the second factor for Ana Diaz', '“Ask her to come to the S-6 in person.”', '/admin/accounts', 'credential_approval:ca1:decided', at);
+    // Sent beside them, these quote nobody: who finished looking, when access ends. Nor do a suspension, a withheld
+    // feature or a sign-out, which link elsewhere.
+    notice.run('n-finished', 'u1', 'system', 'Vantage support finished looking', 'Ben Cole.', '/console/access', null, at);
+    notice.run('n-ending', 'u2', 'system', 'Access to G-8 ends soon', 'At 14:00Z.', '/admin/access', 'access-ending:g1', at);
+    notice.run('n-suspended', 'u1', 'system', 'G-8 was suspended by Vantage', 'The Unit Instance is under review.', '/console', null, at);
+    notice.run('n-withheld', 'u1', 'system', 'Vantage turned AI assistance off for G-8', 'Paused while the key is rotated.', '/console/operations', null, at);
+    notice.run('n-signout', 'u1', 'security', 'G-8 signed you out everywhere', 'Sign in again to carry on.', '/settings', null, at);
+  });
+  try {
+    const db = openDatabase(path);
+    const notices = Object.fromEntries((db.prepare('SELECT id, message, entity FROM notifications').all() as Array<{ id: string; message: string | null; entity: string | null }>)
+      .map((n) => [n.id, n.message]));
+    assert.deepEqual(notices, {
+      'n-ticket': null,
+      'n-reply': null,
+      'n-assigned': null,
+      'n-asks': null,
+      'n-approved': null,
+      'n-denied': null,
+      'n-credential': null,
+      'n-credential-denied': null,
+      'n-finished': 'Ben Cole.',
+      'n-ending': 'At 14:00Z.',
+      'n-suspended': 'The Unit Instance is under review.',
+      'n-withheld': 'Paused while the key is rotated.',
+      'n-signout': 'Sign in again to carry on.',
+    }, 'their words used to stay, and the bell and the personal export showed them');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE entity IS NOT NULL').get() as { n: number }).n, 0, 'none of them is about a record');
+    db.close();
+  } finally { cleanup(); }
+});

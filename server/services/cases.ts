@@ -307,11 +307,13 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
     let next: Stage | null = null;
     if (stage === 'not_started') next = 'researching';
     if (input.kind === 'action_submitted') next = input.then_wait ? 'waiting' : 'submitted';
-    if (next && next !== stage && isReturn(stage, next) && row.claimed_by !== user.id) {
+    const returning = Boolean(next && next !== stage && isReturn(stage, next));
+    if (returning && row.claimed_by !== user.id) {
       throw conflict('This work is waiting to be verified. Return it for correction from its stage first, saying what needs correcting.', 'reason_required');
     }
     if (next && next !== stage) {
       moveStage(ctx, row, user.id, next, { reason: null, category: input.kind === 'action_submitted' ? (input.then_wait ?? null) : null, correlationId: event.id });
+      if (returning) tellReturned(ctx, user, row);
     } else {
       ctx.db.prepare('UPDATE work_items SET version = version + 1, updated_at = ? WHERE id = ?').run(now(), id);
     }
@@ -356,12 +358,14 @@ export function moveStage(
 /**
  * Leaving "Verification required" for a working stage sends the case back for correction (ADR-0031). Whoever does it says
  * what needs correcting, unless its holder takes it back themselves; its holder and whoever asked for it to be verified
- * are told. The reason is on the case's sealed history, never in the notice.
+ * are told. The reason is on the case's sealed history, never in the notice. A return closes the review requests open on
+ * it: nothing waits to be verified until it comes back, and then it can be asked for again.
  */
 export const isReturn = (from: Stage, to: Stage) => from === 'verification_required' && to !== 'verification_required' && !CLOSED_STAGES.has(to);
 
 export function tellReturned(ctx: AppContext, user: SessionUser, row: CaseRow) {
   const told = new Set([row.claimed_by, ...openReviewRequesters(ctx, 'work_items', row.id)].filter((x): x is string => Boolean(x)));
+  closeRequests(ctx, 'work_items', row.id, user.id, 'review_request');
   for (const id of told) {
     notify(ctx, id, {
       kind: 'work_returned', title: `${whoActs(user)} returned work for correction`, actionUrl: `/work/items/${row.id}`,
@@ -418,7 +422,7 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
 /**
  * Hands a case to somebody. Its new holder is told, never in the note's words (they are on the case); its previous holder
  * is told it went to someone else when another person moved it. A bulk run passes `quiet` and sends one notice per person
- * at its end instead (ADR-0031).
+ * and Unit Instance at its end instead (ADR-0031).
  */
 export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, request?: WorkRequest, opts: { quiet?: boolean } = {}) {
   const input = parse(handoffSchema, body);

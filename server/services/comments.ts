@@ -131,8 +131,9 @@ export const whoActs = (user: Pick<SessionUser, 'first_name' | 'last_name' | 'us
 
 interface Candidate { id: string; username: string; first_name: string; last_name: string; rank: string | null }
 
-function pool(ctx: AppContext, host: Host, where: string, params: unknown[], limit: number): Candidate[] {
-  const party = privateNow(host) ? [...parties(host)] : null;
+/** For a private entry, or one that would be private if said now, the pool is the counseling's two parties alone. */
+function pool(ctx: AppContext, host: Host, isPrivate: boolean, where: string, params: unknown[], limit: number): Candidate[] {
+  const party = isPrivate ? [...parties(host)] : null;
   const inPool = party
     ? 'u.id IN (SELECT value FROM json_each(?))'
     : '(u.id = ? OR (? IS NOT NULL AND EXISTS (SELECT 1 FROM unit_members m JOIN units un ON un.id = m.unit_id WHERE m.user_id = u.id AND un.org_id = ?)))';
@@ -152,14 +153,15 @@ function mentionNames(body: string): string[] {
 
 /**
  * Who a message names: `@username` exactly, or a run-together first and last name when exactly one such person may be
- * named on this record. Everyone else named is "not told", without saying why.
+ * named on this record. Everyone else named is "not told", without saying why. A private message, one said before a
+ * counseling was final, names only its two parties, even when it is edited once the counseling is final.
  */
-function resolveMentions(ctx: AppContext, host: Host, author: SessionUser, body: string): Told & { ids: string[] } {
+function resolveMentions(ctx: AppContext, host: Host, author: SessionUser, body: string, isPrivate: boolean): Told & { ids: string[] } {
   const names = mentionNames(body);
   if (names.length > MENTION_MAX) throw badRequest(`Name at most ${MENTION_MAX} people in one message.`, { fieldErrors: { body: `At most ${MENTION_MAX} @names.` } });
   if (!names.length) return { ids: [], told: [], not_told: [] };
   const marks = names.map(() => '?').join(',');
-  const found = pool(ctx, host, `lower(u.username) IN (${marks}) OR lower(u.first_name || u.last_name) IN (${marks})`, [...names, ...names], 200);
+  const found = pool(ctx, host, isPrivate, `lower(u.username) IN (${marks}) OR lower(u.first_name || u.last_name) IN (${marks})`, [...names, ...names], 200);
   const scopeOf = scopes(ctx);
   const told: Told['told'] = [];
   const notTold: string[] = [];
@@ -175,8 +177,14 @@ function resolveMentions(ctx: AppContext, host: Host, author: SessionUser, body:
   return { ids: told.map((t) => t.id), told, not_told: notTold };
 }
 
-/** People who may be named or asked on a record, matching what was typed: for the composer's picker. */
-export function listSpeakers(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, q: string): Speaker[] {
+/** May this person be asked to review this duty: one who may decide it (ADR-0024), never its own Marine. */
+const reviewsDuty = (host: Host, userId: string, scope: Scope) => userId !== host.ownerId && dutyReviewAuthority(scope, userId, host.record!).review;
+
+/**
+ * People who may be named or asked on a record, matching what was typed: for the composer's picker. Given the kind of
+ * request being written, only those it may go to; any other kind is ignored.
+ */
+export function listSpeakers(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, q: string, kind?: unknown): Speaker[] {
   const host = openHost(ctx, user, scope, table, id);
   const limited = limiters.peopleLookups.limited(user.id);
   if (limited) throw tooMany('Too many lookups in a short time. Try again shortly.', limited.retryAfter);
@@ -184,9 +192,10 @@ export function listSpeakers(ctx: AppContext, user: SessionUser, scope: Scope, t
   if (!speaks(ctx, host, user.id, scope)) return [];
   const term = `%${String(q || '').trim().toLowerCase().slice(0, 60).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = `lower(u.username) LIKE ? ESCAPE '\\' OR lower(u.first_name) LIKE ? ESCAPE '\\' OR lower(u.last_name) LIKE ? ESCAPE '\\' OR lower(u.first_name || ' ' || u.last_name) LIKE ? ESCAPE '\\'`;
+  const dutyReview = host.table === 'duties' && kind === 'review_request';
   const scopeOf = scopes(ctx);
-  return pool(ctx, host, `u.id <> ? AND (${like})`, [user.id, term, term, term, term], 50)
-    .filter((c) => speaks(ctx, host, c.id, scopeOf(c.id)))
+  return pool(ctx, host, privateNow(host), `u.id <> ? AND (${like})`, [user.id, term, term, term, term], 50)
+    .filter((c) => speaks(ctx, host, c.id, scopeOf(c.id)) && (!dutyReview || reviewsDuty(host, c.id, scopeOf(c.id))))
     .slice(0, PEOPLE_MAX)
     .map((c) => ({ id: c.id, username: c.username, name: nameOf(c), rank: c.rank }));
 }
@@ -264,8 +273,10 @@ function audience(ctx: AppContext, host: Host, authorId: string, isPrivate: bool
   if (host.record?.counselor_id) candidates.add(String(host.record.counselor_id));
   if (host.record?.assignee_id) candidates.add(String(host.record.assignee_id));
   if (host.item?.claimed_by) candidates.add(host.item.claimed_by);
+  // Those asked in it, not those an assignment note was for: a former assignee given a note hears no more than one given none.
   const said = ctx.db.prepare(`SELECT author_id AS id FROM comments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL
-                               UNION SELECT addressee_id FROM comments WHERE record_table = ? AND record_id = ? AND addressee_id IS NOT NULL AND deleted_at IS NULL`)
+                               UNION SELECT addressee_id FROM comments WHERE record_table = ? AND record_id = ? AND addressee_id IS NOT NULL
+                                 AND kind IN ('review_request', 'clarification_request') AND deleted_at IS NULL`)
     .all(host.table, host.id, host.table, host.id) as Array<{ id: string }>;
   for (const { id } of said) candidates.add(id);
   candidates.delete(authorId);
@@ -294,8 +305,8 @@ export function addComment(ctx: AppContext, user: SessionUser, scope: Scope, tab
   if (host.item) throw badRequest('A case keeps its own notes in its history. Ask a question or ask for a review here instead.', { code: 'case_comment' });
   assertSpeaks(ctx, host, user, scope);
   const { body } = parse(commentBodySchema, { body: typeof rawBody === 'string' ? rawBody : '' });
-  const mentioned = resolveMentions(ctx, host, user, body);
   const isPrivate = privateNow(host);
+  const mentioned = resolveMentions(ctx, host, user, body, isPrivate);
   const commentId = newId();
   ctx.db.transaction(() => {
     ctx.db.prepare(`INSERT INTO comments (id, record_table, record_id, author_id, unit_id, body, mentions, created_at, kind, private)
@@ -325,7 +336,8 @@ export function editComment(ctx: AppContext, user: SessionUser, scope: Scope, ta
   if (heldFrom(ctx, host, existing.author_id)) throw forbidden('A legal hold keeps this discussion as it is. It cannot be edited while the hold stands.', 'held');
   const { body } = parse(commentBodySchema, { body: typeof rawBody === 'string' ? rawBody : '' });
   const before = new Set(JSON.parse(existing.mentions || '[]') as string[]);
-  const mentioned = resolveMentions(ctx, host, user, body);
+  // An edit keeps the entry's own privacy: what was said between a counseling's two parties stays theirs once it is final.
+  const mentioned = resolveMentions(ctx, host, user, body, Boolean(existing.private));
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE comments SET body = ?, mentions = ?, edited_at = ? WHERE id = ?').run(body, JSON.stringify(mentioned.ids), now(), commentId);
     tellMentions(ctx, host, user, commentId, mentioned.ids.filter((t) => !before.has(t)));
@@ -366,10 +378,7 @@ function addresseeProblem(ctx: AppContext, host: Host, kind: RequestKind, addres
   const s = ownScope(scopeFor(ctx, { id: addresseeId }));
   if (!speaks(ctx, host, addresseeId, s)) return 'That person cannot be asked about this record.';
   if (privateNow(host) && !seesPrivate(host, addresseeId)) return 'While a counseling is in draft or review, only its counselor and its Marine speak on it.';
-  // A duty is reviewed by someone who may decide it (ADR-0024), never by its own Marine.
-  if (host.table === 'duties' && kind === 'review_request') {
-    if (addresseeId === host.ownerId || !dutyReviewAuthority(s, addresseeId, host.record!).review) return 'Ask someone who reviews duty in its unit.';
-  }
+  if (host.table === 'duties' && kind === 'review_request' && !reviewsDuty(host, addresseeId, s)) return 'Ask someone who reviews duty in its unit.';
   return null;
 }
 
