@@ -150,12 +150,16 @@ test('only the timed refresh is marked background, and the keyboard cursor stays
   });
   await page.goto('/work/queue');
   const search = page.getByLabel('Search the queue');
+  const searched = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/work/items' && new URL(res.url()).searchParams.get('q') === tag);
   await search.fill(tag);
+  await searched;
   await expect(page.getByRole('checkbox', { name: /^Select / })).toHaveCount(2);
   // Loading the queue and searching it are a person's own reads: they keep the session alive.
   expect(reads.length).toBeGreaterThan(0);
   expect(reads.every((read) => !read.background)).toBeTruthy();
   await search.press('Escape');
+  // The queue's single keys act with focus in its rows (WCAG 2.1.4).
+  await page.getByRole('region', { name: 'Work queue rows' }).focus();
   await page.keyboard.press('j');
   // A case due earlier arrives, so every row shifts down by one.
   await makeCase(page, `${tag}-B`, { due_date: '2031-02-01' });
@@ -178,6 +182,7 @@ test('the selection bar works from the keyboard, and Escape closes the dialog wi
   await search.fill(reference);
   await expect(page.getByRole('checkbox', { name: /^Select / })).toHaveCount(1);
   await search.press('Escape');
+  await page.getByRole('region', { name: 'Work queue rows' }).focus();
   await page.keyboard.press(' ');
   await expect(page.getByText('1 selected')).toBeVisible();
   const update = page.getByRole('button', { name: 'Update selected', exact: true });

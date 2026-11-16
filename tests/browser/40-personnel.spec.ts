@@ -336,3 +336,78 @@ test('a bulk move offers only teams in the roster’s view, and of two billets w
   await toast(page, 'Billet saved');
   expect(await billetNow()).toBe(onlyLeft);
 });
+
+test('a supervisor offered again from the search already made, once the dialog is closed and opened, is the one chosen and saved', async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await loginAs(page, OPERATOR.username);
+  const last = `Pryor${unique('')}`;
+  const lastSup = `Hallow${unique('')}`;
+  const marine = await marineInG8(page, browser, last);
+  await marineInG8(page, browser, lastSup);
+  // The first search reaches the server and any after it waits, so the second time the dialog opens, the names it offers
+  // can only come from what the first search left in the query cache.
+  let searches = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(/\/api\/org\/units\/G8\/supervisor-candidates\?/, async (route) => { if (searches++ > 0) await held; await route.continue(); });
+  await page.goto(`/team/${marine.id}`);
+  await expect(page.getByRole('tab', { name: 'Personnel' })).toHaveAttribute('aria-selected', 'true');
+  const change = page.getByRole('button', { name: `Change ${last}’s assignment in G8` });
+  const dialog = page.getByRole('dialog', { name: /billet and assignment/ });
+  const supervisor = dialog.getByRole('combobox', { name: 'Supervisor' });
+  const option = dialog.getByRole('option', { name: new RegExp(lastSup) });
+  await change.click();
+  await supervisor.fill(lastSup);
+  await expect(option).toBeVisible();
+  // Escape closes the list first, then Cancel the dialog.
+  await supervisor.press('Escape');
+  await expect(supervisor).toHaveAttribute('aria-expanded', 'false');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // Opened again, the same search is answered from the cache, and choosing the name it offers names them.
+  await change.click();
+  await supervisor.fill(lastSup);
+  await option.click();
+  await expect(dialog.getByLabel('Supervisor')).toHaveValue(new RegExp(lastSup));
+  await expect(dialog.getByRole('button', { name: 'Clear the supervisor' })).toBeVisible();
+  release();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await toast(page, 'Supervisor saved');
+  await expect(page.getByRole('list', { name: /Leadership chain/ })).toContainText(lastSup);
+});
+
+test('a name the enroll search offers again from what it already found, after the roster was left and opened, is the one enrolled', async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await loginAs(page, OPERATOR.username);
+  const tag = unique('');
+  const made = await page.request.post('/api/org/units', { headers: H, data: { name: `Far Section ${tag}`, short_name: `FS${tag}`, echelon: 'section', parent_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const far = (await made.json()).id as string;
+  const last = `Quill${tag}`;
+  const marine = await marineInG8(page, browser, last);
+  const moved = await page.request.post(`/api/org/units/G8/members/${marine.id}/move`, { headers: H, data: { to: far } });
+  expect(moved.ok(), await moved.text()).toBeTruthy();
+
+  await page.goto('/team/roster?unit=G8');
+  const open = page.getByRole('button', { name: 'Enroll an existing account' });
+  const enroll = page.getByRole('dialog', { name: 'Enroll in G8' });
+  const find = enroll.getByRole('combobox', { name: 'Find by username or last name' });
+  const option = enroll.getByRole('option', { name: new RegExp(last) });
+  await open.click();
+  await find.fill(last);
+  await expect(option).toBeVisible();
+  await enroll.getByRole('button', { name: 'Cancel' }).click();
+  // Away from the roster to a Marine's page and back, inside the app: the same search is answered from what the first
+  // one found.
+  await page.getByRole('table', { name: 'Roster' }).getByRole('link').first().click();
+  await expect(page).not.toHaveURL(/\/team\/roster/);
+  await page.goBack();
+  await expect(page.getByRole('table', { name: 'Roster' })).toBeVisible();
+  await open.click();
+  await find.fill(last);
+  await option.click();
+  await expect(enroll.getByRole('button', { name: `Change from ${last} to someone else` })).toBeVisible();
+  await expect(enroll.getByText(`@${marine.username}`)).toBeVisible();
+  await enroll.getByRole('button', { name: 'Cancel' }).click();
+});

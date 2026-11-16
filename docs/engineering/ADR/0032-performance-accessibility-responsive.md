@@ -70,6 +70,11 @@ against main's own `scopeFor`. Ties in ordering break on ids, so a scope never d
 | Duty history | `GET /api/record/duty/list` (paged by keyset cursor, per tab) and `GET /api/record/duty/summary` (totals in SQL); the review queue and deep links keep working. |
 | Analytics | `/metrics` validates its dates (at most 240 months) and stops sending every contributor (a drill reads them); drills batch their permission checks; Today survives a failed `/metrics`; the members table shows 25 with "Show all"; PDF text fitting is a binary search. |
 
+Reads that are audited (the roster, a Marine's page, reports, analytics, audit logs) are kept for 60 s and are not read
+again when the person comes back to the window, so switching tabs writes no audit entry. A Marine's page is the
+exception once its read is a minute old or a change made it stale: coming back reads it again, so a training the Marine
+took back is not still shown.
+
 ### 4. Indexes in migration 039, each asserted by its read's plan
 
 Migration 039 (`039_performance_indexes`) adds indexes only: no table, column, trigger or row changes. It lives in a
@@ -91,6 +96,7 @@ indexed read has an `EXPLAIN QUERY PLAN` assertion. No `ANALYZE` is run; `PRAGMA
 - **Buttons** that are busy keep focus (`aria-disabled`, presses ignored) instead of becoming disabled.
 - **Forms** in record dialogs put each refusal on its field and move focus to the first one (`useRefusal`, `missing()`).
 - **Shortcuts.** Single-key shortcuts can be turned off in Settings, Appearance (a `shortcuts` preference; on by default).
+  The work queue's single keys (J, K, Space, Enter, C) act only with focus in its rows, as the shortcuts list says.
 - **Layout and colour.** Pages reflow at 320 px; targets are at least 24 px; `--warn` is darker (5.2:1 at least as text
   and on its badge, on every light palette); each console section has its own page title.
 - **Startup.** The app, the Unit Manager console and the Vantage Administrator console draw without the schema library

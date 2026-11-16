@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
@@ -24,6 +24,7 @@ import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
 import type { DirectoryCandidate, PersonnelRosterRow, TeamPerson, Unit } from '../../shared/types';
+import type { Speaker } from '../../shared/workflowMessages';
 import { groupFor } from '@/config/nav';
 import type { ReportType } from '../../shared/reportCatalog';
 import type { AnalyticsSection, FigureFormat } from '../../shared/unitAnalytics';
@@ -344,20 +345,23 @@ function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: Mov
   );
 }
 
+/** A name the enroll search offers, carrying the account it is. */
+type Enrollable = Speaker & { candidate: DirectoryCandidate };
+const isEnrollable = (p: Speaker): p is Enrollable => 'candidate' in p;
+
 function EnrollDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean; onOpenChange: (o: boolean) => void; unitId: string; unitLabel: string }) {
   const toast = useToast(); const qc = useQueryClient();
   const { data: rolesData } = useRoles(open);
   const [picked, setPicked] = useState<DirectoryCandidate | null>(null);
   const [roleId, setRoleId] = useState(''); const [billet, setBillet] = useState(''); const [primary, setPrimary] = useState(false); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!open) { setPicked(null); setRoleId(''); setBillet(''); } }, [open]);
-  // Who each offered name is, to enroll the account itself rather than the picker's row.
-  const found = useRef(new Map<string, DirectoryCandidate>());
+  // Each offered name carries the account it is, so the account itself is enrolled rather than the picker's row, even
+  // when a search is answered again from the query cache after the roster was left and opened again.
   const search = useMemo<PersonSearch>(() => ({
     key: ['directory', unitId],
     load: async (q) => {
       const r = await api.directory(unitId, q);
-      for (const c of r.results) found.current.set(c.id, c);
-      return { people: r.results.map((c) => ({ id: c.id, username: c.username, name: `${c.rank_abbr || ''} ${c.last_name}, ${c.first_name}`.trim(), rank: c.rank_abbr })), more: r.more };
+      return { people: r.results.map((c): Enrollable => ({ id: c.id, username: c.username, name: `${c.rank_abbr || ''} ${c.last_name}, ${c.first_name}`.trim(), rank: c.rank_abbr, candidate: c })), more: r.more };
     },
     minLength: 2,
     none: 'Nobody you lead matches. Send an invitation from the Invitations page instead.',
@@ -380,7 +384,7 @@ function EnrollDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean
             <span><span className="block font-medium text-ink">{picked.rank_abbr || ''} {picked.last_name}, {picked.first_name}</span><span className="block text-xs text-ink-3">@{picked.username}</span></span>
             <Button size="xs" variant="ghost" onClick={() => setPicked(null)} aria-label={`Change from ${picked.last_name} to someone else`}>Change</Button>
           </div>
-        ) : <PersonPicker search={search} label="Find by username or last name" hint="Two letters or more" autoFocus onChoose={(p) => setPicked(found.current.get(p.id) ?? null)} />}
+        ) : <PersonPicker search={search} label="Find by username or last name" hint="Two letters or more" autoFocus onChoose={(p) => setPicked(isEnrollable(p) ? p.candidate : null)} />}
         {picked && <><Field label="Role" hint="Marine is always granted"><Select value={roleId || '__none'} onValueChange={(v) => setRoleId(v === '__none' ? '' : v)} options={[{ value: '__none', label: 'Marine (default)' }, ...roles.map((r) => ({ value: r.id, label: r.name }))]} /></Field><Field label="Billet"><Input value={billet} onChange={(e) => setBillet(e.target.value)} placeholder="Budget Analyst" /></Field><Switch checked={primary} onChange={setPrimary} label="Make this their primary unit" description="New entries default to sharing here." /></>}
       </div>
     </Dialog>

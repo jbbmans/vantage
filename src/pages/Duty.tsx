@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Upload, ShieldCheck, ArrowRightLeft, ChevronDown, ChevronUp, ClipboardCheck, SearchX } from 'lucide-react';
 import { PageHeader, Button, EmptyState, Badge, Field, Select, Stat, Segmented, Skeleton } from '@/components/ui/primitives';
@@ -61,6 +61,7 @@ export default function Duty() {
   const [unit, setUnit] = useParam('unit');
   const [statusParam, setStatus] = useParam('status');
   const [queueUnit, setQueueUnit] = useParam('queue_unit');
+  const [, setSearchParams] = useSearchParams();
   const status = isStatus(statusParam) ? statusParam : undefined;
 
   const summary = useDutySummary();
@@ -151,7 +152,13 @@ export default function Duty() {
   const onView = useCallback((r: DutyRow) => setView(r), []);
   const onEdit = useCallback((r: DutyRow) => setForm({ kind: 'edit', row: r }), []);
   const onDelete = useCallback((r: DutyRow) => setConfirm(r), []);
-  const clearFilters = () => { setPeriod(''); setUnit(''); setStatus(''); };
+  // The filters are cleared in one change to the address. Each of their setters starts from the address this render read,
+  // so calling them one after another would keep only the last change and leave the list narrowed.
+  const clearFilters = () => setSearchParams((p) => {
+    const n = new URLSearchParams(p);
+    for (const name of ['period', 'unit', 'status']) n.delete(name);
+    return n;
+  }, { replace: true });
 
   const own = summary.data?.mine;
   const pendingValue = <><span aria-hidden>–</span><span className="sr-only">Loading</span></>;

@@ -44,10 +44,11 @@ export default function MemberDetail() {
   const { data: org } = useOrg();
   // The personnel record first (ADR-0017): anyone who sees the Marine on a roster may open it. Their records only for
   // those who may read them (ADR-0015), so a Unit Manager never asks for what they would be refused. Each read of either
-  // is logged, so neither is read again on returning to the window.
-  const personnel = useQuery({ queryKey: keys.personnel(id), queryFn: () => api.personnelRecord(id), staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
+  // is logged, so neither is read again on returning to the window within a minute. Once a read is a minute old, or a
+  // change made it stale, coming back reads it again, so a training the Marine took back is not still shown.
+  const personnel = useQuery({ queryKey: keys.personnel(id), queryFn: () => api.personnelRecord(id), staleTime: 60_000, retry: false });
   const record = personnel.data;
-  const { data, isPending, error, refetch } = useQuery({ queryKey: keys.member(id), queryFn: () => api.member(id), staleTime: 60_000, refetchOnWindowFocus: false, retry: false, enabled: Boolean(record?.canOpenRecords) });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: keys.member(id), queryFn: () => api.member(id), staleTime: 60_000, retry: false, enabled: Boolean(record?.canOpenRecords) });
   const { data: readiness } = useQuery({ queryKey: ['readiness', id], queryFn: () => api.memberReadiness(id), enabled: Boolean(data) });
   const { data: rolesData } = useRoles(Boolean(data?.canManageMembers?.length));
   const [tab, setTab] = useParam('tab', 'personnel');

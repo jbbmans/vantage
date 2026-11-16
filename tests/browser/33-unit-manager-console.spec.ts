@@ -296,3 +296,37 @@ test('the People page is a list on a phone, says how many it shows, and every ch
     expect(serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations), `people at ${w}px`).toEqual([]);
   }
 });
+
+test('closing the grant dialog lets go of the person chosen, so Grant waits for a new choice when it opens again', async ({ page, request }) => {
+  await loginAs(page, OPERATOR.username);
+  // Someone to choose: an active member of the Unit Instance other than the Lead Unit Manager, found by a name nobody else has.
+  const last = unique('Grantee');
+  const reg = await request.post('/api/auth/register', { headers: H, data: { username: last.toLowerCase(), password: PASSWORD, first_name: 'Gale', last_name: last, rank_id: 'LCpl' } });
+  expect(reg.ok(), await reg.text()).toBeTruthy();
+  await joinUnit(page.request, request);
+
+  await openConsole(page, 'people', 'People');
+  const grant = page.getByRole('dialog', { name: 'Grant a Unit Instance role' });
+  const grantButton = grant.getByRole('button', { name: 'Grant', exact: true });
+  // Put away with Cancel, then with Escape: each time it opens again showing nobody, and Grant cannot send the earlier choice.
+  const closes: Array<() => Promise<void>> = [
+    () => grant.getByRole('button', { name: 'Cancel' }).click(),
+    () => page.keyboard.press('Escape'),
+  ];
+  for (const close of closes) {
+    await page.getByRole('button', { name: 'Grant a role' }).click();
+    await grant.getByRole('combobox', { name: 'Person' }).fill(last);
+    await grant.getByRole('option', { name: new RegExp(last) }).click();
+    await expect(grant.getByRole('button', { name: new RegExp(`^Change from .*${last} to someone else$`) })).toBeVisible();
+    await expect(grantButton).toBeEnabled();
+    await close();
+    await expect(grant).toBeHidden();
+
+    await page.getByRole('button', { name: 'Grant a role' }).click();
+    await expect(grant.getByRole('combobox', { name: 'Person' })).toHaveValue('');
+    await expect(grant.getByRole('button', { name: /^Change from / })).toHaveCount(0);
+    await expect(grantButton).toBeDisabled();
+    await grant.getByRole('button', { name: 'Cancel' }).click();
+    await expect(grant).toBeHidden();
+  }
+});

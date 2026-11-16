@@ -15,6 +15,7 @@ import { formatStamp, fullName } from '@/lib/utils';
 import { formatDate } from '../../shared/metrics';
 import type { AssignmentDraftPayload, FormDraft } from '../../shared/drafts';
 import type { AccountStatus, MembershipPeriod, PersonnelAssignment, PersonnelEvent, PersonnelInstance, PersonnelPersonRef, PersonnelRecordResponse } from '../../shared/types';
+import type { Speaker } from '../../shared/workflowMessages';
 
 /** Plain words for why a membership period began or ended (server/services/membership.ts). */
 const PERIOD_REASONS: Record<'start' | 'end', Record<string, string>> = {
@@ -65,14 +66,11 @@ function eventSentence(e: PersonnelEvent): string {
  * search is the shared picker, so a screen reader hears how many match and that typing more finds the rest.
  */
 export function SupervisorPicker({ unitId, exceptId, value, onChange, label = 'Supervisor', error }: { unitId: string; exceptId?: string; value: PersonnelPersonRef | null; onChange: (p: PersonnelPersonRef | null) => void; label?: string; error?: string | null }) {
-  // Who each offered name is, to hand back the reference the form saves rather than the picker's own row.
-  const found = useRef(new Map<string, PersonnelPersonRef>());
   const search = useMemo<PersonSearch>(() => ({
     key: ['supervisor-candidates', unitId, exceptId ?? null],
     load: async (q) => {
       const r = await api.supervisorCandidates(unitId, q, exceptId);
-      for (const p of r.results) found.current.set(p.id, p);
-      return { people: r.results.map((p) => ({ id: p.id, username: '', name: fullName(p), rank: p.rank_abbr })), more: r.more };
+      return { people: r.results.map((p): Candidate => ({ id: p.id, username: '', name: fullName(p), rank: p.rank_abbr, person: p })), more: r.more };
     },
     minLength: 2,
     none: 'Nobody in this command by that name.',
@@ -85,8 +83,16 @@ export function SupervisorPicker({ unitId, exceptId, value, onChange, label = 'S
       </div>
     );
   }
-  return <PersonPicker search={search} label={label} hint="Type two letters of their name." placeholder="Name" error={error} onChoose={(p) => onChange(found.current.get(p.id) ?? null)} />;
+  return <PersonPicker search={search} label={label} hint="Type two letters of their name." placeholder="Name" error={error} onChoose={(p) => onChange(isCandidate(p) ? p.person : null)} />;
 }
+
+/**
+ * A name the supervisor search offers, carrying the reference the form saves rather than the picker's own row. The
+ * reference travels in the row itself, so a search answered again from the query cache, after the dialog was closed and
+ * opened, still says who each name is.
+ */
+type Candidate = Speaker & { person: PersonnelPersonRef };
+const isCandidate = (p: Speaker): p is Candidate => 'person' in p;
 
 /** Whose assignment, in which unit, and what it says now. */
 export interface AssignmentTarget {

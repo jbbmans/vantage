@@ -98,6 +98,34 @@ export function PersonPicker({ host, kind, search, label, hideLabel = false, hin
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  // A press that takes focus from the field, such as a dialog's Cancel, ends before the list folds away. Folding it at once
+  // would shrink the dialog under the pointer, and the press would miss what it was aimed at.
+  const pressing = useRef(false);
+  useEffect(() => {
+    const down = () => { pressing.current = true; };
+    const up = () => { pressing.current = false; };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
+  }, []);
+  const fold = () => { setOpen(false); setActive(-1); };
+  const onBlur = () => {
+    if (!pressing.current) { fold(); return; }
+    const after = () => {
+      window.removeEventListener('pointerup', after, true);
+      window.removeEventListener('pointercancel', after, true);
+      // After the click that the press makes, which the browser sends straight after the pointer comes up.
+      window.setTimeout(fold, 0);
+    };
+    window.addEventListener('pointerup', after, true);
+    window.addEventListener('pointercancel', after, true);
+  };
+
   const choose = (p: Speaker) => {
     setOpen(false);
     setText('');
@@ -172,7 +200,7 @@ export function PersonPicker({ host, kind, search, label, hideLabel = false, hin
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
           onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          onBlur={() => { setOpen(false); setActive(-1); }}
+          onBlur={onBlur}
         />
         {open && people.isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-ink-3" aria-hidden />}
       </div>

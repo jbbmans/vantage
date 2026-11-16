@@ -293,6 +293,16 @@ test('Today’s “Who holds what” is a figure with a table, and analytics fit
   await noSidewaysScroll(page, 'casework at phone width');
   expect(await axe(page), 'casework at phone width').toEqual([]);
 
+  // So does each month of a single measure, as on the analysis page, where two months side by side may both open records.
+  await page.goto('/reports/analysis');
+  const months = page.locator('.chart-col-slot:visible');
+  await expect(months.first()).toBeVisible();
+  for (const slot of await months.all()) {
+    const box = await slot.boundingBox();
+    expect(box!.width, 'a month is at least 24px wide').toBeGreaterThanOrEqual(23.5);
+  }
+  await noSidewaysScroll(page, 'the analysis at phone width');
+
   // The full analysis with its ledger open: every table a keyboard can scroll, in both themes.
   await page.goto('/reports/analysis');
   await page.getByRole('tab', { name: 'Full analysis' }).click();

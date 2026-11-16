@@ -126,7 +126,8 @@ export function People({ org }: { org: OrgSummary }) {
   const [why, setWhy] = useState<OrgMember | null>(null);
   const [confirm, setConfirm] = useState<{ kind: 'unlock' | 'logout' | 'remove'; member: OrgMember } | null>(null);
   const [granting, setGranting] = useState(false);
-  const [grant, setGrant] = useState<{ user_id: string; role: OrgRoleKey; until: string }>({ user_id: '', role: 'admin', until: '' });
+  // The role goes only to the person the dialog shows (grantee), so closing the dialog cannot leave behind a hidden choice that Grant would still send.
+  const [grant, setGrant] = useState<{ role: OrgRoleKey; until: string }>({ role: 'admin', until: '' });
   const [revoke, setRevoke] = useState<OrgRoleHolder | null>(null);
   // CAC sign-in finds an account by its EDIPI alone, so an account made by invitation or registration needs one linked.
   const [cac, setCac] = useState<{ member: OrgMember; edipi: string } | null>(null);
@@ -245,17 +246,18 @@ export function People({ org }: { org: OrgSummary }) {
       <ConfirmDialog open={Boolean(revoke)} onOpenChange={(o) => { if (!o) setRevoke(null); }} title={`Remove ${revoke ? personName(revoke) : ''} as ${revoke ? roles.data?.catalog.roles[revoke.role].label : ''}?`} body="They are signed out and the role ends now. A Unit Instance always keeps at least one Lead Unit Manager." confirmLabel="Remove"
         onConfirm={async () => { if (revoke) await act('Role removed.', () => api.orgRevokeRole(org.id, revoke.user_id, revoke.role), refresh); setRevoke(null); }} />
       <Dialog open={granting} onOpenChange={(o) => { setGranting(o); if (!o) setGrantee(null); }} title="Grant a Unit Instance role" size="sm" description="To a member of the Unit Instance. Another Lead Unit Manager grants your own."
-        footer={<><Button variant="ghost" onClick={() => { setGranting(false); setGrantee(null); }}>Cancel</Button><Button variant="primary" disabled={!grant.user_id} onClick={async () => {
-          const r = await act('Role granted. They are told, and pick it up at their next sign-in.', () => api.orgGrantRole(org.id, { user_id: grant.user_id, role: grant.role, expires_at: endOfDay(grant.until) }), refresh);
-          if (r) { setGranting(false); setGrantee(null); setGrant({ user_id: '', role: 'admin', until: '' }); }
+        footer={<><Button variant="ghost" onClick={() => { setGranting(false); setGrantee(null); }}>Cancel</Button><Button variant="primary" disabled={!grantee} onClick={async () => {
+          if (!grantee) return;
+          const r = await act('Role granted. They are told, and pick it up at their next sign-in.', () => api.orgGrantRole(org.id, { user_id: grantee.id, role: grant.role, expires_at: endOfDay(grant.until) }), refresh);
+          if (r) { setGranting(false); setGrantee(null); setGrant({ role: 'admin', until: '' }); }
         }}>Grant</Button></>}>
         <div className="space-y-3">
           {grantee ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm">
               <span className="font-medium text-ink">{grantee.name}</span>
-              <Button size="xs" variant="ghost" aria-label={`Change from ${grantee.name} to someone else`} onClick={() => { setGrantee(null); setGrant({ ...grant, user_id: '' }); }}>Change</Button>
+              <Button size="xs" variant="ghost" aria-label={`Change from ${grantee.name} to someone else`} onClick={() => setGrantee(null)}>Change</Button>
             </div>
-          ) : <PersonPicker search={granteeSearch} label="Person" hint="An active member" onChoose={(p) => { setGrantee({ id: p.id, name: p.name }); setGrant({ ...grant, user_id: p.id }); }} />}
+          ) : <PersonPicker search={granteeSearch} label="Person" hint="An active member" onChoose={(p) => setGrantee({ id: p.id, name: p.name })} />}
           <Field label="Role"><Select value={grant.role} onValueChange={(v) => setGrant({ ...grant, role: v as OrgRoleKey })} options={Object.entries(roles.data?.catalog.roles ?? {}).map(([key, r]) => ({ value: key, label: r.label }))} /></Field>
           <p className="text-xs text-ink-3">{roles.data?.catalog.roles[grant.role]?.description}</p>
           <Field label="Until" hint="optional: for an acting billet or a leave period"><Input type="date" value={grant.until} min={tomorrowKey()} onChange={(e) => setGrant({ ...grant, until: e.target.value })} /></Field>

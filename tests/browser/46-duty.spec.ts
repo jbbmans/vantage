@@ -269,3 +269,30 @@ test('a long duty record reads a page at a time and can be narrowed; a link open
   await expect(table.getByRole('row')).toHaveCount(51);
   await lead.context.close();
 });
+
+test('Show all clears every filter in one step: a period and a status that leave nothing both go, and the duty shows again', async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  const lead = await leader(browser);
+  await registerAs(page, unique('cleared'));
+  await joinUnit(lead.page.request, page.request);
+  const options = await (await page.request.get('/api/record/duty/options')).json();
+  const type = (options.types as Array<{ id: string; code: string }>).find((t) => t.code === 'DNCO');
+  expect(type, 'duty type DNCO').toBeTruthy();
+  // Stood two months ago and still waiting for review, so neither "Last 30 days" nor "Approved" holds it.
+  const title = `Old watch ${unique('w')}`;
+  const res = await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: type!.id, unit_id: 'G8', title, date: day(60), start_time: '0800', end_date: day(60), end_time: '1600', visibility: 'unit' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+
+  await page.goto('/record/duty?period=last30&status=approved');
+  const narrow = page.getByRole('group', { name: 'Narrow the list' });
+  await expect(narrow.getByRole('combobox', { name: 'Period' })).toContainText('Last 30 days');
+  await expect(narrow.getByRole('combobox', { name: 'Status' })).toContainText('Approved');
+  await expect(page.getByText('No duty matches')).toBeVisible();
+
+  // Both filters go together: clearing only the last of them would leave the period in place and the list still empty.
+  await page.getByRole('button', { name: 'Show all' }).click();
+  await expect(page.getByRole('table', { name: 'Your duty' }).getByRole('button', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText('No duty matches')).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&](period|status)=/);
+  await lead.context.close();
+});

@@ -100,7 +100,8 @@ test('the unit access log names who opened whose record, and pages back to the o
     await page.goto('/team/access-log');
     const table = page.getByRole('table', { name: 'Who has been reading records in this unit' });
     const read = table.locator('tbody tr').filter({ hasText: 'View readiness' }).filter({ hasText: marine.name }).first();
-    await expect(read.locator('td').nth(1), 'who opened it').toHaveText('Cpl John Boletz');
+    // By rank and name, or by name alone: another spec may have changed the seeded leader's rank.
+    await expect(read.locator('td').nth(1), 'who opened it').toHaveText(/^(?:\S+ )?John Boletz$/);
     await expect(read.locator('td').nth(3), 'whose it was').toHaveText(marine.name);
     await expect(table.locator('tbody tr td:nth-child(2)').filter({ hasText: /^system$/ }), 'every entry here has someone behind it').toHaveCount(0);
 
@@ -125,7 +126,7 @@ test('a Marine pages back through who has looked at their record, on a phone too
     const table = own.getByRole('table', { name: 'Who has looked at your record' });
     const rows = table.locator('tbody tr');
     await expect(rows).toHaveCount(2);
-    await expect(rows.first()).toContainText('Cpl Boletz');
+    await expect(rows.first()).toContainText(/(?:\S+ )?Boletz/);
     await expect(rows.first()).toContainText('View readiness');
     const more = own.getByRole('button', { name: 'Load older' });
     await more.click();

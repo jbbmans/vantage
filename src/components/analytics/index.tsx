@@ -133,10 +133,12 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
   const values = n <= (multi(visual) ? 4 : 8);
   const paired = multi(visual);
   const pairs = visual.series.length;
-  // Each month's slots and the 2px between them, and the 3px between months, as .chart-plot and .chart-col-group set them.
-  const minWidth = paired ? n * (pairs * SLOT_MIN + (pairs - 1) * 2) + Math.max(0, n - 1) * 3 : undefined;
+  // Every slot keeps a 24px target (WCAG 2.5.8), paired or not: two months next to each other that both open their
+  // records are otherwise too narrow on a phone. Each month's slots and the 2px between them, and the 3px between
+  // months, as .chart-plot and .chart-col-group set them; past the width there is, the chart scrolls inside itself.
+  const minWidth = n * (pairs * SLOT_MIN + (pairs - 1) * 2) + Math.max(0, n - 1) * 3;
   const plot = (
-    <div style={minWidth ? { minWidth } : undefined}>
+    <div style={{ minWidth }}>
       <div className="chart-plot" style={{ height }}>
         {visual.buckets.map((b) => (
           <div key={b.key} className="chart-col-group">
@@ -148,7 +150,7 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
                   {values && v ? <span className="chart-col-value fig">{valueOf(visual, b, i)}</span> : null}
                 </span>
               );
-              const slot = paired ? { minWidth: SLOT_MIN } : undefined;
+              const slot = { minWidth: SLOT_MIN };
               return drillable(visual, onDrill, b.counts[i])
                 ? <button key={s.key} type="button" className="chart-col-slot chart-hit" style={slot} title={label} aria-label={`${label}. ${showRecords(visual, b.counts[i], b)}`} onClick={() => onDrill({ visual, bucket: b, series: multi(visual) ? s : null })}>{bar}</button>
                 : <span key={s.key} className="chart-col-slot" style={slot} role="img" title={label} aria-label={label}>{bar}</span>;
@@ -164,7 +166,7 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
   return (
     <div className="min-w-0">
       {paired && <Legend series={visual.series} />}
-      {paired ? <ScrollRegion label={visual.question}>{plot}</ScrollRegion> : plot}
+      <ScrollRegion label={visual.question}>{plot}</ScrollRegion>
     </div>
   );
 }
