@@ -386,7 +386,7 @@ export const deleteReportDefinition = (id: string) => api.del(`/report-center/de
 // Financial error reports (ADR-0021): filed from an uploaded report, kept as filed, compared report to report.
 export interface ErrorFilingPlan {
   unit_id: string; type_id: string; as_of: string; source_file_id: string; sheet_name: string; header_row: number;
-  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[]; note?: string | null;
+  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[] | null; note?: string | null;
 }
 export interface ErrorComparisonQuery { unit_id: string; type_id: string; snapshot?: string; against?: string }
 export const errorReports = (unitId: string) => api.get<ErrorReportsOverview>(`/error-reports?${qs({ unit_id: unitId })}`);
@@ -396,7 +396,7 @@ export const previewErrorReport = (plan: ErrorFilingPlan) => api.post<ErrorRepor
 export const fileErrorReport = (plan: ErrorFilingPlan) => api.post<SnapshotSummary & { unit_id: string; type_id: string }>('/error-reports/snapshots', plan);
 export const withdrawErrorReport = (id: string, reason: string) => api.post<SnapshotSummary>(`/error-reports/snapshots/${encodeURIComponent(id)}/withdraw`, { reason });
 export const errorComparison = (q: ErrorComparisonQuery) => api.get<ComparisonResult | SeriesHistory>(`/error-reports/series?${qs({ ...q })}`);
-export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
+export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string; offset?: number; limit?: number }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });
 export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1' : ''}`);

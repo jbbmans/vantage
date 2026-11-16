@@ -217,6 +217,11 @@ test('a report is previewed against the one before it, then filed as it stood, i
   assert.equal(pv.previous, null, 'the first report of its series');
   assert.deepEqual(pv.statuses.map((s) => [s.status, s.rows, s.closed]), [['Open', 2, false], ['In research', 1, false], ['Closed', 1, true]]);
   assert.deepEqual(pv.owners, { named: 3, matched: 2 }, 'nco by username, Ftl Marine by name; Somebody Else is nobody here');
+  assert.deepEqual(pv.closed_statuses, ['closed']);
+  // With no statuses given, the server closes those that usually mean closed: the first preview is one request.
+  const usual = await post(nco.token, '/api/error-reports/preview', { ...p1, closed_statuses: null });
+  assert.equal(usual.status, 200, JSON.stringify(usual.body));
+  assert.deepEqual(usual.body, pv, 'the same preview as naming Closed');
   assert.equal(count('SELECT COUNT(*) AS n FROM error_snapshots'), 0, 'a preview writes nothing');
 
   const seq = lastSeq();
@@ -354,6 +359,38 @@ test('every figure opens exactly the rows it counts, each with its file, row and
   assert.deepEqual(cased.rows.map((r) => [r.identifier, r.case_id]), [['D1', item.body.id], ['D2', d2], ['D5', null]], 'D5 is another report’s case, so it is not offered');
 });
 
+test('a figure’s rows go out a page at a time: every page of the same drill, cut after the checks and the group', async () => {
+  const three = await series(op.token);
+  for (const f of three.summary.figures.filter((x) => x.kind === 'count' && x.value != null && x.drill)) {
+    const whole = (await drill(op.token, { drill: f.drill! })).body as DrillResult;
+    const keys: string[] = [];
+    let offset: number | null = 0;
+    while (offset != null) {
+      const res = await drill(op.token, { drill: f.drill!, offset: String(offset), limit: '2' });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      const page = res.body as DrillResult;
+      assert.equal(page.total, f.value, `${f.id}: the figure on every page`);
+      assert.equal(page.cents, whole.cents, `${f.id}: the value of every row on every page`);
+      assert.ok(page.rows.length <= 2);
+      keys.push(...page.rows.map((r) => r.key));
+      offset = page.next_offset;
+    }
+    assert.deepEqual(keys, whole.rows.map((r) => r.key), `${f.id}: the pages are the drill, in its order`);
+  }
+  // Narrowed to a group, a later page holds that group's rows only.
+  const byOwner = (await drill(op.token, { drill: 'open', group: 'owner', value: `user:${ftl.id}`, offset: '1', limit: '1' })).body as DrillResult;
+  assert.deepEqual([byOwner.total, byOwner.rows.length, byOwner.next_offset, byOwner.group_label], [2, 1, null, 'LCpl Ftl Marine']);
+  assert.ok(byOwner.rows.every((r) => r.marine === 'LCpl Ftl Marine'));
+  // By Marine needs opening member records, on any page.
+  assert.equal((await drill(nco.token, { drill: 'open', group: 'owner', value: `user:${ftl.id}`, offset: '2', limit: '2' })).status, 403);
+  // Each page is a read of the unit's error reports, and says which rows.
+  const seq = lastSeq();
+  await drill(snco.token, { drill: 'open', offset: '2', limit: '2' });
+  assert.match(auditSince(seq).find((e) => e.action === 'view_error_report')!.detail, /: open rows \(3\), from row 3$/);
+  assert.equal((await drill(op.token, { drill: 'open', limit: '0' })).status, 400);
+  assert.equal((await drill(op.token, { drill: 'open', limit: '501' })).status, 400);
+});
+
 test('a report filed in error is withdrawn with a reason, kept, and left out of every comparison', async () => {
   const wrong = await fileReport(nco.token, 'ULO wrong day.csv', R2.replace('40.00', '41.00'), { as_of: dayAfter(D, -3) });
   assert.equal((await series(op.token)).before!.id, wrong.id, 'until withdrawn it is the report before the latest');
@@ -390,6 +427,19 @@ test('a report filed in error is withdrawn with a reason, kept, and left out of 
   const none = await drill(op.token, { type_id: ocmt.id, drill: 'open' });
   assert.equal(none.status, 404, 'and no figure to open');
   assert.match(none.body.error, /withdrawn/);
+
+  // The overview counts each series and shows its latest two standing reports, as reading every report did.
+  const overview = (await get(op.token, '/api/error-reports?unit_id=G8')).body as ErrorReportsOverview;
+  const every = app.ctx.db.prepare("SELECT id, unit_id, type_id, withdrawn_at FROM error_snapshots WHERE unit_id IN ('G8', 'FISCAL') ORDER BY as_of, filed_at").all() as Array<{ id: string; unit_id: string; type_id: string; withdrawn_at: string | null }>;
+  const lines = overview.series.map((s) => [s.code, s.reports, s.withdrawn, s.latest?.id ?? null, s.previous?.id ?? null]);
+  const expected = [...new Set(every.map((r) => `${r.unit_id}|${r.type_id}`))].map((k) => {
+    const list = every.filter((r) => `${r.unit_id}|${r.type_id}` === k);
+    const kept = list.filter((r) => !r.withdrawn_at);
+    return [overview.types.find((t) => t.id === list[0].type_id)!.code, kept.length, list.length - kept.length, kept.at(-1)?.id ?? null, kept.at(-2)?.id ?? null];
+  });
+  assert.deepEqual(lines.sort(), expected.sort());
+  assert.deepEqual(lines.find((l) => l[0] === 'OCMT'), ['OCMT', 0, 1, null, null], 'a series withdrawn in full is listed, with none standing');
+  assert.equal(overview.series.find((s) => s.code === 'ULO')!.withdrawn, 2, 'the wrong day and its refiling');
 });
 
 test('a filed report is never changed or deleted, in the database itself', async () => {

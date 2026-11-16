@@ -387,7 +387,11 @@ export interface ErrorReportPreview {
   type: { id: string; code: string; name: string };
   headers: string[]; rows: number; open: number; open_cents: number;
   rejected: number; rejections: ErrorReportRejection[]; rejection_count: number;
-  statuses: Array<{ status: string; rows: number; closed: boolean }>; owners: { named: number; matched: number };
+  /** The statuses on the sheet, most rows first (at most 100), and whether each closes a row. */
+  statuses: Array<{ status: string; rows: number; closed: boolean }>;
+  /** Every status, as compared, that closed a row in this preview: the plan's, or those that usually mean closed when it gave none. */
+  closed_statuses: string[];
+  owners: { named: number; matched: number };
   sample: SnapshotRow[];
   previous: { id: string; as_of: string; open_count: number; open_cents: number } | null;
   changes: Record<Standing | ChangeFlag, number> | null;
@@ -441,12 +445,17 @@ export interface DrillRow {
   age_days: number | null; age_basis: AgeBasis | null; standing: Standing | null; flags: ChangeFlag[]; data: Record<string, string>; case_id: string | null;
 }
 
+/**
+ * A page of the rows behind a figure. `total` and `cents` are of every row behind it; `rows` start at `offset`, and
+ * `next_offset` is where the next page starts, or null on the last. `headers` are the columns of this page's rows.
+ */
 export interface DrillResult {
   drill: Drill; label: string; group: DrillGroup | null; group_label: string | null;
   type: { id: string; code: string; name: string };
   after: { id: string; as_of: string; filename: string };
   before: { id: string; as_of: string; filename: string } | null;
   headers: string[]; rows: DrillRow[]; total: number; cents: number;
+  offset: number; next_offset: number | null;
 }
 
 /** The types and report days a unit's comparison may be run on, for the report library. */

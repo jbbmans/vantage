@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, FileSpreadsheet, FileWarning, Printer, Upload } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Segmented, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { PageShell, Table } from '@/components/common';
+import { PageShell, ScrollRegion, Table } from '@/components/common';
 import { clientVisual, VisualView } from '@/components/analytics';
 import { QueryFailure } from '@/components/QueryFailure';
 import { SamplePreview, ScanNotice, type ImportSource, type Inspection } from '@/components/ImportWizard';
@@ -18,8 +18,8 @@ import { PERMISSIONS } from '../../shared/permissions';
 import { formatCents } from '../../shared/money';
 import { formatDate, formatNumber } from '../../shared/metrics';
 import {
-  AGE_BASIS_LABELS, COLUMN_ROLES, COLUMN_ROLE_LABELS, DRILL_LABELS, FLAG_LABELS, SINGLE_ROLES, STANDING_LABELS, closedByDefault, guessRole, normalStatus,
-  type ChangeFlag, type ColumnRole, type Drill, type DrillGroup, type ErrorFigure, type ErrorReportLayout, type ErrorReportPreview,
+  AGE_BASIS_LABELS, COLUMN_ROLES, COLUMN_ROLE_LABELS, DRILL_LABELS, FLAG_LABELS, SINGLE_ROLES, STANDING_LABELS, guessRole, normalStatus,
+  type ChangeFlag, type ColumnRole, type Drill, type DrillGroup, type DrillResult, type DrillRow, type ErrorFigure, type ErrorReportLayout, type ErrorReportPreview,
   type ErrorReportType, type ErrorReportsOverview, type GroupLine, type SnapshotSummary, type Standing,
 } from '../../shared/errorReports';
 
@@ -34,6 +34,38 @@ const READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as
 
 const day = (iso: string) => formatDate(iso, 'dd MMM yyyy');
 const plural = (n: number, one: string, many = `${one}s`) => `${formatNumber(n)} ${n === 1 ? one : many}`;
+/** The rows behind a figure, read a page at a time. */
+const DRILL_PAGE = 100;
+/** The reports a series lists before it is asked for every one: those its trend shows. */
+const REPORTS_SHOWN = 26;
+/** Where focus goes when what opened a dialog is gone: the series' own heading. */
+const SERIES_HEADING = 'series-heading';
+
+/**
+ * Focus back on what opened a dialog once it closes (WCAG 2.4.3). These open from state, not a Radix trigger, so the
+ * dialog has nowhere to return focus to by itself. When the opener is gone (the Withdraw button of a report just
+ * withdrawn, or the button that filed the first report), focus goes to the series' heading, waiting a moment for it to
+ * be drawn; never if the person has put focus somewhere themselves.
+ */
+function useFocusBack() {
+  const [opener] = useState(() => (typeof document === 'undefined' ? null : document.activeElement as HTMLElement | null));
+  useEffect(() => () => {
+    const idle = () => !document.activeElement || document.activeElement === document.body;
+    let tries = 0;
+    const attempt = () => {
+      if (!idle()) return;
+      const to = opener && opener !== document.body && opener.isConnected ? opener : document.getElementById(SERIES_HEADING);
+      if (to) to.focus();
+      else if ((tries += 1) < 60) window.setTimeout(attempt, 50);
+    };
+    window.setTimeout(attempt, 0);
+  }, [opener]);
+}
+
+/** A table's first cell, which names its row (WCAG 1.3.1): read with every other cell of the row. */
+const RowHead = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+  <th scope="row" className={cn('px-2.5 py-1.5 text-left align-top font-normal', className)}>{children}</th>
+);
 
 /**
  * Financial error reports (Task 15, ADR-0021): the ULO, OCMT, UMT, invoices-on-hold and sync-error reports a unit is
@@ -117,7 +149,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
           const change = s.latest && s.previous ? s.latest.open_count - s.previous.open_count : null;
           return (
             <tr key={`${s.unit_id}-${s.type_id}`}>
-              <td><span className="font-medium text-ink">{s.code}</span><span className="block text-xs text-ink-3">{s.name}</span></td>
+              <RowHead><span className="font-medium text-ink">{s.code}</span><span className="block text-xs text-ink-3">{s.name}</span></RowHead>
               <td className="text-ink-2">{s.unit_name}</td>
               <td className="fig text-right">{formatNumber(s.reports)}{s.withdrawn ? <span className="block text-2xs text-ink-3">{formatNumber(s.withdrawn)} withdrawn</span> : null}</td>
               <td>{s.latest ? <span className="fig">{day(s.latest.as_of)}</span> : <span className="text-ink-3">None standing</span>}</td>
@@ -174,7 +206,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
     return (
       <div className="space-y-4">
         {back}
-        <Panel title={<span>{h.type.code} · {h.type.name}</span>} subtitle={`${h.unit.name}${h.type.description ? ` · ${h.type.description}` : ''}`}>
+        <Panel title={<span id={SERIES_HEADING} tabIndex={-1}>{h.type.code} · {h.type.name}</span>} subtitle={`${h.unit.name}${h.type.description ? ` · ${h.type.description}` : ''}`}>
           <p className="text-sm text-ink-2">{h.notes[0]}</p>
         </Panel>
         <ReportsFiled reports={h.reports} />
@@ -200,7 +232,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
         </div>
       </div>
 
-      <Panel title={<span>{r.type.code} · {r.type.name}</span>} subtitle={`${r.unit.name}${r.type.description ? ` · ${r.type.description}` : ''}`}>
+      <Panel title={<span id={SERIES_HEADING} tabIndex={-1}>{r.type.code} · {r.type.name}</span>} subtitle={`${r.unit.name}${r.type.description ? ` · ${r.type.description}` : ''}`}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Report" hint={`${r.after.filename} · filed by ${r.after.filed_by} ${formatStamp(r.after.filed_at)}`}>
             <Select value={r.after.id} onValueChange={(v) => setQuery({ report: v, against: '' })} options={live.map((s) => ({ value: s.id, label: `${day(s.as_of)} · ${s.filename}` }))} />
@@ -238,7 +270,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
                 );
                 return (
                   <tr key={l.value || 'none'}>
-                    <td className={cn(!l.value && 'text-ink-3')}>{l.label}</td>
+                    <RowHead className={cn(!l.value && 'text-ink-3')}>{l.label}</RowHead>
                     {cell('open', l.open)}
                     <td className="fig text-right">{formatCents(l.open_cents)}</td>
                     {r.before ? <>{cell('new', l.new)}{cell('still_open', l.still_open)}{cell('reopened', l.reopened)}{cell('resolved', l.resolved)}<td className="fig text-right">{formatCents(l.resolved_cents)}</td></> : null}
@@ -258,7 +290,8 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
                     <span className="block truncate text-xs text-ink-3">{[o.category, o.description, o.owner].filter(Boolean).join(' · ') || 'No detail'}</span>
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className="fig block text-ink" title={AGE_BASIS_LABELS[o.basis]}>{plural(o.days, 'day')}</span>
+                    <span className="fig block text-ink">{plural(o.days, 'day')}</span>
+                    <span className="block text-2xs text-ink-3">{AGE_BASIS_LABELS[o.basis]}</span>
                     <span className="fig block text-xs text-ink-3">{o.amount_cents == null ? 'No amount' : formatCents(o.amount_cents)}</span>
                   </span>
                 </li>
@@ -291,20 +324,30 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
   );
 }
 
-/** Every report of a series, newest first: a withdrawn one is kept, with who withdrew it and why. */
+/**
+ * Every report of a series, newest first: a withdrawn one is kept, with who withdrew it and why. A long series lists
+ * its latest reports, as many as its trend shows, and says so, until it is asked for every one.
+ */
 function ReportsFiled({ reports, afterId, beforeId, onCompare, onWithdraw }: {
   reports: SnapshotSummary[]; afterId?: string; beforeId?: string;
   onCompare?: (s: SnapshotSummary) => void; onWithdraw?: (s: SnapshotSummary) => void;
 }) {
+  const [every, setEvery] = useState(false);
+  const long = reports.length > REPORTS_SHOWN;
+  const shown = every ? reports : reports.slice(0, REPORTS_SHOWN);
+  const cut = shown.length < reports.length;
   return (
-    <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}>
+    <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}
+      // One button that stays where it is, so focus stays on it whichever way it turns.
+      action={long ? <Button size="sm" variant="ghost" onClick={() => setEvery((v) => !v)}>{every ? `Show the latest ${REPORTS_SHOWN}` : `Show every report (${formatNumber(reports.length)})`}</Button> : null}>
+      {cut ? <p className="px-4 pt-3 text-xs text-ink-3">The latest {formatNumber(shown.length)} of {plural(reports.length, 'report')}. Each can still be chosen above to compare.</p> : null}
       <Table label="Every report filed" minWidth={820} head={<>
         <th scope="col">Stands on</th><th scope="col">File</th><th scope="col" className="text-right">Rows</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
         <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
       </>}>
-        {reports.map((s) => (
+        {shown.map((s) => (
           <tr key={s.id} className={cn(s.withdrawn && 'text-ink-3')}>
-            <td className="fig">{day(s.as_of)}{s.id === afterId ? <Badge tone="accent" className="ml-2">This report</Badge> : s.id === beforeId ? <Badge tone="neutral" className="ml-2">Compared with</Badge> : null}</td>
+            <RowHead className="fig">{day(s.as_of)}{s.id === afterId ? <Badge tone="accent" className="ml-2">This report</Badge> : s.id === beforeId ? <Badge tone="neutral" className="ml-2">Compared with</Badge> : null}</RowHead>
             <td className="max-w-[16rem] truncate">{s.filename}{s.note ? <span className="block truncate text-xs text-ink-3">{s.note}</span> : null}</td>
             <td className="fig text-right">{formatNumber(s.row_count)}</td>
             <td className="fig text-right">{formatNumber(s.open_count)}</td>
@@ -332,15 +375,21 @@ function figureText(f: ErrorFigure): string {
   return formatNumber(f.value);
 }
 
-/** A figure, which opens the rows behind it. */
+/**
+ * A figure, which opens the rows behind it. A dollar figure takes the width of two on a phone, where half the screen
+ * cannot hold a value of a million dollars at this size (WCAG 1.4.10); a longer one wraps rather than overflow its card.
+ */
 function FigureCard({ figure: f, disabled, onOpen }: { figure: ErrorFigure; disabled: boolean; onOpen: () => void }) {
   const text = figureText(f);
   const sub = f.cents != null ? formatCents(f.cents, { signed: f.id === 'amount_changed' }) : null;
   return (
     <button type="button" disabled={disabled} onClick={onOpen} aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
-      className={cn('card flex h-full min-w-0 flex-col justify-between p-4 text-left', !disabled && 'card-hover', disabled && 'cursor-default')}>
+      className={cn('card flex h-full min-w-0 flex-col justify-between p-4 text-left', f.kind === 'money' && 'col-span-2 md:col-span-1', !disabled && 'card-hover', disabled && 'cursor-default')}>
       <span className="line-clamp-2 text-sm font-medium leading-snug text-ink-2">{f.label}</span>
-      <span className="mt-3 flex flex-wrap items-baseline gap-x-2"><span className="stat-value">{text}</span>{sub ? <span className="fig text-sm text-ink-3">{sub}</span> : null}</span>
+      <span className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2">
+        <span className="stat-value min-w-0 max-w-full [overflow-wrap:anywhere]">{text}</span>
+        {sub ? <span className="fig min-w-0 max-w-full text-sm text-ink-3 [overflow-wrap:anywhere]">{sub}</span> : null}
+      </span>
       {f.hint ? <span className="mt-1.5 line-clamp-2 text-xs text-ink-3">{f.hint}</span> : null}
     </button>
   );
@@ -348,58 +397,99 @@ function FigureCard({ figure: f, disabled, onOpen }: { figure: ErrorFigure; disa
 
 const standingTone: Record<Standing, 'accent' | 'warn' | 'good' | 'neutral'> = { new: 'accent', reopened: 'warn', still_open: 'neutral', resolved: 'good' };
 
-/** The rows behind a figure, as the file had them: its row number, every column, the earlier amount, and its case. */
+/**
+ * The rows behind a figure, as the file had them: its row number, every column, the earlier amount, and its case. They
+ * come a page at a time, each page decided on the server after every check, so the dialog opens at once however many
+ * there are; "Show more" brings the next page, and focus moves to the first row it brought.
+ */
 function DrillDialog({ ask, q, onClose }: { ask: DrillAsk; q: api.ErrorComparisonQuery; onClose: () => void }) {
+  useFocusBack();
   const params = { ...q, drill: ask.drill, group: ask.group, value: ask.group ? ask.value ?? '' : undefined };
-  const rows = useQuery({ queryKey: errorKeys.rows(params), queryFn: () => api.errorDrill(params), staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false, retry: false });
-  const d = rows.data;
+  // A drill is audited, so each page is read once for as long as the dialog is open: not again on focus or failure.
+  const rows = useInfiniteQuery({
+    queryKey: errorKeys.rows(params),
+    queryFn: ({ pageParam }) => api.errorDrill({ ...params, offset: pageParam, limit: DRILL_PAGE }),
+    initialPageParam: 0,
+    getNextPageParam: (last: DrillResult) => last.next_offset,
+    staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false, retry: false,
+  });
+  const pages = useMemo(() => rows.data?.pages ?? [], [rows.data]);
+  const d = pages[0];
+  const list = useMemo(() => pages.flatMap((p) => p.rows), [pages]);
+  const headers = useMemo(() => [...new Set(pages.flatMap((p) => p.headers))], [pages]);
   const earlier = ask.drill === 'resolved' || ask.drill === 'before';
+  const body = useRef<HTMLDivElement>(null);
+  const firstNew = useRef<number | null>(null);
+  useEffect(() => {
+    const at = firstNew.current;
+    if (at == null || list.length <= at) return;
+    firstNew.current = null;
+    body.current?.querySelectorAll<HTMLElement>('tbody > tr')[at]?.querySelector<HTMLElement>('summary')?.focus();
+  }, [list.length]);
+  const more = () => { firstNew.current = list.length; void rows.fetchNextPage(); };
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} size="xl" title={ask.title}
       description={d ? `${plural(d.total, 'row')} · ${formatCents(d.cents)} · from ${earlier && d.before ? `${d.before.filename}, the report of ${day(d.before.as_of)}` : `${d.after.filename}, the report of ${day(d.after.as_of)}`}` : 'The rows this figure counts.'}>
-      {rows.isPending ? <Skeleton className="h-64" /> : rows.isError || !d ? <QueryFailure error={rows.error} what="These rows" className="py-2" /> : !d.rows.length ? <p className="text-sm text-ink-3">No row is behind this figure.</p> : (
-        <div className="space-y-2">
-          {d.total > d.rows.length ? <p className="text-xs text-warn">Showing the first {formatNumber(d.rows.length)} of {formatNumber(d.total)}. The report library’s file holds them all.</p> : null}
+      {rows.isPending ? <Skeleton className="h-64" /> : !d ? <QueryFailure error={rows.error} what="These rows" className="py-2" /> : !list.length ? <p className="text-sm text-ink-3">No row is behind this figure.</p> : (
+        <div ref={body} className="space-y-2">
           <Table label={ask.title} minWidth={900} head={<>
             <th scope="col">Identifier</th><th scope="col">What</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col" className="text-right">Amount</th>
             <th scope="col" className="text-right">Age</th><th scope="col" className="text-right">Row</th><th scope="col">Case</th>
           </>}>
-            {d.rows.map((row) => {
-              const amount = earlier ? row.before_amount_cents : row.amount_cents ?? row.before_amount_cents;
-              const other = earlier ? row.amount_cents : row.before_amount_cents;
-              return (
-                <tr key={row.key}>
-                  <td>
-                    <span className="fig font-medium text-ink">{row.identifier}</span>
-                    <span className="mt-0.5 flex flex-wrap gap-1">
-                      {row.standing ? <Badge tone={standingTone[row.standing]}>{STANDING_LABELS[row.standing].label}</Badge> : null}
-                      {row.flags.map((fl: ChangeFlag) => <Badge key={fl} tone="neutral">{FLAG_LABELS[fl].label}</Badge>)}
-                    </span>
-                    <details className="mt-1 text-xs">
-                      <summary className="cursor-pointer text-ink-3">Every column</summary>
-                      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-                        {d.headers.filter((h) => row.data[h] !== undefined).map((h) => <div key={h} className="contents"><dt className="text-ink-3">{h}</dt><dd className="break-words text-ink-2">{row.data[h] || '—'}</dd></div>)}
-                      </dl>
-                    </details>
-                  </td>
-                  <td className="max-w-[18rem]">{row.description || row.reference || '—'}{row.category ? <span className="block text-xs text-ink-3">{row.category}</span> : null}{row.unit ? <span className="block text-xs text-ink-3">{row.unit}</span> : null}</td>
-                  <td>{row.marine ?? row.owner ?? <span className="text-ink-3">None named</span>}{row.marine && row.owner && row.marine !== row.owner ? <span className="block text-xs text-ink-3">{row.owner}</span> : null}</td>
-                  <td>{row.status ?? <span className="text-ink-3">—</span>}{row.closed ? <Badge tone="good" className="ml-1">Closed</Badge> : null}</td>
-                  <td className="fig text-right">{amount == null ? '—' : formatCents(amount)}{other != null && other !== amount ? <span className="block text-xs text-ink-3">{earlier ? 'now' : 'was'} {formatCents(other)}</span> : null}</td>
-                  <td className="fig text-right" title={row.age_basis ? AGE_BASIS_LABELS[row.age_basis] : undefined}>{row.age_days == null ? '—' : plural(row.age_days, 'day')}</td>
-                  <td className="fig text-right">{formatNumber(row.source_row)}</td>
-                  <td>{row.case_id ? <Link className="link" to={`/work/items/${encodeURIComponent(row.case_id)}`}>Open the case</Link> : <span className="text-ink-3">—</span>}</td>
-                </tr>
-              );
-            })}
+            {list.map((row) => <DrillLine key={row.key} row={row} headers={headers} earlier={earlier} />)}
           </Table>
+          {/* How much is shown, said once the rows are cut and again as each page comes. */}
+          <p role="status" className="text-xs text-ink-3">{d.total > list.length ? `Showing ${formatNumber(list.length)} of ${formatNumber(d.total)} rows.` : d.total > DRILL_PAGE ? `Showing all ${formatNumber(d.total)} rows.` : ''}</p>
+          {rows.isFetchNextPageError ? <p className="text-sm text-bad" role="alert">More rows could not load. {api.errorText(rows.error)}</p> : null}
+          {rows.hasNextPage ? (
+            <div className="flex justify-center">
+              <Button onClick={more} loading={rows.isFetchingNextPage}>{rows.isFetchNextPageError ? 'Try again' : 'Show more'}</Button>
+            </div>
+          ) : null}
         </div>
       )}
     </Dialog>
   );
 }
 
+/**
+ * One row behind a figure. Every column it carried is drawn only once its "Every column" is opened: a page of rows
+ * with every column of every row drawn up front is a page that takes seconds to open.
+ */
+function DrillLine({ row, headers, earlier }: { row: DrillRow; headers: string[]; earlier: boolean }) {
+  const [open, setOpen] = useState(false);
+  const amount = earlier ? row.before_amount_cents : row.amount_cents ?? row.before_amount_cents;
+  const other = earlier ? row.amount_cents : row.before_amount_cents;
+  return (
+    <tr>
+      <RowHead>
+        <span className="fig font-medium text-ink">{row.identifier}</span>
+        <span className="mt-0.5 flex flex-wrap gap-1">
+          {row.standing ? <Badge tone={standingTone[row.standing]}>{STANDING_LABELS[row.standing].label}</Badge> : null}
+          {row.flags.map((fl: ChangeFlag) => <Badge key={fl} tone="neutral">{FLAG_LABELS[fl].label}</Badge>)}
+        </span>
+        <details className="mt-1 text-xs" onToggle={(e) => setOpen(e.currentTarget.open)}>
+          <summary className="cursor-pointer text-ink-3">Every column<span className="sr-only"> of {row.identifier}</span></summary>
+          {open ? (
+            <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+              {headers.filter((h) => row.data[h] !== undefined).map((h) => <div key={h} className="contents"><dt className="text-ink-3">{h}</dt><dd className="break-words text-ink-2">{row.data[h] || '—'}</dd></div>)}
+            </dl>
+          ) : null}
+        </details>
+      </RowHead>
+      <td className="max-w-[18rem]">{row.description || row.reference || '—'}{row.category ? <span className="block text-xs text-ink-3">{row.category}</span> : null}{row.unit ? <span className="block text-xs text-ink-3">{row.unit}</span> : null}</td>
+      <td>{row.marine ?? row.owner ?? <span className="text-ink-3">None named</span>}{row.marine && row.owner && row.marine !== row.owner ? <span className="block text-xs text-ink-3">{row.owner}</span> : null}</td>
+      <td>{row.status ?? <span className="text-ink-3">—</span>}{row.closed ? <Badge tone="good" className="ml-1">Closed</Badge> : null}</td>
+      <td className="fig text-right">{amount == null ? '—' : formatCents(amount)}{other != null && other !== amount ? <span className="block text-xs text-ink-3">{earlier ? 'now' : 'was'} {formatCents(other)}</span> : null}</td>
+      <td className="fig text-right">{row.age_days == null ? '—' : plural(row.age_days, 'day')}{row.age_basis ? <span className="block text-2xs text-ink-3">{AGE_BASIS_LABELS[row.age_basis]}</span> : null}</td>
+      <td className="fig text-right">{formatNumber(row.source_row)}</td>
+      <td>{row.case_id ? <Link className="link" to={`/work/items/${encodeURIComponent(row.case_id)}`}>Open the case</Link> : <span className="text-ink-3">—</span>}</td>
+    </tr>
+  );
+}
+
 function WithdrawDialog({ report, code, onClose, onDone }: { report: SnapshotSummary; code: string; onClose: () => void; onDone: () => void }) {
+  useFocusBack();
   const toast = useToast();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
@@ -437,11 +527,23 @@ const HEADING_ROWS = 20;
 /** The column most likely to identify a row on a report filed the first time. The uploader decides. */
 const guessKey = (headers: string[]) => headers.find((h) => /\b(document|doc|reference|ref|number|no|id|key|invoice|piin|sdn)\b/i.test(h)) ?? headers[0] ?? '';
 
+/** The step that asks for each field of a filing, and the field's name there, for a refusal that names it. */
+const FIELDS: Record<string, { step: Step; label: string }> = {
+  unit_id: { step: 'file', label: 'Unit' }, type_id: { step: 'file', label: 'Report' }, as_of: { step: 'file', label: 'Stands on' },
+  note: { step: 'file', label: 'Note' }, source_file_id: { step: 'file', label: 'The report' },
+  sheet_name: { step: 'sheet', label: 'Sheet' }, header_row: { step: 'sheet', label: 'Heading row' },
+  key_columns: { step: 'columns', label: 'Which column identifies each error' }, columns: { step: 'columns', label: 'Columns' },
+};
+const STEPS: Step[] = ['file', 'sheet', 'columns', 'preview', 'done'];
+const listed = (parts: string[]) => (parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0] ?? '');
+
 function FileDialog({ types, units, initial, onClose, onFiled }: {
   types: ErrorReportType[]; units: Array<{ id: string; label: string }>; initial: { unitId: string; typeId: string };
   onClose: () => void; onFiled: (s: Filed) => void;
 }) {
+  useFocusBack();
   const toast = useToast();
+  const whyId = useId();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -462,7 +564,31 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
   const [closed, setClosed] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<ErrorReportPreview | null>(null);
   const [filed, setFiled] = useState<Filed | null>(null);
+  // The file read, and the unit and report it was read for: a step sent back to the first goes on with it.
+  const [picked, setPicked] = useState<{ name: string; for: string } | null>(null);
+  // What the server refused, by field, shown at the field until it is changed.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const type = types.find((t) => t.id === typeId);
+  const errorOf = (field: string) => fieldErrors[field] ?? null;
+  const changed = (field: string) => setFieldErrors((all) => {
+    if (!(field in all)) return all;
+    const rest = { ...all };
+    delete rest[field];
+    return rest;
+  });
+  /**
+   * A refusal. One that names fields goes back to the step that asks for the first of them, and says so at each field,
+   * which is marked invalid and described by it (WCAG 3.3.1, 3.3.3); the toast says it in full.
+   */
+  const refused = (e: unknown) => {
+    const named: Record<string, string> = {};
+    if (e instanceof api.ApiError && e.fieldErrors) for (const [k, v] of Object.entries(e.fieldErrors)) named[k.split('.')[0]] ??= v;
+    setFieldErrors(named);
+    const to = STEPS.find((s) => Object.keys(named).some((k) => FIELDS[k]?.step === s));
+    if (to && STEPS.indexOf(to) < STEPS.indexOf(step)) setStep(to);
+    const validation = e instanceof api.ApiError && e.code === 'validation' && Object.keys(named).length > 0;
+    toast.error(validation ? Object.entries(named).map(([k, v]) => `${FIELDS[k]?.label ?? k}: ${v}`).join(' ') : e instanceof Error ? e.message : api.errorText(e));
+  };
 
   const sheet = useMemo(() => (inspection?.sheets || []).find((s) => s.name === sheetName) || inspection?.sheets?.[0], [inspection, sheetName]);
   const headers = useMemo(() => (sheet?.sample?.[headerRow - 1] || []).map((h, i) => (h || '').trim() || `Column ${i + 1}`), [sheet, headerRow]);
@@ -479,8 +605,9 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
       setSource(uploaded); setInspection(detail); setLayout(last.layout);
       setSheetName(last.layout && detail.sheets.some((s) => s.name === last.layout!.sheet_name) ? last.layout.sheet_name : detail.sheets[0]?.name || '');
       setHeaderRow(Math.min(last.layout?.header_row ?? 1, HEADING_ROWS));
+      setPicked({ name: file.name, for: `${unitId}|${typeId}` });
       setStep('sheet');
-    } catch (e) { toast.error(api.errorText(e)); }
+    } catch (e) { refused(e); }
     finally { setBusy(false); }
   };
 
@@ -493,28 +620,37 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
     setStep('columns');
   };
 
-  const plan = (closedStatuses: string[]): api.ErrorFilingPlan => ({
+  const plan = (closedStatuses: string[] | null): api.ErrorFilingPlan => ({
     unit_id: unitId, type_id: typeId, as_of: asOf, source_file_id: source?.id ?? '', sheet_name: sheet?.name || '', header_row: headerRow,
     key_columns: keys.filter((k, i, all) => k && all.indexOf(k) === i), columns: roles, closed_statuses: closedStatuses, note: note.trim() || null,
   });
 
-  const runPreview = async (next = closed) => {
+  // Each preview is numbered, so an answer to an earlier tick that comes late never replaces the answer to a later one.
+  const asked = useRef(0);
+  /**
+   * Preview the filing. With no statuses chosen yet (a series' first report), the server ticks those that usually mean
+   * closed and says which: one request. `undo` is what to put back if this preview is refused.
+   */
+  const runPreview = async (next = closed, undo?: string[] | null) => {
+    const n = (asked.current += 1);
     setBusy(true);
     try {
-      let result = await api.previewErrorReport(plan(next ?? []));
-      let chosen = next ?? [];
-      if (next === null) {
-        chosen = result.statuses.filter((s) => closedByDefault(s.status)).map((s) => normalStatus(s.status));
-        if (chosen.length) result = await api.previewErrorReport(plan(chosen));
-      }
-      setClosed(chosen); setPreview(result); setStep('preview');
-    } catch (e) { toast.error(api.errorText(e)); }
-    finally { setBusy(false); }
+      const result = await api.previewErrorReport(plan(next));
+      if (n !== asked.current) return;
+      setFieldErrors({}); setClosed(result.closed_statuses); setPreview(result); setStep('preview');
+    } catch (e) {
+      if (n !== asked.current) return;
+      if (undo !== undefined) setClosed(undo);
+      refused(e);
+    } finally { if (n === asked.current) setBusy(false); }
   };
+  // The box is ticked at once and stays where it is, focus with it (WCAG 2.4.3); the counts follow when the preview answers.
   const toggleClosed = (status: string, on: boolean) => {
     const k = normalStatus(status);
-    const next = on ? [...new Set([...(closed ?? []), k])] : (closed ?? []).filter((x) => x !== k);
-    void runPreview(next);
+    const was = closed ?? [];
+    const next = on ? [...new Set([...was, k])] : was.filter((x) => x !== k);
+    setClosed(next);
+    void runPreview(next, was);
   };
 
   const file = async () => {
@@ -523,9 +659,14 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
       const result = await api.fileErrorReport(plan(closed ?? []));
       setFiled(result); setStep('done');
       await qc.invalidateQueries({ queryKey: errorKeys.all });
-    } catch (e) { toast.error(api.errorText(e)); }
+    } catch (e) { refused(e); }
     finally { setBusy(false); }
   };
+  // The file is chosen once the unit, the report and its day are; the drop zone says which is missing, not just greys out.
+  const missing = [!unitId && 'the unit', !typeId && 'the report', !asOf && 'the day it stands on'].filter((x): x is string => Boolean(x));
+  const why = !types.length ? 'No kind of error report is active in this Unit Instance. A Unit Manager can add or restore one in the console.'
+    : missing.length ? `Choose ${listed(missing)} first.` : null;
+  const kept = inspection && picked?.for === `${unitId}|${typeId}` ? picked : null;
 
   const blocked = Boolean(preview?.same_file || preview?.same_day || !preview?.rows);
   const titles: Record<Step, string> = {
@@ -537,7 +678,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} size="lg" title={titles[step]}
       description={step === 'file' ? 'The report is kept exactly as it stood on the day it was run, and never changed after. The next report of its kind is compared with it.' : type && step !== 'done' ? `${type.code} · ${type.name}, standing on ${day(asOf)}` : undefined}
       footer={
-        step === 'file' ? <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        step === 'file' ? <><Button variant="ghost" onClick={onClose}>Cancel</Button>{kept ? <Button variant="primary" disabled={Boolean(why) || busy} onClick={() => setStep('sheet')}>Next<ArrowRight className="h-4 w-4" aria-hidden /></Button> : null}</>
         : step === 'sheet' ? <><Button variant="ghost" onClick={() => setStep('file')}>Back</Button><Button variant="primary" disabled={!sheet || !headers.length} onClick={toColumns}>Next<ArrowRight className="h-4 w-4" aria-hidden /></Button></>
         : step === 'columns' ? <><Button variant="ghost" onClick={() => setStep('sheet')}>Back</Button><Button variant="primary" loading={busy} disabled={!keys[0] || twice.length > 0} onClick={() => runPreview()}>Preview<ArrowRight className="h-4 w-4" aria-hidden /></Button></>
         : step === 'preview' ? <><Button variant="ghost" onClick={() => setStep('columns')}>Back</Button><Button variant="primary" loading={busy} disabled={blocked} onClick={file}><Check className="h-4 w-4" aria-hidden />File {preview ? plural(preview.rows, 'row') : 'it'}</Button></>
@@ -547,26 +688,33 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
       {step === 'file' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Unit" hint="Read by everyone who may view its shared records.">
-              <Select value={unitId} onValueChange={setUnitId} options={units.map((u) => ({ value: u.id, label: u.label }))} />
+            <Field label="Unit" hint="Read by everyone who may view its shared records." error={errorOf('unit_id')}>
+              <Select value={unitId} onValueChange={(v) => { changed('unit_id'); setUnitId(v); }} options={units.map((u) => ({ value: u.id, label: u.label }))} />
             </Field>
-            <Field label="Report" hint={type?.description || undefined}>
-              <Select value={typeId} onValueChange={setTypeId} options={types.map((t) => ({ value: t.id, label: `${t.code} · ${t.name}` }))} placeholder="No report type is active" />
+            <Field label="Report" hint={type?.description || undefined} error={errorOf('type_id')}>
+              <Select value={typeId} onValueChange={(v) => { changed('type_id'); setTypeId(v); }} options={types.map((t) => ({ value: t.id, label: `${t.code} · ${t.name}` }))} placeholder="No report type is active" />
             </Field>
-            <Field label="Stands on" hint="The day the report was run.">
-              <Input type="date" value={asOf} max={todayIso()} onChange={(e) => setAsOf(e.target.value)} />
+            <Field label="Stands on" hint="The day the report was run." error={errorOf('as_of')}>
+              <Input type="date" value={asOf} max={todayIso()} onChange={(e) => { changed('as_of'); setAsOf(e.target.value); }} />
             </Field>
           </div>
-          <Field label="Note" hint="Optional: where the report came from, or anything a reader should know.">
-            <Input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />
+          <Field label="Note" hint="Optional: where the report came from, or anything a reader should know." error={errorOf('note')}>
+            <Input value={note} maxLength={500} onChange={(e) => { changed('note'); setNote(e.target.value); }} />
           </Field>
-          <button type="button" disabled={busy || !typeId || !unitId || !asOf} onClick={() => fileInput.current?.click()}
-            className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-line-strong bg-surface-2 px-6 py-10 text-center transition-colors hover:border-accent disabled:opacity-60">
+          {/* The one tab stop for choosing the file. While a file is read it stays focusable and says so; when it cannot
+              be used yet, the reason is shown under it and read with it. */}
+          <button type="button" disabled={Boolean(why)} aria-disabled={busy || undefined} aria-describedby={why ? whyId : undefined}
+            onClick={() => { if (!busy) fileInput.current?.click(); }}
+            className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-line-strong bg-surface-2 px-6 py-10 text-center transition-colors hover:border-accent disabled:opacity-60 aria-disabled:cursor-progress">
             {busy ? <Skeleton className="h-8 w-8 rounded-full" /> : <Upload className="h-8 w-8 text-ink-3" aria-hidden />}
             <span className="text-sm font-medium text-ink">{busy ? 'Reading the file' : 'Choose the report'}</span>
             <span className="text-xs text-ink-3">.xlsx, .xlsm, .csv or .tsv</span>
           </button>
-          <input ref={fileInput} type="file" className="sr-only" aria-label="Error report to file" accept=".xlsx,.xlsm,.csv,.tsv,.txt"
+          {why ? <p id={whyId} className="text-xs text-warn">{why}</p> : null}
+          {kept && !why ? <p className="text-xs text-ink-2">{kept.name} is read. Go on with it, or choose another.</p> : null}
+          {errorOf('source_file_id') ? <p className="text-xs text-bad" role="alert">{errorOf('source_file_id')}</p> : null}
+          {/* Opened only by the button above, so it is no tab stop of its own and is not read twice. */}
+          <input ref={fileInput} type="file" className="sr-only" aria-label="Error report to file" tabIndex={-1} aria-hidden="true" accept=".xlsx,.xlsm,.csv,.tsv,.txt"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); e.target.value = ''; }} />
           <p className="text-xs text-ink-3">Macros are never run. Formulas are read as the value the spreadsheet saved. Filing a report never changes a case in the queue.</p>
         </div>
@@ -582,8 +730,8 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
             </ul>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Sheet"><Select value={sheet?.name || ''} onValueChange={setSheetName} options={inspection.sheets.map((s) => ({ value: s.name, label: `${s.name} (${formatNumber(s.rows)} rows)` }))} /></Field>
-            <Field label="Heading row" hint={`The row that names the columns, one of the first ${HEADING_ROWS}.`}><NumberInput value={String(headerRow)} min={1} max={HEADING_ROWS} onChange={(e) => setHeaderRow(Math.max(1, Math.min(HEADING_ROWS, Number(e.target.value) || 1)))} /></Field>
+            <Field label="Sheet" error={errorOf('sheet_name')}><Select value={sheet?.name || ''} onValueChange={(v) => { changed('sheet_name'); setSheetName(v); }} options={inspection.sheets.map((s) => ({ value: s.name, label: `${s.name} (${formatNumber(s.rows)} rows)` }))} /></Field>
+            <Field label="Heading row" hint={`The row that names the columns, one of the first ${HEADING_ROWS}.`} error={errorOf('header_row')}><NumberInput value={String(headerRow)} min={1} max={HEADING_ROWS} onChange={(e) => { changed('header_row'); setHeaderRow(Math.max(1, Math.min(HEADING_ROWS, Number(e.target.value) || 1))); }} /></Field>
           </div>
           {sheet?.truncated && <p className="text-xs text-warn">This sheet is larger than Vantage reads in one pass. Only the first rows are filed.</p>}
           <SamplePreview sheet={sheet} headerRow={headerRow} />
@@ -593,16 +741,17 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
       {step === 'columns' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Which column identifies each error" hint="How the next report recognises the same error. Taken exactly as written.">
-              <Select value={keys[0]} onValueChange={(v) => setKeys(([, b]) => [v, b === v ? '' : b])} options={headers.map((h) => ({ value: h, label: h }))} />
+            <Field label="Which column identifies each error" hint="How the next report recognises the same error. Taken exactly as written." error={errorOf('key_columns')}>
+              <Select value={keys[0]} onValueChange={(v) => { changed('key_columns'); setKeys(([, b]) => [v, b === v ? '' : b]); }} options={headers.map((h) => ({ value: h, label: h }))} />
             </Field>
             <Field label="And, if one column is not enough" hint="A document number and its line, say.">
-              <Select aria-label="Second identifying column" value={keys[1] || 'none'} onValueChange={(v) => setKeys(([a]) => [a, v === 'none' ? '' : v])}
+              <Select aria-label="Second identifying column" value={keys[1] || 'none'} onValueChange={(v) => { changed('key_columns'); setKeys(([a]) => [a, v === 'none' ? '' : v]); }}
                 options={[{ value: 'none', label: 'No second column' }, ...headers.filter((h) => h !== keys[0]).map((h) => ({ value: h, label: h }))]} />
             </Field>
           </div>
-          <div className="scroll-x rounded-md border border-line">
+          <ScrollRegion label="What each column holds" className="scroll-x rounded-md border border-line">
             <table className="w-full text-sm" style={{ minWidth: 560 }}>
+              <caption className="sr-only">What each column holds</caption>
               <thead className="bg-surface-2">
                 <tr><th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-ink-2">Column</th><th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-ink-2">Holds</th><th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-ink-2">First value</th></tr>
               </thead>
@@ -611,7 +760,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
                   <tr key={h} className="border-t border-line">
                     <td className="px-3 py-1.5 text-ink">{h}{keys.includes(h) && <Badge tone="accent" className="ml-2">Identifier</Badge>}</td>
                     <td className="px-3 py-1.5">
-                      <Select aria-label={`What ${h} holds`} className="w-52" value={roles[h] || 'keep'} onValueChange={(v) => setRoles((m) => ({ ...m, [h]: v as ColumnRole }))}
+                      <Select aria-label={`What ${h} holds`} className="w-52" value={roles[h] || 'keep'} onValueChange={(v) => { changed('columns'); setRoles((m) => ({ ...m, [h]: v as ColumnRole })); }}
                         options={COLUMN_ROLES.filter((role) => role !== 'ignore' || !keys.includes(h)).map((role) => ({ value: role, label: COLUMN_ROLE_LABELS[role].label }))} />
                     </td>
                     <td className="max-w-[14rem] truncate px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || '—'}</td>
@@ -619,7 +768,8 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
+          {errorOf('columns') ? <p className="text-sm text-bad" role="alert">{errorOf('columns')}</p> : null}
           {twice.length ? <p className="text-sm text-bad" role="alert">{twice.map((role) => `Two columns hold the ${COLUMN_ROLE_LABELS[role].label.toLowerCase()}.`).join(' ')} Choose one for each.</p> : null}
           <p className="text-xs text-ink-3">A column kept is filed with the row and shown with it. Only a column left out is not kept.</p>
         </div>
@@ -646,7 +796,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
               </ul>
             </div>
           ) : <p className="text-sm text-ink-2">No report of this series stands on an earlier day, so this one starts it: the next is compared with it.</p>}
-          <fieldset>
+          <fieldset aria-busy={busy || undefined}>
             <legend className="mb-1 text-base font-medium text-ink">Which statuses mean closed</legend>
             {!preview.statuses.length ? <p className="text-sm text-ink-3">No column holds a status, so every row is open. An error gone from the next report is resolved.</p> : (
               <>
@@ -654,7 +804,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
                 <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                   {preview.statuses.map((s) => (
                     <li key={s.status}><label className="flex items-center gap-2 text-sm text-ink-2">
-                      <input type="checkbox" className="h-4 w-4 accent-accent" checked={s.closed} disabled={busy} onChange={(e) => toggleClosed(s.status, e.target.checked)} />
+                      <input type="checkbox" className="h-4 w-4 accent-accent" checked={(closed ?? []).includes(normalStatus(s.status))} onChange={(e) => toggleClosed(s.status, e.target.checked)} />
                       <span className="text-ink">{s.status}</span><span className="fig text-xs text-ink-3">{plural(s.rows, 'row')}</span>
                     </label></li>
                   ))}

@@ -28,6 +28,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const shown = (iso: string) => `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
 const HEAD = 'Document,Line,Description,Error,Amount,Owner,Status,Opened,Office';
+/** What each column of HEAD holds, for a report filed through the API. */
+const COLUMNS = { Document: 'reference', Line: 'keep', Description: 'description', Error: 'category', Amount: 'amount', Owner: 'owner', Status: 'status', Opened: 'opened', Office: 'unit' };
 const LAST_WEEK = [HEAD,
   `B-101,1,Obligation not liquidated,Unmatched,"1,000.00",John Boletz,Open,${day(60)},G8`,
   'B-102,1,Duplicate invoice,Duplicate,250.50,,In research,,G8',
@@ -74,24 +76,74 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(page.getByText(`No error report is filed for ${OPERATOR.unit_name} yet`)).toBeVisible();
   expect(await axe(page), 'the page before anything is filed').toEqual([]);
 
-  // Last week's: the statuses that usually mean closed are ticked, and the preview says what will be filed.
+  // The file is chosen with the one control that shows. It says why it cannot be used yet, rather than only
+  // greying out, and closing the dialog puts focus back on what opened it.
+  const fileFirst = page.getByRole('button', { name: 'File the first report' });
+  await fileFirst.click();
+  let dialog = page.getByRole('dialog', { name: 'File an error report' });
+  const choose = dialog.getByRole('button', { name: /^Choose the report/ });
+  await choose.focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByLabel('Error report to file')).not.toBeFocused();
+  await expect(choose).not.toBeFocused();
+  await dialog.getByLabel('Stands on').fill('');
+  await expect(choose).toBeDisabled();
+  await expect(choose).toHaveAccessibleDescription('Choose the day it stands on first.');
+  await expect(dialog.getByText('Choose the day it stands on first.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(fileFirst).toBeFocused();
+
+  // Last week's: the statuses that usually mean closed are ticked, and the preview says what will be filed, in one request.
   let columns = await fileReport(page, 'ULO last week.csv', LAST_WEEK, day(7), 'File the first report');
   expect(await axe(page), 'what each column holds').toEqual([]);
+  const previews: string[] = [];
+  page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/error-reports/preview') previews.push(r.method()); });
   await columns.getByRole('button', { name: 'Preview' }).click();
   let preview = page.getByRole('dialog', { name: 'Here is what will be filed' });
   await expect(preview.getByRole('checkbox', { name: /^Closed/ })).toBeChecked();
   await expect(preview.getByRole('checkbox', { name: /^In research/ })).not.toBeChecked();
   await expect(preview).toContainText('No report of this series stands on an earlier day');
   await expect(preview).toContainText('$1,250.50');
+  expect(previews, 'the first preview').toEqual(['POST']);
   expect(await axe(page), 'the preview').toEqual([]);
+  // Ticking a status keeps it where it is, with focus on it, and the counts follow.
+  const research = preview.getByRole('checkbox', { name: /^In research/ });
+  await research.focus();
+  let answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/error-reports/preview');
+  await page.keyboard.press('Space');
+  await answered;
+  await expect(research).toBeFocused();
+  await expect(research).toBeChecked();
+  await expect(preview).toContainText('$1,000.00');
+  answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/error-reports/preview');
+  await page.keyboard.press('Space');
+  await answered;
+  await expect(research).toBeFocused();
+  await expect(research).not.toBeChecked();
+  await expect(preview).toContainText('$1,250.50');
   await preview.getByRole('button', { name: 'File 3 rows' }).click();
   let done = page.getByRole('dialog', { name: 'Filed' });
   await expect(done).toContainText(`Filed the ULO report of ${shown(day(7))}: 3 rows, 2 open ($1,250.50).`);
   await done.getByRole('button', { name: 'Open the comparison' }).click();
   await expect(page.getByRole('heading', { level: 2, name: `The report of ${shown(day(7))}` })).toBeVisible();
+  // What opened the dialog is gone with the list of series, so focus goes to the series' heading.
+  await expect(page.locator('#series-heading')).toBeFocused();
 
-  // This week's: set up as last week's was, and compared with it before it is filed.
-  columns = await fileReport(page, 'ULO this week.csv', THIS_WEEK, day(0), 'File the next report');
+  // This week's: set up as last week's was, and compared with it before it is filed. A day that has not come is
+  // refused at the field that holds it, on the step that asks for it, and the file read goes on from there.
+  columns = await fileReport(page, 'ULO this week.csv', THIS_WEEK, day(-3), 'File the next report');
+  await columns.getByRole('button', { name: 'Preview' }).click();
+  dialog = page.getByRole('dialog', { name: 'File an error report' });
+  const standsOn = dialog.getByLabel('Stands on');
+  await expect(standsOn).toHaveAttribute('aria-invalid', 'true');
+  await expect(standsOn).toHaveAccessibleDescription(/Not in the future/);
+  expect(await axe(page), 'a day refused at its field').toEqual([]);
+  await standsOn.fill(day(0));
+  await expect(standsOn).not.toHaveAttribute('aria-invalid', 'true');
+  await dialog.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('dialog', { name: 'Which sheet, and where do the headings sit?' }).getByRole('button', { name: 'Next' }).click();
+  columns = page.getByRole('dialog', { name: 'What does each column hold?' });
   await columns.getByRole('button', { name: 'Preview' }).click();
   preview = page.getByRole('dialog', { name: 'Here is what will be filed' });
   await expect(preview).toContainText(`Against the report of ${shown(day(7))} (2 open errors)`);
@@ -111,7 +163,9 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   expect(await axe(page), 'a comparison').toEqual([]);
 
   // A figure opens its rows: the resolved error as last week's file had it, with every column it carried.
-  await page.getByRole('button', { name: /^Resolved: 1, \$250\.50\. Show the rows$/ }).click();
+  const resolved = page.getByRole('button', { name: /^Resolved: 1, \$250\.50\. Show the rows$/ });
+  await resolved.focus();
+  await page.keyboard.press('Enter');
   const rows = page.getByRole('dialog', { name: 'Resolved' });
   await expect(rows).toContainText(`1 row · $250.50 · from ULO last week.csv, the report of ${shown(day(7))}`);
   const table = rows.getByRole('table');
@@ -121,15 +175,28 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(rows.getByText('In research').first()).toBeVisible();
   expect(await axe(page), 'the rows behind a figure').toEqual([]);
   await page.keyboard.press('Escape');
+  await expect(rows).toBeHidden();
+  await expect(resolved).toBeFocused();
+
+  // How each age was found is written beside it.
+  await page.getByRole('button', { name: /^Open: 3, \$950\.00\. Show the rows$/ }).click();
+  const open = page.getByRole('dialog', { name: 'Open' });
+  await expect(open.getByRole('row').filter({ hasText: 'B-101' })).toContainText('From its opened date');
+  await page.keyboard.press('Escape');
+  await expect(open).toBeHidden();
 
   // So does a line of a group.
   const groupBy = page.getByRole('tablist', { name: 'Group by' });
   await expect(groupBy.getByRole('tab', { name: 'Error type' })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('button', { name: 'Reopened for Overage: 1. Show the rows' }).click();
+  const overage = page.getByRole('button', { name: 'Reopened for Overage: 1. Show the rows' });
+  await overage.focus();
+  await page.keyboard.press('Enter');
   const reopened = page.getByRole('dialog', { name: 'Reopened: Overage' });
   await expect(reopened.getByRole('table')).toContainText('B-103');
   await expect(reopened.getByRole('table')).toContainText('Status changed');
   await page.keyboard.press('Escape');
+  await expect(reopened).toBeHidden();
+  await expect(overage).toBeFocused();
   await groupBy.getByRole('tab', { name: 'Marine' }).click();
   await expect(page.getByRole('button', { name: /^Still open for .*Boletz.*: 1\. Show the rows$/ })).toBeVisible();
   await groupBy.getByRole('tab', { name: 'Unit or office' }).click();
@@ -148,8 +215,13 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
 
   // A report filed in error is withdrawn with a reason: kept, listed, and in no comparison.
   await expect(page.getByRole('heading', { level: 2, name: `${shown(day(0))} against ${shown(day(7))}` })).toBeVisible();
-  await page.getByRole('button', { name: `Withdraw the report of ${shown(day(0))}` }).click();
+  const withdrawThis = page.getByRole('button', { name: `Withdraw the report of ${shown(day(0))}` });
+  await withdrawThis.click();
   const withdraw = page.getByRole('dialog', { name: `Withdraw the report of ${shown(day(0))}?` });
+  await withdraw.getByRole('button', { name: 'Cancel' }).click();
+  await expect(withdraw).toBeHidden();
+  await expect(withdrawThis).toBeFocused();
+  await withdrawThis.click();
   await expect(withdraw.getByRole('button', { name: 'Withdraw it' })).toBeDisabled();
   await withdraw.getByRole('textbox', { name: 'Why' }).fill('Filed against the wrong office');
   await withdraw.getByRole('button', { name: 'Withdraw it' }).click();
@@ -157,6 +229,8 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(page.getByRole('heading', { level: 2, name: `The report of ${shown(day(7))}` })).toBeVisible();
   await expect(page.getByText('Filed against the wrong office')).toBeVisible();
   await expect(page.getByText('Withdrawn', { exact: true })).toBeVisible();
+  // Its Withdraw button is gone with it, so focus goes to the series' heading.
+  await expect(page.locator('#series-heading')).toBeFocused();
 
   // The list of every series, and the page on a phone.
   await page.getByRole('button', { name: 'All error reports' }).click();
@@ -225,7 +299,105 @@ test('an NCO of G8 files for a team beneath it, which they do not belong to, and
   await expect(nco.getByText('Filed for the wrong team')).toBeVisible();
   await expect(nco.getByRole('button', { name: 'File a report' })).toBeVisible();
   expect(await axe(nco), 'a series withdrawn in full').toEqual([]);
+  // On a phone its table scrolls in a region that is named and reached by keyboard.
+  await nco.setViewportSize({ width: 390, height: 844 });
+  const region = nco.getByRole('region', { name: 'Every report filed' });
+  await expect(region).toBeVisible();
+  await expect(nco.getByRole('table', { name: 'Every report filed' })).toBeVisible();
+  expect(await axe(nco), 'a series withdrawn in full at 390px').toEqual([]);
+  await region.focus();
+  await nco.keyboard.press('ArrowRight');
+  await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await noSidewaysScroll(nco, 'a series withdrawn in full at 390px');
   await context.close();
+});
+
+test('a long series lists its latest reports, and the rows behind a figure come a page at a time', async ({ page }) => {
+  test.setTimeout(180_000);
+  const H = { 'x-vantage-client': '1' };
+  await loginAs(page, OPERATOR.username);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e.message)));
+  const short = unique('EL').toUpperCase();
+  const made = await page.request.post('/api/org/units', { headers: H, data: { name: `Ledger Team ${short}`, short_name: short, parent_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const team = (await made.json()) as { id: string };
+  const overview = await page.request.get(`/api/error-reports?unit_id=${encodeURIComponent(team.id)}`);
+  expect(overview.ok(), await overview.text()).toBeTruthy();
+  const ulo = ((await overview.json()) as { types: Array<{ id: string; code: string }> }).types.find((t) => t.code === 'ULO')!.id;
+
+  // 27 weekly reports, filed as the page files them. The one before the latest holds 190 errors of $12,345.67 each, and
+  // the latest 230: 100 still open, 130 new and 90 resolved, so its figures run to millions of dollars.
+  const row = (doc: string) => `${doc},1,Obligation not liquidated,Unmatched,12345.67,,Open,,G8`;
+  const keys = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}-${String(i + 1).padStart(4, '0')}`);
+  const fileThrough = async (n: number, docs: string[]) => {
+    const name = `ULO ${short} ${n}.csv`;
+    const source = await page.request.post('/api/work/sources', {
+      headers: { ...H, 'content-type': 'text/csv', 'x-filename': name, 'x-unit-id': '', 'x-visibility': 'private' },
+      data: Buffer.from([HEAD, ...docs.map(row)].join('\n')),
+    });
+    expect(source.ok(), await source.text()).toBeTruthy();
+    const filed = await page.request.post('/api/error-reports/snapshots', { headers: H, data: {
+      unit_id: team.id, type_id: ulo, as_of: day(7 * (27 - n)), source_file_id: ((await source.json()) as { id: string }).id, sheet_name: name,
+      header_row: 1, key_columns: ['Document'], columns: COLUMNS, closed_statuses: ['closed'], note: null,
+    } });
+    expect(filed.ok(), await filed.text()).toBeTruthy();
+  };
+  for (let n = 1; n <= 25; n += 1) await fileThrough(n, [`OLD-${n}`]);
+  await fileThrough(26, [...keys('K', 100), ...keys('R', 90)]);
+  await fileThrough(27, keys('K', 230));
+
+  await page.goto(`/work/error-reports?unit=${encodeURIComponent(team.id)}&type=${encodeURIComponent(ulo)}`);
+  await expect(page.getByRole('heading', { level: 2, name: `${shown(day(0))} against ${shown(day(7))}` })).toBeVisible();
+
+  // The reports filed: the latest 26, as many as the trend shows, saying so, until every one is asked for.
+  const filed = page.getByRole('table', { name: 'Every report filed' });
+  await expect(filed.locator('tbody > tr')).toHaveCount(26);
+  await expect(page.getByText('The latest 26 of 27 reports.')).toBeVisible();
+  await page.getByRole('button', { name: 'Show every report (27)' }).click();
+  await expect(filed.locator('tbody > tr')).toHaveCount(27);
+  await expect(page.getByRole('button', { name: 'Show the latest 26' })).toBeFocused();
+  await expect(page.getByText('The latest 26 of 27 reports.')).toHaveCount(0);
+
+  // The rows behind a figure come a hundred at a time, and every column of a row is drawn once it is opened.
+  const openFigure = page.getByRole('button', { name: /^Open: 230, \$2,839,504\.10\. Show the rows$/ });
+  await openFigure.click();
+  const rows = page.getByRole('dialog', { name: 'Open' });
+  await expect(rows).toContainText(`230 rows · $2,839,504.10 · from ULO ${short} 27.csv`);
+  const lines = rows.getByRole('table').locator('tbody > tr');
+  await expect(lines).toHaveCount(100);
+  await expect(rows.getByRole('status')).toHaveText('Showing 100 of 230 rows.');
+  await expect(rows.locator('dt')).toHaveCount(0);
+  await rows.getByRole('button', { name: 'Show more' }).click();
+  await expect(lines).toHaveCount(200);
+  await expect(rows.getByRole('status')).toHaveText('Showing 200 of 230 rows.');
+  await expect(lines.nth(100).locator('summary')).toBeFocused();
+  await rows.getByRole('button', { name: 'Show more' }).click();
+  await expect(lines).toHaveCount(230);
+  await expect(rows.getByRole('status')).toHaveText('Showing all 230 rows.');
+  await expect(rows.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+  await expect(lines.nth(200).locator('summary')).toBeFocused();
+  await lines.first().locator('summary').click();
+  await expect(lines.first().locator('dt').first()).toBeVisible();
+  await expect(rows.locator('dt')).toHaveCount(await lines.first().locator('dt').count());
+  expect(await axe(page), 'a page of the rows behind a figure').toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(rows).toBeHidden();
+  await expect(openFigure).toBeFocused();
+
+  // On a phone a figure of millions keeps inside its card, and the page does not scroll sideways.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: /^Value resolved: \$1,111,110\.30/ })).toBeVisible();
+  const figures = page.locator('section[aria-labelledby="figures-heading"] button');
+  expect(await figures.count()).toBeGreaterThan(4);
+  for (const figure of await figures.all()) {
+    const value = await figure.locator('.stat-value').boundingBox();
+    const card = await figure.boundingBox();
+    expect(value!.x + value!.width, `${await figure.getAttribute('aria-label')} keeps inside its card`).toBeLessThanOrEqual(card!.x + card!.width - 16 + 0.5);
+  }
+  await noSidewaysScroll(page, 'a long series at 390px');
+  expect(await axe(page), 'a long series at 390px').toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test('a Unit Manager keeps the Unit Instance’s kinds of error report in the console', async ({ page }) => {
