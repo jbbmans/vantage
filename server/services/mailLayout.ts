@@ -30,7 +30,7 @@ const C = {
   ink: '#0A1B33', ink2: '#3A4C65', ink3: '#5C6C82',
   navy: '#0B2D5B', teal: '#14B8A6', tealInk: '#0F766E', blue: '#2563EB', button: '#1D4ED8',
   noteBg: '#ECFDF9', noteLine: '#99E6DA',
-  good: '#157352', warn: '#9A5A06', bad: '#B42826',
+  good: '#157352', warn: '#8A4F05', bad: '#B42826',
 };
 const SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Helvetica,Arial,sans-serif";
 const MONO = "'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace";

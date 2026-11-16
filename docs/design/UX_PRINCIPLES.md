@@ -19,7 +19,7 @@
    successful or not.
 9. **Reload, back and deep links always work.** Work items and every tab have their own URL.
 10. **Accessible by default.** Labels on every control, one `h1` per page, real buttons for tooltips,
-    keyboard reachable, AA contrast in both themes, no sideways scrolling at 390px.
+    keyboard reachable with focus always visible, AA contrast in both themes, no sideways scrolling at 320px.
 
 ## Owner review checkpoint
 

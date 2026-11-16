@@ -138,6 +138,12 @@ training, or from an activity to duty, in one transaction that carries its files
 `record_lineage`, is audited at both ends and can be undone; nothing moves on its own, and migration 023
 moved nothing. An award keeps who recorded it (`awards.recorded_by`), and a leader's recommendation is never
 its subject's to change. See [ADR-0015](ADR/0015-core-record-architecture.md).
+A list that is limited decides which rows its reader may see before it cuts, and says when it is cut
+([ADR-0032](ADR/0032-performance-accessibility-responsive.md)). Many people's permissions are built at once by
+`scopesFor` in `server/authz/scope.ts`, from five statements and the same builder as `scopeFor`. Migration 039 adds
+indexes only; the period indexes are on the exact expression `periodClause` writes, and the analytics reads name them
+(`INDEXED BY`). In the browser, `Table` requires a caption, `Dialog` gives focus back, `Tabs` pairs with `TabPanel`,
+and `keepFocusClear` in `src/lib/keyboard.ts` keeps keyboard focus out from under the sticky header and the tab bar.
 
 ## Tests
 

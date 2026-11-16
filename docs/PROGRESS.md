@@ -1,6 +1,27 @@
 # Progress
 
-_Updated 2026-11-15_
+_Updated 2026-11-16_
+
+## What changed (2026-11-16: performance, accessibility and responsive layout)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Vantage holds up at MCEN scale and meets WCAG 2.2 AA at every width people use it at
+([ADR-0032](engineering/ADR/0032-performance-accessibility-responsive.md), migration 039, indexes only).
+
+- **No list is cut before it is checked.** Report Studio and the people directory decide what the reader may see before
+  they limit; a list or file that stops at a bound says how many there were. The dashboard, overview and report center
+  read only units the reader may read, so a position-0 role at a parent no longer shows child units there.
+- **Faster where it was slow.** The roster reads a constant number of statements for any size of command; the audit
+  trail's first page no longer recomputes the whole chain (its status may be up to 60 s old); duty, report drafts, the
+  personal and unit audit logs, error snapshot drills and Unit Instance members page; totals come from SQL; reads by
+  period use indexes on both bounds.
+- **Keyboard and screen readers.** Focus is always visible and never hidden under the header or the phone tab bar;
+  dialogs and the phone menu give focus back; tables have captions and scroll by keyboard; tabs move with the arrow
+  keys; a busy button keeps focus; a refused save puts its message on the field and focus on it; single-key shortcuts
+  can be turned off in Settings, Appearance.
+- **Every width.** Pages reflow at 320 px, targets are at least 24 px, the warning colour is darker. Browser spec 55 runs
+  axe on every core page, both consoles and the main dialogs at 320, 390, 768 and 1280 px; spec 56 walks the keyboard.
 
 ## What changed (2026-11-15: workflow messages and notices)
 

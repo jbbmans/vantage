@@ -339,7 +339,7 @@ export interface ReportDocument {
   primary: string | null;
 }
 
-export const DEFAULT_REPORT_MARKING = 'Working paper';
+export { DEFAULT_REPORT_MARKING } from './reportMarking.ts';
 
 const NO_VALUE = '—';
 

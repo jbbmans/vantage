@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer, Printer } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Tabs, Panel, EmptyState, Badge, Skeleton, Stat } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, EmptyState, Badge, Skeleton, Stat } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
@@ -142,8 +142,9 @@ export default function MemberDetail() {
       </>}
       {!isSelf && <DraftStrip kind="award" subjectId={id} onContinue={resumeAward.open} />}
       {/* Each count is of every record the reader may see, from the server, not of the list it sends. */}
-      <Tabs value={shownTab} onChange={setTab} className="mb-4" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records || recordsLoading ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records?.counts.activities }, { value: 'counseling', label: 'Counseling', count: records?.counts.counselings }, { value: 'career', label: 'Awards and training', count: records ? records.counts.awards + records.counts.trainings : undefined }, { value: 'duty', label: 'Duty', count: records?.counts.duties }, { value: 'roles', label: 'Roles' }] : [])]} />
+      <Tabs value={shownTab} onChange={setTab} className="mb-4" label="This Marine’s records" panel="member-panel" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records || recordsLoading ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records?.counts.activities }, { value: 'counseling', label: 'Counseling', count: records?.counts.counselings }, { value: 'career', label: 'Awards and training', count: records ? records.counts.awards + records.counts.trainings : undefined }, { value: 'duty', label: 'Duty', count: records?.counts.duties }, { value: 'roles', label: 'Roles' }] : [])]} />
 
+      <TabPanel id="member-panel" value={shownTab}>
       {shownTab === 'personnel' && <PersonnelPanel record={record} onTab={records || recordsLoading ? setTab : undefined} onChanged={reload} />}
       {shownTab !== 'personnel' && recordsLoading && <div className="space-y-3" aria-hidden><Skeleton className="h-24" /><Skeleton className="h-64" /></div>}
 
@@ -208,6 +209,7 @@ export default function MemberDetail() {
         </div>
       )}
       </>}
+      </TabPanel>
 
       <CounselingDialog open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling?.draft ?? null} row={counseling?.row} leader={!counseling?.row || counselorWritten(counseling.row)} title={counseling?.draft.id ? (counseling.row && !counselorWritten(counseling.row) ? `Edit ${person.last_name}’s own counseling notes` : `Edit counseling for ${person.last_name}`) : `New counseling for ${person.last_name}`} onSaved={() => refetch()} />
       <AmendDialog row={amending} open={Boolean(amending)} onOpenChange={(o) => { if (!o) setAmending(null); }} onAmended={() => refetch()} />

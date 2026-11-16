@@ -19,7 +19,7 @@ export { PersonnelConsole, RetentionConsole, PrivacyConsole };
 import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 import { DATA_TRANSFERS } from '../../shared/dataTransfer';
-import { DEFAULT_REPORT_MARKING } from '../../shared/reportCatalog';
+import { DEFAULT_REPORT_MARKING } from '../../shared/reportMarking';
 
 /** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }

@@ -77,10 +77,12 @@ test('the app and the Unit Manager console draw without the schema library or th
   }
 });
 
-test('the Vantage Administrator console draws without the list of changes', () => {
+test('the Vantage Administrator console draws without the schema library or the list of changes', () => {
   const graph = startupGraph('src/admin-main.tsx');
   assert.ok(graph.has('react'));
-  assert.ok(!graph.has('src/config/changes.ts'), `loaded at startup: ${graph.get('src/config/changes.ts')?.join(' -> ')}`);
+  for (const late of ['zod', 'src/config/changes.ts']) {
+    assert.ok(!graph.has(late), `${late} loaded at startup: ${graph.get(late)?.join(' -> ')}`);
+  }
 });
 
 test('Today names draft and request kinds without loading their schemas', () => {

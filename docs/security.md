@@ -422,6 +422,22 @@ about, never in a chat, and gives every notice the record it is about (`server/s
 - **Audited without words.** `request_sent` and `request_closed` name the request by id; comment audits name the
   comment by id.
 
+## Limits, paging and load (ADR-0032)
+
+[ADR-0032](engineering/ADR/0032-performance-accessibility-responsive.md) bounds the reads that grow with a command.
+
+- **Decide, then cut.** A limited list decides which rows its reader may see before it limits (Report Studio's sources
+  by `readableClause` and the Unit Instance in SQL; the directory and supervisor search in keyset batches; the duty list
+  before its cursor), and still checks each row it returns. A list or file that stops at a bound says so (`more`,
+  `next_cursor`, `total`, `audit_trail_cut`, `X-Vantage-Rows`); nothing is dropped without a word.
+- **Same scope, fewer reads.** `scopesFor` builds many people's scopes with the builder `scopeFor` uses, from five
+  statements; a parity test holds the two equal. The dashboard, overview and report center read only units the reader
+  may read, as `/metrics` does, so a position-0 role at a parent no longer reaches child units there.
+- **Load.** Only a few PDF and file renders run at once (429 `exports_busy`); `/metrics` refuses a span over 240 months
+  or a malformed date; an audit export over its limit is refused after a count, before any row is read. The chain status
+  on a trail's first page may be up to 60 s old; the integrity checks Vantage Administrators and Unit Managers run
+  themselves are always fresh.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.
@@ -569,3 +585,5 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | De-anonymizing a small cohort | Breakdowns under three contributors withheld |
 | Vantage staff on a read-only grant writing on a record, or being asked or told about it | `speaks()` recomputes permissions without Vantage access; such a reader reads the discussion and nothing more (ADR-0031) |
 | A mention or a notice reaching someone outside the record's Unit Instance, or one who can no longer open it | Mentions looked up in the record's Unit Instance only, at most 10 a message; every notice checked again when read and not shown otherwise; no words in a notice about a record (ADR-0031) |
+| A list cut to its length before its rows were checked, hiding records the reader may see or padding a page | Readability decided in SQL or in batches before the limit; each returned row checked again; a cut list says so (ADR-0032) |
+| One person tying up the server with large renders or spans | A few renders at a time (429 `exports_busy`); spans and dates validated; oversized exports refused after a count (ADR-0032) |
