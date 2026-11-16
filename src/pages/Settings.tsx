@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Tabs, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState } from '@/components/ui/primitives';
@@ -10,6 +10,7 @@ import { withSudo } from '@/components/SudoDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import { Table, useParam } from '@/components/common';
+import { QueryFailure } from '@/components/QueryFailure';
 import { keys, invalidateImported, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
@@ -120,7 +121,6 @@ function Security() {
   // The synthetic demo has no sign-in, so its password, authenticator and passkey routes are closed.
   const demo = Boolean(identity?.demo);
   const { data: pk, refetch: refetchPk } = useQuery({ queryKey: ['passkeys'], queryFn: api.passkeys, enabled: !demo });
-  const { data: audit } = useQuery({ queryKey: ['my-audit'], queryFn: api.myAudit });
   const [totp, setTotp] = useState<{ secret: string; otpauth: string; qr: string } | null>(null); const [code, setCode] = useState(''); const [codes, setCodes] = useState<string[] | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false); const [pkName, setPkName] = useState('');
   const changePassword = async () => { setBusy(true); try { const r = await api.changePassword(pw.current, pw.next); toast.success(`Password changed. ${r.otherSessionsRevoked} other session${r.otherSessionsRevoked === 1 ? '' : 's'} signed out.`); setPw({ current: '', next: '' }); qc.invalidateQueries({ queryKey: keys.me }); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
@@ -165,9 +165,7 @@ function Security() {
       <Panel title="Signed-in devices" action={<Button size="sm" variant="ghost" onClick={async () => { try { const r = await api.revokeOtherSessions(); toast.success(`${r.revoked} other session${r.revoked === 1 ? '' : 's'} signed out.`); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}><LogOut className="h-3.5 w-3.5" />Sign out others</Button>}>
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>
-      <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
-        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table label="Who has looked at your record" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
-      </Panel>
+      <RecordAccessLog />
 
       <Dialog open={Boolean(totp)} onOpenChange={(o) => { if (!o) setTotp(null); }} title="Set up your authenticator" description="Scan, then enter the code the app shows." size="sm" footer={<><Button variant="ghost" onClick={() => setTotp(null)}>Cancel</Button><Button variant="primary" onClick={confirmTotp} disabled={code.replace(/\s/g, '').length < 6}>Turn on</Button></>}>
         {totp && <div className="space-y-3 text-center"><img src={totp.qr} alt="QR code for authenticator app" width={192} height={192} className="mx-auto h-48 w-48 rounded-md border border-line bg-white p-1" /><p className="text-xs text-ink-3">Cannot scan? Enter this key: <code className="mono select-all break-all text-ink">{totp.secret}</code></p><Field label="Code from the app"><Input inputMode="numeric" autoComplete="one-time-code" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} className="fig text-center text-lg tracking-[0.3em]" /></Field></div>}
@@ -177,6 +175,43 @@ function Security() {
       </Dialog>
       <ConfirmDialog open={confirmDisable} onOpenChange={setConfirmDisable} title="Turn off the authenticator?" body="Sign-in goes back to password only (plus any passkeys). Recovery codes are deleted." confirmLabel="Turn off" onConfirm={disableTotp} />
     </div>
+  );
+}
+
+/**
+ * Who has looked at the Marine's record, newest first, a page at a time: every entry is in reach, however old. A read
+ * that fails says so; it is never shown as nobody having looked.
+ */
+function RecordAccessLog() {
+  const log = useInfiniteQuery({
+    queryKey: ['my-audit'],
+    queryFn: ({ pageParam }) => api.myAudit(pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last: api.AccessLogPage<api.MyAccessRow>) => last.next,
+    refetchOnWindowFocus: false, retry: false,
+  });
+  const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
+  // Focus moves to the first entry a page added, so it is not lost when the button goes after the last page.
+  const loadOlder = async () => {
+    const before = rows.length;
+    const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
+    if (added) window.requestAnimationFrame(() => document.getElementById(`my-access-${added.id}`)?.focus());
+  };
+  return (
+    <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
+      {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-24" /></div>
+        : log.isError && !log.data ? <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="Your access log" />
+        : !rows.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : (
+          <>
+            <Table label="Who has looked at your record" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{rows.map((r) => <tr key={r.id} id={`my-access-${r.id}`} tabIndex={-1}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>
+            <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
+              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown, newest first</span>
+              {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
+              {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
+            </div>
+          </>
+        )}
+    </Panel>
   );
 }
 

@@ -13,8 +13,8 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { limitConsoleReads, requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
-import { anchorAuditChain, audit, auditHead, lastAuditAnchor, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
-import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
+import { anchorAuditChain, audit, auditHead, lastAuditAnchor, recentChainCheck, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
+import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditCount, auditFilterLabel, auditQuery, auditRows, unfilteredFirstPage, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
@@ -82,7 +82,8 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
   let sizeBytes: number | null = null;
   try { sizeBytes = db.name === ':memory:' ? null : statSync(db.name).size; } catch {}
-  const chain = verifyAuditChain(req.ctx);
+  // The chain's state as the trail's first page shows it: one verification a minute, not one per visit.
+  const chain = recentChainCheck(req.ctx);
   const health = healthReport(req.ctx, Date.now(), { chain });
   res.json({
     version: VERSION, schemaVersion: SCHEMA_VERSION, uptime: Math.round(process.uptime()), node: process.version,
@@ -678,13 +679,14 @@ platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) 
   const limit = q.limit ?? 200;
   const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, limit + 1);
   const page = rows.slice(0, limit);
-  const first = !q.before;
   res.json({
     rows: page,
     next: rows.length > limit ? page.at(-1)!.seq : null,
-    // The whole chain is verified, and the action list read, once: on the first page, not on every page back.
-    chain: first ? verifyAuditChain(req.ctx) : null,
-    actions: first ? auditActions(req.ctx, PLATFORM_TRAIL) : null,
+    // The chain's state on the first page only, not on every page back, and from a check at most a minute old: a
+    // filter applied again and again is not a walk of the whole log each time. The integrity panel checks afresh.
+    chain: q.before ? null : recentChainCheck(req.ctx),
+    // The action list on the unfiltered first page only; the filter keeps the one it was given.
+    actions: unfilteredFirstPage(q) ? auditActions(req.ctx, PLATFORM_TRAIL) : null,
   });
 }));
 
@@ -695,8 +697,9 @@ platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) 
 platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req, res) => {
   const format = String(req.query.format || 'csv') === 'json' ? 'json' : 'csv';
   const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
-  const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX + 1);
-  if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
+  // Counted before anything is read, so a file too large is refused without holding its entries in memory first.
+  if (auditCount(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX + 1) > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
+  const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX, { seals: true });
   const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to });
   audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
@@ -713,6 +716,7 @@ const anchorView = (ctx: AppContext, anchor: AuditAnchor | null) => {
   return { ...anchor, by: by ? `${by.first_name} ${by.last_name}`.trim() || by.username : null };
 };
 
+// The integrity panel's check is always a fresh one, as an anchor check's is (verifyAuditAnchor) and the maintenance task's.
 platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({
   audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx),
   // The chain's head now, and the last head written into it, for whoever keeps a copy of anchors off the host.

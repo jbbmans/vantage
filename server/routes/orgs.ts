@@ -6,7 +6,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { limitConsoleReads, requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, orgCan } from '../authz/scope.ts';
 import { ORG_PERMISSION_LIST, ORG_ROLES, ORG_ROLE_KEYS, ROLE_TEMPLATE, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
-import { audit, orgAuditClause, verifyAuditChain } from '../services/audit.ts';
+import { audit, orgAuditWhere, recentChainCheck } from '../services/audit.ts';
 import { canManageRoleDefinition, orgSummaries, type RoleRow } from '../services/org.ts';
 import {
   exportOrganization, getOrg, grantOrgRole, isOrgMember, orgCounts, orgMembers, orgRoleHolders, orgUnits, publicOrg, removeFromOrg, revokeOrgRole,
@@ -25,7 +25,7 @@ import { now } from '../lib/ids.ts';
 import { notify } from '../services/notifications.ts';
 import { authorityBeyond, tellOtherInstances } from '../services/identity.ts';
 import { membershipHistory } from '../services/membership.ts';
-import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditDay, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
+import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditCount, auditDay, auditFilterLabel, auditQuery, auditRows, unfilteredFirstPage, type AuditTrail } from '../services/auditQuery.ts';
 import {
   addStandardDutyTypes, addStandardErrorReportTypes, applyConfigurationImport, exportUnitConfiguration, planConfigurationImport, saveBillet, saveDutyType,
   saveErrorReportType, saveTrainingRequirement, unitConfiguration, updateUnitSettings, type UnitConfigurationFile,
@@ -351,9 +351,10 @@ const orgAuditQuery = auditQuery.extend({ unit: z.string().trim().max(64).option
 function orgTrail(req: Request, unit?: string): AuditTrail {
   const org = orgOf(req);
   if (unit && !req.ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ?').get(unit, org.id)) throw notFound('No such unit in this Unit Instance.');
+  const own = orgAuditWhere(req.ctx, org.id);
   return {
-    where: `${orgAuditClause('al')}${unit ? ' AND al.unit_id = ?' : ''}`,
-    params: [org.id, org.id, ...(unit ? [unit] : [])],
+    where: `${own.where}${unit ? ' AND al.unit_id = ?' : ''}`,
+    params: [...own.params, ...(unit ? [unit] : [])],
     hideCacUsernames: true,
     columns: "u.first_name || ' ' || u.last_name AS actor_name, s.first_name || ' ' || s.last_name AS subject_name, (SELECT 1 FROM platform_roles p WHERE p.user_id = al.actor_id LIMIT 1) AS actor_is_staff",
     names: true,
@@ -361,21 +362,11 @@ function orgTrail(req: Request, unit?: string): AuditTrail {
 }
 
 /**
- * Verifying the chain reads the whole service's trail, so an instance's page reuses one answer for a minute: a filter
- * applied again and again is not a full verification each time.
+ * Verifying the chain reads the whole service's trail, so an instance's page reuses the service's answer for a minute
+ * (recentChainCheck): a filter applied again and again is not a full verification each time.
  */
-const chainChecks = new WeakMap<object, { at: number; ok: boolean }>();
-function chainHolds(ctx: Request['ctx']) {
-  const seen = chainChecks.get(ctx);
-  if (seen && Date.now() - seen.at < 60_000) return seen.ok;
-  const { ok } = verifyAuditChain(ctx);
-  chainChecks.set(ctx, { at: Date.now(), ok });
-  return ok;
-}
-
-function instanceChain(req: Request) {
-  const ok = chainHolds(req.ctx);
-  const trail = orgTrail(req);
+function instanceChain(req: Request, trail: AuditTrail) {
+  const { ok } = recentChainCheck(req.ctx);
   const { n } = req.ctx.db.prepare(`SELECT COUNT(*) AS n FROM audit_log al WHERE ${trail.where}`).get(...trail.params) as { n: number };
   return { ok, count: n, ...(ok ? {} : { reason: 'An entry in the audit trail does not match the chain' }) };
 }
@@ -386,15 +377,15 @@ orgsRouter.get('/:orgId/audit', inOrg('org.audit'), wrap((req, res) => {
   const trail = orgTrail(req, q.unit);
   const rows = auditRows(req.ctx, trail, q, limit + 1);
   const page = rows.slice(0, limit);
-  const first = !q.before;
+  const whole = q.before ? null : q.unit ? orgTrail(req) : trail;
   res.json({
     rows: page,
     next: rows.length > limit ? page.at(-1)!.seq : null,
-    // The chain is verified, and the action list read, on the first page only, not on every page back. The chain is
-    // the whole service's, so a Unit Instance is told whether it holds and how many of the entries are its own, never
-    // the service's count or which entry broke it, which may be another instance's.
-    chain: first ? instanceChain(req) : null,
-    actions: first ? auditActions(req.ctx, orgTrail(req)) : null,
+    // The chain's state on the first page only, not on every page back. The chain is the whole service's, so a Unit
+    // Instance is told whether it holds and how many of the entries are its own, never the service's count or which
+    // entry broke it, which may be another instance's. The action list comes with the unfiltered first page only.
+    chain: whole ? instanceChain(req, whole) : null,
+    actions: whole && unfilteredFirstPage(q) ? auditActions(req.ctx, whole) : null,
   });
 }));
 
@@ -404,8 +395,10 @@ orgsRouter.get('/:orgId/audit/export', inOrg('org.audit'), wrap((req, res) => {
   const org = orgOf(req);
   const format = String(req.query.format || 'csv') === 'json' ? 'json' : 'csv';
   const q = parse(orgAuditQuery.omit({ before: true, limit: true }), req.query);
-  const rows = auditRows(req.ctx, orgTrail(req, q.unit), q, AUDIT_EXPORT_MAX + 1);
-  if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
+  const trail = orgTrail(req, q.unit);
+  // Counted before anything is read, so a file too large is refused without holding its entries in memory first.
+  if (auditCount(req.ctx, trail, q, AUDIT_EXPORT_MAX + 1) > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
+  const rows = auditRows(req.ctx, trail, q, AUDIT_EXPORT_MAX, { seals: true });
   const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to, unit: q.unit });
   audit(req.ctx, { actor_id: req.user.id, action: 'organization_audit_exported', entity: 'audit_log', org_id: org.id, detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-${org.slug.toLowerCase()}-audit-${now().slice(0, 10)}.${format}"`);

@@ -7,6 +7,7 @@ import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserId
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
+import { auditQuery } from '../services/auditQuery.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { consumeDraft, draftParam } from '../services/drafts.ts';
@@ -114,15 +115,22 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
   res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
 }));
 
+/**
+ * A unit's access log, newest first, a page at a time: `next` is the `before` of the page after it, null on the last.
+ * Whether the reader may read it is decided before a single entry is read.
+ */
 orgRouter.get('/units/:unitId/audit', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_AUDIT, unitId)) throw forbidden('You cannot read the access log for that unit.');
-  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
-  const rows = req.ctx.db.prepare(`SELECT al.id, al.action, al.entity, al.entity_id, al.detail, al.at, al.actor_id, act.first_name AS actor_first, act.last_name AS actor_last, ar.abbr AS actor_rank, sub.first_name AS subject_first, sub.last_name AS subject_last
-    FROM audit_log al LEFT JOIN users act ON act.id = al.actor_id LEFT JOIN ranks ar ON ar.id = act.rank_id LEFT JOIN users sub ON sub.id = al.subject_id WHERE al.unit_id = ? ORDER BY al.seq DESC LIMIT ?`).all(unitId, limit);
-  res.json({ unit_id: unitId, rows });
+  const q = parse(auditQuery.pick({ before: true, limit: true }), req.query);
+  const limit = q.limit ?? 200;
+  const rows = req.ctx.db.prepare(`SELECT al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, al.actor_id, act.first_name AS actor_first, act.last_name AS actor_last, ar.abbr AS actor_rank, sub.first_name AS subject_first, sub.last_name AS subject_last
+    FROM audit_log al LEFT JOIN users act ON act.id = al.actor_id LEFT JOIN ranks ar ON ar.id = act.rank_id LEFT JOIN users sub ON sub.id = al.subject_id
+    WHERE al.unit_id = ? AND al.seq < ? ORDER BY al.seq DESC LIMIT ?`).all(unitId, q.before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number }>;
+  const page = rows.slice(0, limit);
+  res.json({ unit_id: unitId, rows: page, next: rows.length > limit ? page.at(-1)!.seq : null });
 }));
 
 orgRouter.get('/units/:unitId/export', wrap((req, res) => {

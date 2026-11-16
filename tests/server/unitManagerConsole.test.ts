@@ -243,7 +243,9 @@ test('the audit trail filters by action, unit and words on the server, pages bac
   const g1 = (await get(g1lead.token, '/api/orgs/G1/audit')).body.chain;
   assert.ok(first.body.chain.count > 0 && first.body.chain.count < total, `${first.body.chain.count} of ${total}`);
   assert.ok(g1.count < first.body.chain.count);
-  assert.ok(first.body.actions.includes('unit_settings_updated'));
+  // The action list comes with the unfiltered first page; a filtered page keeps the one the filter already holds.
+  assert.equal(first.body.actions, null);
+  assert.ok((await get(aud, '/api/orgs/G8/audit')).body.actions.includes('unit_settings_updated'));
 
   const inBud = await get(aud, '/api/orgs/G8/audit?unit=BUD');
   assert.ok(inBud.body.rows.length > 0);

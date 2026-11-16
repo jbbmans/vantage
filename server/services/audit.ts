@@ -104,26 +104,66 @@ export function auditListedRecords(ctx: AppContext, actorId: string, table: stri
     entry.count += 1; foreign.set(key, entry);
   }
   if (!foreign.size) return;
-  const recent = ctx.db.prepare(`SELECT 1 FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND entity = ? AND subject_id = ? AND unit_id IS ? AND at > ? LIMIT 1`);
+  // What this reader listed in the last five minutes, read once for the whole list. The unary plus keeps the planner on
+  // the bounded five-minute range of idx_audit_action: on the reader or a Marine's index it would walk every entry
+  // about them, which is longest exactly when nothing recent is found and an entry has to be written.
   const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
-  for (const e of foreign.values()) if (!recent.get(actorId, table, e.subject, e.unit, cutoff)) audit(ctx, { actor_id: actorId, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip });
+  const recent = new Set((ctx.db.prepare(`SELECT subject_id, unit_id FROM audit_log WHERE action = 'list_records' AND at > ? AND +actor_id = ? AND +entity = ?`)
+    .all(cutoff, actorId, table) as Array<{ subject_id: string | null; unit_id: string | null }>).map((r) => `${r.subject_id}|${r.unit_id || ''}`));
+  for (const [key, e] of foreign) if (!recent.has(key)) audit(ctx, { actor_id: actorId, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip });
 }
 
-export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number; reason?: string } {
+export interface ChainCheck { ok: boolean; count: number; reason?: string }
+/** The last answer for each running service, and when it was reached. */
+const chainChecks = new WeakMap<AppContext, { at: number; result: ChainCheck }>();
+
+/**
+ * The chain walk, oldest first, one entry at a time, so the log is never held in memory whole. The statement cache hands
+ * every caller of the same SQL text the same statement, and a statement being iterated cannot run again until the walk
+ * ends: this text is the walk's alone. resealAuditChain reads with other text, because it writes while it reads.
+ */
+const CHAIN_WALK = 'SELECT seq, id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at, ip, org_id, category, prev_hash, entry_hash FROM audit_log ORDER BY seq';
+
+/**
+ * Recomputes every entry's seal and the signed head. This is the explicit check: the integrity page, an anchor check and
+ * the maintenance task run it and always get a fresh answer. A page that only shows the chain's state uses
+ * recentChainCheck, which reuses an answer for a minute.
+ */
+export function verifyAuditChain(ctx: AppContext): ChainCheck {
   const { db, chainKey } = ctx;
-  const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Array<Record<string, unknown>>;
   let previous = '';
-  for (const row of rows) {
+  let count = 0;
+  let broken: string | null = null;
+  for (const row of db.prepare(CHAIN_WALK).iterate() as IterableIterator<Record<string, unknown>>) {
     const expected = entryHash(chainKey, row, previous);
-    if ((row.prev_hash ?? null) !== (previous || null) || row.entry_hash !== expected) {
-      return { ok: false, count: rows.length, reason: `audit entry ${row.id} does not match the chain` };
-    }
+    if ((row.prev_hash ?? null) !== (previous || null) || row.entry_hash !== expected) { broken = String(row.id); break; }
     previous = String(row.entry_hash);
+    count += 1;
   }
-  const head = JSON.parse(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}') as { hash: string; count: number; mac?: string };
-  if (head.hash !== previous || head.count !== rows.length) return { ok: false, count: rows.length, reason: 'audit head does not match the chain' };
-  if (rows.length && head.mac !== hmac(chainKey, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count: rows.length, reason: 'audit head signature is invalid' };
-  return { ok: true, count: rows.length };
+  const result = ((): ChainCheck => {
+    // A broken chain still reports how many entries the log holds, as it always has.
+    if (broken) return { ok: false, count: (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n, reason: `audit entry ${broken} does not match the chain` };
+    const head = JSON.parse(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}') as { hash: string; count: number; mac?: string };
+    if (head.hash !== previous || head.count !== count) return { ok: false, count, reason: 'audit head does not match the chain' };
+    if (count && head.mac !== hmac(chainKey, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count, reason: 'audit head signature is invalid' };
+    return { ok: true, count };
+  })();
+  // The newest answer is the one a page shows next, so an explicit check that finds the chain broken says so everywhere.
+  chainChecks.set(ctx, { at: Date.now(), result });
+  return result;
+}
+
+/**
+ * The chain's state as a page shows it: the last answer if it is under `maxAgeMs` old, otherwise a fresh verification.
+ * Verifying reads the whole service's log, so the trail's first page, the overview and the health report share one
+ * answer a minute instead of each walking the log on every filter and every refocus. A rewrite shows on them within
+ * that minute; the integrity page and an anchor check never wait for it.
+ */
+export function recentChainCheck(ctx: AppContext, maxAgeMs = 60_000): ChainCheck & { checkedAt: string } {
+  const seen = chainChecks.get(ctx);
+  if (seen && Date.now() - seen.at < maxAgeMs) return { ...seen.result, checkedAt: new Date(seen.at).toISOString() };
+  const result = verifyAuditChain(ctx);
+  return { ...result, checkedAt: new Date(chainChecks.get(ctx)!.at).toISOString() };
 }
 
 // ——— Anchors: the chain's head, kept outside the server (ADR-0013) ———
@@ -213,4 +253,16 @@ export function resealAuditChain(ctx: AppContext) {
 /** An organization's audit trail: entries attributed to it, and older entries whose unit is one of its units. */
 export function orgAuditClause(alias = 'al'): string {
   return `(${alias}.org_id = ? OR (${alias}.org_id IS NULL AND ${alias}.unit_id IN (SELECT id FROM units WHERE org_id = ?)))`;
+}
+
+/**
+ * An organization's audit trail as SQL over `alias`, and its parameters. audit() gives every entry with a unit that
+ * unit's organization, so only entries written before Unit Instances, or before their unit joined one, lack it. Most
+ * instances hold none, and for them the trail is `org_id = ?` alone, which reads its own entries through idx_audit_org;
+ * the OR with the older entries makes SQLite walk the whole service's log back from the newest entry instead. The
+ * question is asked on every read, never remembered: a unit that joins an instance brings its older entries with it.
+ */
+export function orgAuditWhere(ctx: AppContext, orgId: string, alias = 'al'): { where: string; params: unknown[] } {
+  const older = ctx.db.prepare('SELECT 1 FROM audit_log al WHERE al.org_id IS NULL AND al.unit_id IN (SELECT id FROM units WHERE org_id = ?) LIMIT 1').get(orgId);
+  return older ? { where: orgAuditClause(alias), params: [orgId, orgId] } : { where: `${alias}.org_id = ?`, params: [orgId] };
 }

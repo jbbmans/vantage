@@ -1353,8 +1353,9 @@ export function openDatabase(path: string): Db {
 /**
  * Compiling SQL was the largest single cost of a request: the code prepares its statements where it uses
  * them, so the same text was compiled again on every call. The connection now keeps what it compiled and
- * hands the same statement back. Nothing puts a statement into a special mode (pluck, raw, expand) or holds
- * one open while iterating, so a shared statement always behaves like a fresh one. Bounded, because a few
+ * hands the same statement back. Nothing puts a statement into a special mode (pluck, raw, expand), and a
+ * statement that is iterated has SQL text no other code prepares (the audit chain walk), so a shared statement
+ * always behaves like a fresh one. Bounded, because a few
  * statements are built with a variable number of placeholders.
  */
 function cacheStatements(db: Db, limit = 1000) {

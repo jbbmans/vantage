@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
 import { AssignmentDialog, ACCOUNT_STATUS, type AssignmentTarget } from '@/components/PersonnelRecord';
@@ -658,17 +658,49 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
   );
 }
 
+/**
+ * The unit's access log, newest first, a page at a time. Each entry names who opened what and whose it was; a read that
+ * fails says so rather than showing an empty log.
+ */
 function UnitAudit({ unitId }: { unitId: string }) {
-  const { data, isPending } = useQuery({ queryKey: ['unit-audit', unitId], queryFn: () => api.unitAudit(unitId), enabled: Boolean(unitId) });
-  if (isPending) return <Skeleton className="h-64" />;
-  const rows: any[] = data?.rows || data || [];
+  const log = useInfiniteQuery({
+    queryKey: ['unit-audit', unitId],
+    queryFn: ({ pageParam }) => api.unitAudit(unitId, pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last: api.AccessLogPage<api.UnitAccessRow>) => last.next,
+    enabled: Boolean(unitId), refetchOnWindowFocus: false, retry: false,
+  });
+  const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
+  // Focus moves to the first entry a page added, so it is not lost when the button goes after the last page.
+  const loadOlder = async () => {
+    const before = rows.length;
+    const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
+    if (added) window.requestAnimationFrame(() => document.getElementById(`unit-access-${added.id}`)?.focus());
+  };
   return (
     <Panel title="Who has been reading records in this unit" subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}>
-      {!rows.length ? <EmptyState icon={ClipboardList} title="No access events yet" /> : (
-        <Table label="Who has been reading records in this unit" head={<><th className="w-40">When</th><th className="w-32">Who</th><th>Action</th><th className="w-32">Subject</th><th>Detail</th></>}>
-          {rows.map((r) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.actor_username || fullName(r) || 'system'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td><td className="text-xs">{r.subject_username || ''}</td><td className="truncate text-xs text-ink-3">{r.detail}</td></tr>)}
-        </Table>
-      )}
+      {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-48" /></div>
+        : log.isError && !log.data ? <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="The access log" />
+        : !rows.length ? <EmptyState icon={ClipboardList} title="No access events yet" /> : (
+          <>
+            <Table label="Who has been reading records in this unit" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>Action</th><th className="w-40">Subject</th><th>Detail</th></>}>
+              {rows.map((r) => (
+                <tr key={r.id} id={`unit-access-${r.id}`} tabIndex={-1}>
+                  <td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td>
+                  <td className="text-xs">{fullName({ rank_abbr: r.actor_rank, first_name: r.actor_first, last_name: r.actor_last }) || 'system'}</td>
+                  <td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td>
+                  <td className="text-xs">{fullName({ first_name: r.subject_first, last_name: r.subject_last })}</td>
+                  <td className="text-xs text-ink-3 [overflow-wrap:anywhere]">{r.detail}</td>
+                </tr>
+              ))}
+            </Table>
+            <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
+              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown, newest first</span>
+              {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
+              {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
+            </div>
+          </>
+        )}
     </Panel>
   );
 }

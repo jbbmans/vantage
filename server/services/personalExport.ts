@@ -120,8 +120,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const commentRows = [...ownComments, ...onOwnRecords(commentColumns, 'comments').filter((c) => c.author_id === userId || c.deleted_at == null)]
     .filter((c) => { const id = String(c.id); if (seenComments.has(id)) return false; seenComments.add(id); return true; })
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-  const auditTrail = db.prepare(`SELECT al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = ? THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = ? THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject
-    FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id WHERE al.actor_id = ? OR al.subject_id = ? ORDER BY al.seq DESC LIMIT 20000`).all(userId, userId, userId, userId) as Row[];
+  const { rows: auditTrail, cut: auditTrailCut } = personalAuditTrail(ctx, userId);
   const aiUsage = db.prepare('SELECT day, workflow, model, requests, prompt_tokens, completion_tokens, total_tokens, failures FROM ai_usage_daily WHERE user_id = ? ORDER BY day DESC').all(userId) as Row[];
   const emails = db.prepare('SELECT id, to_address, kind, subject, status, error, created_at FROM email_log WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
   const maradminState = db.prepare('SELECT s.*, m.number, m.title FROM maradmin_user_state s LEFT JOIN maradmins m ON m.id = s.maradmin_id WHERE s.user_id = ?').all(userId) as Row[];
@@ -153,7 +152,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     personnel: { records: personnelRecords, responsibilities, history: personnelHistory },
     records,
     attachments: attachmentRows,
-    notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
+    notifications, comments: commentRows, audit_trail: auditTrail, audit_trail_cut: auditTrailCut, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
     contributions, drafts, saved_drafts: savedDrafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews, counseling_revisions: counselingRevisions,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
     counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, saved_drafts: savedDrafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
@@ -184,7 +183,7 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
     format: full.format, version: full.version, exported_at: full.exported_at, instance: full.instance, sections: sel.keys,
     owner: { id: full.profile.id, username: full.profile.username, first_name: full.profile.first_name, last_name: full.profile.last_name },
     ...(sel.profile ? { profile: full.profile, readiness: full.readiness } : {}),
-    ...(account ? { units: full.units, memberships: full.memberships, membership_history: full.membership_history, roles: full.roles, notifications: full.notifications, comments: full.comments, audit_trail: full.audit_trail, ai_usage: full.ai_usage, email_log: full.email_log, maradmin_state: full.maradmin_state, contributions: full.contributions, drafts: full.drafts, saved_drafts: full.saved_drafts, record_moves: full.record_moves, security: full.security } : {}),
+    ...(account ? { units: full.units, memberships: full.memberships, membership_history: full.membership_history, roles: full.roles, notifications: full.notifications, comments: full.comments, audit_trail: full.audit_trail, audit_trail_cut: full.audit_trail_cut, ai_usage: full.ai_usage, email_log: full.email_log, maradmin_state: full.maradmin_state, contributions: full.contributions, drafts: full.drafts, saved_drafts: full.saved_drafts, record_moves: full.record_moves, security: full.security } : {}),
     ...(sel.personnel ? { personnel: full.personnel } : {}),
     ...(career ? { career } : {}),
     records, attachments,
@@ -195,6 +194,39 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
   };
   out.counts = { ...Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length])), attachments: attachments.length, ...(career ? { career_steps: career.steps.length } : {}) };
   return out as T;
+}
+
+/**
+ * The most audit entries one personal export holds: the newest. The rest of an export is built in memory, and a leader's
+ * trail over years can run to hundreds of thousands of entries. When there are more, the export says so
+ * (`audit_trail_cut`, and the README), with how many there are and how far back it goes; it never leaves them out
+ * silently.
+ */
+export const PERSONAL_AUDIT_MAX = 20_000;
+
+export interface AuditTrailCut { kept: number; total: number; oldest_seq: number; oldest_at: string }
+
+/**
+ * What a person did, and what others did about them, newest first. Read as two branches merged in order, each from its
+ * own index (idx_audit_actor, idx_audit_subject), so the newest entries come first without reading the rest: one OR
+ * over both columns makes SQLite read and sort every entry of a busy leader, or walk the whole log.
+ */
+export function personalAuditTrail(ctx: AppContext, userId: string, max = PERSONAL_AUDIT_MAX): { rows: Row[]; cut: AuditTrailCut | null } {
+  const columns = `al.seq, al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = @me THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = @me THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject`;
+  const from = 'FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id';
+  const rows = ctx.db.prepare(`SELECT ${columns} ${from} WHERE al.actor_id = @me
+    UNION ALL SELECT ${columns} ${from} WHERE al.subject_id = @me AND al.actor_id IS NOT @me
+    ORDER BY seq DESC LIMIT @limit`).all({ me: userId, limit: max + 1 }) as Array<Row & { seq?: number }>;
+  const kept = rows.slice(0, max);
+  let cut: AuditTrailCut | null = null;
+  if (rows.length > max) {
+    const { n } = ctx.db.prepare('SELECT (SELECT COUNT(*) FROM audit_log WHERE actor_id = @me) + (SELECT COUNT(*) FROM audit_log WHERE subject_id = @me AND actor_id IS NOT @me) AS n').get({ me: userId }) as { n: number };
+    const oldest = kept.at(-1)!;
+    cut = { kept: kept.length, total: n, oldest_seq: Number(oldest.seq), oldest_at: String(oldest.at) };
+  }
+  // The entries keep the columns an export has always had; the position was only for putting them in order.
+  for (const r of kept) delete r.seq;
+  return { rows: kept, cut };
 }
 
 const flat = (row: Row): Row => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v != null && typeof v === 'object' ? JSON.stringify(v) : v]));
@@ -231,6 +263,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     'attachments/ holds the files you uploaded, named <record>-<attachment id>-<original name>. attachments.csv lists each with what it is evidence of, its description, who added it and when.', '',
     'Records include entries in the recycle bin (deleted_at is set). Nothing here is a system of record; MOL is.',
     ...('sections' in archive ? ['', `Holds only: ${(archive as unknown as { sections: string[] }).sections.map((k) => categoryOf(k)?.label ?? k).join(', ')}.`] : []),
+    ...(archive.audit_trail_cut ? ['', auditCutNote(archive.audit_trail_cut)] : []),
     '', 'Datasets:', ...Object.entries(archive.counts).map(([k, v]) => `  ${k}: ${v}`),
   ].join('\n');
   entries.push({ name: 'README.txt', data: readme });
@@ -270,6 +303,10 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
   for (const f of _files) entries.push({ name: attachmentPath(f), data: f.content as Buffer, modified: new Date(String(f.created_at)) });
   return { buffer: buildZip(entries), filename: `vantage-${safeName(owner)}-${stamp}${'sections' in archive ? '-selected' : ''}.zip`, counts: archive.counts };
 }
+
+/** What the README says when the audit trail in an export is not the whole of it. */
+export const auditCutNote = (cut: AuditTrailCut) =>
+  `audit-trail.csv and audit_trail hold the newest ${cut.kept.toLocaleString('en-US')} of the ${cut.total.toLocaleString('en-US')} audit entries by you or about you, back to ${cut.oldest_at.slice(0, 10)} (entry ${cut.oldest_seq}). The older ones are not in this export; they remain in Vantage's audit trail.`;
 
 /** What a record type's spreadsheet carries beyond the import's columns: who else wrote it. */
 const extraHeaders = (table: string) => (table === 'counselings' || table === 'awards' || table === 'duties' ? ['Recorded By'] : []);
