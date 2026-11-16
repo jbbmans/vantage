@@ -1,4 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, logout, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
@@ -166,4 +167,32 @@ test('a report written about somebody is theirs to read, not to rewrite', async 
   await page.getByText('Counseling package').first().click();
   await expect(page.getByRole('heading', { name: 'Counseling package' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+});
+
+test('RPT-14: the package list shows 100 at a time, and the rest on Show more', async ({ page }) => {
+  test.setTimeout(120_000);
+  await logout(page);
+  await registerAs(page, unique('pager'));
+  for (let start = 0; start < 101; start += 20) {
+    await Promise.all(Array.from({ length: Math.min(20, 101 - start) }, async (_, k) => {
+      const res = await page.request.post('/api/studio/reports', { headers: H, data: { title: `Package ${start + k + 1}`, period_start: daysAgo(30), period_end: today() } });
+      expect(res.ok(), await res.text()).toBeTruthy();
+    }));
+  }
+  await page.goto('/reports');
+  const list = page.getByRole('list', { name: 'Packages' });
+  await expect(list.getByRole('listitem')).toHaveCount(100);
+  await expect(page.getByRole('status').filter({ hasText: 'Showing the 100 most recently changed.' })).toBeVisible();
+  const more = page.getByRole('button', { name: 'Show more' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(list.getByRole('listitem')).toHaveCount(101);
+  await expect(more).toHaveCount(0);
+  // The button is gone, so the keyboard is left on the count, which says the list is whole.
+  await expect(page.getByRole('status').filter({ hasText: '101 packages.' })).toBeFocused();
+  const serious = (await new AxeBuilder({ page }).analyze()).violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id);
+  expect(serious, 'the package list').toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  expect(scroll, 'the package list scrolls sideways at 390px').toBeLessThanOrEqual(width + 1);
 });

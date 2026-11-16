@@ -1,5 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { badRequest, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
@@ -21,14 +21,14 @@ import { withGoalProgress } from './records.ts';
 import { renderReportDocumentPdf } from '../lib/pdfReport.ts';
 import { writeWorkbook, type SheetOut } from '../lib/workbook.ts';
 import { rowsToCsv } from '../../shared/csv.ts';
-import { isSummable, valueType } from '../../shared/constants.ts';
+import { REDACTED, isSummable, summableKeys, valueType } from '../../shared/constants.ts';
 import { formatDTG } from '../../shared/metrics.ts';
 import { PROCEDURES } from '../../shared/procedures.ts';
 import { STAGE_LABEL, type Stage } from '../../shared/caseModel.ts';
 import { AGE_BASIS_LABELS, FLAG_LABELS, NO_OWNER, STANDING_LABELS, type ErrorFigure, type GroupLine } from '../../shared/errorReports.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyStatus } from '../../shared/dutyScoring.ts';
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty.ts';
-import { countedPoints, isOverridden } from '../../shared/dutyReview.ts';
+import { isOverridden } from '../../shared/dutyReview.ts';
 import { courseKey } from '../../shared/courses.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
@@ -54,6 +54,19 @@ import {
 
 /** The most rows a report reads before it stops and says so. Tables print the first REPORT_ROW_LIMIT of them. */
 const SCAN_LIMIT = 50_000;
+/** A capped read asks for one row past the cap, so a read that stops at it knows there were more. */
+const SCAN_READ = SCAN_LIMIT + 1;
+/** A capped read: the rows it keeps, and whether there were more than it keeps. */
+function scanned<T>(rows: T[]): { rows: T[]; cut: boolean } {
+  return rows.length > SCAN_LIMIT ? { rows: rows.slice(0, SCAN_LIMIT), cut: true } : { rows, cut: false };
+}
+const LIMIT_WORDS = SCAN_LIMIT.toLocaleString('en-US');
+/**
+ * What a report says when a read stopped at the cap: what it read, whether its totals still count every one, and, for
+ * a read of a period, how to reach the rest.
+ */
+const cutNote = (what: string, opts: { totals?: boolean; dated?: boolean } = {}) =>
+  `Only the first ${LIMIT_WORDS} ${what} ${opts.totals ? 'are listed; the totals count every one' : 'were read'}.${opts.dated === false ? '' : ' Narrow the period to see the rest.'}`;
 const DAY_MS = 86_400_000;
 
 export interface ReportTarget {
@@ -295,7 +308,7 @@ function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period:
   const params: unknown[] = [...own.params, ...span.params];
   if (q.category) { where.push('t.category = ?'); params.push(q.category); }
   if (q.area) { where.push('t.eval_area = ?'); params.push(q.area); }
-  const rows = ctx.db.prepare(`SELECT t.* FROM activities t WHERE ${where.join(' AND ')} ORDER BY t.date DESC, t.created_at DESC LIMIT ${SCAN_LIMIT}`).all(...params) as Array<Record<string, unknown>>;
+  const { rows, cut } = scanned(ctx.db.prepare(`SELECT t.* FROM activities t WHERE ${where.join(' AND ')} ORDER BY t.date DESC, t.created_at DESC LIMIT ${SCAN_READ}`).all(...params) as Array<Record<string, unknown>>);
   const names = t.subject === 'unit' ? namesOf(ctx, rows.map((r) => r.user_id as string)) : new Map<string, string>();
   const byCategory = new Map<string, { entries: number; value: number; quantity: number }>();
   let value = 0; let outcomes = 0;
@@ -341,7 +354,7 @@ function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period:
       { id: 'activities', heading: 'Every activity', tables: [table('activities', 'Activities', columns, ledger, 'No activities match these filters.', { total: rows.length })] },
     ],
     primary: 'activities',
-    notes: [sourceNote(ctx, t), SPAN_NOTE, ...(rows.length >= SCAN_LIMIT ? [`Only the first ${SCAN_LIMIT.toLocaleString('en-US')} activities were read. Narrow the period to see the rest.`] : [])],
+    notes: [sourceNote(ctx, t), SPAN_NOTE, ...(cut ? [cutNote('activities')] : [])],
     filters: [...(q.category ? [{ label: 'Category', value: q.category }] : []), ...(q.area ? [{ label: 'Area', value: q.area }] : [])],
   };
 }
@@ -385,6 +398,9 @@ export function standing(req: Requirement, trainings: readonly TrainingRow[], as
   return { last, due, status: 'met' };
 }
 
+/** How many people's training one read of requirementStandings takes. A person's records are bounded by the record limit. */
+const STANDING_BATCH = 500;
+
 /** One Marine a requirement standing is about: their name, the team they are on, and every unit they serve in. */
 export interface StandingPerson { id: string; name: string; team: string | null; units: string[] }
 export interface RequirementStanding { r: Requirement; p: StandingPerson; s: ReturnType<typeof standing> }
@@ -411,10 +427,19 @@ export function requirementStandings(ctx: AppContext, t: ReportTarget, asOf: str
     const units = (ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ?').all(t.userId) as Array<{ unit_id: string }>).map((x) => x.unit_id);
     people.push({ id: t.userId!, name: namesOf(ctx, [t.userId]).get(t.userId!) || '', team: null, units });
   }
-  // Every completed course the report may read, whenever it was: a requirement met two years ago is met.
-  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date, t.course_code FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
+  // Every completed course the report may read, whenever it was: a requirement met two years ago is met. Only what
+  // standing() counts is read (a course with no status is a completed one), for the people it is about, a batch of
+  // them at a time and never cut across them: whose training may be read stays in the WHERE of every batch. The batch
+  // leads the join (CROSS JOIN keeps that order), so each person's courses are found by their own index and a batch
+  // never reads the whole unit's history.
   const byPerson = new Map<string, TrainingRow[]>();
-  for (const h of history) addTo(byPerson, h.user_id, h);
+  const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date, t.course_code
+      FROM json_each(?) p CROSS JOIN trainings t ON t.user_id = p.value
+     WHERE ${own.sql} AND t.deleted_at IS NULL AND COALESCE(NULLIF(t.status, ''), 'completed') = 'completed'`);
+  for (let i = 0; i < people.length; i += STANDING_BATCH) {
+    const ids = JSON.stringify(people.slice(i, i + STANDING_BATCH).map((p) => p.id));
+    for (const h of history.all(ids, ...own.params) as TrainingRow[]) addTo(byPerson, h.user_id, h);
+  }
   const applies = (r: Requirement, p: StandingPerson) => { const set = reach.get(r.id); return !set || p.units.some((u) => set.has(u)); };
   const standings = requirements.flatMap((r) => people.filter((p) => applies(r, p)).map((p) => ({ r, p, s: standing(r, byPerson.get(p.id) || [], asOf) })));
   return { orgId, requirements, people, standings };
@@ -429,9 +454,13 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
   const where = [own.sql, 't.deleted_at IS NULL', span.sql];
   const params: unknown[] = [...own.params, ...span.params];
   if (q.kind) { where.push('t.type = ?'); params.push(q.kind); }
-  const rows = ctx.db.prepare(`SELECT t.* FROM trainings t WHERE ${where.join(' AND ')} ORDER BY t.date DESC LIMIT ${SCAN_LIMIT}`).all(...params) as Array<Record<string, unknown>>;
+  const { rows, cut } = scanned(ctx.db.prepare(`SELECT t.* FROM trainings t WHERE ${where.join(' AND ')} ORDER BY t.date DESC LIMIT ${SCAN_READ}`).all(...params) as Array<Record<string, unknown>>);
   const names = t.subject === 'unit' ? namesOf(ctx, rows.map((r) => r.user_id as string)) : new Map<string, string>();
-  const hours = rows.reduce((n, r) => n + (Number(r.hours) || 0), 0);
+  // The period's totals count every course in it, however many the list holds.
+  const totals = cut
+    ? ctx.db.prepare(`SELECT COUNT(*) AS courses, COALESCE(SUM(t.hours), 0) AS hours FROM trainings t WHERE ${where.join(' AND ')}`).get(...params) as { courses: number; hours: number }
+    : { courses: rows.length, hours: rows.reduce((n, r) => n + (Number(r.hours) || 0), 0) };
+  const hours = totals.hours;
   const courses = rows.map((r) => ({
     date: day(r.date as string), end_date: day(r.end_date as string), owner: names.get(r.user_id as string) || null, title: r.title as string,
     type: words(r.type as string), hours: r.hours == null ? null : Number(r.hours), provider: (r.provider as string) || null, status: words(r.status as string),
@@ -456,7 +485,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
   const recurs = (r: Requirement) => (r.interval_months ? `Every ${r.interval_months} month${r.interval_months === 1 ? '' : 's'}` : 'Once');
   const counts = (key: string) => standings.filter((x) => x.s.status === key).length;
 
-  const sections: ReportSection[] = [{ id: 'courses', heading: 'Training in the period', tables: [table('courses', 'Training', courseColumns, courses, 'No training in the period.', { total: rows.length })] }];
+  const sections: ReportSection[] = [{ id: 'courses', heading: 'Training in the period', tables: [table('courses', 'Training', courseColumns, courses, 'No training in the period.', { total: totals.courses })] }];
   const lede = `Where each stands on ${formatDTG(asOf)}. Due soon is due again within ${DUE_SOON_DAYS} days.`;
   if (!orgId) {
     sections.push({ id: 'requirements', heading: 'Against the training requirements', tables: [], notes: ['Not in a Unit Instance, so no training requirements apply.'] });
@@ -496,7 +525,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
   }
   return {
     summary: [
-      { label: 'Courses in the period', value: rows.length, kind: 'number' }, { label: 'Training hours', value: r2(hours), kind: 'hours' },
+      { label: 'Courses in the period', value: totals.courses, kind: 'number' }, { label: 'Training hours', value: r2(hours), kind: 'hours' },
       ...(orgId ? [
         { label: 'Met', value: counts('met'), kind: 'number' as const }, { label: 'Due soon', value: counts('due_soon'), kind: 'number' as const },
         { label: 'Past due', value: counts('overdue'), kind: 'number' as const }, { label: 'No record', value: counts('missing'), kind: 'number' as const },
@@ -508,6 +537,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
       sourceNote(ctx, t),
       'A requirement is met by a completed course with its title, with its course code, or with its course code in the title. No record means no such course was shared, not that none was taken.',
       ...(t.subject === 'unit' && !t.detail ? [NO_DETAIL] : []),
+      ...(cut ? [cutNote('courses in the period', { totals: true })] : []),
     ],
     filters: [
       { label: 'Standing on', value: formatDTG(asOf) },
@@ -580,8 +610,14 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
   const d = dashboardOf(ctx, t, period);
   const units = JSON.stringify(t.unitIds);
   const today = zonedDay(zoneOf(ctx, user));
-  const awards = ctx.db.prepare(`SELECT name, type, status, date, user_id FROM awards WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND status IN ('recommended', 'submitted', 'approved') ORDER BY CASE status WHEN 'recommended' THEN 0 WHEN 'submitted' THEN 1 ELSE 2 END, date LIMIT ${SCAN_LIMIT}`).all(units) as Array<{ name: string; type: string | null; status: string; date: string | null; user_id: string }>;
-  const tasks = ctx.db.prepare(`SELECT title, due_date, priority, assignee_id, user_id FROM tasks WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND status <> 'completed' AND due_date IS NOT NULL AND due_date < ? ORDER BY due_date LIMIT ${SCAN_LIMIT}`).all(units, today) as Array<{ title: string; due_date: string; priority: string | null; assignee_id: string | null; user_id: string }>;
+  const AWARDS = `FROM awards WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND status IN ('recommended', 'submitted', 'approved')`;
+  const TASKS = `FROM tasks WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND status <> 'completed' AND due_date IS NOT NULL AND due_date < ?`;
+  const awardRead = scanned(ctx.db.prepare(`SELECT name, type, status, date, user_id ${AWARDS} ORDER BY CASE status WHEN 'recommended' THEN 0 WHEN 'submitted' THEN 1 ELSE 2 END, date LIMIT ${SCAN_READ}`).all(units) as Array<{ name: string; type: string | null; status: string; date: string | null; user_id: string }>);
+  const taskRead = scanned(ctx.db.prepare(`SELECT title, due_date, priority, assignee_id, user_id ${TASKS} ORDER BY due_date LIMIT ${SCAN_READ}`).all(units, today) as Array<{ title: string; due_date: string; priority: string | null; assignee_id: string | null; user_id: string }>);
+  const [awards, tasks] = [awardRead.rows, taskRead.rows];
+  // Their counts are of every one, however many the lists hold.
+  const awardCount = awardRead.cut ? (ctx.db.prepare(`SELECT COUNT(*) AS n ${AWARDS}`).get(units) as { n: number }).n : awards.length;
+  const taskCount = taskRead.cut ? (ctx.db.prepare(`SELECT COUNT(*) AS n ${TASKS}`).get(units, today) as { n: number }).n : tasks.length;
   const names = namesOf(ctx, [...awards.map((a) => a.user_id), ...tasks.map((x) => x.assignee_id || x.user_id)]);
   const due = d.members.filter((m) => m.counseling_due);
   const unready = d.members.filter((m) => m.readiness_complete < 5);
@@ -600,14 +636,14 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
     tables: [table('awards', 'Awards in progress', [
       { key: 'name', label: 'Award', width: 26 }, { key: 'marine', label: 'Marine', width: 18 }, { key: 'type', label: 'Type', width: 12 },
       { key: 'status', label: 'Status', width: 10 }, { key: 'date', label: 'Date', kind: 'date', width: 9 },
-    ], awards.map((a) => ({ name: a.name, marine: names.get(a.user_id) || null, type: words(a.type), status: words(a.status), date: a.date })), 'No awards are in progress.')],
+    ], awards.map((a) => ({ name: a.name, marine: names.get(a.user_id) || null, type: words(a.type), status: words(a.status), date: a.date })), 'No awards are in progress.', { total: awardCount })],
   });
   sections.push({
     id: 'tasks', heading: 'Overdue tasks',
     tables: [table('tasks', 'Overdue tasks', [
       { key: 'title', label: 'Task', width: 30 }, { key: 'assignee', label: 'Assigned to', width: 18 }, { key: 'priority', label: 'Priority', width: 9 },
       { key: 'due', label: 'Due', kind: 'date', width: 9 }, { key: 'days', label: 'Days late', kind: 'number', width: 8 },
-    ], tasks.map((x) => ({ title: x.title, assignee: names.get(x.assignee_id || x.user_id) || null, priority: words(x.priority), due: x.due_date, days: Math.round((Date.parse(today) - Date.parse(x.due_date)) / DAY_MS) })), 'No shared task is overdue.')],
+    ], tasks.map((x) => ({ title: x.title, assignee: names.get(x.assignee_id || x.user_id) || null, priority: words(x.priority), due: x.due_date, days: Math.round((Date.parse(today) - Date.parse(x.due_date)) / DAY_MS) })), 'No shared task is overdue.', { total: taskCount })],
   });
   if (t.detail) {
     sections.push({
@@ -620,12 +656,16 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
   return {
     summary: [
       ...(t.detail ? [{ label: 'Counseling due', value: d.totals.counseling_due, kind: 'number' as const }] : []),
-      { label: 'Awards in progress', value: awards.length, kind: 'number' }, { label: 'Overdue tasks', value: tasks.length, kind: 'number' },
+      { label: 'Awards in progress', value: awardCount, kind: 'number' }, { label: 'Overdue tasks', value: taskCount, kind: 'number' },
       ...(t.detail ? [{ label: 'Readiness incomplete', value: unready.length, kind: 'number' as const }] : []),
       { label: 'Average PFT', value: d.totals.avg_pft, kind: 'number' }, { label: 'Average CFT', value: d.totals.avg_cft, kind: 'number' },
     ],
     sections, primary: t.detail ? 'counseling' : 'awards',
-    notes: [sourceNote(ctx, t), 'Counselings are dated, never quoted.', ...(t.detail ? [] : [NO_DETAIL])],
+    notes: [
+      sourceNote(ctx, t), 'Counselings are dated, never quoted.', ...(t.detail ? [] : [NO_DETAIL]),
+      ...(awardRead.cut ? [cutNote('awards in progress', { totals: true, dated: false })] : []),
+      ...(taskRead.cut ? [cutNote('overdue tasks', { totals: true, dated: false })] : []),
+    ],
   };
 }
 
@@ -771,17 +811,32 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   // unit record, so a report about yourself reads all of yours and one about a Marine or a unit reads what is in its units.
   const own = ownership(t, 'duties');
   const span = periodClause('duties', 't', period?.from, period?.to);
-  const stood = ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
+  const inPeriod = `${own.sql} AND t.deleted_at IS NULL AND ${span.sql}`;
+  const periodParams = [...own.params, ...span.params];
+  const read = scanned(ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.start_time, t.end_date, t.end_time, t.hours, t.days, t.approval_status,
                                        t.calculated_points, t.approved_points, t.points_overridden_at, t.scoring_version
-                                  FROM duties t WHERE ${own.sql} AND t.deleted_at IS NULL AND ${span.sql}
-                                 ORDER BY t.date DESC, t.start_time DESC LIMIT ${SCAN_LIMIT}`).all(...own.params, ...span.params) as Array<{
+                                  FROM duties t WHERE ${inPeriod}
+                                 ORDER BY t.date DESC, t.start_time DESC LIMIT ${SCAN_READ}`).all(...periodParams) as Array<{
     id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; location: string | null; notes: string | null; date: string; start_time: string; end_date: string; end_time: string; hours: number; days: number;
     approval_status: DutyStatus; calculated_points: number | null; approved_points: number | null; points_overridden_at: string | null; scoring_version: number | null;
-  }>;
-  const typeNames = new Map((ctx.db.prepare('SELECT id, name FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...new Set(stood.map((d) => d.duty_type_id))])) as Array<{ id: string; name: string }>).map((x) => [x.id, x.name]));
+  }>);
+  const stood = read.rows;
+  // The totals and tallies count every duty in the period, whatever the list holds: what is counted is countedPoints
+  // (approved duty, at its approved points) and isOverridden, said in SQL. A duty a retention schedule anonymized
+  // (isAnonymizedDuty) counts in the totals and in nobody's tally.
+  const TALLY = `COUNT(*) AS count, COALESCE(SUM(t.hours), 0) AS hours, COALESCE(SUM(t.calculated_points), 0) AS points,
+    COUNT(CASE WHEN t.approval_status = 'approved' THEN 1 END) AS approved,
+    COALESCE(SUM(CASE WHEN t.approval_status = 'approved' THEN COALESCE(t.approved_points, 0) END), 0) AS counted`;
+  type Tally = { id: string; count: number; hours: number; points: number; approved: number; counted: number };
+  const totals = ctx.db.prepare(`SELECT ${TALLY}, COUNT(CASE WHEN t.approval_status = 'pending' THEN 1 END) AS pending,
+      COUNT(CASE WHEN t.approval_status = 'approved' AND t.points_overridden_at IS NOT NULL AND t.points_overridden_at <> '' THEN 1 END) AS overridden
+    FROM duties t WHERE ${inPeriod}`).get(...periodParams) as Tally & { pending: number; overridden: number };
+  const perTypeTally = ctx.db.prepare(`SELECT t.duty_type_id AS id, ${TALLY} FROM duties t WHERE ${inPeriod} GROUP BY t.duty_type_id`).all(...periodParams) as Tally[];
+  const typeNames = new Map((ctx.db.prepare('SELECT id, name FROM duty_types WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(perTypeTally.map((x) => x.id))) as Array<{ id: string; name: string }>).map((x) => [x.id, x.name]));
   // A report about a Marine or a unit is in one Unit Instance. One about yourself may hold duty you stood in another, which
   // is read against that instance's own types and versions: a version number means nothing outside its instance.
-  const instanceOf = new Map(stood.map((d) => [d.unit_id, orgOfUnit(ctx, d.unit_id)]));
+  const instanceOf = new Map((ctx.db.prepare(`SELECT DISTINCT t.unit_id, u.org_id FROM duties t LEFT JOIN units u ON u.id = t.unit_id WHERE ${inPeriod}`)
+    .all(...periodParams) as Array<{ unit_id: string; org_id: string | null }>).map((x) => [x.unit_id, x.org_id ?? null]));
   const otherOrgs = [...new Set([...instanceOf.values()].filter((o): o is string => Boolean(o) && o !== orgId))];
   const multi = otherOrgs.length > 0;
   // Another instance's types and scoring are shown only while the reader serves in it, as the duty form offers them.
@@ -796,17 +851,20 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   const orgTags = new Map(orgRows.map((o) => [o.id, o.short_name || o.id]));
   const byMarine = t.subject === 'unit' && t.detail;
   // A duty a retention schedule anonymized counts in the unit's totals and names nobody, in the list or by Marine.
-  const named = stood.filter((d) => !isAnonymizedDuty(d));
-  const anonymous = stood.length - named.length;
-  const marines = byMarine ? namesOf(ctx, named.map((d) => d.user_id)) : new Map<string, string>();
-  const hoursStood = r2(stood.reduce((n, d) => n + (Number(d.hours) || 0), 0));
-  const calculated = r2(stood.reduce((n, d) => n + (Number(d.calculated_points) || 0), 0));
-  const pending = stood.filter((d) => d.approval_status === 'pending').length;
+  const perMarine = byMarine
+    ? ctx.db.prepare(`SELECT t.user_id AS id, ${TALLY} FROM duties t WHERE ${inPeriod} AND NOT (t.notes IS ? OR t.title IS ? OR t.location IS ?) GROUP BY t.user_id`)
+      .all(...periodParams, REDACTED, REDACTED, REDACTED) as Tally[]
+    : [];
+  const anonymous = totals.count - perMarine.reduce((n, p) => n + p.count, 0);
+  // Everyone a named duty in the period belongs to, so the list and the tally name the same people.
+  const marines = byMarine ? namesOf(ctx, perMarine.map((p) => p.id)) : new Map<string, string>();
+  const hoursStood = r2(totals.hours);
+  const calculated = r2(totals.points);
+  const pending = totals.pending;
   // What counts (ADR-0024): approved duty, at its approved points. Calculated points are what the scoring gave every duty
   // in the period, approved or not; the two are never added together.
-  const approvedDuty = stood.filter((d) => d.approval_status === 'approved');
-  const approved = r2(approvedDuty.reduce((n, d) => n + countedPoints(d), 0));
-  const overridden = approvedDuty.filter((d) => isOverridden(d)).length;
+  const approved = r2(totals.counted);
+  const overridden = totals.overridden;
   const recorded: ReportSection = {
     id: 'stood', heading: 'Duty stood in the period',
     lede: 'Calculated points are what the scoring version in force on the duty’s first day gives. Duty counts once a reviewer approves it, at its approved points; until then it is submitted, not counted.',
@@ -822,19 +880,13 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
       marine: isAnonymizedDuty(d) ? null : marines.get(d.user_id) || null, ...(multi ? { instance: orgNames.get(instanceOf.get(d.unit_id) ?? '') ?? null } : {}), type: typeNames.get(d.duty_type_id) || null, title: d.title, start: d.date, end: d.end_date,
       hours: Number(d.hours), points: d.calculated_points, approved: d.approval_status === 'approved' ? d.approved_points : null, override: isOverridden(d) ? 1 : 0,
       version: d.scoring_version, status: DUTY_STATUS_LABELS[d.approval_status] || words(d.approval_status),
-    })), 'No duty is recorded in the period.')],
+    })), 'No duty is recorded in the period.', { total: totals.count })],
   };
   const tallies: ReportSection[] = [];
   // A duty a retention schedule anonymized is in no Marine's tally, so a period of nothing else has none to show: the
   // note says why the totals hold more than the tally.
-  if (byMarine && named.length) {
-    const per = new Map<string, { count: number; hours: number; points: number; approved: number; counted: number }>();
-    for (const d of named) {
-      const p = per.get(d.user_id) || { count: 0, hours: 0, points: 0, approved: 0, counted: 0 };
-      p.count += 1; p.hours += Number(d.hours) || 0; p.points += Number(d.calculated_points) || 0;
-      if (d.approval_status === 'approved') { p.approved += 1; p.counted += countedPoints(d); }
-      per.set(d.user_id, p);
-    }
+  if (byMarine && perMarine.length) {
+    const per = new Map(perMarine.map((p) => [p.id, p]));
     tallies.push({
       id: 'by_marine', heading: 'By Marine',
       tables: [table('by_marine', 'Duty by Marine', [
@@ -880,14 +932,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
     return out;
   };
   // What kind of duty was stood: each type once, its duty, hours and approved points, so the hours chart has its figures.
-  const perType = new Map<string, { count: number; hours: number; approved: number; counted: number }>();
-  for (const d of stood) {
-    const p = perType.get(d.duty_type_id) || { count: 0, hours: 0, approved: 0, counted: 0 };
-    p.count += 1; p.hours += Number(d.hours) || 0;
-    if (d.approval_status === 'approved') { p.approved += 1; p.counted += countedPoints(d); }
-    perType.set(d.duty_type_id, p);
-  }
-  const typeRows = [...perType.entries()].map(([id, p]) => ({ type: typeNames.get(id) || 'Unknown duty type', count: p.count, hours: r2(p.hours), approved: p.approved, counted: r2(p.counted) }))
+  const typeRows = perTypeTally.map((p) => ({ type: typeNames.get(p.id) || 'Unknown duty type', count: p.count, hours: r2(p.hours), approved: p.approved, counted: r2(p.counted) }))
     .sort((a, b) => b.hours - a.hours || b.count - a.count || a.type.localeCompare(b.type));
   const byType: ReportSection[] = typeRows.length ? [{
     id: 'by_type', heading: 'By duty type',
@@ -900,8 +945,8 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   const sections: ReportSection[] = [recorded, ...byType, ...tallies, ...(homeless ? [] : scoringSections(base, true)), ...shownOrgs.flatMap((o) => scoringSections(scoringOf(o), false))];
   return {
     summary: [
-      { label: 'Duty stood', value: stood.length, kind: 'number' }, { label: 'Hours', value: hoursStood, kind: 'hours' },
-      { label: 'Approved', value: approvedDuty.length, kind: 'number' }, { label: 'Approved points', value: approved, kind: 'number' },
+      { label: 'Duty stood', value: totals.count, kind: 'number' }, { label: 'Hours', value: hoursStood, kind: 'hours' },
+      { label: 'Approved', value: totals.approved, kind: 'number' }, { label: 'Approved points', value: approved, kind: 'number' },
       { label: 'Calculated points', value: calculated, kind: 'number' }, { label: 'Awaiting review', value: pending, kind: 'number' },
       { label: 'Duty types in use', value: homeless ? null : types.filter((x) => x.active).length, kind: 'number' }, { label: 'Scored', value: homeless ? null : current ? current.rules.length : 0, kind: 'number' },
       { label: 'Version in force', value: current ? current.version : null, kind: 'number' }, { label: 'Since', value: current?.effective_from ?? null, kind: 'date' },
@@ -920,6 +965,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
       ...(homeless ? ['You serve in no Unit Instance now, so no instance’s duty types or scoring are shown.'] : []),
       ...(t.subject === 'unit' && !t.detail ? [NO_DETAIL] : []),
       ...(byMarine && anonymous ? [`${anonymous === 1 ? 'One duty' : `${anonymous} duties`} a retention schedule anonymized ${anonymous === 1 ? 'counts' : 'count'} in the totals and ${anonymous === 1 ? 'names' : 'name'} nobody.`] : []),
+      ...(read.cut ? [cutNote('duties', { totals: true })] : []),
     ],
     filters: [{ label: 'Scoring standing on', value: formatDTG(asOf) }],
   };
@@ -953,17 +999,53 @@ export const CASE_AGE_BANDS: ReadonlyArray<{ key: string; label: string; test: (
   { key: 'over_90', label: 'Over 90 days', test: (d) => d > 90 },
 ];
 
-export function casesOf(ctx: AppContext, t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, period?: Pick<Period, 'from' | 'to'> | null): CaseRow[] {
+/**
+ * isClosed in SQL, on alias t: a case's stage, or the stage its state stands for when it has none, is resolved or not
+ * applicable (stageOf, STATE_TO_STAGE). A case with neither is not started, so open.
+ */
+export const CLOSED_CASE_SQL = `COALESCE(NULLIF(t.stage, ''), t.state, '') IN ('resolved', 'not_applicable')`;
+
+export interface CaseOptions {
+  /** Only the cases open now, or only those closed, decided in the read before it is cut. */
+  state?: 'open' | 'closed';
+  /** Only the open cases due before this day: overdue on it. */
+  overdueOn?: string;
+}
+
+function caseQuery(t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, period: Pick<Period, 'from' | 'to'> | null | undefined, opts: CaseOptions) {
   const where = [`t.unit_id IN (SELECT value FROM json_each(?))`, `t.visibility = 'unit'`, 't.deleted_at IS NULL'];
   const params: unknown[] = [JSON.stringify(t.unitIds)];
   if (q.procedure) { if (q.procedure === 'none') where.push('t.procedure_key IS NULL'); else { where.push('t.procedure_key = ?'); params.push(q.procedure); } }
+  if (opts.state) where.push(opts.state === 'open' ? `NOT (${CLOSED_CASE_SQL})` : CLOSED_CASE_SQL);
+  if (opts.overdueOn) { where.push(`NOT (${CLOSED_CASE_SQL})`, `COALESCE(t.due_date, '') <> ''`, 't.due_date < ?'); params.push(opts.overdueOn); }
   // Open on any day of the period: opened by its end and not closed, resolved or found not to apply, before its start.
   if (period?.to) { where.push('substr(t.created_at, 1, 10) <= ?'); params.push(period.to); }
   const closedBefore = period?.from ? ' WHERE c.closed_at IS NULL OR substr(c.closed_at, 1, 10) >= ?' : '';
   if (period?.from) params.push(period.from);
-  return ctx.db.prepare(`SELECT * FROM (SELECT ${CASE_COLUMNS}, ${CLOSED_AT} AS closed_at FROM work_items t WHERE ${where.join(' AND ')}) c${closedBefore}
-    ORDER BY c.due_date IS NULL, c.due_date, c.created_at LIMIT ${SCAN_LIMIT}`).all(...params) as CaseRow[];
+  return { sql: `SELECT * FROM (SELECT ${CASE_COLUMNS}, ${CLOSED_AT} AS closed_at FROM work_items t WHERE ${where.join(' AND ')}) c${closedBefore}`, params };
 }
+
+/** The cases a report reads, soonest due first, and whether the read stopped at SCAN_LIMIT with more to go. */
+export function readCases(ctx: AppContext, t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, period?: Pick<Period, 'from' | 'to'> | null, opts: CaseOptions = {}): { rows: CaseRow[]; cut: boolean } {
+  const { sql, params } = caseQuery(t, q, period, opts);
+  return scanned(ctx.db.prepare(`${sql} ORDER BY c.due_date IS NULL, c.due_date, c.created_at LIMIT ${SCAN_READ}`).all(...params) as CaseRow[]);
+}
+
+/**
+ * The totals of every case the same read would hold, for a report whose read was cut: how many, their amounts, how many
+ * are overdue on `today` (open, and due before it) and how many nobody holds.
+ */
+function caseTotals(ctx: AppContext, t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, today: string, opts: CaseOptions = {}, period: Pick<Period, 'from' | 'to'> | null = null) {
+  const { sql, params } = caseQuery(t, q, period, opts);
+  const closed = CLOSED_CASE_SQL.replace(/\bt\./g, 'c.');
+  return ctx.db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(c.amount), 0) AS amount,
+      COUNT(CASE WHEN NOT (${closed}) AND COALESCE(c.due_date, '') <> '' AND c.due_date < ? THEN 1 END) AS overdue,
+      COUNT(CASE WHEN COALESCE(c.claimed_by, '') = '' THEN 1 END) AS unassigned
+    FROM (${sql}) c`).get(today, ...params) as { count: number; amount: number; overdue: number; unassigned: number };
+}
+
+export const casesOf = (ctx: AppContext, t: Pick<ReportTarget, 'unitIds'>, q: Pick<ReportQuery, 'procedure'>, period?: Pick<Period, 'from' | 'to'> | null, opts: CaseOptions = {}): CaseRow[] =>
+  readCases(ctx, t, q, period, opts).rows;
 export const isClosed = (c: CaseRow) => ['resolved', 'not_applicable'].includes(stageOf(c as never));
 const procedureOfCase = (c: CaseRow) => (c.procedure_key ? PROCEDURES[c.procedure_key] : null);
 export const procedureLabel = (c: CaseRow) => procedureOfCase(c)?.short || (c.procedure_key ? c.procedure_key : 'No procedure');
@@ -976,8 +1058,11 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
   const today = zonedDay(zoneOf(ctx, user));
   const from = period.from || '0000-01-01';
   const to = period.to || '9999-12-31';
-  const live = casesOf(ctx, t, q, period);
-  const open = casesOf(ctx, t, q).filter((c) => !isClosed(c));
+  const liveRead = readCases(ctx, t, q, period);
+  // Open now is read as open in SQL, so a long closed history never crowds an open case out of the read.
+  const openRead = readCases(ctx, t, q, null, { state: 'open' });
+  const live = liveRead.rows;
+  const open = openRead.rows.filter((c) => !isClosed(c));
   const opened = live.filter((c) => day(c.created_at)! >= from);
   const resolvedIn = live.filter((c) => stageOf(c as never) === 'resolved' && c.resolved_at && day(c.resolved_at)! <= to);
   const avg = (list: number[]) => (list.length ? Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10 : null);
@@ -1001,10 +1086,13 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
     };
   }).sort((a, b) => b.open - a.open || b.value - a.value);
   const aging = CASE_AGE_BANDS.map(({ label: band, test }) => { const list = open.filter((c) => test(ageOf(c, at))); return { band, open: list.length, value: amountOf(list) }; });
+  // Open now, cut at its cap, is totalled over every open case.
+  const openNow = openRead.cut ? caseTotals(ctx, t, q, today, { state: 'open' })
+    : { count: open.length, amount: amountOf(open), overdue: open.filter(overdue).length, unassigned: open.filter((c) => !c.claimed_by).length };
   return {
     summary: [
-      { label: 'Open now', value: open.length, kind: 'number' }, { label: 'Amount open', value: amountOf(open), kind: 'money' },
-      { label: 'Overdue', value: open.filter(overdue).length, kind: 'number' }, { label: 'Unassigned', value: open.filter((c) => !c.claimed_by).length, kind: 'number' },
+      { label: 'Open now', value: openNow.count, kind: 'number' }, { label: 'Amount open', value: r2(openNow.amount), kind: 'money' },
+      { label: 'Overdue', value: openNow.overdue, kind: 'number' }, { label: 'Unassigned', value: openNow.unassigned, kind: 'number' },
       { label: 'Opened in the period', value: opened.length, kind: 'number' }, { label: 'Resolved in the period', value: resolvedIn.length, kind: 'number' },
       { label: 'Resolution rate', value: pct(resolvedIn.length, live.length), kind: 'percent', hint: 'Resolved in the period, of the cases open in it' },
       { label: 'Median age open', value: median(open.map((c) => ageOf(c, at))), kind: 'number', hint: 'Days' },
@@ -1028,6 +1116,8 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
       sourceNote(ctx, t),
       'Amounts are added as each case records them. A case does not say what kind of amount it holds, so read totals with the cases behind them.',
       'A case is in the period when it was open on any day of it. Open now, the amount open, overdue and age are as of today.',
+      ...(openRead.cut ? [`Only the ${LIMIT_WORDS} open cases due soonest are in the tables and the median age; the figures for open now count every one.`] : []),
+      ...(liveRead.cut ? [cutNote('cases open in the period')] : []),
     ],
     filters: procedureFilter(q),
   };
@@ -1037,7 +1127,11 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
   const state = q.state && CASE_STATES.some((s) => s.value === q.state) ? q.state : 'open';
   const today = zonedDay(zoneOf(ctx, user));
   const at = Date.now();
-  let cases = casesOf(ctx, t, q).filter((c) => state === 'all' || (state === 'open' ? !isClosed(c) : isClosed(c)));
+  // Open or closed, and overdue, are decided in the read, so the cases asked for are the ones read however many others
+  // there are. The same tests run again on what was read.
+  const opts: CaseOptions = { ...(state === 'all' ? {} : { state: state === 'open' ? 'open' : 'closed' }), ...(q.overdue === '1' ? { overdueOn: today } : {}) };
+  const read = readCases(ctx, t, q, null, opts);
+  let cases = read.rows.filter((c) => state === 'all' || (state === 'open' ? !isClosed(c) : isClosed(c)));
   if (q.overdue === '1') cases = cases.filter((c) => !isClosed(c) && c.due_date && c.due_date < today);
   const names = namesOf(ctx, cases.map((c) => c.claimed_by));
   const units = new Map<string, string>();
@@ -1053,10 +1147,13 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
     procedure, cases: list.length, amount: amountOf(list), overdue: list.filter((r) => r.overdue).length,
     unassigned: list.filter((r) => r.holder === 'Unassigned').length, oldest: Math.max(...list.map((r) => r.age)),
   })).sort((a, b) => b.cases - a.cases);
+  // A read cut at its cap is totalled over every case it would have held.
+  const totals = read.cut ? caseTotals(ctx, t, q, today, opts)
+    : { count: rows.length, amount: amountOf(rows), overdue: rows.filter((r) => r.overdue).length, unassigned: rows.filter((r) => r.holder === 'Unassigned').length };
   return {
     summary: [
-      { label: 'Cases', value: rows.length, kind: 'number' }, { label: 'Amount', value: amountOf(rows), kind: 'money' },
-      { label: 'Overdue', value: rows.filter((r) => r.overdue).length, kind: 'number' }, { label: 'Unassigned', value: rows.filter((r) => r.holder === 'Unassigned').length, kind: 'number' },
+      { label: 'Cases', value: totals.count, kind: 'number' }, { label: 'Amount', value: r2(totals.amount), kind: 'money' },
+      { label: 'Overdue', value: totals.overdue, kind: 'number' }, { label: 'Unassigned', value: totals.unassigned, kind: 'number' },
       { label: 'Error types', value: byType.length, kind: 'number' },
     ],
     sections: [
@@ -1075,11 +1172,14 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
           ...(t.unitIds.length > 1 ? [{ key: 'team', label: 'Team', width: 10 }] : []),
           { key: 'due', label: 'Due', kind: 'date', width: 9 }, { key: 'age', label: 'Age (days)', kind: 'number', width: 7 }, { key: 'waiting', label: 'Waiting on', width: 10 },
           { key: 'overdue', label: 'Overdue', kind: 'flag', width: 7 },
-        ], rows, 'No cases match these filters.', { total: rows.length })],
+        ], rows, 'No cases match these filters.', { total: totals.count })],
       },
     ],
     primary: 'cases',
-    notes: [sourceNote(ctx, t), 'A case’s error type is the procedure it follows. Age runs from when the case was opened to when it was closed, or to now.'],
+    notes: [
+      sourceNote(ctx, t), 'A case’s error type is the procedure it follows. Age runs from when the case was opened to when it was closed, or to now.',
+      ...(read.cut ? [`Only the ${LIMIT_WORDS} cases due soonest are listed, and the error types count those; the totals count every case. Choose a procedure, or open cases only, to see the rest.`] : []),
+    ],
     filters: [
       { label: 'Cases', value: CASE_STATES.find((s) => s.value === state)!.label }, ...procedureFilter(q),
       ...(q.overdue === '1' ? [{ label: 'Overdue', value: 'Only overdue cases' }] : []),
@@ -1213,14 +1313,33 @@ const COUNTS = '__counts';
 /** A row's measure as a total adds it: a value of a type that is not added up adds nothing. */
 const measureOf = (r: Record<string, Cell>, m: string) => (m === 'dollar_amount' && r[COUNTS] === 0 ? 0 : Number(r[m]) || 0);
 
-function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: ReportQuery, period: Period | null): { rows: Array<Record<string, Cell>>; read: number } {
+/**
+ * The rows a custom report lists, newest first, and when the read stopped at its cap, the count and the measures of
+ * every record it would have held (`whole`). A goal's progress is worked out from its rows, so on a cut read its
+ * measures add up the goals listed (`listedMeasures`).
+ */
+interface CustomRead { rows: Array<Record<string, Cell>>; cut: boolean; whole: { count: number; measures: Record<string, number> } | null; listedMeasures: boolean }
+
+/** The column a custom dataset is newest by, so a read cut at its cap keeps the latest records. */
+const CUSTOM_NEWEST: Record<string, string> = { activities: 'date', trainings: 'date', awards: 'date', counselings: 'date', goals: 'period_end', tasks: 'due_date' };
+
+/** Each measure a custom dataset adds up, in SQL on alias t, as measureOf adds it from a row. */
+function measureSql(m: string, summable: string): { sql: string; params: unknown[] } {
+  if (m === 'dollar_amount') return { sql: `COALESCE(SUM(CASE WHEN t.dollar_type IS NULL OR t.dollar_type = '' OR t.dollar_type IN (SELECT value FROM json_each(?)) THEN t.dollar_amount END), 0) AS ${m}`, params: [summable] };
+  return { sql: `COALESCE(SUM(t.${m}), 0) AS ${m}`, params: [] };
+}
+
+function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: ReportQuery, period: Period | null): CustomRead {
   const cfg = ctx.runtime.metrics;
   if (dataset === 'work') {
-    const cases = casesOf(ctx, t, { ...q, procedure: undefined }, period);
+    const read = readCases(ctx, t, { ...q, procedure: undefined }, period);
+    const cases = read.rows;
     const names = namesOf(ctx, cases.map((c) => c.claimed_by));
     const at = Date.now();
+    const whole = read.cut ? caseTotals(ctx, t, { ...q, procedure: undefined }, zonedDay(ctx.config.timezone), {}, period) : null;
     return {
-      read: cases.length,
+      cut: read.cut, listedMeasures: false,
+      whole: whole && { count: whole.count, measures: { amount: whole.amount } },
       rows: cases.map((c) => ({
         reference: c.reference, title: c.title, procedure: procedureLabel(c), stage: STAGE_LABEL[stageOf(c as never)] || null, amount: c.amount == null ? null : Number(c.amount),
         holder: c.claimed_by ? names.get(c.claimed_by) || null : 'Unassigned', due_date: c.due_date, opened: day(c.created_at), age_days: ageOf(c, at), resolved_on: day(c.resolved_at),
@@ -1242,8 +1361,19 @@ function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: Report
   const table = { activities: 'activities', trainings: 'trainings', awards: 'awards', counselings: 'counselings', goals: 'goals', tasks: 'tasks' }[dataset]!;
   // A counseling counts once it is final (ADR-0027): a draft is its counselor's working copy.
   if (table === 'counselings') where.push("t.stage = 'final'");
-  let rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} LIMIT ${SCAN_LIMIT}`).all(...params) as Array<Record<string, unknown>>;
+  // Newest first, so a read cut at its cap keeps the latest records and says how many it left.
+  const read = scanned(ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY t.${CUSTOM_NEWEST[table]} DESC, t.id DESC LIMIT ${SCAN_READ}`).all(...params) as Array<Record<string, unknown>>);
+  let rows = read.rows;
   if (table === 'goals') rows = withGoalProgress(ctx, rows);
+  let whole: CustomRead['whole'] = null;
+  if (read.cut) {
+    // A goal's current value is its progress, worked out from its rows, so only its count is taken from every goal.
+    const measures = table === 'goals' ? [] : CUSTOM_DATASETS[dataset].measures.map((m) => measureSql(m, JSON.stringify(summableKeys(cfg))));
+    const sums = ctx.db.prepare(`SELECT COUNT(*) AS count${measures.map((m) => `, ${m.sql}`).join('')} FROM ${table} t WHERE ${where.join(' AND ')}`)
+      .get(...measures.flatMap((m) => m.params), ...params) as Record<string, number>;
+    const { count, ...rest } = sums;
+    whole = { count, measures: rest };
+  }
   const names = namesOf(ctx, rows.flatMap((r) => [r.user_id as string, r.assignee_id as string, r.counselor_id as string]));
   const owner = (r: Record<string, unknown>) => names.get(r.user_id as string) || null;
   const s = (v: unknown) => (v == null || v === '' ? null : String(v));
@@ -1263,7 +1393,7 @@ function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: Report
     goals: (r) => ({ title: s(r.title), owner: owner(r), category: s(r.category), status: words(s(r.status)), current_value: n(r.current_value), target_value: n(r.target_value), unit_label: s(r.unit_label), period_start: day(r.period_start as string), period_end: day(r.period_end as string) }),
     tasks: (r) => ({ title: s(r.title), owner: owner(r), assignee: names.get((r.assignee_id || r.user_id) as string) || null, status: words(s(r.status)), priority: words(s(r.priority)), due_date: day(r.due_date as string) }),
   };
-  return { read: rows.length, rows: rows.map(map[table]) };
+  return { cut: read.cut, whole, listedMeasures: read.cut && table === 'goals', rows: rows.map(map[table]) };
 }
 
 function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: Period | null): Built {
@@ -1276,7 +1406,7 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
   // The Marine column says nothing on a report about one Marine, unless it is asked for.
   const picked = [...new Set(asked.length ? asked : ds.defaults.filter((c) => c !== 'owner' || t.subject === 'unit'))];
   const columns = picked.map((c) => ds.columns.find((x) => x.key === c)!);
-  const { rows, read } = customRows(ctx, t, key, q, period);
+  const { rows, cut, whole, listedMeasures } = customRows(ctx, t, key, q, period);
   const sortKey = q.sort && ds.sorts.includes(q.sort) ? q.sort : ds.sorts[0];
   const dir = q.direction === 'asc' ? 1 : q.direction === 'desc' ? -1 : ds.columns.find((c) => c.key === sortKey)?.kind === 'date' ? -1 : 1;
   rows.sort((a, b) => {
@@ -1307,20 +1437,22 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
       tables: [table('groups', `By ${by_label}`, [{ key: 'group', label: label(group), width: 22 }, { key: 'count', label: 'Records', kind: 'number', width: 8 }, ...measures], groups, 'Nothing matches.')],
     });
   }
-  sections.push({ id: 'rows', heading: ds.label, tables: [table('rows', ds.label, columns, rows.map((r) => Object.fromEntries(picked.map((c) => [c, r[c] ?? null]))), 'Nothing matches these choices.', { total: rows.length })] });
+  sections.push({ id: 'rows', heading: ds.label, tables: [table('rows', ds.label, columns, rows.map((r) => Object.fromEntries(picked.map((c) => [c, r[c] ?? null]))), 'Nothing matches these choices.', { total: whole?.count ?? rows.length })] });
+  // A read cut at its cap counts and adds up every record it would have held, where SQL can add them as the rows would.
   const totals: ReportFigure[] = ds.measures.filter((m) => picked.includes(m)).map((m) => {
     const c = ds.columns.find((x) => x.key === m)!;
-    return { label: `${c.label}, total`, value: r2(rows.reduce((sum, r) => sum + measureOf(r, m), 0)), kind: c.kind, ...(key === 'activities' && m === 'dollar_amount' ? { hint: 'Value types that count toward the total' } : {}) };
+    const value = whole && m in whole.measures ? Number(whole.measures[m]) || 0 : rows.reduce((sum, r) => sum + measureOf(r, m), 0);
+    return { label: `${c.label}, total`, value: r2(value), kind: c.kind, ...(key === 'activities' && m === 'dollar_amount' ? { hint: 'Value types that count toward the total' } : {}) };
   });
   return {
-    summary: [{ label: ds.label, value: rows.length, kind: 'number' }, ...totals],
+    summary: [{ label: ds.label, value: whole?.count ?? rows.length, kind: 'number' }, ...totals],
     sections, primary: 'rows',
     notes: [
       sourceNote(ctx, t),
       ...(key === 'tasks' ? ['A task is in the period by its due date; one with no due date is left out of a dated period.'] : []),
       ...(key === 'counselings' ? ['Counselings are dated, never quoted.'] : []),
       ...(key === 'work' ? ['A case is in the period when it was open on any day of it.'] : []),
-      ...(read >= SCAN_LIMIT ? [`Only the first ${SCAN_LIMIT.toLocaleString('en-US')} records were read. Narrow the period to see the rest.`] : []),
+      ...(cut ? [`Only the ${LIMIT_WORDS} ${key === 'work' ? 'cases due soonest' : 'newest records'} are listed, and a grouping counts those; ${listedMeasures ? 'the count is of every record, and the totals add up the ones listed' : 'the count and the totals are of every record'}. Narrow the period to see the rest.`] : []),
     ],
     filters: [
       { label: 'Records', value: ds.label }, { label: 'Columns', value: columns.map((c) => c.label).join(', ') },
@@ -1399,7 +1531,28 @@ export function runReport(ctx: AppContext, user: SessionUser, scope: Scope, q: R
   return { ...doc, files: t.files };
 }
 
-export interface ReportFile { body: Buffer | string; contentType: string; filename: string }
+/**
+ * A file the report center sends. `rows`, on a CSV, is how many rows of its table it holds and how many there were, so
+ * a cut file says so in its response as well as on the screen that offers it.
+ */
+export interface ReportFile { body: Buffer | string; contentType: string; filename: string; rows?: { shown: number; total: number } }
+
+/**
+ * How many exports may wait while one is drawn. A report's file is read and drawn in long synchronous stretches, so
+ * exports run one at a time in a process, and past this many waiting a reader is asked to try again shortly.
+ */
+export const EXPORTS_WAITING = 8;
+let exportTail: Promise<unknown> = Promise.resolve();
+let exportsInLine = 0;
+
+/** Runs one export after those already in line, or refuses it when the line is full. */
+export function inExportLine<T>(work: () => Promise<T>): Promise<T> {
+  if (exportsInLine > EXPORTS_WAITING) throw tooMany('Vantage is drawing other reports’ files. Try again in a few seconds.', 5, 'exports_busy');
+  exportsInLine += 1;
+  const run = exportTail.then(work);
+  exportTail = run.catch(() => undefined);
+  return run.finally(() => { exportsInLine -= 1; });
+}
 
 /** A report as a file. Whether the reader may take it away is decided before anything is read. */
 export async function exportReport(ctx: AppContext, user: SessionUser, scope: Scope, q: ReportQuery, format: ReportFileFormat, ip?: string): Promise<ReportFile> {
@@ -1409,14 +1562,20 @@ export async function exportReport(ctx: AppContext, user: SessionUser, scope: Sc
       ? 'Taking another Marine’s records away as a spreadsheet or data file needs the unit’s export permission. The PDF is yours to download.'
       : 'Downloading a unit’s report needs the unit’s export permission. You may view and print it.');
   }
-  const doc = buildReportDocument(ctx, user, scope, q, t);
-  const file = await renderFile(doc, format);
+  // The reads and the drawing wait their turn together; who may have the file was decided above.
+  const { doc, file } = await inExportLine(async () => {
+    const built = buildReportDocument(ctx, user, scope, q, t);
+    return { doc: built, file: await renderFile(built, format) };
+  });
   audit(ctx, {
     actor_id: user.id, action: 'export_report', entity: 'report', entity_id: q.type,
     subject_id: t.subject === 'member' ? t.userId : null, unit_id: t.unitId, detail: auditDetail(doc, format.toUpperCase()), ip,
   });
   return file;
 }
+
+/** The tables a document holds fewer rows of than there were (REPORT_ROW_LIMIT). */
+export const cutTables = (doc: ReportDocument) => allTables(doc).filter((tbl) => tbl.total > tbl.rows.length);
 
 /** One document drawn into a file: the PDF layout, the main table as CSV, every table in a workbook, or the document itself. */
 export async function renderFile(doc: ReportDocument, format: ReportFileFormat): Promise<ReportFile> {
@@ -1427,7 +1586,10 @@ export async function renderFile(doc: ReportDocument, format: ReportFileFormat):
     const [header, ...rest] = main ? tableMatrix(main) : [['No data']];
     const heads = header.map(String);
     const csv = rowsToCsv(rest.map((r) => Object.fromEntries(heads.map((h, i) => [h, r[i]]))), heads);
-    return { body: `\uFEFF${csv}`, contentType: 'text/csv; charset=utf-8', filename: reportFileName(doc, 'csv') };
+    return {
+      body: `\uFEFF${csv}`, contentType: 'text/csv; charset=utf-8', filename: reportFileName(doc, 'csv'),
+      ...(main ? { rows: { shown: main.rows.length, total: main.total } } : {}),
+    };
   }
   // The workbook: an About sheet saying what it is and under what handling, then every table on a sheet of its own.
   const about: SheetOut = {
@@ -1438,6 +1600,7 @@ export async function renderFile(doc: ReportDocument, format: ReportFileFormat):
       ['Generated', `${doc.generated.on} by ${doc.generated.by}`], ...doc.filters.map((f) => [f.label, f.value]), [],
       ...doc.summary.map((f) => [f.label, f.value]), [],
       ...doc.notes.map((n) => [n]),
+      ...cutTables(doc).map((tbl) => [`${tbl.title}: the first ${tbl.rows.length.toLocaleString('en-US')} of ${tbl.total.toLocaleString('en-US')} rows. Narrow the filters for the rest.`]),
     ],
   };
   const sheets = allTables(doc).map((tbl) => ({ name: tbl.title, rows: tableMatrix(tbl) }));

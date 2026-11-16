@@ -19,6 +19,8 @@ import NarrativeStudio, { choicesToParams, useNarrativeChoices } from '@/compone
 import type { WorksheetBlocks } from '../../shared/writer/worksheet';
 import { usePlace } from '@/lib/place';
 
+const AUDITED_READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as const;
+
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const place = usePlace();
   const toast = useToast();
@@ -37,8 +39,10 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const [limit, setLimit] = useState(8);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const q = { period, style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
-  const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q) });
-  const { data: delta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta' });
+  // Reading a Marine's or a unit's report is audited and rebuilt from every entry in the period, so it is read when asked
+  // for, not again on every focus; an edit to a record invalidates it.
+  const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q), ...AUDITED_READ });
+  const { data: delta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta', ...AUDITED_READ });
   const metricParams = useMemo(() => {
     const r = rangeForPeriod(period);
     return { from: dayKey(r.start), to: dayKey(r.end), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' };
@@ -127,7 +131,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
                 <div className="space-y-5">{report.pkg.map((g: any) => (
                   <section key={g.area}><h3 className="mb-2 flex items-center justify-between text-md font-semibold text-ink">{g.area}<span className="fig text-xs font-normal text-ink-3">{g.count} entries · top {g.bullets.length}</span></h3>
                     {g.rollup && <p className="mb-2 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-ink">{g.rollup}</p>}
-                    <ul className="space-y-1.5">{g.bullets.map((b: any, i: any) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><button type="button" onClick={() => copy(b.text, 'Bullet')} className="text-ink-3 opacity-0 transition-opacity hover:text-ink group-hover:opacity-100" aria-label="Copy bullet"><Copy className="h-3.5 w-3.5" /></button></li>)}</ul>
+                    <ul className="space-y-1.5">{g.bullets.map((b: any, i: any) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><Button variant="ghost" size="icon-xs" onClick={() => copy(b.text, 'Bullet')} className="-my-0.5 text-ink-3 transition-opacity hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Copy bullet ${i + 1} of ${g.area}`}><Copy className="h-3.5 w-3.5" /></Button></li>)}</ul>
                   </section>
                 ))}</div>
               )}

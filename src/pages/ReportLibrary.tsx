@@ -7,6 +7,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import DownloadMenu, { type DownloadChoice } from '@/components/DownloadMenu';
 import ReportDocumentView from '@/components/ReportDocumentView';
+import { QueryFailure } from '@/components/QueryFailure';
 import { PageShell, PeriodSelect } from '@/components/common';
 import { can, useIdentity, useMetrics, useTeam } from '@/lib/queries';
 import { usePlace } from '@/lib/place';
@@ -17,8 +18,8 @@ import { EVAL_AREAS, TRAINING_TYPES } from '../../shared/constants';
 import { PROCEDURE_LIST } from '../../shared/procedures';
 import { PERIOD_OPTIONS } from '../../shared/metrics';
 import {
-  CASE_STATES, CUSTOM_DATASETS, PERSONNEL_STATUSES, REPORT_GROUPS, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, isReportType,
-  type ReportFileFormat, type ReportSpec, type ReportSubject, type ReportType,
+  CASE_STATES, CUSTOM_DATASETS, PERSONNEL_STATUSES, REPORT_GROUPS, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, isReportType, primaryTable,
+  type ReportDocument, type ReportFileFormat, type ReportSpec, type ReportSubject, type ReportType,
 } from '../../shared/reportCatalog';
 
 type Params = Record<string, string>;
@@ -30,6 +31,20 @@ const FILE_LABEL: Record<ReportFileFormat, [string, string]> = {
   xlsx: ['Excel workbook', 'Every table, a sheet each, and what the report is about'],
   json: ['Vantage file (JSON)', 'The whole report as data'],
 };
+const count = (n: number) => n.toLocaleString('en-US');
+const cutLine = (t: { title: string; rows: unknown[]; total: number }) => `${t.title}: the first ${count(t.rows.length)} of ${count(t.total)} rows`;
+
+/** What a file holds, and where the report's row limit cut a table it carries, so a partial file is never taken for whole. */
+function fileHint(doc: ReportDocument, fmt: ReportFileFormat): string {
+  const [, hint] = FILE_LABEL[fmt];
+  const main = primaryTable(doc);
+  if (fmt === 'csv') return main && main.total > main.rows.length ? `${hint}. ${cutLine(main)}` : hint;
+  if (fmt === 'xlsx') {
+    const cut = allTables(doc).filter((t) => t.total > t.rows.length);
+    return cut.length ? `${hint}. ${cut.map(cutLine).join('; ')}` : hint;
+  }
+  return hint;
+}
 const humanize = (v: string) => v.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 /** The query a report runs with: its type, whom it is about, and only the filters it takes. */
@@ -121,7 +136,10 @@ export default function ReportLibrary() {
   const params = cleanParams(f, spec);
   const saveParams = savable(params);
   const doc = run.data;
-  const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: FILE_LABEL[fmt][0], hint: FILE_LABEL[fmt][1], url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
+  const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: FILE_LABEL[fmt][0], hint: fileHint(doc!, fmt), url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
+  // A choice the server refused is named on the field it is about, as well as above the report.
+  const invalid = run.error instanceof api.ApiError && run.error.status === 400 ? run.error : null;
+  const fe = invalid?.fieldErrors || {};
   const print = () => { window.open(`/reports/print?${new URLSearchParams({ ...ran!, autoprint: '1' })}`, '_blank', 'noopener'); };
 
   return (
@@ -153,13 +171,17 @@ export default function ReportLibrary() {
               {subjects.length > 1 ? (
                 <div className="sm:col-span-2 xl:col-span-3">
                   <p className="mb-1.5 text-base font-medium text-ink">About</p>
-                  <Segmented label="Whom the report is about" value={f.subject as ReportSubject} onChange={(v) => setForm((p) => ({ ...p, subject: v, ...(v === 'member' ? { unit_id: '' } : {}) }))} options={subjects.map((s) => ({ value: s, label: SUBJECT_LABEL[s] }))} />
+                  <Segmented label="Whom the report is about" value={f.subject as ReportSubject} onChange={(v) => setForm((p) => ({
+                    ...p, subject: v, ...(v === 'member' ? { unit_id: '' } : {}),
+                    // Records that belong to a unit are not offered for anyone else, so the choice goes back to the first.
+                    ...(v !== 'unit' && CUSTOM_DATASETS[p.dataset]?.unitOnly ? { dataset: '', columns: '', group: '', sort: '' } : {}),
+                  }))} options={subjects.map((s) => ({ value: s, label: SUBJECT_LABEL[s] }))} />
                 </div>
               ) : null}
-              {f.subject === 'member' ? <Field label="Marine"><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
-              {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it"><Select value={f.unit_id} onValueChange={(v) => setForm((p) => ({ ...p, unit_id: v, error_type: '', snapshot: '', against: '' }))} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
+              {f.subject === 'member' ? <Field label="Marine" error={fe.user_id}><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
+              {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it" error={fe.unit_id}><Select value={f.unit_id} onValueChange={(v) => setForm((p) => ({ ...p, unit_id: v, error_type: '', snapshot: '', against: '' }))} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
               {spec.filters.includes('period') ? (
-                <Field label="Period" hint={windowIn(f) ? `${formatRange(f.from, f.to)}, the dates in this page's link. Choose a period to replace them.` : undefined}>
+                <Field label="Period" error={fe.period || fe.from || fe.to} hint={windowIn(f) ? `${formatRange(f.from, f.to)}, the dates in this page's link. Choose a period to replace them.` : undefined}>
                   <PeriodSelect value={windowIn(f) ? '' : f.period} placeholder={windowIn(f) ? 'Dates in the link' : undefined} onChange={(v) => setForm((p) => ({ ...p, period: v, from: '', to: '' }))} />
                 </Field>
               ) : null}
@@ -168,7 +190,7 @@ export default function ReportLibrary() {
               {spec.filters.includes('area') ? <Field label="Area"><Select value={f.area} onValueChange={(v) => set('area', v)} options={[{ value: '', label: 'Every area' }, ...EVAL_AREAS.map((a) => ({ value: a, label: a }))]} /></Field> : null}
               {spec.filters.includes('kind') ? <Field label="Type"><Select value={f.kind} onValueChange={(v) => set('kind', v)} options={[{ value: '', label: 'Every type' }, ...TRAINING_TYPES.map((t) => ({ value: t, label: t === 'pme' ? 'PME' : humanize(t) }))]} /></Field> : null}
               {spec.filters.includes('status') ? <Field label={type === 'personnel' ? 'Who' : 'Standing'}><Select value={f.status || 'all'} onValueChange={(v) => set('status', v === 'all' ? '' : v)} options={[...(type === 'personnel' ? PERSONNEL_STATUSES : TRAINING_STATUSES)]} /></Field> : null}
-              {spec.filters.includes('as_of') ? <Field label="Standing on" hint="Today when blank"><Input type="date" value={f.as_of} onChange={(e) => set('as_of', e.target.value)} /></Field> : null}
+              {spec.filters.includes('as_of') ? <Field label="Standing on" hint="Today when blank" error={fe.as_of}><Input type="date" value={f.as_of} onChange={(e) => set('as_of', e.target.value)} /></Field> : null}
               {spec.filters.includes('procedure') ? <Field label="Procedure"><Select value={f.procedure} onValueChange={(v) => set('procedure', v)} options={[{ value: '', label: 'Every procedure' }, ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })), { value: 'none', label: 'No procedure' }]} /></Field> : null}
               {spec.filters.includes('state') ? <Field label="Cases"><Select value={f.state || 'open'} onValueChange={(v) => set('state', v)} options={[...CASE_STATES]} /></Field> : null}
               {spec.filters.includes('overdue') ? <div className="self-end"><Switch checked={f.overdue === '1'} onChange={(v) => set('overdue', v ? '1' : '')} label="Only overdue cases" /></div> : null}
@@ -187,7 +209,7 @@ export default function ReportLibrary() {
                 </>
               ) : null}
               {spec.filters.includes('dataset') ? (
-                <Field label="Records">
+                <Field label="Records" error={fe.dataset}>
                   <Select value={dataset.key} onValueChange={(v) => setForm((p) => ({ ...p, dataset: v, columns: '', group: '', sort: '' }))}
                     options={Object.values(CUSTOM_DATASETS).filter((d) => !d.unitOnly || f.subject === 'unit').map((d) => ({ value: d.key, label: d.label }))} />
                 </Field>
@@ -225,7 +247,8 @@ export default function ReportLibrary() {
 
           {!ran ? <div className="card"><EmptyState icon={FileText} title="Choose a report and run it" description="It shows here as it prints: its title, whom it is about, the period, the filters, then its figures and tables." /></div>
             : run.isPending ? <Skeleton className="h-96" />
-              : run.error || !doc ? <div className="card"><EmptyState title="Could not run the report" description={api.errorText(run.error)} /></div> : (
+              : invalid ? <div className="card" role="alert"><EmptyState title="Change a choice to run the report" description={invalid.message} /></div>
+                : run.error || !doc ? <QueryFailure error={run.error} what="The report" onRetry={() => run.refetch()} denied={{ title: 'Not yours to run', description: api.errorText(run.error) }} /> : (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {doc.files.length < 4 ? <p className="mr-auto text-xs text-ink-3">{doc.files.length ? 'A PDF only: a spreadsheet or data file of someone else’s records needs the export permission in their unit.' : 'No file: taking a unit’s report away needs the export permission in that unit. It prints from here.'}</p> : null}

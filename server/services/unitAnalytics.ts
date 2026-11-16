@@ -99,7 +99,7 @@ function buildWork(r: Reading): Built {
   const target = { unitIds: r.units };
   // Open on any day of the window, and open now: the two reads the financial report makes (ADR-0020).
   const live = casesOf(r.ctx, target, {}, { from: r.from, to: r.to });
-  const open = casesOf(r.ctx, target, {}).filter((c) => !isClosed(c));
+  const open = casesOf(r.ctx, target, {}, null, { state: 'open' }).filter((c) => !isClosed(c));
   const openIds = new Set(open.map((c) => c.id));
   const liveIds = new Set(live.map((c) => c.id));
   const every = new Map<string, CaseRow>();

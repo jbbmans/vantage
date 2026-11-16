@@ -322,7 +322,10 @@ export const whyCan = (userId: string) => api.get(`/org/team/${encodeURIComponen
 
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
 export const goalContributors = (id: string) => api.get(`/records/goals/${encodeURIComponent(id)}/contributors`);
-export const listReportDrafts = () => api.get('/studio/reports');
+/** One page of the packages one may open, newest first; next_cursor names the page after it, or null on the last. */
+export interface ReportDraftRow { id: string; title: string; period_start: string; period_end: string; subject_id: string | null; updated_at: string | null; latest_revision: number | null }
+export interface ReportDraftPage { drafts: ReportDraftRow[]; next_cursor: string | null }
+export const listReportDrafts = (before?: string | null) => api.get<ReportDraftPage>(`/studio/reports${before ? `?${qs({ before })}` : ''}`);
 export const createReportDraft = (body: Record<string, unknown>) => api.post('/studio/reports', body);
 export const reportDraft = (id: string) => api.get(`/studio/reports/${encodeURIComponent(id)}`);
 export const saveReportRevision = (id: string, body: Record<string, unknown>) => api.post(`/studio/reports/${encodeURIComponent(id)}/revisions`, body);
