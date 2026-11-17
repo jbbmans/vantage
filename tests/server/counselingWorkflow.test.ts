@@ -623,7 +623,11 @@ test('the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its 
   // Printing and reading it are in the trail; the Marine reading their own is not a read of anyone's record.
   const since = lastSeq();
   assert.equal((await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet`)).status, 200);
-  assert.equal((await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`)).status, 200);
+  const reyesPrint = await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`);
+  assert.equal(reyesPrint.status, 200);
+  // A records manager who is neither of its two people prints it with no EDIPI in either box.
+  assert.deepEqual(reyesPrint.body.edipi, { reported: false, senior: false, yours: null });
+  assert.equal(reyesPrint.body.worksheet.admin.rows[0].find((b: any) => b.key === 'reported_edipi').value, '');
   assert.equal((await get(diaz.token, `/api/records/counselings/${forDiaz.id}/worksheet`)).status, 200);
   assert.equal((await get(diaz.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`)).status, 200);
   assert.deepEqual(auditSince(since).map((e) => [e.action, e.actor_id === diaz.id ? 'diaz' : 'reyes', e.detail, e.subject_id]), [
@@ -646,9 +650,9 @@ test('the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its 
   assert.equal(boxOf(await sheetOf(diaz.token, 'print'), 'reported_edipi').value, '');
 });
 
-test('an EDIPI on a worksheet is its own person’s to give: a CAC-proved one wins, and nobody sets anyone else’s', async () => {
+test('an EDIPI on a worksheet is its own person’s to give: the account’s one wins, and nobody sets anyone else’s', async () => {
   const forKim = await finalize(await written({ summary: 'Weapons cleaning and the duty roster.' }, lopez.token, kim.id));
-  // A proven EDIPI (the CAC's) is what the form prints, and is not typed over.
+  // The EDIPI on the account (from the CAC or the roster) is what the form prints, and is not typed over.
   app.ctx.db.prepare("UPDATE users SET edipi = '5550001111' WHERE id = ?").run(kim.id);
   try {
     const refused = await put(kim.token, '/api/me/edipi', { edipi: '1112223333' });

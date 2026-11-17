@@ -38,7 +38,7 @@ export function EdipiForm({ onSaved, submitLabel = 'Save', autoFocus }: { onSave
       qc.invalidateQueries({ queryKey: ['counseling-worksheet'] });
       toast.success(edipi ? 'EDIPI saved to your profile.' : 'EDIPI removed from your profile.');
       onSaved?.();
-    } catch (e: any) { setError(e?.fieldErrors?.edipi || api.errorText(e)); } finally { setBusy(false); }
+    } catch (e) { setError((e instanceof api.ApiError && e.fieldErrors?.edipi) || api.errorText(e)); } finally { setBusy(false); }
   };
   return (
     <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void save(value.trim()); }}>
