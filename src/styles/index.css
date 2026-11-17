@@ -123,7 +123,7 @@
 
   h1, h2, h3, h4 { @apply font-semibold text-ink; letter-spacing: -0.018em; text-wrap: balance; }
   /* A page's title is set in a book serif, like the head of an official document; everything else is the sans. */
-  h1 { @apply font-serif; letter-spacing: -0.008em; }
+  h1 { @apply font-serif font-normal; letter-spacing: -0.008em; }
   p { text-wrap: pretty; }
 
   .fig { font-variant-numeric: tabular-nums; letter-spacing: -0.012em; }
@@ -491,7 +491,7 @@ html.has-tabbar { scroll-padding-bottom: calc(var(--tabbar, 0px) + 12px); }
 .cw-scroll { overflow-x: auto; border-radius: 6px; }
 .cw-scroll:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
 .cw-form { --cw-ink: #000; min-width: 40rem; background: #fff; color: var(--cw-ink); padding: 1rem 1rem 1.25rem; font-family: Arial, Helvetica, sans-serif; color-scheme: light; }
-.cw-title { margin: 0 0 0.6rem; text-align: center; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.01em; color: var(--cw-ink); }
+.cw-title { margin: 0 0 0.6rem; text-align: center; font-family: Arial, Helvetica, sans-serif; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.01em; color: var(--cw-ink); }
 .cw-band { margin: -0.35rem 0 0.35rem; text-align: right; font-size: 0.68rem; font-weight: 700; color: #b91c1c; }
 .cw-refs { margin: 0 0 0.15rem 0.1rem; font-size: 0.62rem; }
 .cw-bar { margin: 0; display: flex; align-items: baseline; gap: 0.3rem; background: var(--cw-ink); color: #fff; padding: 0.12rem 0.35rem; font-size: 0.78rem; font-weight: 700; font-style: normal; line-height: 1.25; break-after: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -529,10 +529,11 @@ html.has-tabbar { scroll-padding-bottom: calc(var(--tabbar, 0px) + 12px); }
 .cw-amendments li { break-inside: avoid; margin-bottom: 0.35rem; }
 .cw-amendments p { margin: 0; }
 .report-print-sheet.cw-sheet { max-width: 8.5in; }
-.cw-sheet .cw-form { padding: 0; }
+.cw-sheet .cw-form { padding: 0.9rem 1rem 1.1rem; border-radius: 4px; }
 @media print {
   .cw-scroll { overflow: visible; }
   .cw-form { min-width: 0; padding: 0; font-size: 9.5pt; }
+  .cw-sheet .cw-form { padding: 0; border-radius: 0; }
   .cw-title { font-size: 13pt; }
   .cw-about { break-before: page; color: #374151; }
   .cw-about[data-annex="false"] { display: none; }

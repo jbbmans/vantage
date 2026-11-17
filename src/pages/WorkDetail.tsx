@@ -86,7 +86,7 @@ export default function WorkDetail() {
       </div>
 
       <div>
-        <h1 className="text-xl font-semibold text-ink">{heading}</h1>
+        <h1 className="text-2xl text-ink">{heading}</h1>
         {row.description && <p className="mt-1 max-w-prose text-sm text-ink-2">{row.description}</p>}
         {row.notes && <p className="mt-1 max-w-prose whitespace-pre-wrap text-sm text-ink-2">{row.notes}</p>}
       </div>

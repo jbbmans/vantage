@@ -106,7 +106,7 @@ export default function WorkItemPage() {
           {procedure && <><span aria-hidden>·</span><span className="text-accent">{procedure.short}</span></>}
         </p>
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          <h1 className="min-w-0 flex-1 basis-[28rem] text-[26px] font-semibold leading-tight tracking-[-0.028em] text-ink">{item.title}</h1>
+          <h1 className="min-w-0 flex-1 basis-[28rem] text-[28px] leading-tight tracking-[-0.012em] text-ink">{item.title}</h1>
           <div className="flex flex-wrap items-center gap-2">
             {!item.claimed_by && !closed && c.permissions.claim && (
               <Button variant="primary" loading={busy} onClick={() => run(() => api.claimWorkItem(id, item.version), 'It is yours. It is on your assigned list now.')}><Hand className="h-4 w-4" />Claim</Button>
