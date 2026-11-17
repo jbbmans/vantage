@@ -4,7 +4,7 @@ import type { AppContext } from '../context.ts';
 import { AUDITED_FROM, metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION, timeframeViolations } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
-import { audit, verifyAuditChain } from './audit.ts';
+import { audit, recentChainCheck, type ChainCheck } from './audit.ts';
 import { auditForwardingStatus } from './auditSink.ts';
 import { backupHistory } from './backupLog.ts';
 import { restoreHistory } from './restoreLog.ts';
@@ -226,8 +226,9 @@ function diskCheck(ctx: AppContext): HealthCheck | null {
   } catch (e) { return { id: 'disk', label: 'Disk', status: 'warn', summary: `Free space could not be read: ${(e as Error).message}` }; }
 }
 
-function auditChecks(ctx: AppContext, verified?: ReturnType<typeof verifyAuditChain>): HealthCheck[] {
-  const chain = verified ?? verifyAuditChain(ctx);
+function auditChecks(ctx: AppContext, verified?: ChainCheck): HealthCheck[] {
+  // Every health report shares the chain check of the last minute: verifying walks the whole service's log.
+  const chain = verified ?? recentChainCheck(ctx);
   const checks: HealthCheck[] = [{ id: 'audit_chain', label: 'Audit trail', status: chain.ok ? 'ok' : 'fail', summary: chain.ok ? `Intact across ${chain.count} entries.` : `Broken: ${chain.reason}.` }];
   const forwarding = auditForwardingStatus(ctx);
   const mcen = ctx.config.deployment.profile === 'mcen';
@@ -314,7 +315,7 @@ function restoreCheck(ctx: AppContext, at: number): HealthCheck | null {
 }
 
 /** Every check, worst first, and the service's status: the worst of them. Informational notes never lower it. */
-export function healthReport(ctx: AppContext, at = Date.now(), { chain }: { chain?: ReturnType<typeof verifyAuditChain> } = {}) {
+export function healthReport(ctx: AppContext, at = Date.now(), { chain }: { chain?: ChainCheck } = {}) {
   const checks = [
     databaseCheck(ctx), diskCheck(ctx), schemaCheck(ctx), upgradeCheck(ctx), ...auditChecks(ctx, chain), backupCheck(ctx, at), restoreCheck(ctx, at), emailCheck(ctx, at),
     jobsCheck(ctx, at), ...signInChecks(ctx, at), maintenanceCheck(ctx, at), ...instanceChecks(ctx),

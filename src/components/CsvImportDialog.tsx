@@ -92,7 +92,8 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
           <Link to="/record/activities" onClick={() => onOpenChange(false)} className="inline-flex text-sm font-medium text-accent hover:underline">Review {done.elsewhere === 1 ? 'it' : 'them'} in Activities</Link>
         </div>
       ) : !parsed ? (
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft/30" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) load(f); }}>
+        // The hidden input is the drop zone's only Tab stop, so the zone itself shows where the keyboard is.
+        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft/30 has-[:focus-visible]:border-accent has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) load(f); }}>
           <FileUp className="h-6 w-6 text-ink-3" />
           <span className="text-sm font-medium text-ink">Drop a .csv or .tsv here, or click to choose</span>
           <span className="text-xs text-ink-3">Any spreadsheet works; you map the columns next. Up to {MAX_IMPORT_ROWS} rows.</span>
@@ -125,7 +126,7 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
             <div className="text-sm text-ink-2">
               <p><strong className="text-ink">{preview.updates.length}</strong> update existing entries · <strong className="text-ink">{preview.clean.length}</strong> new · <strong className="text-ink">{preview.duplicates.length}</strong> likely duplicates{skipDupes ? ' (skipped)' : ' (will import)'}</p>
               <div className="mt-2 max-h-56 overflow-auto rounded-md border border-line">
-                <Table head={<><th>When</th><th>Title</th><th>Qty</th><th>Value</th><th>Area</th></>} className="" minWidth={520}>
+                <Table label="Rows to import" head={<><th>When</th><th>Title</th><th>Qty</th><th>Value</th><th>Area</th></>} className="" minWidth={520}>
                   {preview.records.slice(0, 25).map((r, i) => <tr key={i}><td className="fig whitespace-nowrap">{formatTimeframe('activities', r, { pattern: 'yyyy-MM-dd' })}</td><td className="max-w-xs truncate">{r.title}</td><td className="fig">{r.quantity ?? ''} {r.unit_label || ''}</td><td className="fig">{r.dollar_amount ?? ''}</td><td>{r.eval_area || ''}</td></tr>)}
                 </Table>
                 {preview.records.length > 25 && <p className="px-3 py-1.5 text-2xs text-ink-3">…and {preview.records.length - 25} more</p>}

@@ -16,11 +16,19 @@ const VARIANTS = {
 const SIZES = { xs: 'h-6 px-2 text-xs gap-1 rounded-md', sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-lg', md: 'h-9 px-3.5 text-base gap-2 rounded-[9px]', lg: 'h-11 px-5 text-md gap-2 rounded-[11px]', icon: 'h-9 w-9 justify-center rounded-[9px]', 'icon-sm': 'h-7 w-7 justify-center rounded-lg', 'icon-xs': 'h-6 w-6 justify-center rounded-md' } as const;
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES; asChild?: boolean; loading?: boolean }
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, ...props }, ref) {
+/**
+ * A button. While `loading`, it keeps focus and ignores presses (aria-disabled, not the native disabled): a focused button
+ * that became disabled would drop focus to the page while its request ran (WCAG 2.4.3). Native `disabled` is for `disabled`.
+ */
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, onClick, ...props }, ref) {
   const Comp: any = asChild ? Slot : 'button';
+  const busy = loading && !disabled;
   return (
-    <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled || loading}
-      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
+    <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled}
+      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', busy && 'cursor-progress opacity-70', VARIANTS[variant], SIZES[size], className)} {...props}
+      aria-disabled={busy || props['aria-disabled'] || undefined} aria-busy={busy || undefined} data-loading={busy || undefined}
+      // A press while busy does nothing, not even submit its form (an Enter in a field presses the form's submit button).
+      onClick={busy ? (e: React.MouseEvent<HTMLButtonElement>) => { e.preventDefault(); e.stopPropagation(); } : onClick}>
       {asChild ? children : <>{loading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{children}</>}
     </Comp>
   );
@@ -86,6 +94,26 @@ export function Field({ label, hint, error, children, className, required }: { l
   );
 }
 
+/**
+ * Says why a save was refused where the person is working. Call the function it returns once the form's field errors are
+ * set: when they have rendered, focus moves to the first field marked invalid inside `form`, whose own message (a Field's
+ * alert) is then the one announcement (WCAG 3.3.1, 2.4.3). When no field there is marked, `elsewhere` says it instead,
+ * such as a toast or the form's own message, so a refusal is never silent and never said twice.
+ */
+export function useRefusal(form: React.RefObject<HTMLElement | null>, elsewhere: (message: string) => void) {
+  const [refused, setRefused] = React.useState<{ message: string } | null>(null);
+  const say = React.useRef(elsewhere);
+  React.useLayoutEffect(() => { say.current = elsewhere; });
+  React.useEffect(() => {
+    if (!refused) return;
+    const field = form.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (field) field.focus();
+    else say.current(refused.message);
+  }, [refused, form]);
+  // A new object each time, so the same refusal twice moves focus twice.
+  return React.useCallback((message: string) => setRefused({ message }), []);
+}
+
 export interface SelectOption { value: string; label: string; disabled?: boolean }
 export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; 'aria-describedby'?: string; id?: string }) {
   // Radix renders an empty value as the placeholder, so an explicit "any" option ('' value) supplies that text.
@@ -147,12 +175,14 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
   return (
     <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
-        <header className="panel-head flex items-center justify-between gap-3 px-5 py-3.5">
-          <div className="min-w-0">
+        // The actions go under the title when the two do not fit side by side, and wrap among themselves, so a panel never
+        // pushes the page wider than a phone (WCAG 1.4.10). The title keeps at least 8rem beside them before that happens.
+        <header className="panel-head flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-3.5">
+          <div className="min-w-0 flex-1 basis-32">
             {title && <h2 className="truncate text-md font-semibold tracking-[-0.012em] text-ink">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
           </div>
-          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+          {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
         </header>
       )}
       <div className={cn('card-body', padded && 'p-5', bodyClassName)}>{children}</div>
@@ -197,12 +227,14 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
     onChange(options[next].value); refs.current[next]?.focus();
     return true;
   };
+  // One tab is always the way in, even when the value matches none of them.
+  const entry = options.some((o) => o.value === value) ? value : options[0]?.value;
   return (
     <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[10px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
-          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
+          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(var(--shadow-rgb)/.08)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
@@ -213,9 +245,26 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
+/** The id of the tab in a strip whose panel is `panel`, for the panel's aria-labelledby. */
+export const tabId = (panel: string, value: string) => `${panel}-tab-${value.replace(/[^\w-]/g, '_')}`;
+
+/**
+ * A strip of tabs, as the ARIA tabs pattern has them: one Tab stop (the chosen tab), the arrow keys, Home and End to
+ * move along it, and a name for the strip. Pass `panel`, the id of the TabPanel showing the chosen tab, and each tab
+ * says it controls that panel and the panel is named by the chosen tab.
+ */
+export function Tabs<T extends string>({ value, onChange, tabs, className, label, panel }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string; label?: string; panel?: string }) {
   const strip = React.useRef<HTMLDivElement | null>(null);
   const ink = React.useRef<HTMLSpanElement | null>(null);
+  const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const entry = tabs.some((t) => t.value === value) ? value : tabs[0]?.value;
+  const move = (from: number, key: string) => {
+    const last = tabs.length - 1;
+    const next = key === 'ArrowRight' ? (from === last ? 0 : from + 1) : key === 'ArrowLeft' ? (from === 0 ? last : from - 1) : key === 'Home' ? 0 : key === 'End' ? last : null;
+    if (next == null) return false;
+    onChange(tabs[next].value); refs.current[next]?.focus();
+    return true;
+  };
   const [measured, setMeasured] = React.useState(false);
   // On a narrow screen the strip scrolls. A fade on the side with more tabs says so; a hard edge looked like the end.
   const [more, setMore] = React.useState<{ left: boolean; right: boolean }>({ left: false, right: false });
@@ -227,8 +276,11 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
     setMore((m) => (m.left === left && m.right === right ? m : { left, right }));
   }, []);
   React.useEffect(() => {
-    const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    // The strip's own scroll, not scrollIntoView: in Chromium that also moves where the next Tab starts, and the first Tab
+    // on the page then skipped the skip link and everything before the chosen tab.
+    const bar = strip.current;
+    const el = bar?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
   }, [value]);
   React.useLayoutEffect(() => {
     const bar = strip.current;
@@ -251,13 +303,15 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
     return () => watch?.disconnect();
   }, [value, tabs.length, edges]);
   return (
-    <div ref={strip} role="tablist" data-ink={measured || undefined} data-more-left={more.left || undefined} data-more-right={more.right || undefined} onScroll={edges}
+    <div ref={strip} role="tablist" aria-label={label} data-ink={measured || undefined} data-more-left={more.left || undefined} data-more-right={more.right || undefined} onScroll={edges}
       className={cn('tab-bar relative scroll-x scroll-x-canvas scroll-x-quiet', className)}>
       <span ref={ink} className="tab-ink" style={{ opacity: measured ? 1 : 0 }} aria-hidden />
-      {tabs.map((t) => {
+      {tabs.map((t, i) => {
         const active = t.value === value;
         return (
-          <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
+          <button key={t.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active}
+            id={panel ? tabId(panel, t.value) : undefined} aria-controls={panel} tabIndex={t.value === entry ? 0 : -1}
+            onClick={() => onChange(t.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-ink')}>
             {t.label}{t.count != null && <span className={cn('fig rounded-md px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
@@ -265,6 +319,11 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
       })}
     </div>
   );
+}
+
+/** What a Tabs strip shows for its chosen tab. `id` is the one the strip was given as `panel`; `value` is the chosen tab. */
+export function TabPanel({ id, value, className, children }: { id: string; value: string; className?: string; children: React.ReactNode }) {
+  return <div role="tabpanel" id={id} aria-labelledby={tabId(id, value)} className={className}>{children}</div>;
 }
 
 export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
@@ -290,7 +349,8 @@ export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: strin
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
         </div>
-        {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+        {/* No wider than the page, so what it holds wraps or truncates on a phone instead of widening it. */}
+        {children && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{children}</div>}
       </div>
     </div>
   );

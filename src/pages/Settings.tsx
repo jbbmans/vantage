@@ -1,27 +1,32 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Tabs, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState, useRefusal } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import { Table, useParam } from '@/components/common';
+import { QueryFailure } from '@/components/QueryFailure';
 import { keys, invalidateImported, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
+import { shortcutsOn } from '@/lib/keyboard';
 import { DEFAULT_PERIOD } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
 
+const SECTIONS = [{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }];
+
 export default function Settings() {
   const { data: identity } = useIdentity();
+  const panel = useId();
   const [tab, setTab] = useParam('tab', 'profile');
   const [verify] = useParam('verify');
   const toast = useToast(); const qc = useQueryClient();
@@ -29,18 +34,23 @@ export default function Settings() {
   }, [verify]);
   // The weekly digest was a tab of its own, and is now part of Notifications: an old link to it lands there.
   useEffect(() => { if (tab === 'digest') setTab('notifications'); }, [tab, setTab]);
-  const shown = tab === 'digest' ? 'notifications' : tab;
+  // An address naming no section opens Profile, rather than an empty page under no tab.
+  const asked = tab === 'digest' ? 'notifications' : tab;
+  const shown = SECTIONS.some((t) => t.value === asked) ? asked : 'profile';
   if (!identity) return <Skeleton className="h-64" />;
   return (
     <div className="page page-narrow">
-      <PageHeader eyebrow="Settings" title={`${identity.user.first_name} ${identity.user.last_name}`} lede={`@${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
+      {/* The page is Settings, as the menu and the tab name it; whose settings they are is the line beneath. */}
+      <PageHeader eyebrow="Settings" title="Settings" lede={`${identity.user.first_name} ${identity.user.last_name} · @${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
       {identity.user.must_change_password ? <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">You signed in with a temporary password. Set a new one under Security before doing anything else.</div> : null}
-      <Tabs value={shown} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }]} />
-      {shown === 'profile' && <Profile />}
-      {shown === 'security' && <Security />}
-      {shown === 'appearance' && <Appearance />}
-      {shown === 'notifications' && <NotificationsTab />}
-      {shown === 'data' && <DataTab />}
+      <Tabs value={shown} onChange={setTab} className="mb-4" label="Settings sections" panel={panel} tabs={SECTIONS} />
+      <TabPanel id={panel} value={shown}>
+        {shown === 'profile' && <Profile />}
+        {shown === 'security' && <Security />}
+        {shown === 'appearance' && <Appearance />}
+        {shown === 'notifications' && <NotificationsTab />}
+        {shown === 'data' && <DataTab />}
+      </TabPanel>
     </div>
   );
 }
@@ -61,6 +71,9 @@ function Profile() {
   const u = identity!.user;
   const [form, setForm] = useState({ first_name: u.first_name, last_name: u.last_name, middle_initial: u.middle_initial || '', rank_id: u.rank_id || '', mos: u.mos || '', eas: u.eas || '', email: u.email || '', timezone: (u as { timezone?: string | null }).timezone || '' });
   const [errors, setErrors] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false);
+  // A refused save marks its fields and focus goes to the first; a refusal no field shows is a toast.
+  const fields = useRef<HTMLDivElement | null>(null);
+  const refuse = useRefusal(fields, toast.error);
   const save = async () => {
     setBusy(true); setErrors({});
     try {
@@ -70,12 +83,12 @@ function Profile() {
       else if (emailChanged) body.email = form.email || null;
       await withSudo(() => api.updateProfile(body));
       qc.invalidateQueries({ queryKey: keys.me }); toast.success('Profile saved.');
-    } catch (e: any) { setErrors(e?.fieldErrors || {}); toast.error(api.errorText(e)); } finally { setBusy(false); }
+    } catch (e: any) { setErrors(e?.fieldErrors || {}); refuse(api.errorText(e)); } finally { setBusy(false); }
   };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel title="Identity" className="lg:col-span-2" action={<Button variant="primary" size="sm" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div ref={fields} className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Field label="First name" error={errors.first_name}><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
           <Field label="Last name" error={errors.last_name}><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
           <Field label="MI"><Input value={form.middle_initial} maxLength={4} onChange={(e) => setForm({ ...form, middle_initial: e.target.value })} /></Field>
@@ -120,7 +133,6 @@ function Security() {
   // The synthetic demo has no sign-in, so its password, authenticator and passkey routes are closed.
   const demo = Boolean(identity?.demo);
   const { data: pk, refetch: refetchPk } = useQuery({ queryKey: ['passkeys'], queryFn: api.passkeys, enabled: !demo });
-  const { data: audit } = useQuery({ queryKey: ['my-audit'], queryFn: api.myAudit });
   const [totp, setTotp] = useState<{ secret: string; otpauth: string; qr: string } | null>(null); const [code, setCode] = useState(''); const [codes, setCodes] = useState<string[] | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false); const [pkName, setPkName] = useState('');
   const changePassword = async () => { setBusy(true); try { const r = await api.changePassword(pw.current, pw.next); toast.success(`Password changed. ${r.otherSessionsRevoked} other session${r.otherSessionsRevoked === 1 ? '' : 's'} signed out.`); setPw({ current: '', next: '' }); qc.invalidateQueries({ queryKey: keys.me }); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
@@ -165,9 +177,7 @@ function Security() {
       <Panel title="Signed-in devices" action={<Button size="sm" variant="ghost" onClick={async () => { try { const r = await api.revokeOtherSessions(); toast.success(`${r.revoked} other session${r.revoked === 1 ? '' : 's'} signed out.`); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}><LogOut className="h-3.5 w-3.5" />Sign out others</Button>}>
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>
-      <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
-        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
-      </Panel>
+      <RecordAccessLog />
 
       <Dialog open={Boolean(totp)} onOpenChange={(o) => { if (!o) setTotp(null); }} title="Set up your authenticator" description="Scan, then enter the code the app shows." size="sm" footer={<><Button variant="ghost" onClick={() => setTotp(null)}>Cancel</Button><Button variant="primary" onClick={confirmTotp} disabled={code.replace(/\s/g, '').length < 6}>Turn on</Button></>}>
         {totp && <div className="space-y-3 text-center"><img src={totp.qr} alt="QR code for authenticator app" width={192} height={192} className="mx-auto h-48 w-48 rounded-md border border-line bg-white p-1" /><p className="text-xs text-ink-3">Cannot scan? Enter this key: <code className="mono select-all break-all text-ink">{totp.secret}</code></p><Field label="Code from the app"><Input inputMode="numeric" autoComplete="one-time-code" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} className="fig text-center text-lg tracking-[0.3em]" /></Field></div>}
@@ -177,6 +187,43 @@ function Security() {
       </Dialog>
       <ConfirmDialog open={confirmDisable} onOpenChange={setConfirmDisable} title="Turn off the authenticator?" body="Sign-in goes back to password only (plus any passkeys). Recovery codes are deleted." confirmLabel="Turn off" onConfirm={disableTotp} />
     </div>
+  );
+}
+
+/**
+ * Who has looked at the Marine's record, newest first, a page at a time: every entry is in reach, however old. A read
+ * that fails says so; it is never shown as nobody having looked.
+ */
+function RecordAccessLog() {
+  const log = useInfiniteQuery({
+    queryKey: ['my-audit'],
+    queryFn: ({ pageParam }) => api.myAudit(pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last: api.AccessLogPage<api.MyAccessRow>) => last.next,
+    refetchOnWindowFocus: false, retry: false,
+  });
+  const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
+  // Focus moves to the first entry a page added, so it is not lost when the button goes after the last page.
+  const loadOlder = async () => {
+    const before = rows.length;
+    const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
+    if (added) window.requestAnimationFrame(() => document.getElementById(`my-access-${added.id}`)?.focus());
+  };
+  return (
+    <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
+      {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-24" /></div>
+        : log.isError && !log.data ? <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="Your access log" />
+        : !rows.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : (
+          <>
+            <Table label="Who has looked at your record" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{rows.map((r) => <tr key={r.id} id={`my-access-${r.id}`} tabIndex={-1}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>
+            <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
+              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown, newest first</span>
+              {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
+              {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
+            </div>
+          </>
+        )}
+    </Panel>
   );
 }
 
@@ -218,6 +265,11 @@ function Appearance() {
           <Field label="New entries are"><Select value={prefs.defaultVisibility || 'private'} onValueChange={(v) => save.mutate({ defaultVisibility: v as never })} options={VISIBILITIES.map((v) => ({ value: v, label: v === 'private' ? 'Only me' : 'Shared with my unit' }))} /></Field>
           <div className="pt-5"><Switch checked={Boolean(prefs.quickLogExpanded)} onChange={(v) => save.mutate({ quickLogExpanded: v })} label="Show every field in Quick Log" description="Organization, system, notes, and visibility open by default." /></div>
         </div>
+      </Panel>
+      {/* Single printable keys can be turned off (WCAG 2.1.4): a stray key, or a word said to speech input, acts on none of them. */}
+      <Panel title="Keyboard" className="lg:col-span-2">
+        <Switch checked={shortcutsOn(prefs)} onChange={(v) => save.mutate({ shortcuts: v })} label="Keyboard shortcuts"
+          description="Single keys: N logs an activity, / searches, ? lists the keys, G then a letter opens a page, and in the work queue's rows J, K, Space, Enter and C move, select, open and claim. None acts in a text field. Off, only ⌘K or Ctrl+K is left, for search." />
       </Panel>
     </div>
   );

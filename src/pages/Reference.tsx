@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   AlertTriangle, ArrowRight, BookOpen, CheckCircle2, ChevronRight, CircleDot, FileCheck2, Info, KeyRound, Layers, ScrollText, Search, ShieldAlert, Split,
 } from 'lucide-react';
-import { PageHeader, Tabs, Input, Segmented, Field, NumberInput } from '@/components/ui/primitives';
+import { PageHeader, Tabs, TabPanel, Input, Segmented, Field, NumberInput } from '@/components/ui/primitives';
 import { useParam } from '@/components/common';
 import Diagnoser from '@/components/fmra/Diagnoser';
 import LifecycleBars from '@/components/fmra/LifecycleBars';
@@ -50,8 +50,8 @@ export default function Reference() {
       <PageHeader eyebrow={place.group} title="Reference" lede="The FMRA desk reference: know what the balance is telling you. The financial lifecycle, the seven purchase methods and their evidence, open balances, holds, rejects and UMTs — with a diagnoser that reads the four figures and says what to check first.">
         <SourceBadge />
       </PageHeader>
-      <Tabs value={current} onChange={(v) => setTab(v)} tabs={TABS} />
-      <div className="mt-6">
+      <Tabs value={current} onChange={(v) => setTab(v)} tabs={TABS} label="Reference sections" panel="reference-panel" />
+      <TabPanel id="reference-panel" value={current} className="mt-6">
         {current === 'diagnose' && <DiagnoseTab />}
         {current === 'lifecycle' && <LifecycleTab />}
         {current === 'methods' && <MethodsTab />}
@@ -61,14 +61,15 @@ export default function Reference() {
         {current === 'data' && <DataTab />}
         {current === 'glossary' && <GlossaryTab />}
         {current === 'limits' && <LimitsTab />}
-      </div>
+      </TabPanel>
     </div>
   );
 }
 
 function SourceBadge() {
   return (
-    <Link to="/reference?tab=limits" className="group flex max-w-sm items-center gap-3 rounded-2xl bg-surface p-2 pr-4 shadow-card transition-shadow hover:shadow-lift">
+    // Never wider than the header it sits in, so its title truncates on a phone instead of widening the page.
+    <Link to="/reference?tab=limits" className="group flex min-w-0 max-w-[min(24rem,100%)] items-center gap-3 rounded-2xl bg-surface p-2 pr-4 shadow-card transition-shadow hover:shadow-lift">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-deep-2 to-deep text-white shadow-[inset_0_1px_0_rgb(255_255_255/.12)]"><BookOpen className="h-4 w-4" /></span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-ink">{FMRAC_SOURCE.title}</span>

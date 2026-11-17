@@ -276,6 +276,11 @@ export interface PersonnelRosterRow {
   checked_in_on: string | null;
   responsibilities: string[];
   roles: Array<{ id: string; name: string; color: string | null }>;
+  /**
+   * Every unit of theirs in this Unit Instance that the reader sees them in (Read records or Manage members there), so a
+   * move is never offered into one. Never a unit of another Unit Instance.
+   */
+  unit_ids: string[];
   /** Only for oneself and the Marines the reader manages. */
   status?: AccountStatus;
   last_login_at?: string | null;
@@ -300,6 +305,11 @@ export interface PersonnelBulkResponse {
 }
 
 /** GET /api/org/team/:id: one Marine's page, limited to the units the reader shares with them (all of it for oneself). */
+/** Someone the enroll search offers: an account the leader may enroll directly in the unit. */
+export interface DirectoryCandidate { id: string; username: string; first_name: string; last_name: string; rank_abbr: string | null }
+/** The enroll search's answer. `more`: others may match past what it offers or read, so typing more of a name finds them. */
+export interface DirectoryResponse { results: DirectoryCandidate[]; more: boolean }
+
 export interface MemberDetailResponse {
   person: {
     id: string; first_name: string; last_name: string; middle_initial: string | null; mos: string | null; eas: string | null;
@@ -315,5 +325,14 @@ export interface MemberDetailResponse {
   detailUnits: string[];
   canCounsel: string[];
   canManageMembers: string[];
-  activities: Activity[]; trainings: Training[]; awards: Award[]; duties: Duty[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];
+  activities: MemberActivity[]; trainings: Training[]; awards: MemberAward[]; duties: Duty[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];
+  /** How many of each the reader may open. Each list holds at most `listLimit`, the newest; a count past it says there are more. */
+  counts: { activities: number; trainings: number; awards: number; duties: number; counselings: number; goals: number; tasks: number };
+  listLimit: number;
 }
+
+/** An activity as the Marine page lists it: when, what and what came of it. Its notes and links open from the record. */
+export type MemberActivity = Pick<Activity, 'id' | 'user_id' | 'unit_id' | 'visibility' | 'version' | 'frozen_at' | 'created_at' | 'updated_at' | 'date' | 'end_date' | 'start_time' | 'end_time' | 'ongoing'
+  | 'title' | 'category' | 'eval_area' | 'quantity' | 'unit_label' | 'dollar_amount' | 'dollar_type' | 'result' | 'status'>;
+/** An award as the Marine page lists it: its name, period, kind and stage. Its citation and notes open from the record. */
+export type MemberAward = Pick<Award, 'id' | 'user_id' | 'unit_id' | 'visibility' | 'version' | 'frozen_at' | 'created_at' | 'updated_at' | 'period_start' | 'date' | 'name' | 'type' | 'status'>;

@@ -173,3 +173,108 @@ test('a Marine’s report from their analysis keeps the unit it was opened for',
   expect(Object.fromEntries(['type', 'subject', 'user_id', 'unit_id'].map((k) => [k, asked.get(k)]))).toEqual({ type: 'individual', subject: 'member', user_id: id, unit_id: 'G8' });
   await expect(page.locator('article.report-doc').getByRole('heading', { level: 2, name: 'Individual performance' })).toBeVisible();
 });
+
+/** Activities for the signed-in Marine, posted a few at a time. */
+async function entries(page: Page, n: number, data: (i: number) => Record<string, unknown>) {
+  for (let start = 0; start < n; start += 25) {
+    await Promise.all(Array.from({ length: Math.min(25, n - start) }, async (_, k) => {
+      const res = await page.request.post('/api/records/activities', { headers: H, data: { visibility: 'private', ...data(start + k) } });
+      expect(res.ok(), await res.text()).toBeTruthy();
+    }));
+  }
+}
+
+test('RPT-5, RPT-13: a long table shows 200 rows at a time on screen and every row in print, and scrolls only when it must', async ({ page }) => {
+  test.setTimeout(180_000);
+  await registerAs(page, unique('longrpt'));
+  const tag = unique('LONG');
+  await entries(page, 300, (i) => ({ title: `${tag} entry ${i + 1}`, date: day(i % 60), category: 'Fiscal & Financial', quantity: i + 1, unit_label: 'ULOs', result: 'Closed out the obligation' }));
+
+  await page.goto('/reports/library?type=activity');
+  const doc = page.locator('article.report-doc');
+  const table = doc.getByRole('table', { name: 'Activities' });
+  await expect(table.locator('tbody tr')).toHaveCount(200);
+  await expect(doc.getByRole('status').filter({ hasText: 'Showing 200 of 300 rows.' })).toBeVisible();
+  const more = doc.getByRole('button', { name: 'Show 100 more of 100' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(table.locator('tbody tr')).toHaveCount(300);
+  await expect(more).toHaveCount(0);
+  // The button is gone, so the keyboard is left on the count, which says every row is shown.
+  await expect(doc.getByRole('status').filter({ hasText: 'Showing all 300 rows.' })).toBeFocused();
+  expect(await axe(page), 'a long report on screen').toEqual([]);
+
+  // A table's scroller is a stop for the keyboard, and a named region, exactly while the table is wider than it.
+  const stops = () => doc.locator('.report-table-scroll').evaluateAll((els) => els.map((el) => ({
+    overflows: el.scrollWidth > el.clientWidth + 1,
+    stop: el.getAttribute('tabindex') === '0' && el.getAttribute('role') === 'region' && Boolean(el.getAttribute('aria-label')),
+  })));
+  for (const s of await stops()) expect(s.stop, 'a stop only when it scrolls').toBe(s.overflows);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => (await stops()).some((s) => s.overflows && s.stop), { message: 'a wide table scrolls inside itself on a phone' }).toBe(true);
+  for (const s of await stops()) expect(s.stop, 'a stop only when it scrolls, at 390px').toBe(s.overflows);
+  await noSidewaysScroll(page, 'a long report at 390px');
+  expect(await axe(page), 'a long report at 390px').toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // On paper every row prints.
+  await page.goto('/reports/print?type=activity');
+  await expect(page.getByRole('table', { name: 'Activities' }).locator('tbody tr')).toHaveCount(300);
+  await expect(page.getByRole('button', { name: /^Show \d+ more/ })).toHaveCount(0);
+});
+
+test('RPT-12: a report the server refuses says which choice, on that choice; a unit’s records reset when the report is about you', async ({ page }) => {
+  await loginAs(page, OPERATOR.username);
+  await page.goto(`/reports/library?${new URLSearchParams({ type: 'custom', subject: 'self', dataset: 'work' })}`);
+  await expect(page.getByRole('alert').filter({ hasText: 'Financial cases belong to a unit' })).toBeVisible();
+  const records = page.getByRole('combobox', { name: 'Records' });
+  await expect(records).toHaveAttribute('aria-invalid', 'true');
+  await expect(records).toHaveAccessibleDescription(/For a unit\./);
+  expect(await axe(page), 'a refused report').toEqual([]);
+
+  const about = page.getByRole('tablist', { name: 'Whom the report is about' });
+  await about.getByRole('tab', { name: 'A unit' }).click();
+  await records.click();
+  await page.getByRole('option', { name: 'Financial cases' }).click();
+  await about.getByRole('tab', { name: 'You' }).click();
+  await expect(records).toHaveText(/Activities/);
+  await page.getByRole('button', { name: 'Run report' }).click();
+  await expect(page.locator('article.report-doc').getByRole('heading', { level: 2, name: 'Custom' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Financial cases belong to a unit' })).toHaveCount(0);
+  await expect(records).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+test('RPT-9, RPT-11: the record report is not read again on focus, and each bullet’s copy button shows when focused', async ({ page }) => {
+  await registerAs(page, unique('bullets'));
+  await entries(page, 3, (i) => ({ title: `Reconciled ${10 + i} aged obligations`, date: day(i + 2), category: 'Fiscal & Financial', quantity: 10 + i, unit_label: 'obligations', result: `Closed out ${10 + i} obligations before fiscal year end` }));
+  await page.clock.install();
+  await page.goto('/reports/analysis');
+  await page.getByRole('tablist', { name: 'View' }).getByRole('tab', { name: 'Bullets' }).click();
+  const copyAll = page.getByRole('button', { name: 'Copy all' });
+  await expect(copyAll).toBeVisible();
+
+  // A minute and more later the tab comes back into view: the report, audited when it is someone else's, is not read again.
+  let asked = 0;
+  page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/reports') asked += 1; });
+  await page.clock.fastForward(61_000);
+  await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(500);
+  expect(asked, 'no read on focus').toBe(0);
+
+  await copyAll.focus();
+  await page.keyboard.press('Tab');
+  const first = page.getByRole('button', { name: /^Copy bullet 1 of / });
+  await expect(first).toBeFocused();
+  await expect.poll(() => first.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  expect(await axe(page), 'the bullet package').toEqual([]);
+
+  // On a phone there is no hover, so each copy button shows as it is, and is big enough to tap.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.mouse.move(0, 0);
+  const second = page.getByRole('button', { name: /^Copy bullet 2 of / });
+  await expect.poll(() => second.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  const box = (await second.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(24);
+  expect(box.height).toBeGreaterThanOrEqual(24);
+  await noSidewaysScroll(page, 'the bullet package at 390px');
+});

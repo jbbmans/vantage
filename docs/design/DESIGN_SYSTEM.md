@@ -40,7 +40,8 @@ The public site keeps the brand palette.
 
 Every muted tone clears WCAG AA on the darkest surface it can land on. Axe checks both themes on every
 core page, the case page, the Reference and the public page (`tests/browser/06-a11y.spec.ts`,
-`22-demo.spec.ts`).
+`22-demo.spec.ts`), and every WCAG 2.0, 2.1 and 2.2 A and AA rule, at any impact, at 320, 390, 768 and 1280 px
+(`55-a11y-widths.spec.ts`). The light `--warn` is `138 79 5`, 5.2:1 or better as text and on its badge.
 
 ## Depth
 
@@ -93,6 +94,19 @@ on the root is its height, so toasts and the footer sit above it.
 Field (label, hint and error wired to the control), Select (Radix), Badge, Panel, EmptyState, Stat,
 Segmented, Tabs, Progress, PageHeader, Switch, Tooltip. `Dialog`/`ConfirmDialog`, `toast` and `Menu`
 are restyled on the same tokens.
+
+What every one of them keeps (ADR-0032, `tests/browser/56-keyboard.spec.ts`):
+- **Focus** is a 2 px accent outline (`:root :focus-visible`), never a shadow, so no component's own shadow hides it.
+  `keepFocusClear` (`src/lib/keyboard.ts`) scrolls a keyboard-focused control out from under the sticky header and the
+  tab bar.
+- **A `Table` has a `label`**, its caption (hidden unless `showCaption`). While it is wider than its box its scroller is
+  a named region that takes a Tab stop (`ScrollRegion`, `useOverflow`).
+- **A `Dialog`** gives focus back to what opened it, even when its owner unmounts it; a body longer than the dialog takes
+  a Tab stop.
+- **`Tabs`** take a `label` and the id of their `TabPanel`, and move with the arrow keys, Home and End.
+- **A busy `Button`** stays focusable (`aria-disabled`, `aria-busy`) and ignores presses.
+- **A refused save** puts each message on its `Field` and focus on the first (`useRefusal`, `missing()`).
+- **Single-key shortcuts** obey the person's `shortcuts` preference (`shortcutsOn`).
 
 Case components (`src/components/work.tsx`): `StageBadge` (colours from `STAGE_TONE`; waiting shows its
 category) and `WorkRow` (document number, stage, overdue flag, next step or waiting time, due date).

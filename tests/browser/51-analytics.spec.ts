@@ -192,3 +192,130 @@ test('the personal analysis opens the entries behind a month of its trend', asyn
   await entries.getByRole('link', { name: new RegExp(title) }).click();
   await expect(page.getByRole('heading', { name: title })).toBeVisible();
 });
+
+test('the Output tab: a month opens exactly its outcomes, the members list is cut to 25 and says so, and the tabs name their panel', async ({ page }) => {
+  test.setTimeout(120_000);
+  const title = `Output month check ${unique('')}`;
+  const made = await page.request.post('/api/records/activities', { headers: H, data: { title, visibility: 'unit', unit_id: 'G8', date: new Date().toISOString().slice(0, 10), dollar_amount: 1250, dollar_type: 'obligated', quantity: 3, unit_label: 'MIPRs' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  // Thirty Marines, from the server's own answer, so the list is long enough to cut.
+  await page.route('**/api/org/units/G8/dashboard*', async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    const first = body.members[0];
+    body.members = Array.from({ length: 30 }, (_, i) => ({ ...first, id: `${first.id}-${i}`, name: `Listed, Marine ${String(i + 1).padStart(2, '0')}` }));
+    await route.fulfill({ response: res, json: body });
+  });
+  await page.goto('/team/dashboard?unit=G8');
+  // Each "Show" tab names the one panel it fills.
+  for (const tab of await page.getByRole('tablist', { name: 'Show' }).getByRole('tab').all()) {
+    const controls = await tab.getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    await expect(page.locator(`[id="${controls}"]`)).toHaveAttribute('role', 'tabpanel');
+  }
+  await expect(page.getByRole('tabpanel', { name: 'Output' })).toHaveAttribute('aria-labelledby', (await page.getByRole('tab', { name: 'Output', selected: true }).getAttribute('id'))!);
+
+  const members = page.getByRole('table', { name: 'Members' });
+  await expect(members.locator('tbody tr')).toHaveCount(25);
+  await expect(page.getByText('Showing the first 25 of 30.')).toBeVisible();
+  const more = page.getByRole('button', { name: 'Show all 30' });
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(members.locator('tbody tr')).toHaveCount(30);
+  const fewer = page.getByRole('button', { name: 'Show fewer' });
+  await expect(fewer).toHaveAttribute('aria-expanded', 'true');
+  await expect(fewer).toBeFocused();
+
+  // A month's column opens the outcomes it adds up, asked of the server by month, and they add to the column.
+  const months = page.getByRole('figure', { name: /did the unit record each month\?$/ });
+  await expect(months).toBeVisible();
+  const column = months.getByRole('button', { name: /Show the \d+ outcomes?$/ }).last();
+  const shown = Number(/Show the (\d+) outcome/.exec((await column.getAttribute('aria-label'))!)![1]);
+  const asked = page.waitForRequest((r) => r.url().includes('/api/metrics/contributors') && /[?&]month=\d{4}-\d{2}/.test(r.url()));
+  await column.click();
+  await asked;
+  const dialog = page.getByRole('dialog', { name: /What counted toward/ });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('listitem')).toHaveCount(Math.min(shown, 200));
+  await expect(dialog.getByText(/does not match the figure/)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.unroute('**/api/org/units/G8/dashboard*');
+});
+
+test('a figure that fails to load says so and offers to try again, and the page around it stays', async ({ page }) => {
+  await page.route('**/api/metrics?*', (route) => route.fulfill({ status: 500, json: { error: 'Injected failure', code: 'server_error' } }));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1, name: 'Today' })).toBeVisible();
+  const outcomes = page.locator('section[aria-labelledby="outcomes-heading"]');
+  await expect(outcomes.getByRole('alert')).toContainText('Your outcomes could not load');
+  await expect(outcomes.getByRole('button', { name: 'Try again' })).toBeVisible();
+  expect(await axe(page), 'Today with a failed figure').toEqual([]);
+  await page.unroute('**/api/metrics?*');
+
+  await page.route('**/api/org/units/G8/dashboard*', (route) => route.fulfill({ status: 500, json: { error: 'Injected failure', code: 'server_error' } }));
+  await page.goto('/team/dashboard?unit=G8');
+  const panel = page.getByRole('tabpanel', { name: 'Output' });
+  await expect(panel.getByRole('alert')).toContainText('The unit’s output could not load');
+  await expect(panel.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await page.unroute('**/api/org/units/G8/dashboard*');
+});
+
+test('Today’s “Who holds what” is a figure with a table, and analytics fit a phone with every region reachable', async ({ page }) => {
+  test.setTimeout(120_000);
+  const made = await page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Held for the figure ${unique('')}` } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const item = await made.json();
+  expect((await page.request.post(`/api/work/items/${item.id}/claim`, { headers: H, data: { version: item.version } })).ok()).toBeTruthy();
+  await page.goto('/');
+  const holders = page.getByRole('figure', { name: 'Who holds what' });
+  await expect(holders).toBeVisible();
+  await holders.getByRole('tab', { name: 'Table' }).click();
+  const table = holders.getByRole('table', { name: 'Who holds what' });
+  await expect(table.getByRole('columnheader', { name: 'Marine' })).toBeVisible();
+  await expect(table).toContainText('held');
+
+  // At 320px a figure's own controls wrap under its question rather than push the page sideways.
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/team/dashboard?unit=G8');
+  await expect(page.getByRole('figure', { name: /did the unit record each month\?$/ })).toBeVisible();
+  await noSidewaysScroll(page, 'the Output tab at 320px');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Paired months keep a 24px target each, and scroll inside the chart rather than the page.
+  await page.goto('/team/dashboard?unit=G8&show=work&days=365');
+  const flow = page.getByRole('figure', { name: 'Are cases being closed as fast as they arrive?' });
+  await expect(flow).toBeVisible();
+  for (const slot of await flow.locator('.chart-col-slot').all()) {
+    const box = await slot.boundingBox();
+    expect(box!.width, 'a paired column is at least 24px wide').toBeGreaterThanOrEqual(23.5);
+  }
+  await noSidewaysScroll(page, 'casework at phone width');
+  expect(await axe(page), 'casework at phone width').toEqual([]);
+
+  // So does each month of a single measure, as on the analysis page, where two months side by side may both open records.
+  await page.goto('/reports/analysis');
+  const months = page.locator('.chart-col-slot:visible');
+  await expect(months.first()).toBeVisible();
+  for (const slot of await months.all()) {
+    const box = await slot.boundingBox();
+    expect(box!.width, 'a month is at least 24px wide').toBeGreaterThanOrEqual(23.5);
+  }
+  await noSidewaysScroll(page, 'the analysis at phone width');
+
+  // The full analysis with its ledger open: every table a keyboard can scroll, in both themes.
+  await page.goto('/reports/analysis');
+  await page.getByRole('tab', { name: 'Full analysis' }).click();
+  await page.getByRole('button', { name: 'Show the ledger' }).click();
+  await expect(page.getByRole('table', { name: 'Entry ledger' })).toBeVisible();
+  await noSidewaysScroll(page, 'the analysis at phone width');
+  for (const t of ['light', 'dark'] as const) {
+    await theme(page, t);
+    expect(await axe(page), `the analysis with its ledger, ${t}`).toEqual([]);
+  }
+  await theme(page, 'light');
+  const ledger = page.getByRole('region', { name: 'Entry ledger' });
+  await ledger.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => ledger.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+});

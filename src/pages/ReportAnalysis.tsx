@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, TrendingDown, Minus, FileDown } from 'lucide-react';
-import { Panel, Skeleton, EmptyState, Badge, Button, Select } from '@/components/ui/primitives';
+import { Panel, Skeleton, Badge, Button, Select } from '@/components/ui/primitives';
 import { clientVisual, DrillDialog, VisualView, type DrillList, type DrillTarget } from '@/components/analytics';
 import { Table, StatusBadge } from '@/components/common';
+import { QueryFailure } from '@/components/QueryFailure';
 import { keys, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
@@ -44,15 +45,25 @@ function analysisDrill(a: Analysis, t: DrillTarget, measure: Measure): DrillList
   return { count: records.length, value: records.reduce((n, r) => n + r.value, 0), format: money ? 'money' : 'number', noun: 'entry', records };
 }
 
+/** The ledger rows shown at a time: a long record opens without mounting thousands of rows, and grows on request. */
+const LEDGER_PAGE = 100;
+
 export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; areaLabel: string; onDownload: () => void }) {
   const cfg = useMetrics();
-  const { data, isPending, error } = useQuery<Analysis & { label: string; subject: string }>({ queryKey: keys.analysis(q), queryFn: () => api.reportAnalysis(q) });
+  // The analysis does not depend on the narrative's style or length, so changing those does not read it again. Reading
+  // another Marine's analysis is audited, so it is not read again on focus or failure either.
+  const { period, from, to, track, user_id, unit_id } = q;
+  const ask = useMemo(() => ({ period, from, to, track, user_id, unit_id }), [period, from, to, track, user_id, unit_id]);
+  const query = useQuery<Analysis & { label: string; subject: string }>({ queryKey: keys.analysis(ask), queryFn: () => api.reportAnalysis(ask), staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [ledgerShown, setLedgerShown] = useState(LEDGER_PAGE);
+  const ledgerId = useId();
   const [measure, setMeasure] = useState<Measure>('entries');
   const [drill, setDrill] = useState<DrillTarget | null>(null);
-  if (isPending) return <Skeleton className="h-96" />;
-  if (error || !data) return <div className="card"><EmptyState title="Could not build the analysis" description={api.errorText(error)} /></div>;
-  const a = data;
+  if (query.isPending) return <Skeleton className="h-96" />;
+  if (query.isError) return <QueryFailure error={query.error} onRetry={() => query.refetch()} what="The analysis" />;
+  const a = query.data;
+  const ledger = a.appendix.slice(0, ledgerShown);
   const money = cfg.currency_label;
   const valued = (month: string) => a.appendix.filter((r) => r.month === month && r.summable && r.value).length;
   const trend = clientVisual({
@@ -118,10 +129,10 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title={`Largest entries by ${money.toLowerCase()}`} padded={false}>
-          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Amount</th></>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /><span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
+          <Table label={`Largest entries by ${money.toLowerCase()}`} head={<><th>Date</th><th>Entry</th><th className="text-right">Amount</th></>} minWidth={360}>{a.concentration.topByValue.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /><span className="block text-xs text-ink-3">{e.value_type}</span></td><td className="fig text-right">{formatDollars(e.value || 0)}</td></tr>)}{!a.concentration.topByValue.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing valued this period.</td></tr>}</Table>
         </Panel>
         <Panel title="Largest entries by actions counted" padded={false}>
-          <Table head={<><th>Date</th><th>Entry</th><th className="text-right">Count</th></>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
+          <Table label="Largest entries by actions counted" head={<><th>Date</th><th>Entry</th><th className="text-right">Count</th></>} minWidth={360}>{a.concentration.topByQuantity.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="fig text-right">{formatNumber(e.quantity || 0)} {e.unit_label}</td></tr>)}{!a.concentration.topByQuantity.length && <tr><td colSpan={3} className="text-sm text-ink-3">Nothing counted this period.</td></tr>}</Table>
         </Panel>
       </div>
 
@@ -146,18 +157,32 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
         </div>
       </Panel>
 
-      <Panel title="Entry ledger" subtitle={`${a.appendix.length} completed entries in ${a.period.label}`} action={<Button size="sm" variant="ghost" onClick={() => setLedgerOpen((v) => !v)}>{ledgerOpen ? 'Hide' : 'Show all'}</Button>} padded={false}>
-        {ledgerOpen ? (
-          <Table head={<><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></>} minWidth={760}>
-            {a.appendix.map((e) => <tr key={e.id}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="text-xs text-ink-2">{e.area}</td><td className="fig text-right text-xs">{e.quantity == null ? '' : `${formatNumber(e.quantity)} ${e.unit_label || ''}`}</td><td className="fig text-right text-xs">{e.value == null ? '' : formatDollars(e.value)}</td><td className="text-xs text-ink-2">{e.result}</td><td className="fig text-right text-xs">{e.strength}</td></tr>)}
-          </Table>
-        ) : <p className="px-4 py-3 text-sm text-ink-3">The PDF always includes the full ledger as an appendix.</p>}
+      <Panel title="Entry ledger" subtitle={`${a.appendix.length} completed entries in ${a.period.label}`} action={<Button size="sm" variant="ghost" aria-expanded={ledgerOpen} aria-controls={ledgerId} onClick={() => setLedgerOpen((v) => !v)}>{ledgerOpen ? 'Hide the ledger' : 'Show the ledger'}</Button>} padded={false}>
+        <div id={ledgerId}>
+          {ledgerOpen ? (
+            <>
+              <Table label="Entry ledger" head={<><th>Date</th><th>Entry</th><th>Area</th><th className="text-right">Count</th><th className="text-right">{money}</th><th>Outcome</th><th className="text-right">Score</th></>} minWidth={760}>
+                {ledger.map((e, i) => <tr key={e.id || `row-${i}`}><td className="fig text-xs">{e.date}</td><td className="text-ink"><EntryTitle row={e} /></td><td className="text-xs text-ink-2">{e.area}</td><td className="fig text-right text-xs">{e.quantity == null ? '' : `${formatNumber(e.quantity)} ${e.unit_label || ''}`}</td><td className="fig text-right text-xs">{e.value == null ? '' : formatDollars(e.value)}</td><td className="text-xs text-ink-2">{e.result}</td><td className="fig text-right text-xs">{e.strength}</td></tr>)}
+                {!a.appendix.length && <tr><td colSpan={7} className="text-sm text-ink-3">No entries in this period.</td></tr>}
+              </Table>
+              {a.appendix.length > LEDGER_PAGE && (
+                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-xs text-ink-3">
+                  <span role="status">Showing {formatNumber(ledger.length)} of {formatNumber(a.appendix.length)}.</span>
+                  {/* One button that changes its words, so focus stays on it when the last rows arrive. */}
+                  <button type="button" className="link" onClick={() => setLedgerShown((n) => (ledger.length < a.appendix.length ? n + LEDGER_PAGE : LEDGER_PAGE))}>
+                    {ledger.length < a.appendix.length ? `Show ${formatNumber(Math.min(LEDGER_PAGE, a.appendix.length - ledger.length))} more` : 'Show fewer'}
+                  </button>
+                </p>
+              )}
+            </>
+          ) : <p className="px-4 py-3 text-sm text-ink-3">The PDF always includes the full ledger as an appendix.</p>}
+        </div>
       </Panel>
       {drill && (
         <DrillDialog
           title={drill.bucket.label}
           description={drill.visual.question}
-          queryKey={['analysis-drill', q, drill.visual.id, drill.bucket.key, measure]}
+          queryKey={['analysis-drill', ask, drill.visual.id, drill.bucket.key, measure]}
           load={async () => analysisDrill(a, drill, measure)}
           expected={drill.bucket.value}
           onClose={() => setDrill(null)}

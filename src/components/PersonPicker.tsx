@@ -4,25 +4,44 @@ import { Loader2, Search } from 'lucide-react';
 import * as api from '@/lib/api';
 import { discussionKey } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import type { RequestKind, Speaker } from '../../shared/workflowMessages';
+import type { RequestKind, Speaker, SpeakersResponse } from '../../shared/workflowMessages';
 
 /** How long typing must pause before the people on a record are looked up. The lookup is rate limited. */
 const DEBOUNCE_MS = 250;
 
 /**
- * Choosing one person who may be named or asked on a record or a case (ADR-0031): an ARIA 1.2 combobox over the record's
- * own people, by rank and name, as the server offers them (never the whole service). Typing looks them up after a pause;
- * Down opens the list and moves through it, Enter chooses, Escape closes the list, then clears what was typed, then
- * cancels. The list is part of the page, not a floating layer, so it is never cut off inside a dialog.
+ * Where a picker that is not a record's discussion finds its people: a server search that offers only those the reader
+ * may choose, and says (`more`) when it stopped at its limit before reading everyone who matched.
  */
-export function PersonPicker({ host, kind, label, hideLabel = false, hint, onChoose, onCancel, autoFocus = false, placeholder = 'Type a name', inputRef, className }: {
+export interface PersonSearch {
+  /** Names the search in the query cache; what was typed is added to it. */
+  key: readonly unknown[];
+  load: (q: string) => Promise<SpeakersResponse>;
+  /** The fewest letters it looks anyone up for: the server refuses fewer. */
+  minLength?: number;
+  /** What to say when nobody matches what was typed. */
+  none: string;
+}
+
+/**
+ * Choosing one person (ADR-0031): an ARIA 1.2 combobox over the people the server offers, by rank and name (never the
+ * whole service). On a record or a case they are its own people (`host`); elsewhere a `search` finds them. Typing looks
+ * them up after a pause, and a polite status says how many there are; Down opens the list and moves through it, Enter
+ * chooses, Escape closes the list, then clears what was typed, then cancels. The list is part of the page, not a
+ * floating layer, so it is never cut off inside a dialog.
+ */
+export function PersonPicker({ host, kind, search, label, hideLabel = false, hint, error, onChoose, onCancel, autoFocus = false, placeholder = 'Type a name', inputRef, className }: ({
   host: api.DiscussionHost;
   /** What they are to be asked, when they are asked something: the server offers only those who may be asked it. */
   kind?: RequestKind;
+  search?: never;
+} | { search: PersonSearch; host?: never; kind?: never }) & {
   /** What the field is for: "Ask whom", "Name someone". */
   label: string;
   hideLabel?: boolean;
   hint?: string;
+  /** What is wrong with the choice, as a form field says it. */
+  error?: string | null;
   onChoose: (person: Speaker) => void;
   /** Escape with nothing typed and the list closed: the caller puts the picker away. */
   onCancel?: () => void;
@@ -38,6 +57,7 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
   const listId = `${uid}-list`;
   const hintId = `${uid}-hint`;
   const statusId = `${uid}-status`;
+  const errorId = `${uid}-error`;
   const input = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState('');
   const [query, setQuery] = useState('');
@@ -49,21 +69,24 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
     return () => window.clearTimeout(timer);
   }, [text]);
 
+  const minLength = search?.minLength ?? 0;
+  const tooShort = query.length < minLength;
+  // A discussion's people are not under the discussion's own key: refreshing what was said must not look them up again.
+  // By kind, since who may be asked for a review is not always who may be named.
+  const prefix: readonly unknown[] = search ? search.key : ['discussion-people', ...discussionKey(host!).slice(1), kind ?? null];
   const people = useQuery({
-    // Not under the discussion's own key: refreshing what was said must not look the people up again. By kind, since who
-    // may be asked for a review is not always who may be named.
-    queryKey: ['discussion-people', ...discussionKey(host).slice(1), kind ?? null, query],
-    queryFn: () => api.discussionPeople(host, query, kind),
-    enabled: open && Boolean(host.id),
+    queryKey: [...prefix, query],
+    queryFn: () => (search ? search.load(query) : api.discussionPeople(host!, query, kind)),
+    enabled: open && !tooShort && (search ? true : Boolean(host?.id)),
     staleTime: 30_000,
     retry: false,
-    // Earlier rows stay up while the next lookup runs, but only for the same kind: a review may go to fewer people than a
-    // question, so rows looked up for one are never offered for the other.
-    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey.at(-2) === (kind ?? null) ? previous : undefined),
+    // Earlier rows stay up while the next lookup runs, but only for the same search: a review may go to fewer people than
+    // a question, so rows looked up for one are never offered for the other.
+    placeholderData: (previous, previousQuery) => (JSON.stringify(previousQuery?.queryKey.slice(0, -1)) === JSON.stringify(prefix) ? previous : undefined),
   });
-  const rows: Speaker[] = people.data?.people ?? [];
+  const rows: Speaker[] = tooShort ? [] : people.data?.people ?? [];
   const optionId = (p: Speaker) => `${uid}-option-${p.id}`;
-  const settled = !people.isFetching && query === text.trim();
+  const settled = tooShort || (!people.isFetching && query === text.trim());
 
   useEffect(() => { setActive(-1); }, [people.data]);
 
@@ -74,6 +97,34 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
+
+  // A press that takes focus from the field, such as a dialog's Cancel, ends before the list folds away. Folding it at once
+  // would shrink the dialog under the pointer, and the press would miss what it was aimed at.
+  const pressing = useRef(false);
+  useEffect(() => {
+    const down = () => { pressing.current = true; };
+    const up = () => { pressing.current = false; };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
+  }, []);
+  const fold = () => { setOpen(false); setActive(-1); };
+  const onBlur = () => {
+    if (!pressing.current) { fold(); return; }
+    const after = () => {
+      window.removeEventListener('pointerup', after, true);
+      window.removeEventListener('pointercancel', after, true);
+      // After the click that the press makes, which the browser sends straight after the pointer comes up.
+      window.setTimeout(fold, 0);
+    };
+    window.addEventListener('pointerup', after, true);
+    window.addEventListener('pointercancel', after, true);
+  };
 
   const choose = (p: Speaker) => {
     setOpen(false);
@@ -107,14 +158,15 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
   };
 
   // The lookup stopped at its limit before it read everyone who matched: a name, or more of one, finds who is left.
-  const more = Boolean(people.data?.more);
+  const more = !tooShort && Boolean(people.data?.more);
   const narrow = query ? 'type more of the name' : 'type a name';
   const status = !open ? ''
-    : people.isError ? api.errorText(people.error)
-      : !settled && !rows.length ? 'Looking…'
-        : !rows.length && more ? `Too many people to look through at once. To find someone, ${narrow}.`
-          : !rows.length ? (query ? 'Nobody by that name can be asked or named here.' : 'Nobody else can be asked or named here.')
-            : `${rows.length} ${rows.length === 1 ? 'person' : 'people'} to choose from.${more ? ` There may be others: ${narrow} to find them.` : ''}`;
+    : tooShort ? `Type at least ${minLength} letters of a name.`
+      : people.isError ? api.errorText(people.error)
+        : !settled && !rows.length ? 'Looking…'
+          : !rows.length && more ? `Too many people to look through at once. To find someone, ${narrow}.`
+            : !rows.length ? (search ? search.none : query ? 'Nobody by that name can be asked or named here.' : 'Nobody else can be asked or named here.')
+              : `${rows.length} ${rows.length === 1 ? 'person' : 'people'} to choose from.${more ? ` There may be others: ${narrow} to find them.` : ''}`;
   const shownStatus = open && (people.isError || !rows.length || more) ? status : '';
   const expanded = open && rows.length > 0;
   const activeId = expanded && active >= 0 && rows[active] ? optionId(rows[active]) : undefined;
@@ -136,7 +188,8 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
           aria-expanded={expanded}
           aria-controls={listId}
           aria-activedescendant={activeId}
-          aria-describedby={[hint ? hintId : null, statusId].filter(Boolean).join(' ')}
+          aria-describedby={[hint ? hintId : null, error ? errorId : null, statusId].filter(Boolean).join(' ')}
+          aria-invalid={error ? true : undefined}
           autoComplete="off"
           spellCheck={false}
           autoFocus={autoFocus}
@@ -147,7 +200,7 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
           onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          onBlur={() => { setOpen(false); setActive(-1); }}
+          onBlur={onBlur}
         />
         {open && people.isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-ink-3" aria-hidden />}
       </div>
@@ -160,10 +213,11 @@ export function PersonPicker({ host, kind, label, hideLabel = false, hint, onCho
             onClick={() => choose(p)}
             className={cn('tap flex cursor-pointer items-baseline justify-between gap-3 rounded-lg px-3 py-2 text-sm', i === active ? 'bg-surface-2 text-ink' : 'text-ink-2')}>
             <span className="min-w-0 truncate font-medium text-ink">{p.name}</span>
-            <span className="shrink-0 text-xs text-ink-3">@{p.username}</span>
+            {p.username && <span className="shrink-0 text-xs text-ink-3">@{p.username}</span>}
           </li>
         ))}
       </ul>
+      {error && <p id={errorId} className="mt-1 text-xs leading-snug text-bad" role="alert">{error}</p>}
       <p id={statusId} role="status" aria-live="polite" className={cn('text-xs text-ink-3', shownStatus ? 'mt-1.5' : 'sr-only')}>{status}</p>
     </div>
   );

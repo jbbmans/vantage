@@ -1,6 +1,7 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
+import { DRILL_LIMIT } from '../../shared/unitAnalytics.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -42,10 +43,24 @@ test('a total opens into the outcomes behind it, and only readable ones', async 
   assert.equal(created.status, 201);
   const contributors = await app.call('GET', `/api/metrics/contributors?metric_id=quantity:mipr&from=${day(-30)}&to=${day(1)}`, { token: op.token });
   assert.equal(contributors.status, 200);
-  assert.equal(contributors.body.length, 1);
-  assert.equal(contributors.body[0].id, created.body.id);
-  assert.equal(contributors.body[0].value, 5);
-  assert.equal(contributors.body[0].table, 'activities');
+  assert.equal(contributors.body.count, 1);
+  assert.equal(contributors.body.value, 5);
+  assert.equal(contributors.body.records.length, 1);
+  assert.equal(contributors.body.records[0].id, created.body.id);
+  assert.equal(contributors.body.records[0].value, 5);
+  assert.equal(contributors.body.records[0].table, 'activities');
+
+  // With another aggregation the drill says what the figure says, over the same outcomes.
+  await activity(op.token, { title: 'Reconciled more MIPRs', quantity: 9, unit_label: 'MIPRs' });
+  for (const aggregation of ['sum', 'max', 'min', 'average', 'distinct'] as const) {
+    const q = `metric_id=quantity:mipr&from=${day(-30)}&to=${day(1)}&aggregation=${aggregation}`;
+    const figure = (await app.call('GET', `/api/metrics?${q}`, { token: op.token })).body.tracked.concat((await app.call('GET', `/api/metrics?${q}`, { token: op.token })).body.headline)
+      .find((t: any) => t.metricId === 'quantity:mipr');
+    const drill = await app.call('GET', `/api/metrics/contributors?${q}`, { token: op.token });
+    assert.equal(drill.status, 200, JSON.stringify(drill.body));
+    assert.equal(drill.body.value, figure.value, `${aggregation}: the drill's value is the figure's`);
+    assert.equal(drill.body.count, figure.outcomes, `${aggregation}: one record per outcome`);
+  }
 });
 
 test('a private entry never reaches another member figures, even a leader', async () => {
@@ -55,7 +70,7 @@ test('a private entry never reaches another member figures, even a leader', asyn
   assert.equal(leaderView.status, 200, JSON.stringify(leaderView.body));
   assert.ok(!leaderView.body.headline.some((t: any) => t.metricId === 'quantity:secret'), 'a private measure is not in a leader total');
   const drill = await app.call('GET', `/api/metrics/contributors?metric_id=quantity:secret&scope=all&from=${day(-30)}&to=${day(1)}`, { token: op.token });
-  assert.deepEqual(drill.body, []);
+  assert.deepEqual(drill.body, { count: 0, value: 0, records: [] });
   // The owner still sees their own.
   const own = await app.call('GET', `/api/metrics?from=${day(-30)}&to=${day(1)}`, { token: peer.token });
   assert.equal(own.status, 200, JSON.stringify(own.body));
@@ -141,4 +156,77 @@ test('the report carries no entry count as a headline figure', async () => {
     assert.ok(!/entries|records|count/i.test(total.metricLabel), `"${total.metricLabel}" reads as a count of entries rather than an outcome`);
   }
   assert.equal(typeof res.body.outcomesWithMeasures, 'number');
+});
+
+test('the figures carry no list of the outcomes behind them; the drill reads that on its own', async () => {
+  const res = await app.call('GET', `/api/metrics?scope=all&from=${day(-30)}&to=${day(1)}`, { token: op.token });
+  assert.equal(res.status, 200);
+  const totals = [...res.body.headline, ...res.body.tracked, ...res.body.priorHeadline,
+    ...res.body.monthly.flatMap((m: any) => m.points), ...res.body.byCategory.flatMap((c: any) => c.totals), ...res.body.byArea.flatMap((a: any) => a.totals)];
+  assert.ok(totals.length > 0);
+  for (const t of totals) assert.equal('contributors' in t, false, JSON.stringify(t));
+  assert.equal(JSON.stringify(res.body).includes('"contributors"'), false);
+});
+
+test('a month of a chart opens into exactly the outcomes its column counts', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    await fresh.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'May reviews', visibility: 'unit', date: '2026-05-15', quantity: 10, unit_label: 'reviews' } });
+    await fresh.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'June reviews', visibility: 'unit', date: '2026-06-10', quantity: 3, unit_label: 'reviews' } });
+    const window = 'from=2026-05-01&to=2026-06-30';
+    const report = await fresh.call('GET', `/api/metrics?${window}`, { token: owner.token });
+    const series = report.body.monthly.find((m: any) => m.metricId === 'quantity:review');
+    const may = series.points.find((p: any) => p.key === '2026-05');
+    assert.equal(may.value, 10);
+    const drill = await fresh.call('GET', `/api/metrics/contributors?metric_id=quantity:review&month=2026-05&${window}`, { token: owner.token });
+    assert.equal(drill.status, 200, JSON.stringify(drill.body));
+    assert.equal(drill.body.count, may.outcomes);
+    assert.equal(drill.body.value, may.value);
+    assert.deepEqual(drill.body.records.map((r: any) => r.title), ['May reviews']);
+    const outside = await fresh.call('GET', `/api/metrics/contributors?metric_id=quantity:review&month=2026-08&${window}`, { token: owner.token });
+    assert.equal(outside.status, 400);
+    assert.ok(outside.body.fieldErrors?.month, JSON.stringify(outside.body));
+    const malformed = await fresh.call('GET', `/api/metrics/contributors?metric_id=quantity:review&month=2026-13&${window}`, { token: owner.token });
+    assert.equal(malformed.status, 400);
+  } finally { await fresh.close(); }
+});
+
+test('a long drill sends the newest of what the reader may see, with the count and sum of all of it', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const at = new Date().toISOString();
+    const insert = fresh.ctx.db.prepare("INSERT INTO activities (id, user_id, unit_id, visibility, date, title, quantity, unit_label, created_at, updated_at) VALUES (?, ?, 'G8', ?, ?, ?, 2, 'checks', ?, ?)");
+    const total = DRILL_LIMIT + 25;
+    fresh.ctx.db.transaction(() => {
+      for (let i = 0; i < total; i += 1) insert.run(`bulk-${i}`, owner.id, 'unit', `2026-0${1 + (i % 6)}-${String(1 + (i % 27)).padStart(2, '0')}`, `Check ${i}`, at, at);
+    })();
+    const res = await fresh.call('GET', '/api/metrics/contributors?metric_id=quantity:check&from=2026-01-01&to=2026-06-30', { token: owner.token });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.count, total);
+    assert.equal(res.body.value, total * 2);
+    assert.equal(res.body.records.length, DRILL_LIMIT);
+    const dates = res.body.records.map((r: any) => r.date);
+    assert.deepEqual(dates, [...dates].sort().reverse(), 'newest first');
+  } finally { await fresh.close(); }
+});
+
+test('the window must be two real days in order, or the request is refused with the field named', async () => {
+  const bad = await app.call('GET', '/api/metrics?from=abc&to=2026-05-01', { token: op.token });
+  assert.equal(bad.status, 400, JSON.stringify(bad.body));
+  assert.ok(bad.body.fieldErrors?.from, JSON.stringify(bad.body));
+  const huge = await app.call('GET', '/api/metrics?from=0000-01-01&to=9999-12-31', { token: op.token });
+  assert.equal(huge.status, 400, JSON.stringify(huge.body));
+  const backwards = await app.call('GET', '/api/metrics?from=2026-05-31&to=2026-05-01', { token: op.token });
+  assert.equal(backwards.status, 400, JSON.stringify(backwards.body));
+  assert.ok(backwards.body.fieldErrors?.to, JSON.stringify(backwards.body));
+  const drillBackwards = await app.call('GET', '/api/metrics/contributors?metric_id=quantity:mipr&from=2026-05-31&to=2026-05-01', { token: op.token });
+  assert.equal(drillBackwards.status, 400);
+  const year = await app.call('GET', `/api/metrics?from=${day(-364)}&to=${day(0)}`, { token: op.token });
+  assert.equal(year.status, 200, JSON.stringify(year.body));
+  // All time, as the period picker sends it, still answers.
+  const allTime = await app.call('GET', `/api/metrics?from=1970-01-01&to=${day(0)}`, { token: op.token });
+  assert.equal(allTime.status, 200, JSON.stringify(allTime.body));
+  assert.ok(allTime.body.monthly.every((m: any) => m.points.length <= 240));
 });

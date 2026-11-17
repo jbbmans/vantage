@@ -15,7 +15,7 @@ import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
 import { clientIp, sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
-import { authRouter } from './routes/auth.ts';
+import { authRouter, restoreSignedInMarker } from './routes/auth.ts';
 import { meRouter } from './routes/me.ts';
 import { recordsRouter } from './routes/records.ts';
 import { workRouter } from './routes/work.ts';
@@ -494,6 +494,9 @@ export function createApp(ctx: AppContext) {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
+      // A page can clear the signed-in marker just after a newer sign-in set it; a document served to a live session
+      // puts it back, so the page loads signed in (routes/auth.ts).
+      restoreSignedInMarker(req, res);
       const faces = facesOf(res);
       const path = req.path;
       const query = req.originalUrl.slice(req.path.length);

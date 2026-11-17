@@ -41,6 +41,18 @@ export async function confirmSudoIfAsked(page: Page) {
 
 export const unique = (prefix: string) => `${prefix}${Date.now().toString(36).slice(-5)}`;
 
+/** The test server's timezone (tests/browser/server.ts pins it): the calendar its "today" is reckoned in. */
+export const INSTANCE_TIMEZONE = 'America/New_York';
+/**
+ * The day `offset` days before today as the server reckons it, YYYY-MM-DD. Not the UTC date: from 7pm Eastern (8pm in
+ * summer) the UTC date is already tomorrow, a day the server refuses as one that has not come.
+ */
+export function instanceDay(offset = 0) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: INSTANCE_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  return new Date(Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00Z`) - offset * 86_400_000).toISOString().slice(0, 10);
+}
+
 export async function quickLog(page: Page, text: string) {
   await page.keyboard.press('n');
   const dialog = page.getByRole('dialog', { name: 'Log activity' });

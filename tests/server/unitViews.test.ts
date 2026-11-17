@@ -67,12 +67,15 @@ test('a command dashboard rolls up every team beneath it; a team leader never se
 });
 
 test('an overview withholds totals built from fewer than three people, and stops at the viewer’s chain of command', async () => {
-  const early = await app.call('GET', '/api/org/units/ALPHA/overview', { token: as('alpha1') });
+  const early = await app.call('GET', '/api/org/units/ALPHA/overview?roster=1', { token: as('alpha1') });
   assert.equal(early.status, 200);
   assert.equal(early.body.level, 'overview');
   assert.equal(early.body.totals.withheld, true);
   assert.equal(early.body.totals.entries, null);
-  assert.ok(early.body.roster.some((p: { id: string }) => p.id === people.alpha2.id), 'the roster is always shown');
+  assert.ok(early.body.roster.some((p: { id: string }) => p.id === people.alpha2.id), 'the roster is shown to whoever may view the unit');
+  const pulse = await app.call('GET', '/api/org/units/ALPHA/overview', { token: as('alpha1') });
+  assert.equal(pulse.body.roster, undefined, 'the pulse asks for no names, so none are sent');
+  assert.deepEqual({ ...pulse.body, roster: undefined }, { ...early.body, roster: undefined }, 'and is otherwise the same');
 
   const led = await app.call('GET', '/api/org/units/ALPHA/overview', { token: as('alphalead') });
   assert.equal(led.body.level, 'full');

@@ -4,6 +4,8 @@ import { ensureSetup, loginAs, logout, quickLog, registerAs, unique, OPERATOR, P
 test('a leader invites a Marine by link, sees their shared work on the unit dashboard, and counsels them', async ({ browser, page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
+  // Invitations never wait on the whole team list: held back here, the page is usable regardless.
+  await page.route('**/api/org/team', () => new Promise<void>(() => {}));
   await page.goto('/team/invitations');
   await page.getByLabel('First name').fill('Ana');
   await page.getByLabel('Last name').fill('Rivera');
@@ -11,6 +13,9 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await page.getByRole('button', { name: 'Create link' }).click();
   const url = (await page.locator('[data-invite-url]').first().textContent())!.trim();
   expect(url).toContain('/invite?token=');
+  // Each column of the open invitations is named, the buttons' one too.
+  await expect(page.getByRole('table', { name: 'Open invitations' }).getByRole('columnheader', { name: 'Actions' })).toHaveCount(1);
+  await page.unroute('**/api/org/team');
 
   const username = unique('rivera');
   const invitee = await browser.newContext();

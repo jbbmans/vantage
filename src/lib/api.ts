@@ -1,9 +1,10 @@
 import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
-import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { DirectoryResponse, MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { OrgMembersPage } from './tenancy';
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
-import type { DutyCandidatesResponse, DutyOptionsResponse } from '../../shared/duty';
+import type { DutyCandidatesResponse, DutyOptionsResponse, DutyStatus } from '../../shared/duty';
 import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../../shared/attachments';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
@@ -22,9 +23,15 @@ import type {
 /** A saved report as the library lists it: its name and choices, whose it is, and where it is shared. */
 export interface ReportDefinitionRow { id: string; user_id: string; name: string; type: string; params: Record<string, string>; visibility: 'private' | 'unit'; unit_id: string | null; owner_name: string | null; mine: boolean; created_at: string; updated_at: string }
 
-let sessionState: 'none' | 'unknown' | 'active' = (() => {
-  try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
-})();
+/**
+ * The signed-in marker: the cookie the page can read (the session's own is httpOnly). Each sign-in sets a value of its
+ * own, so the value a request left with says which sign-in it was sent under. `undefined` when the cookie cannot be read.
+ */
+const signedInMarker = (): string | null | undefined => {
+  try { return /(?:^|;\s*)vantage_signed_in=([^;]*)/.exec(document.cookie)?.[1] ?? null; } catch { return undefined; }
+};
+
+let sessionState: 'none' | 'unknown' | 'active' = signedInMarker() === null ? 'none' : 'unknown';
 
 export class ApiError extends Error {
   status: number; code: string | null; fieldErrors: Record<string, string> | null; extra: Record<string, unknown>;
@@ -66,8 +73,24 @@ function markSignedOut() {
 export const hasSession = () => sessionState !== 'none';
 export const markSignedIn = () => { sessionState = 'active'; window.dispatchEvent(new CustomEvent('vantage:signed-in')); };
 
+/**
+ * A request was answered 401. If someone signed in again after it left (in this tab or another: a role grant ends a
+ * person's sessions, and they sign in anew), the 401 is about the session that sign-in replaced, and the browser is
+ * signed in: the page picks up the new session rather than clear the marker that sign-in set. Otherwise the session it
+ * was sent with has ended, and the page signs out. A clearing can still land after a sign-in this page could not see
+ * yet; the next document served to the live session puts the marker back (restoreSignedInMarker, server/routes/auth.ts).
+ */
+function sessionEnded(sentWith: string | null | undefined) {
+  if (sessionState === 'none') return;
+  const current = signedInMarker();
+  if (current && sentWith !== undefined && current !== sentWith) { markSignedIn(); return; }
+  markSignedOut();
+  window.dispatchEvent(new CustomEvent('vantage:signed-out'));
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, init: RequestInit = {}): Promise<T> {
   let res: Response;
+  const sentWith = signedInMarker();
   try {
     res = await fetch(`/api${path}`, {
       ...init,
@@ -81,7 +104,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
     throw new ApiError('Cannot reach the Vantage server. Check your connection.', 0, { code: 'offline' });
   }
   if (res.status === 401) {
-    if (sessionState !== 'none') { markSignedOut(); window.dispatchEvent(new CustomEvent('vantage:signed-out')); }
+    sessionEnded(sentWith);
     const text = await res.text().catch(() => '');
     let payload: any = null; try { payload = JSON.parse(text); } catch {}
     throw new ApiError(payload?.error || 'Your session has expired. Sign in again.', 401, payload || {});
@@ -168,7 +191,10 @@ export const markRead = (id: string) => api.put(`/me/notifications/${encodeURICo
 export const markAllRead = (group?: NoticeGroup | null) => api.post<{ ok: true; updated: number }>('/me/notifications/read-all', group ? { group } : {});
 /** Questions and review requests asked of the reader, and those they asked (ADR-0031). */
 export const myRequests = () => request<{ asked_of_you: RequestSummary[]; you_asked: RequestSummary[] }>('GET', '/me/requests', undefined, { headers: { 'x-vantage-background': '1' } });
-export const myAudit = () => api.get('/me/audit');
+/** An access log a page at a time, newest first: `next` is the `before` of the page after it, null on the last. */
+export interface AccessLogPage<Row> { rows: Row[]; next: number | null }
+export interface MyAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; first_name: string | null; last_name: string | null; rank_abbr: string | null }
+export const myAudit = (before?: number | null) => api.get<AccessLogPage<MyAccessRow>>(`/me/audit${before ? `?before=${before}` : ''}`);
 export const digestPreview = () => api.get('/me/digest/preview');
 export const digestSendNow = () => api.post('/me/digest/send-now');
 export const emailVerify = (email: string) => api.post('/me/email/verify', { email });
@@ -247,13 +273,13 @@ export const deleteComment = (store: Store, id: string, commentId: string) => ap
 export const team = () => api.get<TeamResponse>('/org/team');
 export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/${encodeURIComponent(id)}`);
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
-export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
+export const directory = (unitId: string, q: string) => api.get<DirectoryResponse>(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
 export const updateMembership = (unitId: string, userId: string, payload: unknown, draft?: DraftRef | null) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}${fromDraft(draft)}`, payload);
 // Personnel records (ADR-0017).
 export const personnelRoster = (unitId: string) => api.get<PersonnelRosterResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel`);
 export const personnelRecord = (userId: string) => api.get<PersonnelRecordResponse>(`/org/team/${encodeURIComponent(userId)}/personnel`);
-export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[] }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
+export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[]; more: boolean }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
 export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload);
 export const endResponsibility = (id: string, reason?: string | null) => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null });
 export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload);
@@ -286,21 +312,25 @@ export const createUnit = (payload: unknown) => api.post('/org/units', payload);
 export const updateUnit = (id: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(id)}`, payload);
 export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURIComponent(id)}`);
 export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
-export const unitOverview = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/overview`);
+export const unitOverview = (id: string, opts: { roster?: boolean } = {}) => api.get(`/org/units/${encodeURIComponent(id)}/overview${opts.roster ? '?roster=1' : ''}`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
 /** The unit's analytics (Task 21): one section's figures over a window, and the records behind one of them. */
 export const unitAnalytics = (id: string, section: AnalyticsSection, from: string, to: string) =>
   api.get<AnalyticsResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}?${qs({ from, to })}`);
 export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { from: string; to: string; visual: string; key: string; series?: string | null }) =>
   api.get<DrillResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}/drill?${qs({ from: q.from, to: q.to, visual: q.visual, key: q.key, series: q.series || undefined })}`);
-export const unitAudit = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/audit`);
+export interface UnitAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; actor_id: string | null; actor_first: string | null; actor_last: string | null; actor_rank: string | null; subject_first: string | null; subject_last: string | null }
+export const unitAudit = (id: string, before?: number | null) => api.get<AccessLogPage<UnitAccessRow> & { unit_id: string }>(`/org/units/${encodeURIComponent(id)}/audit${before ? `?before=${before}` : ''}`);
 export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);
 /** "Why can they?": every grant behind someone's authority, in the units the caller manages. */
 export const whyCan = (userId: string) => api.get(`/org/team/${encodeURIComponent(userId)}/why`);
 
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
 export const goalContributors = (id: string) => api.get(`/records/goals/${encodeURIComponent(id)}/contributors`);
-export const listReportDrafts = () => api.get('/studio/reports');
+/** One page of the packages one may open, newest first; next_cursor names the page after it, or null on the last. */
+export interface ReportDraftRow { id: string; title: string; period_start: string; period_end: string; subject_id: string | null; updated_at: string | null; latest_revision: number | null }
+export interface ReportDraftPage { drafts: ReportDraftRow[]; next_cursor: string | null }
+export const listReportDrafts = (before?: string | null) => api.get<ReportDraftPage>(`/studio/reports${before ? `?${qs({ before })}` : ''}`);
 export const createReportDraft = (body: Record<string, unknown>) => api.post('/studio/reports', body);
 export const reportDraft = (id: string) => api.get(`/studio/reports/${encodeURIComponent(id)}`);
 export const saveReportRevision = (id: string, body: Record<string, unknown>) => api.post(`/studio/reports/${encodeURIComponent(id)}/revisions`, body);
@@ -364,7 +394,7 @@ export const deleteReportDefinition = (id: string) => api.del(`/report-center/de
 // Financial error reports (ADR-0021): filed from an uploaded report, kept as filed, compared report to report.
 export interface ErrorFilingPlan {
   unit_id: string; type_id: string; as_of: string; source_file_id: string; sheet_name: string; header_row: number;
-  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[]; note?: string | null;
+  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[] | null; note?: string | null;
 }
 export interface ErrorComparisonQuery { unit_id: string; type_id: string; snapshot?: string; against?: string }
 export const errorReports = (unitId: string) => api.get<ErrorReportsOverview>(`/error-reports?${qs({ unit_id: unitId })}`);
@@ -374,7 +404,7 @@ export const previewErrorReport = (plan: ErrorFilingPlan) => api.post<ErrorRepor
 export const fileErrorReport = (plan: ErrorFilingPlan) => api.post<SnapshotSummary & { unit_id: string; type_id: string }>('/error-reports/snapshots', plan);
 export const withdrawErrorReport = (id: string, reason: string) => api.post<SnapshotSummary>(`/error-reports/snapshots/${encodeURIComponent(id)}/withdraw`, { reason });
 export const errorComparison = (q: ErrorComparisonQuery) => api.get<ComparisonResult | SeriesHistory>(`/error-reports/series?${qs({ ...q })}`);
-export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
+export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string; offset?: number; limit?: number }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });
 export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1' : ''}`);
@@ -476,7 +506,8 @@ export const orgUpdate = (orgId: string, body: unknown) => api.patch(orgPath(org
 export const orgRoles = (orgId: string) => api.get(orgPath(orgId, '/roles'));
 export const orgGrantRole = (orgId: string, body: { user_id: string; role: string; expires_at?: string | null }) => api.post(orgPath(orgId, '/roles'), body);
 export const orgRevokeRole = (orgId: string, userId: string, role: string) => api.del(orgPath(orgId, `/roles/${enc(userId)}/${enc(role)}`));
-export const orgMembers = (orgId: string, q = '') => api.get(orgPath(orgId, `/members?${qs({ q })}`));
+/** One page of a Unit Instance's members: `next` (from the page before) starts the one after; `unit` keeps one unit's. */
+export const orgMembers = (orgId: string, o: { q?: string; unit?: string | null; cursor?: string | null; limit?: number } = {}) => api.get<OrgMembersPage>(orgPath(orgId, `/members?${qs({ q: o.q, unit: o.unit, cursor: o.cursor, limit: o.limit })}`));
 export const orgWhy = (orgId: string, userId: string) => api.get(orgPath(orgId, `/members/${enc(userId)}/why`));
 export const orgMemberAction = (orgId: string, userId: string, action: 'unlock' | 'logout') => api.post(orgPath(orgId, `/members/${enc(userId)}/${action}`));
 export const orgRemoveMember = (orgId: string, userId: string) => api.del(orgPath(orgId, `/members/${enc(userId)}`));
@@ -530,8 +561,9 @@ export const orgRevokeAccess = (orgId: string, id: string) => api.post(orgPath(o
 export const demoGovernance = () => api.get('/demo/governance');
 
 export async function downloadFile(url: string, fallbackName: string) {
+  const sentWith = signedInMarker();
   const res = await fetch(url, { credentials: 'same-origin' });
-  if (res.status === 401) { markSignedOut(); window.dispatchEvent(new CustomEvent('vantage:signed-out')); throw new ApiError('Your session has expired.', 401); }
+  if (res.status === 401) { sessionEnded(sentWith); throw new ApiError('Your session has expired.', 401); }
   if (!res.ok) { let payload: Record<string, unknown> = {}; try { payload = await res.json(); } catch {} throw new ApiError((payload.error as string) || `Download failed (${res.status}).`, res.status, payload); }
   const blob = await res.blob();
   const name = res.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] || fallbackName;
@@ -601,11 +633,31 @@ export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/mov
 // Duty (ADR-0023): what the form records it with, for oneself or a Marine one may record it for, and the activities that read like duty.
 export const dutyOptions = (forId?: string | null) => api.get<DutyOptionsResponse>(`/record/duty/options${forId ? `?for=${encodeURIComponent(forId)}` : ''}`);
 export const dutyCandidates = () => api.get<DutyCandidatesResponse>('/record/duty/candidates');
+/** A tab of the Duty page: one's own duty, the duty one recorded for one's Marines, or what one's units hold besides one's own. */
+export type DutyTab = 'mine' | 'recorded' | 'units';
+/** What narrows a tab. The server ANDs each with what the reader may read, so none of them widens it. */
+export interface DutyListFilters { unit_id?: string; from?: string; to?: string; status?: DutyStatus }
+/**
+ * One page of a tab, newest first; `next` asks for the page after it and is null on the last. The first page also says
+ * how many the tab holds with its filters, counted up to a thousand (`total_more` past that).
+ */
+export interface DutyPage { duties: Array<RecordRows['duties']>; next: string | null; total?: number; total_more?: boolean }
+/** What the Duty page adds up from all of the reader's duty, and how many each tab holds, whatever page is open. */
+export interface DutySummary {
+  mine: { duties: number; hours: number; calculated_points: number; approved_points: number; pending: number; returned: number };
+  tabs: { mine: number; recorded: number; units: number; units_more: boolean };
+  /** The units a tab may be narrowed to: those whose shared records the reader views, and their own. */
+  units: Array<{ id: string; name: string }>;
+}
+export const dutyList = (who: DutyTab, filters: DutyListFilters, cursor?: string | null) => api.get<DutyPage>(`/record/duty/list?${qs({ who, ...filters, cursor })}`);
+export const dutySummary = () => api.get<DutySummary>('/record/duty/summary');
 // Reviewing duty (ADR-0024): one decision on one duty as the reader saw it, its review history, and the duty waiting for the reader's decision.
 export interface DutyReviewBody { action: DutyReviewAction; version: number; reason?: string | null; points?: number | string | null }
 export const reviewDuty = (id: string, body: DutyReviewBody) => api.post<RecordRows['duties']>(`/records/duties/${encodeURIComponent(id)}/review`, body);
 export const dutyReviews = (id: string) => api.get<{ reviews: DutyReviewEntry[] }>(`/records/duties/${encodeURIComponent(id)}/reviews`);
-export const dutyReviewQueue = () => api.get<DutyReviewQueueResponse<RecordRows['duties']>>('/record/duty/review-queue');
+export type DutyReviewQueue = DutyReviewQueueResponse<RecordRows['duties']>;
+/** The duty waiting for the reader's decision, in one unit they review it in or all of them. */
+export const dutyReviewQueue = (unitId?: string | null) => api.get<DutyReviewQueue>(`/record/duty/review-queue${unitId ? `?unit_id=${encodeURIComponent(unitId)}` : ''}`);
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);

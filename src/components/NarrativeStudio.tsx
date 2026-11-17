@@ -198,7 +198,7 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
               {byArea.map((a) => {
                 const sentence = (s: Sentence, bullet: boolean) => (
                   <button key={s.key} type="button" aria-pressed={selected === s.key} onClick={() => setSelected(selected === s.key ? null : s.key)}
-                    className={cn('rounded px-0.5 text-left transition-colors hover:bg-accent/10', bullet ? 'block w-full' : 'mr-1', selected === s.key && 'bg-accent/15 ring-1 ring-accent/40', s.pinned && 'underline decoration-accent decoration-2 underline-offset-4')}>
+                    className={cn('rounded px-0.5 text-left transition-colors hover:bg-accent/10', bullet ? 'block min-h-6 w-full py-0.5' : 'mr-1', selected === s.key && 'bg-accent/15 ring-1 ring-accent/40', s.pinned && 'underline decoration-accent decoration-2 underline-offset-4')}>
                     {bullet ? `-${s.text}` : s.text}
                   </button>
                 );

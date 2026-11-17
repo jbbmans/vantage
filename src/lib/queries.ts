@@ -1,20 +1,21 @@
 import { useEffect, useRef } from 'react';
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
 import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
-import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
-import type { MetricTotal } from '../../shared/metricEngine.ts';
+import type { MetricFigure, MetricPoint } from '../../shared/metricEngine.ts';
 import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { RecordRows } from '../../shared/types';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import { mayCorrectDuty, type DutyCandidatesResponse, type DutyOptionsResponse } from '../../shared/duty';
-import { IMPORT_TABLES, type ImportTable } from '../../shared/recordTransfer';
+// Types only: the import registry reads its goal options from the record schemas, which would put zod in every page's first load.
+import type { ImportTable } from '../../shared/recordTransfer';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,20 +49,23 @@ export interface Identity {
   instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; reportMarking?: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };
 }
 
-export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }
+export type MetricSeriesPoint = MetricPoint;
+/** The figures, without the outcome ids behind them: a figure's outcomes are read from /metrics/contributors. */
 export interface MetricsReport {
   period: { from: string; to: string };
   prior: { from: string; to: string };
-  headline: MetricTotal[];
-  tracked: MetricTotal[];
-  priorHeadline: MetricTotal[];
+  headline: MetricFigure[];
+  tracked: MetricFigure[];
+  priorHeadline: MetricFigure[];
   monthly: Array<{ metricId: string; metricLabel: string; unit: string; points: MetricSeriesPoint[] }>;
-  byCategory: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
-  byArea: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  byCategory: Array<{ dimension: string; value: string; totals: MetricFigure[] }>;
+  byArea: Array<{ dimension: string; value: string; totals: MetricFigure[] }>;
   catalog: Array<{ metricId: string; metricLabel: string; kind: string; unit: string; headline: boolean }>;
   outcomesWithMeasures: number;
 }
 export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; end_date: string | null; ongoing: boolean; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
+/** The outcomes behind one figure: how many in all, what they add to, and the first of them. */
+export interface MetricContributorList { count: number; value: number; records: MetricContributor[] }
 
 export const keys = {
   me: ['me'] as const,
@@ -136,19 +140,43 @@ export function useCounselingStep() {
 }
 export const useDutyOptions = (forId?: string | null, enabled = true) => useQuery<DutyOptionsResponse>({ queryKey: ['duty-options', forId || null], queryFn: () => api.dutyOptions(forId), staleTime: 60_000, enabled });
 export const useDutyCandidates = (enabled = true) => useQuery<DutyCandidatesResponse>({ queryKey: ['duty-candidates'], queryFn: api.dutyCandidates, staleTime: 30_000, enabled });
-/** Duty waiting for the reader's decision (ADR-0024), and whether they review duty at all. */
-export const useDutyReviewQueue = (enabled = true) => useQuery({ queryKey: ['duty-review-queue'], queryFn: api.dutyReviewQueue, enabled });
+/**
+ * A tab of the Duty page a page at a time, newest first (ADR-0023). Under ['records', 'duties'], so whatever refreshes
+ * duty refreshes it; `enabled` is off while the page shows the review queue instead, so a decision there reads no list.
+ */
+export const useDutyPages = (who: api.DutyTab, filters: api.DutyListFilters, enabled = true) => useInfiniteQuery({
+  queryKey: ['records', 'duties', 'page', who, filters],
+  queryFn: ({ pageParam }) => api.dutyList(who, filters, pageParam),
+  initialPageParam: null as string | null,
+  getNextPageParam: (last: api.DutyPage) => last.next,
+  enabled,
+});
+/** What the Duty page adds up from all of the reader's duty, and how many each tab holds. */
+export const useDutySummary = () => useQuery({ queryKey: ['records', 'duties', 'summary'], queryFn: api.dutySummary });
+/** Duty waiting for the reader's decision (ADR-0024), in one unit or all they review it in, and whether they review duty at all. */
+export const useDutyReviewQueue = (unitId: string | null = null, enabled = true) => useQuery({ queryKey: ['duty-review-queue', unitId], queryFn: () => api.dutyReviewQueue(unitId), enabled });
 export const useDutyReviews = (id: string | null, enabled = true) => useQuery({ queryKey: ['duty-reviews', id], queryFn: () => api.dutyReviews(id!), enabled: Boolean(id) && enabled });
+
+const isDutyPages = (data: unknown): data is InfiniteData<api.DutyPage> => typeof data === 'object' && data !== null && Array.isArray((data as { pages?: unknown }).pages);
+/** A duty list as it is cached, a plain list or a tab's pages, with one duty in it replaced by the duty as it now stands. */
+function withDuty(data: unknown, saved: RecordRows['duties']): unknown {
+  const swap = (rows: Array<RecordRows['duties']>) => (rows.some((r) => r.id === saved.id) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows);
+  if (Array.isArray(data)) return swap(data as Array<RecordRows['duties']>);
+  if (isDutyPages(data)) return { ...data, pages: data.pages.map((p) => (Array.isArray(p?.duties) ? { ...p, duties: swap(p.duties) } : p)) };
+  return data;
+}
+
 /** One decision on one duty. Whatever the answer, the duty's lists are read again: a refusal usually means it changed. */
 export function useReviewDuty() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string } & api.DutyReviewBody) => api.reviewDuty(id, body),
-    // The duty as decided replaces the one the lists hold, and leaves the queue once it no longer waits, before they are read again.
+    // The duty as decided replaces the one the lists hold (a plain list or a tab's pages; the totals beside them are left
+    // for the read that follows), and leaves each queue once it no longer waits, before they are read again.
     onSuccess: (saved) => {
-      qc.setQueriesData<Array<RecordRows['duties']>>({ queryKey: ['records', 'duties'] }, (rows) => (Array.isArray(rows) ? rows.map((r) => (r.id === saved.id ? saved : r)) : rows));
-      qc.setQueryData<Awaited<ReturnType<typeof api.dutyReviewQueue>>>(['duty-review-queue'], (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
-        ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1) } : q));
+      qc.setQueriesData({ queryKey: ['records', 'duties'] }, (data: unknown) => withDuty(data, saved));
+      qc.setQueriesData<api.DutyReviewQueue>({ queryKey: ['duty-review-queue'] }, (q) => (q && saved.approval_status !== 'pending' && q.items.some((i) => i.id === saved.id)
+        ? { ...q, items: q.items.filter((i) => i.id !== saved.id), total: Math.max(0, q.total - 1), units: q.units.map((u) => (u.id === saved.unit_id ? { ...u, count: Math.max(0, u.count - 1) } : u)) } : q));
     },
     // A decision closes the duty's open review requests, so its Discussion is read again too. By what was asked, not by
     // what came back: a refusal brings nothing back, and usually means someone else decided it first.
@@ -201,11 +229,12 @@ export function invalidateRecords(qc: QueryClient, store: Store) {
   invalidateDomains(qc, STORE_DOMAIN[store]);
 }
 
+// Typed by every table an import writes, so a table added there needs its domain here.
 const IMPORT_DOMAIN: Record<ImportTable, Domain> = { ...STORE_DOMAIN, career_steps: 'career' };
 
 /** After an import, or its undo: everything an import can add or change, so a kind it gains is never left stale. */
 export function invalidateImported(qc: QueryClient) {
-  invalidateDomains(qc, ...IMPORT_TABLES.map((t) => IMPORT_DOMAIN[t]));
+  invalidateDomains(qc, ...Object.values(IMPORT_DOMAIN));
   qc.invalidateQueries({ queryKey: keys.me });
   qc.invalidateQueries({ queryKey: ['record-imports'] });
 }
@@ -282,12 +311,12 @@ export function useTrack(): Track {
   return trackForGrade(data?.user.rank?.grade);
 }
 
-export function useMetricsReport(params: Record<string, string | undefined>, enabled = true) {
-  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000 });
+export function useMetricsReport(params: Record<string, string | undefined>, enabled = true, options: { staleTime?: number; refetchOnWindowFocus?: boolean; retry?: boolean } = {}) {
+  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000, ...options });
 }
 /** The outcomes behind one figure, so every number on screen can be opened. */
 export function useMetricContributors(params: Record<string, string | undefined> | null) {
-  return useQuery<MetricContributor[]>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributor[]>, enabled: Boolean(params) });
+  return useQuery<MetricContributorList>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributorList>, enabled: Boolean(params) });
 }
 
 /** The outcomes that counted toward one goal. */
@@ -296,7 +325,11 @@ export function useGoalContributors(id: string | null) {
     queryKey: keys.goalContributors(id || ''), queryFn: () => api.goalContributors(id!), enabled: Boolean(id),
   });
 }
-export const useReportDrafts = () => useQuery({ queryKey: keys.reportDrafts, queryFn: api.listReportDrafts, staleTime: 30_000 });
+/** The packages one may open, a page at a time: the next page carries on from the last package of the one before. */
+export const useReportDrafts = () => useInfiniteQuery({
+  queryKey: keys.reportDrafts, queryFn: ({ pageParam }) => api.listReportDrafts(pageParam),
+  initialPageParam: null as string | null, getNextPageParam: (last: api.ReportDraftPage) => last.next_cursor, staleTime: 30_000,
+});
 export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.reportDraft(id || ''), queryFn: () => api.reportDraft(id!), enabled: Boolean(id) });
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });
@@ -310,7 +343,8 @@ export const useMyRequests = (enabled = true) => useQuery({ queryKey: keys.myReq
 /** A record's or a case's discussion (ADR-0031). */
 export const discussionKey = (h: api.DiscussionHost) => (h.kind === 'work' ? ['comments', 'work_items', h.id] as const : ['comments', h.table, h.id] as const);
 export const useDiscussion = (h: api.DiscussionHost, enabled = true) => useQuery({ queryKey: discussionKey(h), queryFn: () => api.discussion(h), enabled: enabled && Boolean(h.id) });
-export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled });
+/** The team list is an audited read (each fetch is logged), so it is not fetched again on returning to the window. */
+export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled, staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
 export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
 
 /** Whether the person holds `flag` in the unit. ADMINISTRATOR holds every permission, as it does on the server. */

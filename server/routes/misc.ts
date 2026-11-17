@@ -5,14 +5,14 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { sameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
-import { buildReport } from '../services/reports.ts';
-import { metricsReport, metricContributors, defaultPeriod } from '../services/metrics.ts';
+import { buildReport, trackOf } from '../services/reports.ts';
+import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
-import { DEFAULT_PERIOD, rangeForPeriod } from '../../shared/metrics.ts';
+import { DEFAULT_PERIOD, dayKey, previousRange, rangeForPeriod } from '../../shared/metrics.ts';
 import { areasFor } from '../../shared/evaluation.ts';
 import { plain } from '../../shared/writer/realize.ts';
 import { isoDate } from '../../shared/schemas.ts';
@@ -88,8 +88,11 @@ const draftSchema = z.object({
   visibility: z.enum(['private', 'unit']).optional(),
 });
 
+const draftListQuery = z.object({ before: z.string().max(200).optional() });
+
 miscRouter.get('/studio/reports', wrap((req, res) => {
-  res.json(listDrafts(req.ctx, req.user, scopeFor(req.ctx, req.user, req)));
+  const q = parse(draftListQuery, req.query);
+  res.json(listDrafts(req.ctx, req.user, scopeFor(req.ctx, req.user, req), { before: q.before ?? null }));
 }));
 
 miscRouter.post('/studio/reports', wrap((req, res) => {
@@ -108,7 +111,7 @@ miscRouter.get('/studio/reports/:id', wrap((req, res) => {
   res.json({
     draft, revisions, latest,
     sources: availableSources(req.ctx, req.user, scope, draft),
-    drift: draft.latest_revision ? revisionDrift(req.ctx, draft.id, draft.latest_revision) : [],
+    drift: draft.latest_revision ? revisionDrift(req.ctx, draft.id, draft.latest_revision, latest) : [],
   });
 }));
 
@@ -140,7 +143,7 @@ miscRouter.get('/studio/reports/:id/revisions/:revision', wrap((req, res) => {
   const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
   const revision = getRevision(req.ctx, draft.id, Number(req.params.revision));
   if (!revision) throw notFound('No such revision.');
-  res.json({ draft, revision, drift: revisionDrift(req.ctx, draft.id, revision.revision) });
+  res.json({ draft, revision, drift: revisionDrift(req.ctx, draft.id, revision.revision, revision) });
 }));
 
 miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, res) => {
@@ -155,8 +158,10 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   res.send(text);
 }));
 
+// A window is two real days, the second not before the first. isoDate keeps both between 1940 and 2100, which holds
+// All time as the pages ask for it (1970-01-01 to today) and refuses a window that only costs the server.
 const metricsQuery = z.object({
-  from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  from: isoDate.optional(), to: isoDate.optional(),
   unit_id: z.string().max(64).optional(), user_id: z.string().max(64).optional(),
   scope: z.enum(['me', 'all']).default('me'),
   aggregation: z.enum(['sum', 'max', 'min', 'average', 'latest', 'distinct']).optional(),
@@ -172,10 +177,13 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const filters: Record<string, string | null> = {};
   if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
   if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
+  const from = q.from || fallback.from;
+  const to = q.to || fallback.to;
+  if (to < from) throw badRequest('The window ends before it starts.', { fieldErrors: { to: 'Must be on or after the start.' } });
   return {
     scope,
     opts: {
-      from: q.from || fallback.from, to: q.to || fallback.to,
+      from, to,
       unitId: q.unit_id || null, subjectId: q.user_id || null,
       mineOnly: q.scope === 'me' && !q.unit_id && !q.user_id,
       aggregation: q.aggregation,
@@ -186,14 +194,17 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
 
 miscRouter.get('/metrics', wrap((req, res) => {
   const { scope, opts } = metricTarget(req);
-  res.json(metricsReport(req.ctx, req.user, scope, opts));
+  // The figures go without the outcome ids behind them; a figure's outcomes are opened from /metrics/contributors.
+  res.json(metricsResponse(metricsReport(req.ctx, req.user, scope, opts)));
 }));
 
+const contributorsQuery = z.object({ metric_id: z.string().max(200).optional(), month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must be a month (YYYY-MM).').optional() });
+
 miscRouter.get('/metrics/contributors', wrap((req, res) => {
-  const metricId = String(req.query.metric_id || '');
+  const { metric_id: metricId, month } = parse(contributorsQuery, { metric_id: req.query.metric_id || undefined, month: req.query.month || undefined });
   if (!metricId) throw badRequest('Name the metric to open.');
   const { scope, opts } = metricTarget(req);
-  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId }));
+  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId, month: month ?? null }));
 }));
 
 miscRouter.get('/reports', wrap((req, res) => {
@@ -206,12 +217,15 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const { q, userId, unitId } = reportTarget(req);
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
-  const activities = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
-  const awards = req.ctx.db.prepare(`SELECT date FROM awards WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null }>;
-  const trainings = req.ctx.db.prepare(`SELECT date, end_date, ongoing, hours FROM trainings WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null; end_date: string | null; ongoing: number; hours: number | null }>;
-  const goals = req.ctx.db.prepare(`SELECT status FROM goals WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ status: string }>;
   const range = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
-  const track = q.track || buildReport(req.ctx, { userId, unitId, period: q.period }).track;
+  // Only the two periods compared are read: an entry or a course with a day in either, as comparePeriods counts them.
+  const span = (table: 'activities' | 'trainings') => periodClause(table, table, dayKey(previousRange(range).start), dayKey(range.end));
+  const [a, t] = [span('activities'), span('trainings')];
+  const activities = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${a.sql}`).all(...params, ...a.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
+  const awards = req.ctx.db.prepare(`SELECT date FROM awards WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null }>;
+  const trainings = req.ctx.db.prepare(`SELECT date, end_date, ongoing, hours FROM trainings WHERE ${where} AND deleted_at IS NULL AND ${t.sql}`).all(...params, ...t.params) as Array<{ date: string | null; end_date: string | null; ongoing: number; hours: number | null }>;
+  const goals = req.ctx.db.prepare(`SELECT status FROM goals WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ status: string }>;
+  const track = q.track || trackOf(req.ctx, userId);
   res.json(comparePeriods(activities as never, range, { areas: areasFor(track), awards, trainings, goals }));
 }));
 

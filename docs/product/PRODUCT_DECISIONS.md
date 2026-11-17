@@ -168,3 +168,18 @@ behind its permissions and lets a retention schedule clear them.
 **Skeptic.** Notices without words are less useful at a glance, and three groups that can be turned off may hide
 something a person wanted. **Judge.** BUILD. A notice opens the record in one click, a comment's notices coalesce into
 one per record, and nothing anyone is asked to do can be turned off.
+
+## PD-017 · Performance and accessibility defaults
+
+**Decision.** Vantage stays fast at MCEN scale by paging and indexing, and meets WCAG 2.2 AA at 320 to 1280 px
+(ADR-0032). These are defaults John can change, without a decision card:
+- **Reports show 200 rows** before "Show more" (print shows every row); **the dashboard shows 25 members** before
+  "Show all"; **audit logs load 100 entries** at a time for your own and 200 for a unit's log or an audit trail.
+- **Files still stop at 5,000 rows** (ADR-0020), and now say so in the file.
+- **The audit chain status on a trail's first page may be up to 60 s old;** the integrity check run on purpose is fresh.
+- **Single-key shortcuts are on** by default; anyone can turn them off in Settings, Appearance.
+
+**Why.** The specification asks for pagination, indexing, efficient queries and lazy loading on the six heaviest areas,
+and for WCAG 2.2 AA tested with Playwright and axe. **Skeptic.** "Show more" adds a click, and a 60-second-old chain
+status could miss a break for a minute. **Judge.** BUILD. Nothing is hidden without saying so, and a break is still
+found by every explicit check and by the next first page.

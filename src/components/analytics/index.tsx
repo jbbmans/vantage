@@ -5,6 +5,7 @@ import { ArrowRight, Info } from 'lucide-react';
 import { Button, EmptyState, Segmented, Skeleton } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { QueryFailure } from '@/components/QueryFailure';
+import { ScrollRegion } from '@/components/common';
 import { cn } from '@/lib/utils';
 import { formatDate, formatNumber } from '../../../shared/metrics';
 import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
@@ -53,7 +54,7 @@ export function FigureFrame({ question, summary, note, chart, table, empty, acti
           {summary ? <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{summary}</span> : null}
         </span>
         {(actions || (table && !empty)) ? (
-          <span className="no-print flex shrink-0 items-center gap-2">
+          <span className="no-print flex min-w-0 max-w-full flex-wrap items-center gap-2">
             {actions}
             {table && !empty ? <Segmented size="sm" label="Show as" value={view} onChange={setView} options={[{ value: 'chart', label: 'Chart', id: `${id}-tab-chart`, controls: `${id}-chart` }, { value: 'table', label: 'Table', id: `${id}-tab-table`, controls: `${id}-table` }]} /> : null}
           </span>
@@ -116,16 +117,28 @@ export function BarChart({ visual, onDrill, limit = 10 }: { visual: Visual; onDr
   );
 }
 
-/** Columns up: a figure over time. Paired when the visual has more than one series (opened and closed). */
+/** The narrowest a column that opens its records may be: the 24px a pointer target needs (WCAG 2.5.8). */
+const SLOT_MIN = 24;
+
+/**
+ * Columns up: a figure over time. Paired when the visual has more than one series (opened and closed). A pair is two
+ * buttons to a month, so on a narrow screen a year of pairs would squeeze each below the size a finger can hit; instead
+ * each keeps its 24px and the months scroll sideways inside the chart, in a region a keyboard can reach.
+ */
 export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual; onDrill?: OnDrill; height?: number }) {
   const max = Math.max(0, ...visual.buckets.flatMap((b) => b.values.map(Math.abs))) || 1;
   const n = visual.buckets.length;
   const step = n <= 7 ? 1 : Math.ceil(n / 6);
   const labelled = (i: number) => i === n - 1 || (i % step === 0 && n - 1 - i >= step / 2);
   const values = n <= (multi(visual) ? 4 : 8);
-  return (
-    <div className="min-w-0">
-      {multi(visual) && <Legend series={visual.series} />}
+  const paired = multi(visual);
+  const pairs = visual.series.length;
+  // Every slot keeps a 24px target (WCAG 2.5.8), paired or not: two months next to each other that both open their
+  // records are otherwise too narrow on a phone. Each month's slots and the 2px between them, and the 3px between
+  // months, as .chart-plot and .chart-col-group set them; past the width there is, the chart scrolls inside itself.
+  const minWidth = n * (pairs * SLOT_MIN + (pairs - 1) * 2) + Math.max(0, n - 1) * 3;
+  const plot = (
+    <div style={{ minWidth }}>
       <div className="chart-plot" style={{ height }}>
         {visual.buckets.map((b) => (
           <div key={b.key} className="chart-col-group">
@@ -137,9 +150,10 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
                   {values && v ? <span className="chart-col-value fig">{valueOf(visual, b, i)}</span> : null}
                 </span>
               );
+              const slot = { minWidth: SLOT_MIN };
               return drillable(visual, onDrill, b.counts[i])
-                ? <button key={s.key} type="button" className="chart-col-slot chart-hit" title={label} aria-label={`${label}. ${showRecords(visual, b.counts[i], b)}`} onClick={() => onDrill({ visual, bucket: b, series: multi(visual) ? s : null })}>{bar}</button>
-                : <span key={s.key} className="chart-col-slot" role="img" title={label} aria-label={label}>{bar}</span>;
+                ? <button key={s.key} type="button" className="chart-col-slot chart-hit" style={slot} title={label} aria-label={`${label}. ${showRecords(visual, b.counts[i], b)}`} onClick={() => onDrill({ visual, bucket: b, series: multi(visual) ? s : null })}>{bar}</button>
+                : <span key={s.key} className="chart-col-slot" style={slot} role="img" title={label} aria-label={label}>{bar}</span>;
             })}
           </div>
         ))}
@@ -147,6 +161,12 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
       <div className="chart-axis" aria-hidden>
         {visual.buckets.map((b, i) => <span key={b.key} className="min-w-0 flex-1 truncate text-center">{labelled(i) ? b.label : ''}</span>)}
       </div>
+    </div>
+  );
+  return (
+    <div className="min-w-0">
+      {paired && <Legend series={visual.series} />}
+      <ScrollRegion label={visual.question}>{plot}</ScrollRegion>
     </div>
   );
 }
@@ -209,7 +229,7 @@ export function FigureTable({ visual, onDrill, first }: { visual: Visual; onDril
     return <button type="button" className="link fig" aria-label={`${b.label}${s ? `, ${s.label}` : ''}: ${text}. ${showRecords(visual, count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: s })}>{text}</button>;
   };
   return (
-    <div className="scroll-x">
+    <ScrollRegion label={visual.question}>
       <table className="w-full border-collapse text-sm">
         <caption className="sr-only">{visual.question}</caption>
         <thead>
@@ -223,7 +243,7 @@ export function FigureTable({ visual, onDrill, first }: { visual: Visual; onDril
         <tbody className="[&>tr>td]:px-2.5 [&>tr>td]:py-1.5 [&>tr>th]:px-2.5 [&>tr>th]:py-1.5 [&>tr]:border-b [&>tr]:border-line">
           {visual.buckets.map((b) => (
             <tr key={b.key}>
-              <th scope="row" className="text-left font-normal text-ink">{b.label}</th>
+              <th scope="row" className="text-left font-normal text-ink">{b.label}{b.hint ? <span className="block text-xs text-ink-3">{b.hint}</span> : null}</th>
               {multi(visual) ? visual.series.map((s, i) => <td key={s.key} className="fig text-right">{cell(b, i)}</td>) : null}
               {whole ? <td className="fig text-right font-medium">{cell(b, null)}</td> : null}
               <td className="fig text-right text-ink-3">{formatNumber(b.count)}</td>
@@ -231,7 +251,7 @@ export function FigureTable({ visual, onDrill, first }: { visual: Visual; onDril
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollRegion>
   );
 }
 

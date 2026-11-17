@@ -3,7 +3,6 @@ import { composeNarrative } from '../../shared/narrative.ts';
 import { buildPackage, type BulletStyle } from '../../shared/bullets.ts';
 import { aggregateMetrics, rangeForPeriod, formatDTG, type PeriodKey } from '../../shared/metrics.ts';
 import { narrativeConfig, areasFor, areaAmong, trackForGrade, type Track } from '../../shared/evaluation.ts';
-import { hydrate } from './records.ts';
 import { periodClause } from './timeframes.ts';
 import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
 import { caseworkFor } from './record.ts';
@@ -21,16 +20,33 @@ export function periodBounds(period: string, from?: string | null, to?: string |
 /** How the narrative is written: the wording seed, what is pinned or left out, compact or full, and its length. */
 export interface NarrativeChoices { seed?: number; density?: Density | 'auto'; exclude?: string[]; pin?: string[]; chars?: number; format?: Format; spell?: boolean }
 
+interface ReportPerson { first_name: string; last_name: string; mos: string | null; rank_abbr: string | null; rank_grade: string | null }
+const personOf = (ctx: AppContext, userId: string) =>
+  ctx.db.prepare('SELECT u.first_name, u.last_name, u.mos, r.abbr AS rank_abbr, r.grade AS rank_grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?').get(userId) as ReportPerson | undefined;
+
+/** The evaluation a Marine is written for by their grade (trackForGrade): one indexed read, nothing else built. */
+export const trackOf = (ctx: AppContext, userId: string): Track => trackForGrade(personOf(ctx, userId)?.rank_grade);
+
+/**
+ * The columns of an entry the report uses: what the narrative, the package, the worksheet and the measures read, and
+ * the screen's narrative writer after them, with its id, its place and its timeframe. Notes, links and bookkeeping stay
+ * on the entry's own page, so a busy record's report does not carry them.
+ */
+export const REPORT_ACTIVITY_COLUMNS = [
+  'id', 'unit_id', 'visibility', 'date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'category', 'eval_area',
+  'quantity', 'unit_label', 'dollar_amount', 'dollar_type', 'result', 'organization', 'system', 'status',
+] as const;
+
 export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: string | null; period: string; from?: string | null; to?: string | null; style?: BulletStyle; limit?: number; track?: Track | null; narrative?: NarrativeChoices }) {
   const { from, to, label } = periodBounds(opts.period, opts.from, opts.to, ctx.config.timezone);
-  const person = ctx.db.prepare(`SELECT u.first_name, u.last_name, u.mos, r.abbr AS rank_abbr, r.grade AS rank_grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?`).get(opts.userId) as { first_name: string; last_name: string; mos: string | null; rank_abbr: string | null; rank_grade: string | null } | undefined;
+  const person = personOf(ctx, opts.userId);
   const track: Track = opts.track || trackForGrade(person?.rank_grade);
   const where = opts.unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = opts.unitId ? [opts.userId, opts.unitId] : [opts.userId];
   // What ran in the period: anything with a day in it, so work begun before the period and still going counts (ADR-0018).
   const inPeriod = (table: 'activities' | 'awards' | 'trainings') => periodClause(table, table, from, to);
   const [a, w, t] = [inPeriod('activities'), inPeriod('awards'), inPeriod('trainings')];
-  const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${a.sql} ORDER BY date DESC`).all(...params, ...a.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
+  const activities = ctx.db.prepare(`SELECT ${REPORT_ACTIVITY_COLUMNS.join(', ')} FROM activities WHERE ${where} AND deleted_at IS NULL AND ${a.sql} ORDER BY date DESC`).all(...params, ...a.params) as Array<Record<string, unknown>>;
   const awards = ctx.db.prepare(`SELECT name, period_start, date, status FROM awards WHERE ${where} AND deleted_at IS NULL AND ${w.sql} ORDER BY date DESC`).all(...params, ...w.params) as Array<{ name: string; period_start: string | null; date: string | null; status: string }>;
   const trainings = ctx.db.prepare(`SELECT title, date, end_date, start_time, end_time, ongoing, hours, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND ${t.sql} ORDER BY date DESC`).all(...params, ...t.params) as Array<{ title: string; date: string | null; end_date: string | null; start_time: string | null; end_time: string | null; ongoing: number; hours: number | null; status: string | null }>;
   const cfg = narrativeConfig(track);

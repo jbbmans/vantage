@@ -39,7 +39,7 @@ test('the demo has no Unit Manager console, but its entry shows what a Unit Mana
   await expect(page.getByRole('heading', { name: 'Unit Manager console', level: 1 })).toBeVisible();
   await expect(page.getByText(/^How a Unit Instance is governed\./)).toBeVisible();
   await expect(page.getByText('Retention and legal holds')).toBeVisible();
-  await expect(page.getByText('Data inventory', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Data inventory' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Export for the PIA/ })).toHaveCount(0);
 });
 

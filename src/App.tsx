@@ -13,6 +13,7 @@ import type { TeamSection } from '@/lib/teamAccess';
 import { MOVED, movedTo } from '@/config/nav';
 import { Compass, Search } from 'lucide-react';
 import { LINKS, adminHref, consoleHref, siteHref } from '@/lib/links';
+import { usePageTitle } from '@/lib/title';
 
 // Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
 const Login = lazy(() => import('@/pages/Login'));
@@ -58,6 +59,8 @@ const Screen = ({ children }: { children: React.ReactNode }) => <Suspense fallba
 function NotFound() {
   const navigate = useNavigate();
   const search = () => window.dispatchEvent(new Event('vantage:open-palette'));
+  // The shell would title this page by its address; it is no page, and says so in the tab too.
+  usePageTitle('Page not found · Vantage');
   return (
     <div className="mx-auto max-w-md">
       {/* The page's own heading, so a screen reader announces where it landed; the card says what to do next. */}

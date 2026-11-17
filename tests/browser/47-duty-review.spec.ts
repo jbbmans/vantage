@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page, type Request } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
@@ -82,6 +82,10 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await waitingNotice.getByRole('button', { name: /^Review (it|them)$/ }).click();
   await expect(lead.page.getByRole('tab', { name: /^To review \(\d+\)$/ })).toHaveAttribute('aria-selected', 'true');
   const queued = (title: string) => lead.page.getByRole('row').filter({ hasText: title });
+  // DH-5: while the queue shows, the tab's list is not read, so a decision reads no list again.
+  const listReads: string[] = [];
+  const countReads = (req: Request) => { if (new URL(req.url()).pathname === '/api/record/duty/list') listReads.push(req.url()); };
+  lead.page.on('request', countReads);
   await expect(queued(A)).toBeVisible();
   await expect(queued(B)).toBeVisible();
   await expect(queued(C)).toBeVisible();
@@ -130,6 +134,8 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await toast(lead.page, 'Approved for 3 points.');
   await expect(history).toContainText('3 points, as scored under version');
   await closeDialogs(lead.page);
+  lead.page.off('request', countReads);
+  expect(listReads, 'duty lists read while deciding from the queue').toEqual([]);
 
   // The Marine reads why it came back, corrects it, and it goes back for review with the correction.
   await page.goto('/record/duty');
@@ -235,7 +241,7 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await stand(page, 'DNCO', `Second ${tag}`, 10);
   await stand(lead.page, 'SAF', `Recorded ${tag}`, 11, me.user?.id ?? me.id);
   await lead.page.goto('/record/duty?who=review');
-  const waitingGroup = lead.page.getByRole('group', { name: 'Duty waiting for your review' });
+  const waitingGroup = lead.page.getByRole('tabpanel', { name: /^To review/ });
   const duties = waitingGroup.locator('tbody tr td:first-child button');
   await expect(duties.filter({ hasText: `First ${tag}` })).toBeVisible();
   const order = await duties.allTextContents();
@@ -257,10 +263,30 @@ test('a reviewer approves, returns and rejects duty waiting for review; the Mari
   await toast(lead.page, 'Returned for correction.');
   await expect(duties.filter({ hasText: `Recorded ${tag}` })).toHaveCount(0);
   await expect.poll(() => lead.page.evaluate(() => {
-    const group = document.querySelector('[aria-label="Duty waiting for your review"]');
+    const group = document.getElementById('duty-panel');
     return Boolean(group && document.activeElement && group.contains(document.activeElement));
   }), { message: 'focus stays in the queue' }).toBe(true);
   expect(await axe(lead.page), 'the queue after a decision').toEqual([]);
+
+  // DH-11: the queue narrows to one unit by a labelled choice, and goes back to all of them.
+  await lead.page.goto('/record/duty?who=review&queue_unit=G8');
+  const queueUnit = lead.page.getByRole('tabpanel', { name: /^To review/ }).getByRole('combobox', { name: 'Unit' });
+  await expect(queueUnit).toContainText(/^G8 \(\d+\)$/);
+  await expect(queued(`Second ${tag}`)).toBeVisible();
+  expect(await axe(lead.page), 'the queue narrowed to a unit').toEqual([]);
+  await queueUnit.click();
+  await lead.page.getByRole('option', { name: 'All units' }).click();
+  await expect(lead.page).not.toHaveURL(/queue_unit=/);
+  await expect(queued(`Second ${tag}`)).toBeVisible();
+
+  // DH-8: a queue that fails to load says so, and the To review tab stays where the reviewer left it.
+  const queueRead = '**/api/record/duty/review-queue**';
+  await lead.page.route(queueRead, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Something went wrong.' }) }));
+  await lead.page.goto('/record/duty?who=review');
+  await expect(lead.page.getByRole('alert').filter({ hasText: 'Duty waiting for your review could not load' })).toBeVisible();
+  await expect(lead.page.getByRole('tab', { name: /^To review/ })).toHaveAttribute('aria-selected', 'true');
+  expect(await axe(lead.page), 'a queue that failed to load').toEqual([]);
+  await lead.page.unroute(queueRead);
 
   // A phone: the queue and a decision fit.
   await stand(page, 'SAF', `Phone ${tag}`, 7);

@@ -7,6 +7,7 @@ import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
+import { PersonPicker, type PersonSearch } from '@/components/PersonPicker';
 import AccountImport from '@/components/AccountImport';
 import * as api from '@/lib/api';
 import { cn, formatStamp, humanize, isoDay } from '@/lib/utils';
@@ -51,10 +52,23 @@ export interface Configuration {
 
 const useConfiguration = (orgId: string) => useOrg<Configuration>(orgId, 'configuration', () => api.orgConfiguration(orgId));
 const useUnits = (orgId: string) => useOrg<{ units: OrgUnit[] }>(orgId, 'units', () => api.orgUnits(orgId));
-/** The Unit Instance's members, for the roles that may list them; nobody else asks. */
-const useMembers = (org: OrgSummary, wanted = true) => {
-  const may = wanted && ['org.members', 'org.owners', 'org.roles'].some((p) => org.permissions.includes(p));
-  return useOrg<{ members: OrgMember[] }>(org.id, may ? 'members-all' : 'members-none', () => (may ? api.orgMembers(org.id) : Promise.resolve({ members: [] })));
+/**
+ * The members of one unit of the Unit Instance, every page of them, for the roles that may list them; nobody else asks.
+ * A unit's people are read whole, so a list of whom to choose never stops silently at a page.
+ */
+const useUnitMembers = (org: OrgSummary, unitId: string) => {
+  const may = Boolean(unitId) && ['org.members', 'org.owners', 'org.roles'].some((p) => org.permissions.includes(p));
+  return useOrg<{ members: OrgMember[] }>(org.id, may ? `members-of:${unitId}` : 'members-none', async () => {
+    if (!may) return { members: [] };
+    const members: OrgMember[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const page = await api.orgMembers(org.id, { unit: unitId, cursor });
+      members.push(...page.members);
+      if (!page.more || !page.next) return { members };
+      cursor = page.next;
+    }
+  });
 };
 const unitLabel = (u: Pick<OrgUnit, 'name' | 'short_name'>) => u.short_name || u.name;
 /** A unit's name for a row that names it, archived or not. */
@@ -89,12 +103,23 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
   const act = useAct();
   const toast = useToast();
   const { data, isPending, error, refetch } = useUnits(org.id);
-  const members = useMembers(org, can('org.units'));
   const [show, setShow] = useState<'all' | 'teams'>('all');
   const [editing, setEditing] = useState<UnitDraft | null>(null);
   const [archiving, setArchiving] = useState<OrgUnit | null>(null);
   const [leading, setLeading] = useState<OrgUnit | null>(null);
-  const [leader, setLeader] = useState('');
+  const [leader, setLeader] = useState<{ id: string; name: string } | null>(null);
+  // Any active member of the Unit Instance may be named, found by name rather than from a list of the first page. Only
+  // the roles that may list members search them.
+  const listsMembers = ['org.members', 'org.owners', 'org.roles'].some(can);
+  const leaderSearch = useMemo<PersonSearch>(() => ({
+    key: ['org', org.id, 'leaders'],
+    load: async (q) => {
+      if (!listsMembers) return { people: [], more: false };
+      const page = await withSudo(() => api.orgMembers(org.id, { q, limit: 20 }));
+      return { people: page.members.filter((m) => m.active).map((m) => ({ id: m.id, username: m.username, name: personName(m), rank: m.rank_abbr })), more: page.more };
+    },
+    none: listsMembers ? 'No active member by that name.' : 'Your Unit Instance role does not list its members.',
+  }), [org.id, listsMembers]);
   const refresh = () => qc.invalidateQueries({ queryKey: ['org', org.id] });
   if (isPending) return <Skeleton className="h-64" />;
   if (error || !data) return <Failed error={error} retry={() => refetch()} />;
@@ -122,7 +147,7 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!rows.length ? <EmptyState icon={Users} title={show === 'teams' ? 'No teams yet' : 'No units'} description={show === 'teams' ? 'A team is a squad or fire team. Create one under the unit it belongs to.' : undefined} /> : (
-          <Table minWidth={780} head={<><th>Unit</th><th className="w-40">Echelon</th><th className="w-44">Leader</th><th className="w-20 text-right">Members</th><th className="w-24">Status</th><th className="relative w-56"><span className="sr-only">Actions</span></th></>}>
+          <Table label={show === 'teams' ? 'Teams' : 'Units'} minWidth={780} head={<><th scope="col">Unit</th><th scope="col" className="w-40">Echelon</th><th scope="col" className="w-44">Leader</th><th scope="col" className="w-20 text-right">Members</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-56"><span className="sr-only">Actions</span></th></>}>
             {rows.map((u) => (
               <tr key={u.id}>
                 <td><span className="block font-medium text-ink" style={{ paddingLeft: `${u.depth * 1.25}rem` }}>{u.depth ? '└ ' : ''}{u.name}</span><span className="block text-xs text-ink-3" style={{ paddingLeft: `${u.depth * 1.25}rem` }}>{u.short_name ? `${u.short_name} · ` : ''}{u.code}</span></td>
@@ -132,7 +157,7 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
                 <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="neutral">Archived</Badge>}</td>
                 <td className="text-right">{can('org.units') && u.active ? <span className="flex flex-wrap justify-end gap-1">
                   {!isRoot(u) && <Button size="xs" variant="ghost" aria-label={`Edit ${u.name}`} onClick={() => setEditing({ id: u.id, name: u.name, short_name: u.short_name || '', echelon: u.echelon || 'section', location: '', parent_id: u.parent_id || '' })}>Edit</Button>}
-                  <Button size="xs" variant="ghost" aria-label={`Set leader for ${u.name}`} onClick={() => { setLeading(u); setLeader(''); }}>Set leader</Button>
+                  <Button size="xs" variant="ghost" aria-label={`Set leader for ${u.name}`} onClick={() => { setLeading(u); setLeader(null); }}>Set leader</Button>
                   {!isRoot(u) && <Button size="xs" variant="ghost" aria-label={`Archive ${u.name}`} onClick={() => setArchiving(u)}><Archive className="h-3 w-3" />Archive</Button>}
                 </span> : null}</td>
               </tr>
@@ -161,8 +186,13 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
         body="It leaves the Unit Instance’s structure and its shared work stays on the record. A unit that still has members or units beneath it is not archived: move them first."
         onConfirm={async () => { if (archiving) await act('Unit archived.', () => api.archiveUnit(archiving.id), refresh); setArchiving(null); }} />
       <Dialog open={Boolean(leading)} onOpenChange={(o) => { if (!o) setLeading(null); }} title={`Leader for ${leading?.name}`} size="sm" description="The leader holds the Unit Leader role. A former leader loses it and is signed out."
-        footer={<><Button variant="ghost" onClick={() => setLeading(null)}>Cancel</Button><Button variant="primary" disabled={!leader} onClick={async () => { if (!leading) return; const r = await act('Leader set.', () => api.orgSetLeader(org.id, leading.id, leader), refresh); if (r) setLeading(null); }}>Set leader</Button></>}>
-        <Field label="Member"><Select value={leader} onValueChange={setLeader} placeholder="Choose a member" options={(members.data?.members ?? []).filter((m) => m.active).map((m) => ({ value: m.id, label: `${personName(m)} (@${m.username})` }))} /></Field>
+        footer={<><Button variant="ghost" onClick={() => setLeading(null)}>Cancel</Button><Button variant="primary" disabled={!leader} onClick={async () => { if (!leading || !leader) return; const r = await act('Leader set.', () => api.orgSetLeader(org.id, leading.id, leader.id), refresh); if (r) setLeading(null); }}>Set leader</Button></>}>
+        {leader ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm">
+            <span className="font-medium text-ink">{leader.name}</span>
+            <Button size="xs" variant="ghost" aria-label={`Change from ${leader.name} to someone else`} onClick={() => setLeader(null)}>Change</Button>
+          </div>
+        ) : <PersonPicker search={leaderSearch} label="Member" hint="An active member of the Unit Instance" onChoose={(p) => setLeader({ id: p.id, name: p.name })} />}
       </Dialog>
     </div>
   );
@@ -182,10 +212,10 @@ export function Billets({ org }: { org: OrgSummary }) {
   const act = useAct();
   const config = useConfiguration(org.id);
   const units = useUnits(org.id);
-  const members = useMembers(org);
   const { data: identity } = useIdentity();
   const [editing, setEditing] = useState<BilletDraft | null>(null);
   const [unitId, setUnitId] = useState('');
+  const members = useUnitMembers(org, unitId || org.root_unit_id || (units.data?.units ?? []).find((u) => u.active)?.id || '');
   const [assigning, setAssigning] = useState<{ id: string; title: string; userId: string } | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['org', org.id] });
   if (config.isPending || units.isPending) return <Skeleton className="h-64" />;
@@ -216,7 +246,7 @@ export function Billets({ org }: { org: OrgSummary }) {
       <Panel title="Billet list" subtitle="The billets this Unit Instance staffs, in one unit or in any. A member’s billet is chosen from it." padded={false}
         action={can('org.config') ? <Button size="sm" variant="primary" onClick={() => setEditing({ title: '', code: '', unit_id: '', description: '' })}><Plus className="h-4 w-4" />New billet</Button> : undefined}>
         {!billets.length ? <EmptyState icon={ClipboardList} title="No billets listed yet" description="Add the billets your table of organization staffs; the empty ones then show as vacant." /> : (
-          <Table minWidth={680} head={<><th>Billet</th><th className="w-28">Code</th><th className="w-44">Unit</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Billet list" minWidth={680} head={<><th scope="col">Billet</th><th scope="col" className="w-28">Code</th><th scope="col" className="w-44">Unit</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {billets.map((b) => (
               <tr key={b.id}>
                 <td><span className="block font-medium text-ink">{b.title}</span>{b.description && <span className="block text-xs text-ink-3">{b.description}</span>}</td>
@@ -292,8 +322,8 @@ export function UnitRoles({ org }: { org: OrgSummary }) {
   const toast = useToast();
   const { data, isPending, error, refetch } = useOrg<{ roles: UnitRole[] }>(org.id, 'unit-roles', () => api.orgUnitRoles(org.id));
   const units = useUnits(org.id);
-  const members = useMembers(org);
   const [unitId, setUnitId] = useState('');
+  const members = useUnitMembers(org, unitId || org.root_unit_id || (units.data?.units ?? []).find((u) => u.active)?.id || '');
   const [editing, setEditing] = useState<RoleDraft | null>(null);
   const [deleting, setDeleting] = useState<UnitRole | null>(null);
   const [granting, setGranting] = useState<{ role: UnitRole; userId: string; until: string } | null>(null);
@@ -427,7 +457,7 @@ export function Duty({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.dutyTypes.length ? <EmptyState icon={ShieldAlert} title="No duty types yet" description={`Start from the standard list (${data.catalog.standardDutyTypes.map((d) => d.name).join(', ')}) or add your own.`} /> : (
-          <Table minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Duty types" minWidth={600} head={<><th scope="col" className="w-36">Code</th><th scope="col">Name</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.dutyTypes.map((d) => (
               <tr key={d.id}>
                 <td className="mono text-xs text-ink">{d.code}</td>
@@ -493,7 +523,7 @@ export function ErrorReportTypes({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.errorReportTypes.length ? <EmptyState icon={FileWarning} title="No error report types yet" description={`Start from the standard list (${data.catalog.standardErrorReportTypes.map((t) => t.code).join(', ')}) or add your own.`} /> : (
-          <Table minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Error report types" minWidth={600} head={<><th scope="col" className="w-36">Code</th><th scope="col">Name</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.errorReportTypes.map((t) => (
               <tr key={t.id}>
                 <td className="mono text-xs text-ink">{t.code}</td>
@@ -775,7 +805,7 @@ export function Training({ org }: { org: OrgSummary }) {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!data.trainingRequirements.length ? <EmptyState icon={GraduationCap} title="No training requirements yet" description="Add the courses, qualifications and annual training your Marines must hold." /> : (
-          <Table minWidth={760} head={<><th>Requirement</th><th className="w-32">Kind</th><th className="w-32">Recurs</th><th className="w-40">Applies to</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+          <Table label="Training requirements" minWidth={760} head={<><th scope="col">Requirement</th><th scope="col" className="w-32">Kind</th><th scope="col" className="w-32">Recurs</th><th scope="col" className="w-40">Applies to</th><th scope="col" className="w-24">Status</th><th scope="col" className="relative w-40"><span className="sr-only">Actions</span></th></>}>
             {data.trainingRequirements.map((t) => (
               <tr key={t.id}>
                 <td><span className="block text-sm font-medium text-ink">{t.title}</span><span className="block text-xs text-ink-3">{[t.course_code, t.description].filter(Boolean).join(' · ')}</span></td>

@@ -6,7 +6,7 @@ import { scopeFor } from '../authz/scope.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { COLUMN_ROLES, DRILLS, DRILL_GROUPS } from '../../shared/errorReports.ts';
 import {
-  drillRows, errorReportsOverview, fileSnapshot, lastLayout, previewSnapshot, reportChoices, viewComparison, withdrawSnapshot, type FilingPlan,
+  DRILL_PAGE, DRILL_PAGE_MAX, drillRows, errorReportsOverview, fileSnapshot, lastLayout, previewSnapshot, reportChoices, viewComparison, withdrawSnapshot, type FilingPlan,
 } from '../services/errorReports.ts';
 
 /**
@@ -45,7 +45,8 @@ const planSchema = z.object({
   header_row: z.coerce.number().int().min(1).max(100).default(1),
   key_columns: z.array(header).min(1, 'Choose the column that identifies each row.').max(2, 'Identify a row by one column, or two together.'),
   columns: z.record(header, z.enum(COLUMN_ROLES)).default({}),
-  closed_statuses: z.array(z.string().max(80)).max(100).default([]),
+  // Null: close the statuses that usually mean closed, so a series' first preview needs one request, not two.
+  closed_statuses: z.array(z.string().max(80)).max(100).nullable().default([]),
   note: z.string().max(500).nullish(),
 });
 
@@ -68,7 +69,14 @@ errorReportsRouter.get('/series', wrap((req, res) => {
   res.json(viewComparison(req.ctx, req.user, scopeFor(req.ctx, req.user, req), parse(comparisonSchema, req.query), clientIp(req)));
 }));
 
+// A page of the rows behind a figure: which rows they are is decided before the page is cut (drillRows).
+const drillSchema = comparisonSchema.extend({
+  drill: z.enum(DRILLS), group: z.enum(DRILL_GROUPS).optional(), value: z.string().max(300).optional(),
+  offset: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  limit: z.coerce.number().int().min(1).max(DRILL_PAGE_MAX).default(DRILL_PAGE),
+});
+
 errorReportsRouter.get('/rows', wrap((req, res) => {
-  const q = parse(comparisonSchema.extend({ drill: z.enum(DRILLS), group: z.enum(DRILL_GROUPS).optional(), value: z.string().max(300).optional() }), req.query);
+  const q = parse(drillSchema, req.query);
   res.json(drillRows(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, clientIp(req)));
 }));

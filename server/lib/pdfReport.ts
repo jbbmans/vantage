@@ -23,225 +23,244 @@ const PAD = 3.5;
  */
 const MAX_CELL = 600;
 
-export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer> {
+/**
+ * A long table is drawn this many rows at a time, with the event loop let go between, so other requests are answered
+ * while a 5,000-row report prints. The pages drawn are the same either way.
+ */
+export const PDF_ROWS_PER_TURN = 250;
+const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+export async function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer> {
   const wide = printsWide(report);
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: 'LETTER', layout: wide ? 'landscape' : 'portrait', margins: { top: 64, bottom: 64, left: 50, right: 50 }, bufferPages: true,
-      info: { Title: pdfText(`${report.title} · ${report.about}`), Author: 'Vantage', Subject: pdfText(report.about), Keywords: report.type },
-    });
-    const chunks: Buffer[] = [];
+  const doc = new PDFDocument({
+    size: 'LETTER', layout: wide ? 'landscape' : 'portrait', margins: { top: 64, bottom: 64, left: 50, right: 50 }, bufferPages: true,
+    info: { Title: pdfText(`${report.title} · ${report.about}`), Author: 'Vantage', Subject: pdfText(report.about), Keywords: report.type },
+  });
+  const chunks: Buffer[] = [];
+  const done = new Promise<Buffer>((resolve, reject) => {
     doc.on('data', (c: Buffer) => chunks.push(c));
     doc.on('error', reject);
     doc.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+  try {
+    await draw(doc, report, wide);
+  } catch (err) {
+    // The drawing failed, so the file's own failure, if any, has nobody to hear it.
+    done.catch(() => undefined);
+    throw err;
+  }
+  doc.end();
+  return done;
+}
 
-    const left = doc.page.margins.left;
-    const width = doc.page.width - left - doc.page.margins.right;
-    const bottom = () => doc.page.height - doc.page.margins.bottom;
-    const ensure = (h: number) => { if (doc.y + h > bottom()) doc.addPage(); };
-    const text = (t: string, font: string, size: number, color: string, opts: PDFKit.Mixins.TextOptions = {}) => {
-      doc.font(font).fontSize(size).fillColor(color).text(pdfText(t), left, doc.y, { width, lineGap: 1.6, ...opts });
-    };
-    const rule = () => { doc.moveDown(0.35); doc.strokeColor(RULE).lineWidth(0.6).moveTo(left, doc.y).lineTo(left + width, doc.y).stroke(); doc.moveDown(0.5); };
-    const fmt = (v: ReportFigure['value'], kind?: ReportFigure['kind']) => formatCell(v, kind, report.currency);
-    let shortened = false;
-    const cellText = (v: string) => { if (v.length <= MAX_CELL) return v; shortened = true; return `${v.slice(0, MAX_CELL - 1).trimEnd()}…`; };
+async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boolean) {
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const bottom = () => doc.page.height - doc.page.margins.bottom;
+  const ensure = (h: number) => { if (doc.y + h > bottom()) doc.addPage(); };
+  const text = (t: string, font: string, size: number, color: string, opts: PDFKit.Mixins.TextOptions = {}) => {
+    doc.font(font).fontSize(size).fillColor(color).text(pdfText(t), left, doc.y, { width, lineGap: 1.6, ...opts });
+  };
+  const rule = () => { doc.moveDown(0.35); doc.strokeColor(RULE).lineWidth(0.6).moveTo(left, doc.y).lineTo(left + width, doc.y).stroke(); doc.moveDown(0.5); };
+  const fmt = (v: ReportFigure['value'], kind?: ReportFigure['kind']) => formatCell(v, kind, report.currency);
+  let shortened = false;
+  const cellText = (v: string) => { if (v.length <= MAX_CELL) return v; shortened = true; return `${v.slice(0, MAX_CELL - 1).trimEnd()}…`; };
 
-    // ——— Cover block ———
-    drawMark(doc, left + width - 38, doc.y - 4, 38);
-    text(`VANTAGE  ·  ${report.title.toUpperCase()}`, 'Helvetica-Bold', 8, MUTED, { characterSpacing: 1.6, width: width - 56 });
-    doc.moveDown(0.3);
-    text(report.title, 'Helvetica-Bold', 20, INK, { width: width - 56 });
-    text(report.about, 'Helvetica', 11, INK2, { width: width - 56 });
-    const lines = [
-      report.unit ? `Unit: ${report.unit}` : null,
-      report.period ? `Period: ${report.period.label}${report.period.from && report.period.to ? ` (${report.period.from} to ${report.period.to})` : ''}` : null,
-      `Generated ${report.generated.on} by ${report.generated.by}`,
-    ].filter(Boolean) as string[];
-    doc.moveDown(0.2);
-    for (const l of lines) text(l, 'Helvetica', 8.5, MUTED);
+  // ——— Cover block ———
+  drawMark(doc, left + width - 38, doc.y - 4, 38);
+  text(`VANTAGE  ·  ${report.title.toUpperCase()}`, 'Helvetica-Bold', 8, MUTED, { characterSpacing: 1.6, width: width - 56 });
+  doc.moveDown(0.3);
+  text(report.title, 'Helvetica-Bold', 20, INK, { width: width - 56 });
+  text(report.about, 'Helvetica', 11, INK2, { width: width - 56 });
+  const lines = [
+    report.unit ? `Unit: ${report.unit}` : null,
+    report.period ? `Period: ${report.period.label}${report.period.from && report.period.to ? ` (${report.period.from} to ${report.period.to})` : ''}` : null,
+    `Generated ${report.generated.on} by ${report.generated.by}`,
+  ].filter(Boolean) as string[];
+  doc.moveDown(0.2);
+  for (const l of lines) text(l, 'Helvetica', 8.5, MUTED);
 
-    if (report.filters.length) {
-      doc.moveDown(0.5);
-      const colW = width / 2;
-      const boxH = Math.ceil(report.filters.length / 2) * 13 + 22;
-      ensure(boxH);
-      const top = doc.y;
-      doc.rect(left, top, width, boxH).fill(SOFT);
-      doc.font('Helvetica-Bold').fontSize(7).fillColor(INK2).text('FILTERS', left + 8, top + 6, { characterSpacing: 1.2, lineBreak: false });
-      report.filters.forEach((f, i) => {
-        const x = left + 8 + (i % 2) * colW; const y = top + 18 + Math.floor(i / 2) * 13;
-        doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(pdfText(`${f.label}:`), x, y, { width: colW * 0.36, lineBreak: false, ellipsis: true });
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(f.value), x + colW * 0.36, y, { width: colW * 0.64 - 16, lineBreak: false, ellipsis: true });
+  if (report.filters.length) {
+    doc.moveDown(0.5);
+    const colW = width / 2;
+    const boxH = Math.ceil(report.filters.length / 2) * 13 + 22;
+    ensure(boxH);
+    const top = doc.y;
+    doc.rect(left, top, width, boxH).fill(SOFT);
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(INK2).text('FILTERS', left + 8, top + 6, { characterSpacing: 1.2, lineBreak: false });
+    report.filters.forEach((f, i) => {
+      const x = left + 8 + (i % 2) * colW; const y = top + 18 + Math.floor(i / 2) * 13;
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(pdfText(`${f.label}:`), x, y, { width: colW * 0.36, lineBreak: false, ellipsis: true });
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(f.value), x + colW * 0.36, y, { width: colW * 0.64 - 16, lineBreak: false, ellipsis: true });
+    });
+    doc.x = left; doc.y = top + boxH;
+  }
+  rule();
+
+  // ——— Figures in a grid ———
+  const figures = (list: ReportFigure[]) => {
+    if (!list.length) return;
+    const cols = wide ? 4 : 3; const colW = width / cols; const rowH = 30;
+    for (let i = 0; i < list.length; i += cols) {
+      ensure(rowH);
+      const y = doc.y;
+      list.slice(i, i + cols).forEach((f, j) => {
+        const x = left + j * colW;
+        doc.font('Helvetica').fontSize(7.5).fillColor(MUTED).text(pdfText(f.label), x, y, { width: colW - 10, lineBreak: false, ellipsis: true });
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(pdfText(fmt(f.value, f.kind)), x, y + 10, { width: colW - 10, lineBreak: false, ellipsis: true });
       });
-      doc.x = left; doc.y = top + boxH;
+      doc.x = left; doc.y = y + rowH;
     }
-    rule();
+    doc.moveDown(0.2);
+  };
 
-    // ——— Figures in a grid ———
-    const figures = (list: ReportFigure[]) => {
-      if (!list.length) return;
-      const cols = wide ? 4 : 3; const colW = width / cols; const rowH = 30;
-      for (let i = 0; i < list.length; i += cols) {
-        ensure(rowH);
-        const y = doc.y;
-        list.slice(i, i + cols).forEach((f, j) => {
-          const x = left + j * colW;
-          doc.font('Helvetica').fontSize(7.5).fillColor(MUTED).text(pdfText(f.label), x, y, { width: colW - 10, lineBreak: false, ellipsis: true });
-          doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(pdfText(fmt(f.value, f.kind)), x, y + 10, { width: colW - 10, lineBreak: false, ellipsis: true });
-        });
-        doc.x = left; doc.y = y + rowH;
-      }
-      doc.moveDown(0.2);
-    };
-
-    // ——— Charts, each with its labels and figures; the table below holds the same numbers in full ———
-    // A chart is kept on one page, and says which table and column it draws. A figure over time stands in columns.
-    const COLUMN_PLOT = 86; const BAR_ROW = 13;
-    const drawn = (c: ReportChart) => { const { bars } = chartBars(c); return bars.length >= 2 && bars.some((b) => b.value); };
-    // The height a chart takes, its title and source line included, so a section's heading is kept with it.
-    const chartHeight = (c: ReportChart) => (!drawn(c) ? 0 : c.shape === 'columns' ? COLUMN_PLOT + 52 : BAR_ROW * chartBars(c).bars.length + 34);
-    const chart = (c: ReportChart, source: ReportTable | undefined) => {
-      const { bars, left: cut } = chartBars(c);
-      if (!drawn(c)) return;
-      const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
-      const column = source?.columns.find((x) => x.key === c.column)?.label;
-      const more = cut ? ` ${c.shape === 'columns' ? `The latest ${bars.length}` : `The first ${bars.length}`} of ${c.bars.length} are drawn; the table holds them all.` : '';
-      const from = source ? `From the table ${source.title}${column ? `, column ${column}` : ''}.${more}` : null;
-      if (c.shape === 'columns') {
-        const plotH = COLUMN_PLOT; const gap = Math.min(3, (width / bars.length) * 0.3); const colW = (width - gap * (bars.length - 1)) / bars.length;
-        ensure(chartHeight(c));
-        text(c.title, 'Helvetica-Bold', 9, INK);
-        doc.moveDown(0.3);
-        const top = doc.y + 10; const base = top + plotH;
-        bars.forEach((b, i) => {
-          const x = left + i * (colW + gap);
-          const h = b.value ? Math.max(1, (Math.abs(b.value) / max) * plotH) : 0;
-          if (h) doc.rect(x, base - h, colW, h).fill(ACCENT);
-          if (bars.length <= 12) doc.font('Helvetica').fontSize(6.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), x - 6, base - h - 9, { width: colW + 12, align: 'center', lineBreak: false });
-          if (labelledColumn(i, bars.length)) doc.font('Helvetica').fontSize(6.5).fillColor(INK2).text(pdfText(b.label), x - 10, base + 3, { width: colW + 20, align: 'center', lineBreak: false, ellipsis: true });
-        });
-        doc.moveTo(left, base).lineTo(left + width, base).lineWidth(0.5).strokeColor(MUTED).stroke();
-        doc.x = left; doc.y = base + 14;
-        if (from) text(from, 'Helvetica', 7, MUTED);
-        doc.moveDown(0.5);
-        return;
-      }
-      const labelW = width * 0.32; const valueW = width * 0.16; const barW = width - labelW - valueW - 12; const rowH = BAR_ROW;
+  // ——— Charts, each with its labels and figures; the table below holds the same numbers in full ———
+  // A chart is kept on one page, and says which table and column it draws. A figure over time stands in columns.
+  const COLUMN_PLOT = 86; const BAR_ROW = 13;
+  const drawn = (c: ReportChart) => { const { bars } = chartBars(c); return bars.length >= 2 && bars.some((b) => b.value); };
+  // The height a chart takes, its title and source line included, so a section's heading is kept with it.
+  const chartHeight = (c: ReportChart) => (!drawn(c) ? 0 : c.shape === 'columns' ? COLUMN_PLOT + 52 : BAR_ROW * chartBars(c).bars.length + 34);
+  const chart = (c: ReportChart, source: ReportTable | undefined) => {
+    const { bars, left: cut } = chartBars(c);
+    if (!drawn(c)) return;
+    const max = Math.max(...bars.map((b) => Math.abs(b.value)), 1);
+    const column = source?.columns.find((x) => x.key === c.column)?.label;
+    const more = cut ? ` ${c.shape === 'columns' ? `The latest ${bars.length}` : `The first ${bars.length}`} of ${c.bars.length} are drawn; the table holds them all.` : '';
+    const from = source ? `From the table ${source.title}${column ? `, column ${column}` : ''}.${more}` : null;
+    if (c.shape === 'columns') {
+      const plotH = COLUMN_PLOT; const gap = Math.min(3, (width / bars.length) * 0.3); const colW = (width - gap * (bars.length - 1)) / bars.length;
       ensure(chartHeight(c));
       text(c.title, 'Helvetica-Bold', 9, INK);
-      doc.moveDown(0.2);
-      for (const b of bars) {
-        ensure(rowH);
-        const y = doc.y;
-        doc.font('Helvetica').fontSize(7.5).fillColor(INK2).text(pdfText(b.label), left, y + 2, { width: labelW - 6, lineBreak: false, ellipsis: true });
-        const w = Math.max(b.value ? 1 : 0, (Math.abs(b.value) / max) * barW);
-        if (w) doc.rect(left + labelW, y + 2.5, w, rowH - 5).fill(ACCENT);
-        doc.font('Helvetica').fontSize(7.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), left + labelW + barW + 6, y + 2, { width: valueW + 6, align: 'right', lineBreak: false });
-        doc.x = left; doc.y = y + rowH;
-      }
+      doc.moveDown(0.3);
+      const top = doc.y + 10; const base = top + plotH;
+      bars.forEach((b, i) => {
+        const x = left + i * (colW + gap);
+        const h = b.value ? Math.max(1, (Math.abs(b.value) / max) * plotH) : 0;
+        if (h) doc.rect(x, base - h, colW, h).fill(ACCENT);
+        if (bars.length <= 12) doc.font('Helvetica').fontSize(6.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), x - 6, base - h - 9, { width: colW + 12, align: 'center', lineBreak: false });
+        if (labelledColumn(i, bars.length)) doc.font('Helvetica').fontSize(6.5).fillColor(INK2).text(pdfText(b.label), x - 10, base + 3, { width: colW + 20, align: 'center', lineBreak: false, ellipsis: true });
+      });
+      doc.moveTo(left, base).lineTo(left + width, base).lineWidth(0.5).strokeColor(MUTED).stroke();
+      doc.x = left; doc.y = base + 14;
       if (from) text(from, 'Helvetica', 7, MUTED);
       doc.moveDown(0.5);
-    };
+      return;
+    }
+    const labelW = width * 0.32; const valueW = width * 0.16; const barW = width - labelW - valueW - 12; const rowH = BAR_ROW;
+    ensure(chartHeight(c));
+    text(c.title, 'Helvetica-Bold', 9, INK);
+    doc.moveDown(0.2);
+    for (const b of bars) {
+      ensure(rowH);
+      const y = doc.y;
+      doc.font('Helvetica').fontSize(7.5).fillColor(INK2).text(pdfText(b.label), left, y + 2, { width: labelW - 6, lineBreak: false, ellipsis: true });
+      const w = Math.max(b.value ? 1 : 0, (Math.abs(b.value) / max) * barW);
+      if (w) doc.rect(left + labelW, y + 2.5, w, rowH - 5).fill(ACCENT);
+      doc.font('Helvetica').fontSize(7.5).fillColor(INK).text(pdfText(fmt(b.value, c.kind)), left + labelW + barW + 6, y + 2, { width: valueW + 6, align: 'right', lineBreak: false });
+      doc.x = left; doc.y = y + rowH;
+    }
+    if (from) text(from, 'Helvetica', 7, MUTED);
+    doc.moveDown(0.5);
+  };
 
-    // ——— Tables: wrapped cells, the header again on every page the table reaches ———
-    const table = (t: ReportTable) => {
-      // The title, the header and a first row together, so a title never ends a page on its own.
-      ensure(72);
-      text(t.title, 'Helvetica-Bold', 9.5, INK);
-      if (t.note) text(t.note, 'Helvetica', 8, MUTED);
-      doc.moveDown(0.15);
-      if (!t.rows.length) { text(t.empty, 'Helvetica', 8.5, MUTED); doc.moveDown(0.5); return; }
-      const size = t.columns.length > LANDSCAPE_COLUMNS ? 7 : 7.8;
-      const total = t.columns.reduce((n, c) => n + (c.width || 10), 0);
-      const cols = t.columns.map((c) => ({ ...c, w: ((c.width || 10) / total) * width }));
-      const cellHeight = (value: string, w: number, bold = false) => doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size).heightOfString(value, { width: w - PAD * 2, lineGap: 0.8 });
-      // A row is drawn in one piece, so no cell may be taller than half a page: the longest start of it that fits is kept.
-      const tallest = (doc.page.height - doc.page.margins.top - doc.page.margins.bottom) / 2;
-      const fit = (value: string, w: number) => {
-        if (cellHeight(value, w) <= tallest) return value;
-        shortened = true;
-        let lo = 0; let hi = value.length;
-        while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (cellHeight(`${value.slice(0, mid).trimEnd()}…`, w) <= tallest) lo = mid; else hi = mid - 1; }
-        return `${value.slice(0, lo).trimEnd()}…`;
-      };
-      const header = (continued: boolean) => {
-        if (continued) { text(`${t.title} (continued)`, 'Helvetica-Oblique', 7.5, MUTED); doc.moveDown(0.1); }
-        const labels = cols.map((c) => pdfText(c.label.toUpperCase()));
-        const h = Math.max(...cols.map((c, i) => cellHeight(labels[i], c.w, true))) + PAD * 2;
-        const y = doc.y;
-        doc.rect(left, y, width, h).fill(SOFT);
-        let x = left;
-        cols.forEach((c, i) => {
-          doc.font('Helvetica-Bold').fontSize(size).fillColor(INK2).text(labels[i], x + PAD, y + PAD, { width: c.w - PAD * 2, align: isRightAligned(c.kind) ? 'right' : 'left', lineGap: 0.8 });
-          x += c.w;
-        });
-        doc.x = left; doc.y = y + h;
-      };
-      ensure(40);
-      header(false);
-      t.rows.forEach((row, n) => {
-        const cells = cols.map((c) => fit(pdfText(cellText(formatCell(row[c.key], c.kind, report.currency))), c.w));
-        const h = Math.max(...cols.map((c, i) => cellHeight(cells[i], c.w))) + PAD * 2;
-        if (doc.y + h > bottom()) { doc.addPage(); header(true); }
-        const y = doc.y;
-        if (n % 2 === 1) doc.rect(left, y, width, h).fill('#fafafa');
-        let x = left;
-        cols.forEach((c, i) => {
-          doc.font('Helvetica').fontSize(size).fillColor(INK).text(cells[i], x + PAD, y + PAD, { width: c.w - PAD * 2, align: isRightAligned(c.kind) ? 'right' : 'left', lineGap: 0.8 });
-          x += c.w;
-        });
-        doc.strokeColor('#eceff3').lineWidth(0.4).moveTo(left, y + h).lineTo(left + width, y + h).stroke();
-        doc.x = left; doc.y = y + h;
+  // ——— Tables: wrapped cells, the header again on every page the table reaches ———
+  const table = async (t: ReportTable) => {
+    // The title, the header and a first row together, so a title never ends a page on its own.
+    ensure(72);
+    text(t.title, 'Helvetica-Bold', 9.5, INK);
+    if (t.note) text(t.note, 'Helvetica', 8, MUTED);
+    doc.moveDown(0.15);
+    if (!t.rows.length) { text(t.empty, 'Helvetica', 8.5, MUTED); doc.moveDown(0.5); return; }
+    const size = t.columns.length > LANDSCAPE_COLUMNS ? 7 : 7.8;
+    const total = t.columns.reduce((n, c) => n + (c.width || 10), 0);
+    const cols = t.columns.map((c) => ({ ...c, w: ((c.width || 10) / total) * width }));
+    const cellHeight = (value: string, w: number, bold = false) => doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size).heightOfString(value, { width: w - PAD * 2, lineGap: 0.8 });
+    // A row is drawn in one piece, so no cell may be taller than half a page: the longest start of it that fits is kept.
+    const tallest = (doc.page.height - doc.page.margins.top - doc.page.margins.bottom) / 2;
+    const fit = (value: string, w: number) => {
+      if (cellHeight(value, w) <= tallest) return value;
+      shortened = true;
+      let lo = 0; let hi = value.length;
+      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (cellHeight(`${value.slice(0, mid).trimEnd()}…`, w) <= tallest) lo = mid; else hi = mid - 1; }
+      return `${value.slice(0, lo).trimEnd()}…`;
+    };
+    const header = (continued: boolean) => {
+      if (continued) { text(`${t.title} (continued)`, 'Helvetica-Oblique', 7.5, MUTED); doc.moveDown(0.1); }
+      const labels = cols.map((c) => pdfText(c.label.toUpperCase()));
+      const h = Math.max(...cols.map((c, i) => cellHeight(labels[i], c.w, true))) + PAD * 2;
+      const y = doc.y;
+      doc.rect(left, y, width, h).fill(SOFT);
+      let x = left;
+      cols.forEach((c, i) => {
+        doc.font('Helvetica-Bold').fontSize(size).fillColor(INK2).text(labels[i], x + PAD, y + PAD, { width: c.w - PAD * 2, align: isRightAligned(c.kind) ? 'right' : 'left', lineGap: 0.8 });
+        x += c.w;
       });
-      if (t.total > t.rows.length) { doc.moveDown(0.2); text(`The first ${t.rows.length} of ${t.total} rows. Narrow the filters for the rest.`, 'Helvetica-Oblique', 7.5, MUTED); }
-      doc.moveDown(0.6);
+      doc.x = left; doc.y = y + h;
     };
+    ensure(40);
+    header(false);
+    for (let n = 0; n < t.rows.length; n++) {
+      if (n && n % PDF_ROWS_PER_TURN === 0) await nextTurn();
+      const row = t.rows[n];
+      const cells = cols.map((c) => fit(pdfText(cellText(formatCell(row[c.key], c.kind, report.currency))), c.w));
+      const h = Math.max(...cols.map((c, i) => cellHeight(cells[i], c.w))) + PAD * 2;
+      if (doc.y + h > bottom()) { doc.addPage(); header(true); }
+      const y = doc.y;
+      if (n % 2 === 1) doc.rect(left, y, width, h).fill('#fafafa');
+      let x = left;
+      cols.forEach((c, i) => {
+        doc.font('Helvetica').fontSize(size).fillColor(INK).text(cells[i], x + PAD, y + PAD, { width: c.w - PAD * 2, align: isRightAligned(c.kind) ? 'right' : 'left', lineGap: 0.8 });
+        x += c.w;
+      });
+      doc.strokeColor('#eceff3').lineWidth(0.4).moveTo(left, y + h).lineTo(left + width, y + h).stroke();
+      doc.x = left; doc.y = y + h;
+    }
+    if (t.total > t.rows.length) { doc.moveDown(0.2); text(`The first ${t.rows.length} of ${t.total} rows. Narrow the filters for the rest.`, 'Helvetica-Oblique', 7.5, MUTED); }
+    doc.moveDown(0.6);
+  };
 
-    // ——— Summary, sections, notes ———
-    if (report.summary.length) {
-      text('SUMMARY', 'Helvetica-Bold', 8, ACCENT, { characterSpacing: 1.4 });
-      doc.moveDown(0.25);
-      figures(report.summary);
-    }
-    for (const section of report.sections) {
-      // The heading, its lede and the chart under it start on one page where they fit on one (a chart taller than a page
-      // starts its own).
-      const lead = 90 + (section.chart && !section.figures?.length ? chartHeight(section.chart) : 0);
-      ensure(lead > bottom() - doc.page.margins.top ? 90 : lead);
-      doc.moveDown(0.5);
-      text(section.heading, 'Helvetica-Bold', 13, INK);
-      if (section.lede) text(section.lede, 'Helvetica', 8.8, INK2);
-      doc.moveDown(0.3);
-      if (section.figures?.length) figures(section.figures);
-      if (section.chart) chart(section.chart, section.tables.find((x) => x.id === section.chart!.table));
-      for (const t of section.tables) table(t);
-      for (const note of section.notes || []) text(`•  ${note}`, 'Helvetica', 8, INK2);
-    }
-    const notes = [...report.notes, ...(shortened ? [`A cell longer than ${MAX_CELL} characters, or taller than half a page, is shortened here; the CSV and the workbook hold it whole.`] : [])];
-    if (notes.length) {
-      ensure(60);
-      doc.moveDown(0.6);
-      text('About these figures', 'Helvetica-Bold', 10, INK);
-      doc.moveDown(0.15);
-      for (const note of notes) text(`•  ${note}`, 'Helvetica', 8, INK2, { paragraphGap: 1.5 });
-    }
+  // ——— Summary, sections, notes ———
+  if (report.summary.length) {
+    text('SUMMARY', 'Helvetica-Bold', 8, ACCENT, { characterSpacing: 1.4 });
+    doc.moveDown(0.25);
+    figures(report.summary);
+  }
+  for (const section of report.sections) {
+    // The heading, its lede and the chart under it start on one page where they fit on one (a chart taller than a page
+    // starts its own).
+    const lead = 90 + (section.chart && !section.figures?.length ? chartHeight(section.chart) : 0);
+    ensure(lead > bottom() - doc.page.margins.top ? 90 : lead);
+    doc.moveDown(0.5);
+    text(section.heading, 'Helvetica-Bold', 13, INK);
+    if (section.lede) text(section.lede, 'Helvetica', 8.8, INK2);
+    doc.moveDown(0.3);
+    if (section.figures?.length) figures(section.figures);
+    if (section.chart) chart(section.chart, section.tables.find((x) => x.id === section.chart!.table));
+    for (const t of section.tables) await table(t);
+    for (const note of section.notes || []) text(`•  ${note}`, 'Helvetica', 8, INK2);
+  }
+  const notes = [...report.notes, ...(shortened ? [`A cell longer than ${MAX_CELL} characters, or taller than half a page, is shortened here; the CSV and the workbook hold it whole.`] : [])];
+  if (notes.length) {
+    ensure(60);
+    doc.moveDown(0.6);
+    text('About these figures', 'Helvetica-Bold', 10, INK);
+    doc.moveDown(0.15);
+    for (const note of notes) text(`•  ${note}`, 'Helvetica', 8, INK2, { paragraphGap: 1.5 });
+  }
 
-    // ——— The handling line at the top and foot of every page, with its number ———
-    const range = doc.bufferedPageRange();
-    for (let i = range.start; i < range.start + range.count; i++) {
-      doc.switchToPage(i);
-      const margins = { ...doc.page.margins };
-      doc.page.margins.top = 0; doc.page.margins.bottom = 0;
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(report.marking), left, 30, { width, align: 'center', lineBreak: false, ellipsis: true });
-      const y = doc.page.height - 46;
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(report.marking), left, y, { width, align: 'center', lineBreak: false, ellipsis: true });
-      doc.font('Helvetica').fontSize(7).fillColor(MUTED);
-      doc.text(pdfText(`${report.title}  ·  ${report.about}${report.period ? `  ·  ${report.period.label}` : ''}`), left, y + 12, { width: width * 0.75, lineBreak: false, ellipsis: true });
-      doc.text(`Page ${i - range.start + 1} of ${range.count}`, left + width * 0.75, y + 12, { width: width * 0.25, align: 'right', lineBreak: false });
-      doc.text(pdfText(`Generated ${report.generated.on} by ${report.generated.by} in Vantage. Every figure is drawn from the records it names.`), left, y + 21, { width, lineBreak: false, ellipsis: true });
-      doc.page.margins.top = margins.top; doc.page.margins.bottom = margins.bottom;
-    }
-    doc.end();
-  });
+  // ——— The handling line at the top and foot of every page, with its number ———
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    const margins = { ...doc.page.margins };
+    doc.page.margins.top = 0; doc.page.margins.bottom = 0;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(report.marking), left, 30, { width, align: 'center', lineBreak: false, ellipsis: true });
+    const y = doc.page.height - 46;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(report.marking), left, y, { width, align: 'center', lineBreak: false, ellipsis: true });
+    doc.font('Helvetica').fontSize(7).fillColor(MUTED);
+    doc.text(pdfText(`${report.title}  ·  ${report.about}${report.period ? `  ·  ${report.period.label}` : ''}`), left, y + 12, { width: width * 0.75, lineBreak: false, ellipsis: true });
+    doc.text(`Page ${i - range.start + 1} of ${range.count}`, left + width * 0.75, y + 12, { width: width * 0.25, align: 'right', lineBreak: false });
+    doc.text(pdfText(`Generated ${report.generated.on} by ${report.generated.by} in Vantage. Every figure is drawn from the records it names.`), left, y + 21, { width, lineBreak: false, ellipsis: true });
+    doc.page.margins.top = margins.top; doc.page.margins.bottom = margins.bottom;
+  }
 }

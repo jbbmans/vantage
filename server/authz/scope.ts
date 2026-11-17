@@ -92,37 +92,77 @@ const cache = new WeakMap<object, Map<string, Scope>>();
 export const grantedByAnother = (grant: string, role: string) =>
   `(${grant}.granted_by IS NOT NULL AND ${grant}.granted_by <> ${grant}.user_id AND ${role}.is_default = 0 AND ${role}.key IS NOT 'unit-leader')`;
 
-export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object): Scope {
-  if (reqKey) {
-    const m = cache.get(reqKey);
-    const hit = m?.get(user.id);
-    if (hit) return hit;
-  }
+type Membership = Scope['memberships'][number];
+type RoleRow = Scope['roles'][number] & { expires_at: string | null; granted: number };
+type OrgRoleRow = { org_id: string; role: string; expires_at: string | null };
+type AccessRow = { id: string; org_id: string; expires_at: string; reason: string };
+/** What a person's scope is built from: the rows read for them, before anything is worked out. */
+interface ScopeRows { memberships: Membership[]; roles: RoleRow[]; owned: string[]; orgRows: OrgRoleRow[]; access: AccessRow[] }
+/** Lookups the build shares between people: a Unit Instance's active units, and the Unit Instance of units. */
+interface ScopeLookups { orgUnits: (orgId: string) => string[]; unitOrg: (ids: string[]) => Array<{ id: string; org_id: string | null }> }
+
+/**
+ * The rows every scope is built from, for one person or many at once, each read with one statement whatever the number
+ * of people. Each list keeps the order the build has always relied on (a membership's primary first, the most senior
+ * role first), with a last tie-break so that order is the same however many people are read together.
+ */
+function loadScopeRows(ctx: AppContext, ids: string[]): Map<string, ScopeRows> {
   const { db } = ctx;
   const at = now();
+  const who = JSON.stringify(ids);
+  const out = new Map<string, ScopeRows>(ids.map((id) => [id, { memberships: [], roles: [], owned: [], orgRows: [], access: [] }]));
   // A suspended or archived organization's units confer nothing: its members keep their own records, not its shared work.
   const liveUnit = `u.active = 1 AND COALESCE((SELECT o.status FROM organizations o WHERE o.id = u.org_id), 'active') = 'active'`;
   const memberships = db.prepare(
-    `SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short, u.code AS unit_code, u.parent_id
-       FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND ${liveUnit} ORDER BY um.is_primary DESC, um.joined_at`
-  ).all(user.id) as Scope['memberships'];
+    `SELECT um.user_id AS who, um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short, u.code AS unit_code, u.parent_id
+       FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id IN (SELECT value FROM json_each(?)) AND ${liveUnit}
+      ORDER BY um.user_id, um.is_primary DESC, um.joined_at, um.unit_id`
+  ).all(who) as Array<Membership & { who: string }>;
+  for (const { who: id, ...m } of memberships) out.get(id)?.memberships.push(m);
   const roles = db.prepare(
-    `SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, mr.expires_at, ${grantedByAnother('mr', 'r')} AS granted
+    `SELECT mr.user_id AS who, mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, mr.expires_at, ${grantedByAnother('mr', 'r')} AS granted
        FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN units u ON u.id = mr.unit_id
        JOIN unit_members um ON um.user_id = mr.user_id AND um.unit_id = mr.unit_id
-      WHERE mr.user_id = ? AND ${liveUnit} AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC`
-  ).all(user.id, at) as Array<Scope['roles'][number] & { expires_at: string | null; granted: number }>;
-  const owned = (db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND ${liveUnit} AND ${seatedLeader('u')}`).all(user.id) as Array<{ id: string }>).map((r) => r.id);
+      WHERE mr.user_id IN (SELECT value FROM json_each(?)) AND ${liveUnit} AND (mr.expires_at IS NULL OR mr.expires_at > ?)
+      ORDER BY mr.user_id, r.position DESC, mr.unit_id, r.id`
+  ).all(who, at) as Array<RoleRow & { who: string }>;
+  for (const { who: id, ...r } of roles) out.get(id)?.roles.push(r);
+  const owned = db.prepare(
+    `SELECT u.owner_user_id AS who, u.id FROM units u WHERE u.owner_user_id IN (SELECT value FROM json_each(?)) AND ${liveUnit} AND ${seatedLeader('u')}
+      ORDER BY u.owner_user_id, u.id`
+  ).all(who) as Array<{ who: string; id: string }>;
+  for (const r of owned) out.get(r.who)?.owned.push(r.id);
   const orgRows = db.prepare(
-    `SELECT r.org_id, r.role, r.expires_at FROM org_roles r JOIN organizations o ON o.id = r.org_id
-      WHERE r.user_id = ? AND o.status = 'active' AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`
-  ).all(user.id, at) as Array<{ org_id: string; role: string; expires_at: string | null }>;
+    `SELECT r.user_id AS who, r.org_id, r.role, r.expires_at FROM org_roles r JOIN organizations o ON o.id = r.org_id
+      WHERE r.user_id IN (SELECT value FROM json_each(?)) AND o.status = 'active' AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}
+      ORDER BY r.user_id, r.org_id, r.role`
+  ).all(who, at) as Array<OrgRoleRow & { who: string }>;
+  for (const { who: id, ...r } of orgRows) out.get(id)?.orgRows.push(r);
   const access = db.prepare(
-    `SELECT g.id, g.org_id, g.expires_at, g.reason FROM access_grants g JOIN organizations o ON o.id = g.org_id
-      WHERE g.staff_user_id = ? AND g.status = 'active' AND g.expires_at > ? AND o.status = 'active'
-        AND EXISTS (SELECT 1 FROM platform_roles p WHERE p.user_id = g.staff_user_id)`
-  ).all(user.id, at) as Array<{ id: string; org_id: string; expires_at: string; reason: string }>;
+    `SELECT g.staff_user_id AS who, g.id, g.org_id, g.expires_at, g.reason FROM access_grants g JOIN organizations o ON o.id = g.org_id
+      WHERE g.staff_user_id IN (SELECT value FROM json_each(?)) AND g.status = 'active' AND g.expires_at > ? AND o.status = 'active'
+        AND EXISTS (SELECT 1 FROM platform_roles p WHERE p.user_id = g.staff_user_id)
+      ORDER BY g.staff_user_id, g.id`
+  ).all(who, at) as Array<AccessRow & { who: string }>;
+  for (const { who: id, ...g } of access) out.get(id)?.access.push(g);
+  return out;
+}
 
+/** A Unit Instance's active units, read once per Unit Instance however many scopes ask. */
+function orgUnitsOnce(ctx: AppContext) {
+  const seen = new Map<string, string[]>();
+  return (orgId: string) => {
+    if (!seen.has(orgId)) seen.set(orgId, (ctx.db.prepare('SELECT id FROM units WHERE org_id = ? AND active = 1').all(orgId) as Array<{ id: string }>).map((r) => r.id));
+    return seen.get(orgId)!;
+  };
+}
+
+const unitOrgOf = (ctx: AppContext) => (ids: string[]) =>
+  ctx.db.prepare('SELECT id, org_id FROM units WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(ids)) as Array<{ id: string; org_id: string | null }>;
+
+/** What a person may do where, worked out from their rows alone. scopeFor and scopesFor both build every scope here. */
+function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, access }: ScopeRows, tree: ReturnType<typeof unitTree>, lookups: ScopeLookups): Scope {
+  const { orgUnits } = lookups;
   const permissions: Record<string, number> = {};
   const positions: Record<string, number> = {};
   const authority: Record<string, number> = {};
@@ -148,7 +188,6 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
 
   // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
   // Plain membership does not: a Marine who belongs to the command sees the command and their own team, not every team.
-  const tree = unitTree(ctx);
   for (const [unitId, bits] of Object.entries(authority)) {
     const rank = positions[unitId] || 0;
     for (const below of subtreeIds(ctx, unitId, tree).slice(1)) {
@@ -167,7 +206,6 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     o.roles.push(r.role as OrgRole);
     o.expiresAt = r.expires_at && (!o.expiresAt || r.expires_at < o.expiresAt) ? r.expires_at : o.expiresAt;
   }
-  const orgUnits = (orgId: string) => (db.prepare('SELECT id FROM units WHERE org_id = ? AND active = 1').all(orgId) as Array<{ id: string }>).map((r) => r.id);
   for (const o of Object.values(orgs)) {
     o.permissions = orgPermissionsOf(o.roles);
     const bits = orgStructureBits(o.permissions);
@@ -197,12 +235,12 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
   const inScope = [...new Set([...viewable, ...memberships.map((m) => m.unit_id)])];
   const unitOrg: Record<string, string> = {};
   if (inScope.length) {
-    for (const r of db.prepare('SELECT id, org_id FROM units WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(inScope)) as Array<{ id: string; org_id: string | null }>) {
+    for (const r of lookups.unitOrg(inScope)) {
       if (r.org_id) unitOrg[r.id] = r.org_id;
     }
   }
 
-  const scope: Scope = {
+  return {
     memberships,
     unitIds: memberships.map((m) => m.unit_id),
     primaryUnitId: memberships.find((m) => m.is_primary)?.unit_id || memberships[0]?.unit_id || null,
@@ -220,12 +258,46 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     vantageAccess,
     sources,
   };
-  if (reqKey) {
-    const m = cache.get(reqKey) || new Map<string, Scope>();
-    m.set(user.id, scope);
-    cache.set(reqKey, m);
-  }
+}
+
+function remember(reqKey: object | undefined, id: string, scope: Scope) {
+  if (!reqKey) return;
+  const m = cache.get(reqKey) || new Map<string, Scope>();
+  m.set(id, scope);
+  cache.set(reqKey, m);
+}
+
+export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object): Scope {
+  const hit = reqKey ? cache.get(reqKey)?.get(user.id) : undefined;
+  if (hit) return hit;
+  const scope = buildScope(ctx, loadScopeRows(ctx, [user.id]).get(user.id)!, unitTree(ctx), { orgUnits: orgUnitsOnce(ctx), unitOrg: unitOrgOf(ctx) });
+  remember(reqKey, user.id, scope);
   return scope;
+}
+
+/**
+ * Many people's scopes at once, each exactly what scopeFor gives them (the same build from the same rows), read with a
+ * fixed number of statements rather than several for each person: for a roster, a team list or a drill that decides,
+ * row by row, what the reader may do about each person on it.
+ */
+export function scopesFor(ctx: AppContext, ids: string[], reqKey?: object): Map<string, Scope> {
+  const out = new Map<string, Scope>();
+  const missing: string[] = [];
+  for (const id of new Set(ids)) {
+    const hit = reqKey ? cache.get(reqKey)?.get(id) : undefined;
+    if (hit) out.set(id, hit); else missing.push(id);
+  }
+  if (!missing.length) return out;
+  const rows = loadScopeRows(ctx, missing);
+  const tree = unitTree(ctx);
+  const orgOf = new Map((ctx.db.prepare('SELECT id, org_id FROM units').all() as Array<{ id: string; org_id: string | null }>).map((r) => [r.id, r]));
+  const lookups: ScopeLookups = { orgUnits: orgUnitsOnce(ctx), unitOrg: (unitIds) => unitIds.flatMap((u) => orgOf.get(u) ?? []) };
+  for (const id of missing) {
+    const scope = buildScope(ctx, rows.get(id)!, tree, lookups);
+    remember(reqKey, id, scope);
+    out.set(id, scope);
+  }
+  return out;
 }
 
 export const can = (scope: Scope, flag: number, unitId: string | null | undefined) => Boolean(unitId) && has(scope.permissions[unitId!] || 0, flag);
@@ -306,15 +378,18 @@ export function visibleUserIds(ctx: AppContext, scope: Scope, selfId: string): s
   if (scope.readableUnitIds.length) {
     const rows = ctx.db.prepare(
       `SELECT DISTINCT um.user_id FROM unit_members um JOIN users u ON u.id = um.user_id
-        WHERE um.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) AND u.active = 1`
-    ).all(...scope.readableUnitIds) as Array<{ user_id: string }>;
+        WHERE um.unit_id IN (SELECT value FROM json_each(?)) AND u.active = 1`
+    ).all(JSON.stringify(scope.readableUnitIds)) as Array<{ user_id: string }>;
     for (const r of rows) ids.add(r.user_id);
   }
   return [...ids];
 }
 
-export function detailUnitsFor(ctx: AppContext, actorScope: Scope, targetId: string): string[] {
-  const targetScope = scopeFor(ctx, { id: targetId });
+/**
+ * The units where the reader may open this Marine's records: the Marine belongs there, the reader may see member detail
+ * there and sits above them. A caller deciding this for many people passes each one's scope from scopesFor.
+ */
+export function detailUnitsFor(ctx: AppContext, actorScope: Scope, targetId: string, targetScope: Scope = scopeFor(ctx, { id: targetId })): string[] {
   return targetScope.unitIds
     .filter((unitId) => can(actorScope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId))
     .filter((unitId) => positionIn(actorScope, unitId) > positionIn(targetScope, unitId));

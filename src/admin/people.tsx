@@ -102,7 +102,7 @@ export function Organizations() {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {!shown.length ? <EmptyState icon={Building2} title="No Unit Instances" description="A Unit Instance is a command or staff section on Vantage, with its own Unit Managers, units, roster feed and audit trail." /> : (
-          <Table minWidth={900} head={<><th>Unit Instance</th><th className="w-24">Status</th><th className="w-20 text-right">Members</th><th className="w-16 text-right">Units</th><th className="w-48">Lead Unit Managers</th><th className="w-28">Last active</th><th className="w-60"></th></>}>
+          <Table label="Unit Instances" minWidth={900} head={<><th>Unit Instance</th><th className="w-24">Status</th><th className="w-20 text-right">Members</th><th className="w-16 text-right">Units</th><th className="w-48">Lead Unit Managers</th><th className="w-28">Last active</th><th className="w-60"></th></>}>
             {shown.map((o) => (
               <tr key={o.id}>
                 <td>
@@ -381,7 +381,7 @@ export function Accounts() {
       {list.length > 0 && (
         <Panel className="mb-4" title="Approvals" subtitle={`A temporary password, a second-factor reset or a CAC change on an account that holds authority waits for a second member of Vantage staff. The one who asked makes it, once, within ${approvals.data?.hours ?? 24} hours.`}>
           <div className="-mx-4 -mt-1">
-            <Table minWidth={860} head={<><th>Change and reason</th><th className="w-36">Asked by</th><th className="w-48">State</th><th className="w-32">When</th><th className="w-56"></th></>}>
+            <Table label="Approvals" minWidth={860} head={<><th>Change and reason</th><th className="w-36">Asked by</th><th className="w-48">State</th><th className="w-32">When</th><th className="w-56"></th></>}>
               {list.map(approvalRow)}
             </Table>
           </div>
@@ -394,7 +394,7 @@ export function Accounts() {
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
         {isPending ? <Skeleton className="h-64" /> : error ? <EmptyState title="Could not load accounts" description={api.errorText(error)} /> : (
-          <Table minWidth={980} head={<><th>Account</th><th className="w-48">Unit Instances</th><th className="w-32">Second factor</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
+          <Table label="Accounts" minWidth={980} head={<><th>Account</th><th className="w-48">Unit Instances</th><th className="w-32">Second factor</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
             {(data?.accounts ?? []).map((u) => {
               const self = u.id === me;
               return (
@@ -478,7 +478,7 @@ export function Staff() {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
       <Panel title="Vantage staff" subtitle="People who run the service. A platform role confers nothing inside any Unit Instance." action={can('platform.staff') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Add</Button> : undefined}>
         <div className="-mx-4 -mt-1">
-          <Table minWidth={620} head={<><th>Person</th><th className="w-28">Role</th><th className="w-32">Second factor</th><th className="w-28">Last sign-in</th><th className="w-24"></th></>}>
+          <Table label="Vantage staff" minWidth={620} head={<><th>Person</th><th className="w-28">Role</th><th className="w-32">Second factor</th><th className="w-28">Last sign-in</th><th className="w-24"></th></>}>
             {data.staff.map((s) => (
               <tr key={`${s.user_id}:${s.role}`}>
                 <td><span className="block font-medium text-ink">{s.first_name} {s.last_name}</span><span className="block text-xs text-ink-3">@{s.username}{s.granted_by_name ? ` · added by ${s.granted_by_name}` : ''}</span></td>
@@ -537,14 +537,14 @@ export function Access() {
   return (
     <div className="space-y-4">
       <Panel title="Open" subtitle="Read-only, time-limited, and approved by the Unit Instance’s Lead Unit Managers unless it chose to be told instead." action={can('platform.access') ? (
-        <span className="flex items-center gap-2">
-          <Select aria-label="Unit Instance" className="w-56" value={pick} onValueChange={setPick} placeholder="Choose a Unit Instance" options={(orgs.data?.organizations ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
+        <span className="flex flex-wrap items-center gap-2">
+          <Select aria-label="Unit Instance" className="w-56 max-w-full" value={pick} onValueChange={setPick} placeholder="Choose a Unit Instance" options={(orgs.data?.organizations ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
           <Button size="sm" variant="primary" disabled={!pick} onClick={() => { const o = orgs.data?.organizations.find((x) => x.id === pick); if (o) setAsking({ id: o.id, name: o.name }); }}><KeyRound className="h-4 w-4" />Ask</Button>
         </span>) : undefined}>
-        {!open.length ? <p className="text-sm text-ink-3">No access is open or waiting.</p> : <div className="-mx-4 -mt-1"><Table minWidth={760} head={head}>{open.map(row)}</Table></div>}
+        {!open.length ? <p className="text-sm text-ink-3">No access is open or waiting.</p> : <div className="-mx-4 -mt-1"><Table label="Open Vantage access" minWidth={760} head={head}>{open.map(row)}</Table></div>}
       </Panel>
       <Panel title="History" subtitle="Every request, decision and end is also in each Unit Instance’s own audit trail.">
-        {!past.length ? <p className="text-sm text-ink-3">None yet.</p> : <div className="-mx-4 -mt-1"><Table minWidth={760} head={head}>{past.map(row)}</Table></div>}
+        {!past.length ? <p className="text-sm text-ink-3">None yet.</p> : <div className="-mx-4 -mt-1"><Table label="Vantage access history" minWidth={760} head={head}>{past.map(row)}</Table></div>}
       </Panel>
       <AskAccess org={asking} onClose={() => { setAsking(null); refetch(); }} />
     </div>

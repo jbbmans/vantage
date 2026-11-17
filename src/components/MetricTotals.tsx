@@ -6,18 +6,19 @@ import { Dialog } from '@/components/ui/Dialog';
 import { TimeframeText } from '@/components/Timeframe';
 import { useIdentity, useMetricContributors, type MetricContributor } from '@/lib/queries';
 import { formatDollars, formatNumber, formatDollarsExact } from '../../shared/metrics';
-import type { MetricTotal } from '../../shared/metricEngine';
+import type { MetricFigure } from '../../shared/metricEngine';
+import { QueryFailure } from '@/components/QueryFailure';
 import { cn } from '@/lib/utils';
 import { useReturnFocus } from '@/components/analytics';
 
-export function formatMetric(total: Pick<MetricTotal, 'kind' | 'value' | 'unit'>, exact = false): string {
+export function formatMetric(total: Pick<MetricFigure, 'kind' | 'value' | 'unit'>, exact = false): string {
   if (total.kind === 'money') return exact ? formatDollarsExact(total.value) : formatDollars(total.value);
   if (total.kind === 'duration') return `${formatNumber(total.value)} hrs`;
   return formatNumber(total.value);
 }
 
 /** The unit word shown under a figure, so no number on screen is unitless. */
-export function metricUnitLabel(total: Pick<MetricTotal, 'kind' | 'unit' | 'metricLabel'>): string {
+export function metricUnitLabel(total: Pick<MetricFigure, 'kind' | 'unit' | 'metricLabel'>): string {
   if (total.kind === 'money') return total.metricLabel;
   if (total.kind === 'duration') return 'hours logged';
   return total.unit;
@@ -29,7 +30,7 @@ export function metricUnitLabel(total: Pick<MetricTotal, 'kind' | 'unit' | 'metr
  * keeps its comma and its case. A unit someone typed keeps its own case ("km", "ULOs"); only an all-lowercase phrase of
  * ordinary words gets a capital.
  */
-function cardLabel(total: Pick<MetricTotal, 'kind' | 'unit' | 'metricLabel'>): string {
+function cardLabel(total: Pick<MetricFigure, 'kind' | 'unit' | 'metricLabel'>): string {
   const label = metricUnitLabel(total).replace(/^([^,]+), ([A-Z][a-z]+ed)$/, (_, a: string, b: string) => `${a} ${b.toLowerCase()}`);
   return /^[a-z]{4,}[a-z ]*$/.test(label) ? label[0].toUpperCase() + label.slice(1) : label;
 }
@@ -43,8 +44,8 @@ function deltaLabel(current: number, prior: number | null): string | null {
 }
 
 export interface MetricCardProps {
-  total: MetricTotal;
-  prior?: MetricTotal | null;
+  total: MetricFigure;
+  prior?: MetricFigure | null;
   params: Record<string, string | undefined>;
   tone?: 'headline' | 'tracked';
 }
@@ -81,21 +82,22 @@ export function MetricCard({ total, prior, params, tone = 'headline' }: MetricCa
 }
 
 /**
- * The outcomes behind one figure. `only` narrows the window's contributors to those a smaller figure counts (one month of
- * a chart), and `figure` is that figure, so the list is checked against what was on screen. An outcome is opened where
- * it can be: an activity at its record, a training of one's own at one's training; another Marine's training is listed
- * without a link, since no page here opens it.
+ * The outcomes behind one figure. A smaller figure (one month of a chart, one category) narrows `params` to it (month,
+ * category), and `figure` is that figure, so the list is checked against what was on screen. The server sends the first
+ * of a long list and says how many there are. An outcome is opened where it can be: an activity at its record, a
+ * training of one's own at one's training; another Marine's training is listed without a link, since no page here
+ * opens it.
  */
-export function ContributorsDialog({ total, params, onClose, only, figure, title }: {
-  total: MetricTotal; params: Record<string, string | undefined>; onClose: () => void;
-  only?: readonly string[]; figure?: { value: number; outcomes: number; label: string }; title?: string;
+export function ContributorsDialog({ total, params, onClose, figure, title }: {
+  total: MetricFigure; params: Record<string, string | undefined>; onClose: () => void;
+  figure?: { value: number; outcomes: number; label: string }; title?: string;
 }) {
   const query = useMetricContributors({ ...params, metric_id: total.metricId });
   const { data: identity } = useIdentity();
   useReturnFocus();
-  const keep = only ? new Set(only) : null;
-  const rows = (query.data || []).filter((r) => !keep || keep.has(`${r.table}:${r.id}`));
-  const sum = rows.reduce((a, r) => a + r.value, 0);
+  const rows = query.data?.records || [];
+  const count = query.data?.count ?? 0;
+  const sum = query.data?.value ?? 0;
   const shown = figure ?? { value: total.value, outcomes: total.outcomes, label: `${params.from || 'the start'} to ${params.to || 'today'}` };
   const linkFor = (r: MetricContributor) => (r.table === 'activities' ? `/records/${r.id}` : r.user_id === identity?.user.id ? '/career/training' : null);
   return (
@@ -109,10 +111,13 @@ export function ContributorsDialog({ total, params, onClose, only, figure, title
     >
       {query.isPending ? (
         <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>
+      ) : query.isError ? (
+        <QueryFailure error={query.error} onRetry={() => query.refetch()} what="These outcomes" className="py-2" />
       ) : rows.length === 0 ? (
         <EmptyState title="Nothing counted here" description="No outcome in this period contributed to this figure." />
       ) : (
         <>
+          {count > rows.length ? <p className="mb-2 text-xs text-warn">Showing the first {formatNumber(rows.length)} of {formatNumber(count)}, newest first. Narrow the period to see the rest.</p> : null}
           <ul className="divide-y divide-line">
             {rows.map((r: MetricContributor) => {
               const to = linkFor(r);
@@ -138,7 +143,7 @@ export function ContributorsDialog({ total, params, onClose, only, figure, title
           {Math.abs(sum - shown.value) > 0.005 && total.aggregation === 'sum' && (
             <p className="mt-3 flex items-start gap-2 text-xs text-warn">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              These rows add to {formatMetric({ kind: total.kind, value: sum, unit: total.unit }, true)}, which does not match the figure above. Report this.
+              These outcomes add to {formatMetric({ kind: total.kind, value: sum, unit: total.unit }, true)}, which does not match the figure above. Report this.
             </p>
           )}
         </>
@@ -148,9 +153,9 @@ export function ContributorsDialog({ total, params, onClose, only, figure, title
 }
 
 export function MetricTotalsGrid({ headline, tracked, prior, params, emptyTitle, emptyDescription, emptyAction }: {
-  headline: MetricTotal[];
-  tracked: MetricTotal[];
-  prior: MetricTotal[];
+  headline: MetricFigure[];
+  tracked: MetricFigure[];
+  prior: MetricFigure[];
   params: Record<string, string | undefined>;
   emptyTitle: string;
   emptyDescription?: React.ReactNode;

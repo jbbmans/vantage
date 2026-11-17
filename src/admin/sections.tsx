@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, Sparkles, KeyRound, HeartPulse } from 'lucide-react';
+import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, Sparkles, KeyRound, HeartPulse, X } from 'lucide-react';
 import { Button, Field, Input, Textarea, Panel, Badge, Switch, Skeleton, Stat, EmptyState, type Tone } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -19,7 +19,7 @@ export { PersonnelConsole, RetentionConsole, PrivacyConsole };
 import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 import { DATA_TRANSFERS } from '../../shared/dataTransfer';
-import { DEFAULT_REPORT_MARKING } from '../../shared/reportCatalog';
+import { DEFAULT_REPORT_MARKING } from '../../shared/reportMarking';
 
 /** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
@@ -249,7 +249,7 @@ export function AiSettings() {
         {data.locked && <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm"><span className="text-ink">Key locked by the gateway since {timeAgo(data.locked_at)}{data.unlock_url ? <a className="link ml-1" href={data.unlock_url} target="_blank" rel="noopener noreferrer">unlock at GenAI.mil</a> : ''}.</span><Button size="sm" onClick={async () => { try { await withSudo(() => api.platformAiUnlock()); refetch(); toast.success('Lock cleared. The next request will tell.'); } catch (e) { toast.error(api.errorText(e)); } }}><Unlock className="h-3.5 w-3.5" />Clear</Button></div>}
         <div className="mt-4">
           <p className="mb-1.5 text-xs font-semibold text-ink-2">Models users may choose</p>
-          <ul className="space-y-1">{models.map((m) => <li key={m} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5 text-sm"><span className="mono text-ink">{m}</span><span className="flex items-center gap-2">{def === m ? <Badge tone="accent">Default</Badge> : <button type="button" className="text-xs text-accent hover:underline" onClick={() => setDef(m)}>Make default</button>}<button type="button" className="text-ink-3 hover:text-bad" onClick={() => { const next = models.filter((x) => x !== m); setModels(next); if (def === m) setDef(next[0] || ''); }} aria-label={`Remove ${m}`} disabled={models.length <= 1}>×</button></span></li>)}</ul>
+          <ul className="space-y-1">{models.map((m) => <li key={m} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5 text-sm"><span className="mono text-ink">{m}</span><span className="flex items-center gap-2">{def === m ? <Badge tone="accent">Default</Badge> : <button type="button" className="text-xs text-accent hover:underline" onClick={() => setDef(m)}>Make default</button>}<Button size="icon-xs" variant="ghost" className="hover:text-bad" onClick={() => { const next = models.filter((x) => x !== m); setModels(next); if (def === m) setDef(next[0] || ''); }} aria-label={`Remove ${m}`} disabled={models.length <= 1}><X className="h-3.5 w-3.5" aria-hidden /></Button></span></li>)}</ul>
           <div className="mt-2 flex gap-2"><Input aria-label="Model id" placeholder="gemini-2.5-pro" value={add} onChange={(e) => setAdd(e.target.value)} /><Button onClick={() => { const v = add.trim(); if (v && !models.includes(v)) { setModels([...models, v]); if (!def) setDef(v); } setAdd(''); }}>Add</Button><Button onClick={async () => { try { const r = await withSudo(() => api.platformAiDiscover()); setDiscovered(r.models || []); toast.success(`${(r.models || []).length} models offered by the gateway.`); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-4 w-4" />Discover</Button></div>
           {discovered && <div className="mt-2 flex flex-wrap gap-1">{discovered.filter((m) => !models.includes(m)).map((m) => <button key={m} type="button" className="rounded-full border border-line px-2 py-0.5 font-mono text-2xs hover:border-accent" onClick={() => setModels([...models, m])}>+ {m}</button>)}{discovered.every((m) => models.includes(m)) && <span className="text-xs text-ink-3">Everything the gateway offers is already listed.</span>}</div>}
           <p className="mt-2 text-2xs text-ink-3">GenAI.mil fronts several model families (Gemini, Grok, GPT). Discover lists what your key can reach.</p>
@@ -267,7 +267,7 @@ export function AiSettings() {
       <Panel title="Usage" subtitle="Today, across everyone">
         <div className="grid grid-cols-3 gap-3"><Stat label="Requests" value={data.daily.requests} /><Stat label="Tokens" value={Number(data.daily.total_tokens).toLocaleString()} hint={`budget ${Number(data.daily.budget_tokens).toLocaleString()}`} /><Stat label="Failures" value={data.daily.failures} tone={data.daily.failures ? 'warn' : undefined} /></div>
         <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink-2">Last 30 days by model</h3>
-        {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
+        {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table label="Last 30 days by model" minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
         {data.last_error_code && <p className="mt-3 text-xs text-warn">Last gateway error: {data.last_error_code} {timeAgo(data.last_error_at)}.</p>}
         <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0" />Workflows: {data.workflows.map((w: any) => w.label).join(', ')}.</p>
       </Panel>
@@ -394,7 +394,7 @@ export function DataAdmin() {
             ? <><p className="mt-2 text-xs text-ink-3">Every other Lead Vantage Administrator is told each time one is downloaded.</p><Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button></>
             : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
           {backups.history.length > 0 && (
-            <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
+            <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
               {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? '—'}</td></tr>)}
             </Table>
           )}
@@ -413,7 +413,7 @@ export function DataAdmin() {
 
       <Panel title="Restores" subtitle="What this database has been put back to, and what each one undid">
         {!restores.history.length ? <p className="text-sm text-ink-3">None. This database has not been restored since Vantage began keeping the record.</p> : (
-          <Table minWidth={680} head={<><th>When</th><th>How</th><th>Back to</th><th className="text-right">Entries undone</th><th>Authorized by</th><th /></>}>
+          <Table label="Restores" minWidth={680} head={<><th>When</th><th>How</th><th>Back to</th><th className="text-right">Entries undone</th><th>Authorized by</th><th /></>}>
             {restores.history.map((r) => (
               <tr key={r.id}>
                 <td className="fig text-xs">{formatStamp(r.at)}</td>
@@ -435,7 +435,7 @@ export function DataAdmin() {
       </Panel>
 
       <Panel title="Not backups: data exports" subtitle="Copies of one Unit Instance’s, unit’s or person’s data, for its own use">
-        <Table minWidth={640} head={<><th>Export or import</th><th>What it holds</th><th>Who</th><th>Coming back</th></>}>
+        <Table label="Data exports" minWidth={640} head={<><th>Export or import</th><th>What it holds</th><th>Who</th><th>Coming back</th></>}>
           {exports.map((t) => <tr key={t.id}><td className="text-xs"><span className="text-ink">{t.label}</span><span className="block text-2xs text-ink-3">{t.format}</span></td><td className="text-xs text-ink-2">{t.holds}</td><td className="text-xs text-ink-2">{t.who}</td><td className="text-xs text-ink-2">{t.restores}</td></tr>)}
         </Table>
         <p className="mt-2 text-xs text-ink-3">None of these can restore the service, and none of their imports takes a backup: each refuses a database file or the service archive.</p>
@@ -469,7 +469,7 @@ function RestoreDetail({ restore: r, usernames }: { restore: RestoreView; userna
         <div>
           <h3 className="text-xs font-semibold text-ink-2">Account, authority and hold changes undone</h3>
           <p className="text-xs text-ink-3">Each is as the backup had it again; make again the ones that still should be.{r.undone.count > r.undone.entries.length ? ` The first ${r.undone.entries.length} of ${r.undone.count}.` : ''}</p>
-          <Table className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
+          <Table label="Account, authority and hold changes undone" className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
             {r.undone.entries.map((e) => <tr key={e.seq}><td className="fig text-xs">{formatStamp(e.at)}</td><td className="text-xs">{humanize(e.action)}</td><td className="mono text-2xs">{e.subject_id ? usernames[e.subject_id] ?? (e.subject_username ? `${e.subject_username} (gone with the restore)` : 'an account since removed') : '—'}</td></tr>)}
           </Table>
         </div>

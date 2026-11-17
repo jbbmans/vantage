@@ -14,6 +14,8 @@ import { hasSession, logout } from '@/lib/api';
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { appHref } from '@/lib/links';
 import { cn } from '@/lib/utils';
+import { centerInStrip, keepFocusClear } from '@/lib/keyboard';
+import { usePageTitle } from '@/lib/title';
 
 const Login = lazy(() => import('@/pages/Login'));
 
@@ -57,6 +59,10 @@ function Gate({ documentTitle, loaderLabel, variant, admits, denied, children }:
   const qc = useQueryClient();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const identity = useIdentity();
+  const signedOut = !hasSession() || statusOf(identity.error) === 401;
+  // Each section names the tab itself (ConsoleLayout); the console's own name is for sign-in, loading and a refusal.
+  const showsSections = !signedOut && identity.data != null && admits(identity.data) && !identity.data.user.must_change_password;
+  useEffect(() => keepFocusClear(), []);
   useEffect(() => {
     applyTheme(storedTheme());
     const signedIn = () => { rerender(); qc.invalidateQueries({ queryKey: keys.me }); };
@@ -65,10 +71,9 @@ function Gate({ documentTitle, loaderLabel, variant, admits, denied, children }:
     window.addEventListener('vantage:signed-out', signedOut);
     return () => { window.removeEventListener('vantage:signed-in', signedIn); window.removeEventListener('vantage:signed-out', signedOut); };
   }, [qc]);
-  useEffect(() => { document.title = documentTitle; }, [documentTitle]);
+  useEffect(() => { if (!showsSections) document.title = documentTitle; }, [documentTitle, showsSections]);
   useEffect(() => { if (identity.data?.prefs.theme) applyTheme(identity.data.prefs.theme); }, [identity.data?.prefs.theme]);
 
-  const signedOut = !hasSession() || statusOf(identity.error) === 401;
   if (!signedOut && identity.isPending) return <AppLoader label={loaderLabel} />;
   if (signedOut || !identity.data) {
     const serverError = identity.isError && statusOf(identity.error) !== 401 ? (identity.error as Error).message : null;
@@ -116,9 +121,12 @@ export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow
   }, []);
   useEffect(() => {
     window.scrollTo({ top: 0 });
-    // On a phone the sections are a strip wider than the screen; keep the one you are on in view.
-    document.querySelector('[data-strip] a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    // On a phone the sections are a strip wider than the screen; keep the one you are on in view. The strip scrolls by
+    // itself: scrollIntoView would also move where the first Tab starts, past the skip link.
+    centerInStrip(document.querySelector('[data-strip] a[aria-current="page"]'));
   }, [location.pathname]);
+  // "Audit trail · Unit Manager console · Vantage": each section is its own place in history and in the browser's tabs.
+  const titled = (name: string) => `${name} · ${/\bVantage\b/.test(railLabel) ? railLabel : `${railLabel} · Vantage`}`;
 
   const shown = sections.filter((s) => !s.hidden);
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); applyTheme(next); savePrefs.mutate({ theme: next }); };
@@ -168,13 +176,18 @@ export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow
             <Routes>
               {shown.map((s) => (
                 <Route key={s.path} path={to(s)} element={(
-                  <>
+                  <Titled title={titled(s.title)}>
                     <PageHeader eyebrow={eyebrow} title={s.title} lede={s.lede} />
                     <Suspense fallback={<Skeleton className="h-64" />}>{s.render()}</Suspense>
-                  </>
+                  </Titled>
                 )} />
               ))}
-              <Route path="*" element={<div className="card"><EmptyState title="No page here" description={`That address is not part of the ${railLabel.toLowerCase()}.`} action={<NavLink className="link" to={prefix || '/'}>Overview</NavLink>} /></div>} />
+              <Route path="*" element={(
+                <Titled title={titled('No page here')}>
+                  <h1 className="sr-only">No page here</h1>
+                  <div className="card"><EmptyState title="No page here" description={`That address is not part of the ${railLabel.toLowerCase()}.`} action={<NavLink className="link" to={prefix || '/'}>Overview</NavLink>} /></div>
+                </Titled>
+              )} />
             </Routes>
           </ErrorBoundary>
         </div></main>
@@ -184,4 +197,9 @@ export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow
       <SudoDialog open={Boolean(sudo)} onOpenChange={(o) => { if (!o) { sudo?.cancel(); setSudo(null); } }} onConfirmed={() => { const req = sudo; setSudo(null); req?.confirm(); }} />
     </div>
   );
+}
+
+function Titled({ title, children }: { title: string; children: React.ReactNode }) {
+  usePageTitle(title);
+  return <>{children}</>;
 }

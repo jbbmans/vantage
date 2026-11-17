@@ -3,8 +3,10 @@ import { forbidden, notFound } from '../lib/errors.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { audit, auditListedRecords } from './audit.ts';
-import { PERMISSIONS, can, detailUnitsFor, isMember, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
+import { PERMISSIONS, can, detailUnitsFor, isMember, scopesFor, type Scope } from '../authz/scope.ts';
 import { getUnit } from './org.ts';
+import { readableSubtree } from './dashboard.ts';
+import { BY_LAST_DAY } from './metrics.ts';
 import { periodClause } from './timeframes.ts';
 import { personnelRoster } from './personnelRecords.ts';
 import { isAnonymizedDuty } from './duties.ts';
@@ -47,7 +49,7 @@ interface Reading {
   /** The unit and those beneath it whose shared records the reader may read. */
   units: string[];
   /** Of those, the units where the reader may see figures by Marine. */
-  detailIn: Set<string>;
+  detailIn: ReadonlySet<string>;
   /** Figures by Marine in the unit itself. */
   detail: boolean;
   from: string; to: string;
@@ -69,9 +71,7 @@ const hoursText = (h: number) => `${Math.round(h * 10) / 10} h`;
 function reading(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: AnalyticsWindow): Reading {
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view that unit’s analytics.');
-  const tree = unitTree(ctx);
-  const units = subtreeIds(ctx, unitId, tree).filter((u) => can(scope, PERMISSIONS.VIEW_RECORDS, u));
-  const detailIn = new Set(units.filter((u) => can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, u)));
+  const { units, detailIn } = readableSubtree(ctx, scope, unitId);
   const names = new Map<string, string | null>();
   const unitName = (id: string | null) => {
     if (!id) return null;
@@ -99,7 +99,7 @@ function buildWork(r: Reading): Built {
   const target = { unitIds: r.units };
   // Open on any day of the window, and open now: the two reads the financial report makes (ADR-0020).
   const live = casesOf(r.ctx, target, {}, { from: r.from, to: r.to });
-  const open = casesOf(r.ctx, target, {}).filter((c) => !isClosed(c));
+  const open = casesOf(r.ctx, target, {}, null, { state: 'open' }).filter((c) => !isClosed(c));
   const openIds = new Set(open.map((c) => c.id));
   const liveIds = new Set(live.map((c) => c.id));
   const every = new Map<string, CaseRow>();
@@ -200,7 +200,7 @@ function buildDuty(r: Reading): Built {
   const columns = 't.id, t.user_id, t.unit_id, t.duty_type_id, t.title, t.location, t.notes, t.date, t.end_date, t.hours, t.days, t.approval_status, t.approved_points, t.submitted_at';
   const span = periodClause('duties', 't', r.from, r.to);
   // Duty is always a unit record (ADR-0023). What was stood in the window, and what waits for review now whenever it was stood.
-  const stood = r.ctx.db.prepare(`SELECT ${columns} FROM duties t WHERE t.unit_id IN (SELECT value FROM json_each(?)) AND t.deleted_at IS NULL AND ${span.sql} ORDER BY t.date DESC LIMIT ${SCAN_LIMIT}`).all(units, ...span.params) as DutyRow[];
+  const stood = r.ctx.db.prepare(`SELECT ${columns} FROM duties t ${BY_LAST_DAY.duties} WHERE t.unit_id IN (SELECT value FROM json_each(?)) AND t.deleted_at IS NULL AND ${span.sql} ORDER BY t.date DESC LIMIT ${SCAN_LIMIT}`).all(units, ...span.params) as DutyRow[];
   const waiting = r.ctx.db.prepare(`SELECT ${columns} FROM duties t WHERE t.unit_id IN (SELECT value FROM json_each(?)) AND t.deleted_at IS NULL AND t.approval_status = 'pending' ORDER BY t.submitted_at LIMIT ${SCAN_LIMIT}`).all(units) as DutyRow[];
   const stoodIds = new Set(stood.map((d) => d.id));
   const waitingIds = new Set(waiting.map((d) => d.id));
@@ -282,6 +282,8 @@ function buildDuty(r: Reading): Built {
       sourceNote(r), 'An entry that spans more than one period counts in each period it touches (ADR-0018).',
       'Only approved duty counts, at its approved points (ADR-0024).',
       ...(r.detail ? [] : [NO_DETAIL]),
+      ...(stood.length === SCAN_LIMIT ? [`Only the latest ${SCAN_LIMIT.toLocaleString('en-US')} duties in the window were read. Narrow the window to see the rest.`] : []),
+      ...(waiting.length === SCAN_LIMIT ? [`Only the ${SCAN_LIMIT.toLocaleString('en-US')} duties waiting longest were read.`] : []),
       ...(anonymous ? [`${anonymous === 1 ? 'One duty' : `${anonymous} duties`} a retention schedule anonymized ${anonymous === 1 ? 'counts' : 'count'} in the figures and ${anonymous === 1 ? 'names' : 'name'} nobody.`] : []),
     ],
   };
@@ -298,12 +300,12 @@ interface TrainingRow { id: string; user_id: string; unit_id: string; title: str
 
 function buildTraining(r: Reading): Built {
   const span = periodClause('trainings', 't', r.from, r.to);
-  const rows = r.ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.title, t.type, t.hours, t.date, t.status, t.provider FROM trainings t
+  const rows = r.ctx.db.prepare(`SELECT t.id, t.user_id, t.unit_id, t.title, t.type, t.hours, t.date, t.status, t.provider FROM trainings t ${BY_LAST_DAY.trainings}
       WHERE t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit' AND t.deleted_at IS NULL AND ${span.sql}
       ORDER BY t.date DESC LIMIT ${SCAN_LIMIT}`).all(JSON.stringify(r.units), ...span.params) as TrainingRow[];
   const names = namesOf(r.ctx, rows.filter((x) => r.detailIn.has(x.unit_id)).map((x) => x.user_id));
   // The requirement standing as the training report reads it, over the units read here (ADR-0020).
-  const target: ReportTarget = { type: 'training', subject: 'unit', userId: null, unitId: r.unitId, unitIds: r.units, detail: r.detail, files: [] };
+  const target: ReportTarget = { type: 'training', subject: 'unit', userId: null, unitId: r.unitId, unitIds: r.units, detail: r.detail, detailUnits: r.units.filter((u) => r.detailIn.has(u)), files: [] };
   const { orgId, requirements, standings } = requirementStandings(r.ctx, target, r.today);
   const months = monthKeys(r.from, r.to);
 
@@ -395,6 +397,7 @@ function buildTraining(r: Reading): Built {
       sourceNote(r),
       ...(orgId ? ['A requirement is met by a completed course with its title, with its course code, or with its course code in the title.'] : ['Not in a Unit Instance, so no training requirements apply.']),
       ...(r.detail ? [] : [`${NO_DETAIL} The standing shows counts only.`]),
+      ...(rows.length === SCAN_LIMIT ? [`Only the latest ${SCAN_LIMIT.toLocaleString('en-US')} courses in the window were read. Narrow the window to see the rest.`] : []),
     ],
   };
 }
@@ -454,6 +457,20 @@ function buildPersonnel(r: Reading): Built {
 
 const BUILDERS: Record<AnalyticsSection, (r: Reading) => Built> = { work: buildWork, duty: buildDuty, training: buildTraining, personnel: buildPersonnel };
 
+/**
+ * Of these Marines, those whose record the reader may open, as the member page decides (detailUnitsFor). A deactivated
+ * account's page is no Marine's to open (the member page answers 404), as the roster does not link it. Each Marine is
+ * still decided on their own, from their own scope, but every scope is read at once (scopesFor), so a drill of two
+ * hundred Marines reads a few statements, not a few for each.
+ */
+function openableMarines(ctx: AppContext, scope: Scope, ids: string[]): Set<string> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return new Set();
+  const active = (ctx.db.prepare('SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?)) AND active = 1').all(JSON.stringify(unique)) as Array<{ id: string }>).map((r) => r.id);
+  const scopes = scopesFor(ctx, active);
+  return new Set(active.filter((id) => detailUnitsFor(ctx, scope, id, scopes.get(id)).length > 0));
+}
+
 /** A section's figures for a unit, with no record and no name in them. Audited. */
 export function unitAnalytics(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, section: AnalyticsSection, w: AnalyticsWindow, ip?: string | null): AnalyticsResponse {
   const r = reading(ctx, user, scope, unitId, w);
@@ -480,14 +497,11 @@ export function unitAnalyticsDrill(ctx: AppContext, user: SessionUser, scope: Sc
   const found = drillOf(built.sources, ask.visual, ask.key, ask.series ?? null);
   found.records.sort((a, b) => String(b.record.drill.date || '').localeCompare(String(a.record.drill.date || '')) || b.value - a.value);
   const shown = found.records.slice(0, DRILL_LIMIT);
-  // A link to a Marine's record only where the reader may open it, as the member page decides (detailUnitsFor).
-  const openable = new Map<string, boolean>();
-  // A deactivated account's page is no Marine's to open (the member page answers 404), as the roster does not link it.
-  const active = (id: string) => Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ? AND active = 1').get(id));
-  const opens = (id: string) => { if (!openable.has(id)) openable.set(id, id !== user.id && active(id) && detailUnitsFor(ctx, scope, id).length > 0); return openable.get(id)!; };
+  const linked = shown.filter((x) => x.record.drill.to == null && x.record.named && x.record.user_id && x.record.user_id !== user.id).map((x) => x.record.user_id!);
+  const opens = openableMarines(ctx, scope, linked);
   const records: DrillRecord[] = shown.map(({ record, value }) => ({
     ...record.drill, value,
-    to: record.drill.to ?? (record.named && record.user_id && opens(record.user_id) ? `/team/${encodeURIComponent(record.user_id)}` : null),
+    to: record.drill.to ?? (record.named && record.user_id && opens.has(record.user_id) ? `/team/${encodeURIComponent(record.user_id)}` : null),
   }));
   const label = [bucket.label, series && visual.series.length > 1 ? series.label : null].filter(Boolean).join(' · ');
   audit(ctx, {

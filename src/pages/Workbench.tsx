@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowUp, Bookmark, ClipboardCopy, Filter, Hand, Inbox, Mail,
   RefreshCw, Search, Trash2, Upload, X,
@@ -13,12 +13,13 @@ import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import BulkWorkDialog, { type SelectedWork } from '@/components/BulkWorkDialog';
 import { BULK_WORK_LIMIT } from '../../shared/bulkWork';
-import { can, useBackgroundRefresh, useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
+import { can, useBackgroundRefresh, useIdentity, useItemThreads, usePrefs, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics';
 import { cn, isoDay, todayIso, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
+import { isTextEntry, shortcutsOn } from '@/lib/keyboard';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
 const STATES = [
@@ -61,6 +62,8 @@ const cursorIndex = (at: { id: string | null; index: number }, rows: Array<{ id:
   return found >= 0 ? found : Math.max(0, Math.min(at.index, rows.length - 1));
 };
 const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !isClosedRow(row));
+/** What a row's checkbox selects, by the case's reference and title: a case with no reference is not named by its key. */
+const selectLabel = (row: { reference?: string | null; title?: string | null }) => `Select ${[row.reference, row.title].filter(Boolean).join(', ')}`;
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
   ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })),
@@ -111,6 +114,11 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [deletingView, setDeletingView] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const head = useRef<HTMLTableSectionElement>(null);
+  const prevPage = useRef<HTMLButtonElement>(null);
+  const nextPage = useRef<HTMLButtonElement>(null);
+  const [paging, setPaging] = useState<'prev' | 'next' | null>(null);
+  const keysOn = shortcutsOn(usePrefs());
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   // One layout or the other, never both in the DOM at once.
@@ -127,7 +135,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     limit: query.limit, offset: query.offset, due_before: query.overdue ? yesterday() : undefined,
   }), [query]);
 
-  const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal }), staleTime: 10_000 });
+  // The rows on screen stay while a new sort or page loads, so the header or pager button pressed keeps focus.
+  const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal }), staleTime: 10_000, placeholderData: keepPreviousData });
   useBackgroundRefresh(['work-items', params], (signal) => api.listWorkItems(params, { signal, background: true }));
   const views = useQuery({ queryKey: ['work-views'], queryFn: api.listWorkViews, staleTime: 60_000 });
   const rows: any[] = useMemo(() => list.data?.items || [], [list.data]);
@@ -136,7 +145,12 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
 
   const refresh = useCallback(() => invalidateWork(qc), [qc]);
 
-  useEffect(() => { setCursorAt({ id: null, index: 0 }); setSelected(new Set()); }, [query]);
+  useEffect(() => {
+    setCursorAt({ id: null, index: 0 }); setSelected(new Set());
+    // A new sort or page starts at its top.
+    if (scroller.current) scroller.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [query]);
 
   useEffect(() => {
     if (!rows.length) return;
@@ -155,6 +169,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     });
   }, [rows, bulkOpen, list.isPending]);
 
+  // Measured once the grid is drawn: on arrival the page shows skeletons, and the grid is not there yet.
+  const gridShown = wide && rows.length > 0;
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -163,7 +179,16 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [gridShown]);
+
+  // A page arrived. The pager button pressed keeps focus; if it can go no further (the first or last page), focus moves
+  // to the other one rather than falling to the page.
+  useEffect(() => {
+    if (!paging || list.isPlaceholderData) return;
+    setPaging(null);
+    const [from, to] = paging === 'next' ? [nextPage.current, prevPage.current] : [prevPage.current, nextPage.current];
+    if (from?.disabled && (document.activeElement === from || document.activeElement === document.body)) to?.focus();
+  }, [paging, list.isPlaceholderData, rows]);
 
   const sortBy = (key: string) => setQuery((q) => ({ ...q, sort: key, direction: q.sort === key && q.direction === 'asc' ? 'desc' : 'asc', offset: 0 }));
 
@@ -194,49 +219,70 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     catch (e) { toast.error(api.errorText(e)); refresh(); }
   }, [toast, refresh]);
 
+  // Anywhere on the page: ⌘C or Ctrl+C copies the selection and Escape clears it (neither is a single character key), and
+  // Escape leaves a field. The single keys are the rows' own (onRowsKey).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable;
       // A key a dialog already handled (Escape closing it, say) is not a queue shortcut too, and nothing in a dialog is.
       if (event.defaultPrevented || importing || saveViewOpen || bulkOpen || deletingView || target?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
-      // Enter and Space on a focused button, link or checkbox do what that control does, not what the cursor row does.
-      const control = Boolean(target?.closest?.('button, a[href], summary, [role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]'));
-      if (typing) {
-        if (event.key === 'Escape') (target as HTMLInputElement).blur();
+      if (isTextEntry(target)) {
+        if (event.key === 'Escape') target.blur();
         return;
       }
       if (event.metaKey || event.ctrlKey) {
         if (event.key.toLowerCase() === 'c' && selected.size) { event.preventDefault(); void copySelection(); }
         return;
       }
-      const move = (delta: number) => {
-        event.preventDefault();
-        setCursorAt((at) => {
-          const next = Math.max(0, Math.min(rows.length - 1, cursorIndex(at, rows) + delta));
-          const el = scroller.current;
-          if (el) {
-            const top = next * ROW_HEIGHT;
-            if (top < el.scrollTop) el.scrollTop = top;
-            else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_HEIGHT - el.clientHeight;
-          }
-          return { id: rows[next]?.id ?? null, index: next };
-        });
-      };
-      if (event.key === 'j' || event.key === 'ArrowDown') move(1);
-      else if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
-      else if (event.key === ' ' && !control) { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
-      else if (event.key === 'Enter' && !control) { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
-      else if (event.key === 'c') { event.preventDefault(); if (rows[cursor]) void claim(rows[cursor]); }
-      else if (event.key === 'Escape') setSelected(new Set());
+      if (event.key === 'Escape') setSelected(new Set());
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, cursor, selected, importing, saveViewOpen, bulkOpen, deletingView, toggleSelected, copySelection, claim, openItem]);
+  }, [selected, importing, saveViewOpen, bulkOpen, deletingView, copySelection]);
+
+  /** Moves focus to a row's link, once the row is drawn (only the rows in view are). */
+  const focusRow = (index: number) => {
+    const find = () => scroller.current?.querySelector<HTMLElement>(`tr[data-index="${index}"] a[href]`);
+    const now = find();
+    if (now) now.focus({ preventScroll: true });
+    else window.setTimeout(() => find()?.focus({ preventScroll: true }), 60);
+  };
+
+  // The queue's single keys act only here, with focus in its rows, and only while the person has single-key shortcuts on
+  // (WCAG 2.1.4): a stray key elsewhere on the page, or a word said to speech input, claims nothing.
+  const onRowsKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (!keysOn || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTextEntry(target)) return;
+    // Enter and Space on a focused link, button or checkbox do what that control does, not what the cursor row does.
+    const control = target !== event.currentTarget && Boolean(target.closest('button, a[href], input, [role="button"], [role="link"], [role="checkbox"]'));
+    const inRow = Boolean(target.closest('tr[data-index]'));
+    const move = (delta: number) => {
+      event.preventDefault();
+      if (!rows.length) return;
+      const next = Math.max(0, Math.min(rows.length - 1, cursor + delta));
+      const el = scroller.current;
+      if (el) {
+        // The header stays at the top of the scroller, over the first rows' place.
+        const header = head.current?.offsetHeight ?? 0;
+        const top = next * ROW_HEIGHT;
+        if (top < el.scrollTop) el.scrollTop = top;
+        else if (header + top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = header + top + ROW_HEIGHT - el.clientHeight;
+      }
+      setCursorAt({ id: rows[next]?.id ?? null, index: next });
+      // With focus on a row, focus goes with the cursor, so Enter on it opens the row the cursor is on.
+      if (inRow) focusRow(next);
+    };
+    if (event.key === 'j' || event.key === 'ArrowDown') move(1);
+    else if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
+    else if (event.key === ' ' && !control) { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
+    else if (event.key === 'Enter' && !control) { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
+    else if (event.key === 'c') { event.preventDefault(); if (rows[cursor]) void claim(rows[cursor]); }
+  };
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - WINDOW_OVERSCAN);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + WINDOW_OVERSCAN * 2;
   const windowed = rows.slice(first, first + visibleCount);
+  const below = Math.max(0, rows.length - first - windowed.length);
 
   const applyView = (config: Record<string, unknown>) => {
     const next = { ...DEFAULT_QUERY, ...config } as Query;
@@ -376,7 +422,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
             {rows.map((row) => (
               <li key={row.id} className={cn('flex rounded-lg border border-line bg-surface transition-colors hover:border-line-strong', selected.has(row.id) && 'border-accent bg-accent/5')}>
                 <label className="flex min-h-11 min-w-11 cursor-pointer items-start justify-center pt-4">
-                  <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
+                  <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={selectLabel(row)} />
                 </label>
                 <button type="button" onClick={() => openItem(row.id)} className="min-w-0 flex-1 rounded-r-lg p-3 pl-0 text-left">
                   <span className="flex items-center justify-between gap-2">
@@ -395,84 +441,99 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
           </ul>
           )}
 
-          {/* Desktop: a windowed grid. */}
+          {/* Desktop: one table, its header held at the top while the rows scroll beneath it, so every cell is read with its
+              column. Only the rows in view are drawn; a spacer row above and below stands for the rest. */}
           {wide && (
           <div className="overflow-hidden rounded-lg border border-line bg-surface">
-            <table className="w-full table-fixed border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-surface-2">
-                <tr>
-                  <th scope="col" className="w-10 px-3 py-2"><span className="sr-only">Select work</span></th>
-                  {COLUMNS.map((c) => (
-                    <th key={c.key} scope="col" className={cn('px-3 py-2 text-left text-xs font-semibold text-ink-2', c.width)}>
-                      {c.key === 'claimed' ? c.label : (
-                        <button type="button" onClick={() => sortBy(c.key)} className="inline-flex items-center gap-1 hover:text-ink" aria-label={`Sort by ${c.label}`}>
-                          {c.label}
-                          {query.sort === c.key && (query.direction === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-                        </button>
-                      )}
-                    </th>
-                  ))}
-                  <th scope="col" className="w-20 px-3 py-2"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-            </table>
-            <div ref={scroller} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} className="max-h-[60vh] overflow-y-auto" tabIndex={0} aria-label="Work queue rows">
-              <div style={{ height: rows.length * ROW_HEIGHT, position: 'relative' }}>
-                <table className="w-full table-fixed border-collapse text-sm" style={{ position: 'absolute', top: first * ROW_HEIGHT, left: 0 }}>
-                  <tbody>
-                    {windowed.map((row, i) => {
-                      const index = first + i;
-                      const isCursor = index === cursor;
-                      const isSelected = selected.has(row.id);
-                      const mine = row.claimed_by === identity?.user.id;
+            <div ref={scroller} role="region" aria-label="Work queue rows" tabIndex={0} aria-busy={list.isPlaceholderData || undefined}
+              onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} onKeyDown={onRowsKey}
+              className="max-h-[60vh] overflow-y-auto [scroll-padding-top:2.5rem]">
+              <table className={cn('w-full table-fixed border-collapse text-sm transition-opacity', list.isPlaceholderData && 'opacity-60')} aria-rowcount={total + 1}>
+                <caption className="sr-only">Work queue</caption>
+                <thead ref={head} className="sticky top-0 z-10 bg-surface-2">
+                  <tr aria-rowindex={1}>
+                    <th scope="col" className="w-10 px-3 py-2"><span className="sr-only">Select work</span></th>
+                    {COLUMNS.map((c) => {
+                      const sorted = query.sort === c.key;
                       return (
-                        <tr
-                          key={row.id}
-                          style={{ height: ROW_HEIGHT }}
-                          onClick={() => { setCursorAt({ id: row.id, index }); openItem(row.id); }}
-                          className={cn('cursor-pointer border-b border-line transition-colors', isSelected && 'bg-accent/5', isCursor && 'outline outline-2 -outline-offset-2 outline-accent', !isSelected && 'hover:bg-surface-2')}
-                        >
-                          <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
-                            <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
-                          </td>
-                          <td className="fig w-36 truncate px-3 text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</td>
-                          <td className="px-3 text-ink" title={row.diagnosis ? `${row.title}\n${row.diagnosis.headline}` : row.title}>
-                            {/* Two lines, not one: rows of the same report differ at the end of the title, which a single line cut off. */}
-                            <span className="line-clamp-2 text-[13px] leading-snug">
-                              {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
-                              {/* The case diagnoser's reading of a case no procedure is applied to yet (ADR-0022): a lead, not a label. */}
-                              {!row.procedure_key && row.diagnosis?.issue && <Badge className="mr-2" title={row.diagnosis.headline}>Reads as {row.diagnosis.issue}</Badge>}
-                              {row.title}
-                              {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
-                            </span>
-                          </td>
-                          <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
-                          <td className={cn('w-28 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
-                            <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
-                          </td>
-                          <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
-                          <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
-                          <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                            {row.claimed_by
-                              ? (mine && !isClosedRow(row) ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
-                              : ['resolved', 'not_applicable'].includes(row.state) ? null
-                              : <Button size="sm" variant="ghost" onClick={() => claim(row)}><Hand className="h-3.5 w-3.5" />Claim</Button>}
-                          </td>
-                        </tr>
+                        <th key={c.key} scope="col" className={cn('px-3 py-2 text-left text-xs font-semibold text-ink-2', c.width)}
+                          aria-sort={c.key === 'claimed' ? undefined : sorted ? (query.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                          {c.key === 'claimed' ? c.label : (
+                            <button type="button" onClick={() => sortBy(c.key)} className="inline-flex items-center gap-1 hover:text-ink" aria-label={`Sort by ${c.label}`}>
+                              {c.label}
+                              {sorted && (query.direction === 'asc' ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />)}
+                            </button>
+                          )}
+                        </th>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                    <th scope="col" className="w-20 px-3 py-2"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {first > 0 && <tr aria-hidden="true" style={{ height: first * ROW_HEIGHT }}><td colSpan={COLUMNS.length + 2} className="p-0" /></tr>}
+                  {windowed.map((row, i) => {
+                    const index = first + i;
+                    const isCursor = index === cursor;
+                    const isSelected = selected.has(row.id);
+                    const mine = row.claimed_by === identity?.user.id;
+                    return (
+                      <tr
+                        key={row.id}
+                        data-index={index}
+                        aria-rowindex={query.offset + index + 2}
+                        style={{ height: ROW_HEIGHT }}
+                        // Focus on any of the row's controls puts the cursor on it, so the keys act on the row in focus.
+                        onFocus={() => { if (!isCursor) setCursorAt({ id: row.id, index }); }}
+                        onClick={(e) => { if ((e.target as HTMLElement).closest('a[href], button, input, label')) return; setCursorAt({ id: row.id, index }); openItem(row.id); }}
+                        className={cn('cursor-pointer border-b border-line transition-colors', isSelected && 'bg-accent/5', isCursor && 'outline outline-2 -outline-offset-2 outline-accent', !isSelected && 'hover:bg-surface-2')}
+                      >
+                        <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={selectLabel(row)} />
+                        </td>
+                        <td className="fig w-36 px-3 text-xs font-semibold text-ink-2">
+                          {/* A link a keyboard reaches with Tab, and a screen reader lists, opens the case; the row's click is for a mouse. */}
+                          <Link to={`/work/items/${row.id}`} className="block truncate rounded-sm hover:text-ink hover:underline">{row.reference || row.natural_key}</Link>
+                        </td>
+                        <td className="px-3 text-ink" title={row.diagnosis ? `${row.title}\n${row.diagnosis.headline}` : row.title}>
+                          {/* Two lines, not one: rows of the same report differ at the end of the title, which a single line cut off. */}
+                          <span className="line-clamp-2 text-[13px] leading-snug">
+                            {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
+                            {/* The case diagnoser's reading of a case no procedure is applied to yet (ADR-0022): a lead, not a label. */}
+                            {!row.procedure_key && row.diagnosis?.issue && <Badge className="mr-2" title={row.diagnosis.headline}>Reads as {row.diagnosis.issue}</Badge>}
+                            {row.title}
+                            {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
+                          </span>
+                        </td>
+                        <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
+                        <td className={cn('w-28 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
+                          <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
+                        </td>
+                        <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
+                        <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
+                        <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          {row.claimed_by
+                            ? (mine && !isClosedRow(row) ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
+                            : ['resolved', 'not_applicable'].includes(row.state) ? null
+                            : <Button size="sm" variant="ghost" onClick={() => claim(row)}><Hand className="h-3.5 w-3.5" />Claim</Button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {below > 0 && <tr aria-hidden="true" style={{ height: below * ROW_HEIGHT }}><td colSpan={COLUMNS.length + 2} className="p-0" /></tr>}
+                </tbody>
+              </table>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-2 text-xs text-ink-3">
               <span>
                 Showing {rows.length ? query.offset + 1 : 0} to {query.offset + rows.length} of {formatNumber(total)}.
-                <span className="ml-2 hidden xl:inline">j and k move, space selects, Enter opens, c claims.</span>
+                {keysOn && <span className="ml-2 hidden lg:inline">In the rows, j and k move, space selects, Enter opens, c claims.</span>}
               </span>
               <span className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" disabled={query.offset === 0} onClick={() => setQuery((q) => ({ ...q, offset: Math.max(0, q.offset - q.limit) }))}>Previous</Button>
-                <Button size="sm" variant="ghost" disabled={query.offset + rows.length >= total} onClick={() => setQuery((q) => ({ ...q, offset: q.offset + q.limit }))}>Next</Button>
+                <Button ref={prevPage} size="sm" variant="ghost" disabled={!list.isPlaceholderData && query.offset === 0} loading={list.isPlaceholderData && paging === 'prev'}
+                  onClick={() => { setPaging('prev'); setQuery((q) => ({ ...q, offset: Math.max(0, q.offset - q.limit) })); }}>Previous</Button>
+                <Button ref={nextPage} size="sm" variant="ghost" disabled={!list.isPlaceholderData && query.offset + rows.length >= total} loading={list.isPlaceholderData && paging === 'next'}
+                  onClick={() => { setPaging('next'); setQuery((q) => ({ ...q, offset: q.offset + q.limit })); }}>Next</Button>
               </span>
             </div>
           </div>

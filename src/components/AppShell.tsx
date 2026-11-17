@@ -8,11 +8,14 @@ import {
 } from 'lucide-react';
 import { HOME, groupFor, pageFor, placeName, type Count, type NavGroup, type NavPage } from '@/config/nav';
 import { useNav } from '@/lib/useNav';
-import { cn, initials, timeAgo } from '@/lib/utils';
+import { cn, initials, timeAgo, useMediaQuery } from '@/lib/utils';
+import { centerInStrip, isTextEntry, keepFocusClear, ownsKeys, shortcutsOn } from '@/lib/keyboard';
+import { pageTitle } from '@/lib/title';
 import { Badge, Kbd, Skeleton, Tooltip } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import * as Popover from '@radix-ui/react-popover';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import QuickLog from '@/components/QuickLog';
 import OutboxDialog from '@/components/OutboxDialog';
 import CommandPalette, { type PaletteAction } from '@/components/CommandPalette';
@@ -68,6 +71,7 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
   const { data: identity } = useIdentity();
   const { view, views, setView } = useView(identity);
   const [open, setOpen] = useState(false);
+  const keysOn = shortcutsOn(identity?.prefs);
   const trigger = React.useRef<HTMLButtonElement>(null);
   const list = React.useRef<HTMLUListElement>(null);
   const step = (e: React.KeyboardEvent) => {
@@ -100,7 +104,7 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
     <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
-          <button ref={trigger} type="button" aria-label={`Viewing ${viewLabel(view)}. Switch view`} aria-keyshortcuts="v" data-testid="view-switcher"
+          <button ref={trigger} type="button" aria-label={`Viewing ${viewLabel(view)}. Switch view`} aria-keyshortcuts={keysOn ? 'v' : undefined} data-testid="view-switcher"
             className="group flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgb(255_255_255/.06)] transition-colors hover:bg-white/[.08]">
             <span key={view?.id} className="view-badge flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rail-active [background-image:linear-gradient(to_bottom,rgb(255_255_255/.14),rgb(255_255_255/0))] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{badge}</span>
             <span key={`${view?.id}-label`} className="view-label min-w-0 flex-1">
@@ -332,6 +336,7 @@ export default function AppShell() {
   const savePrefs = useSavePrefs();
   const location = useLocation();
 
+  useEffect(() => keepFocusClear(), []);
   useEffect(() => { installTelemetry(); track('session.started', { returning: document.referrer.includes(window.location.host) }); }, []);
   useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname, location.search) }); }, [location.pathname, location.search]);
   const navigate = useNavigate();
@@ -340,6 +345,12 @@ export default function AppShell() {
   const pending = useOutboxCount(userId);
   const [queueOpen, setQueueOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  // The phone's menu gives focus back to the control that opened it, or, when a page was chosen in it, to that page.
+  const drawerOpener = React.useRef<Element | null>(null);
+  const drawerLeaving = React.useRef(false);
+  const drawerOpen = React.useRef(false);
+  drawerOpen.current = drawer;
+  const openDrawer = useCallback(() => { drawerOpener.current = document.activeElement; setDrawer(true); }, []);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('vantage.rail') === 'collapsed'; } catch { return false; } });
   const [quickLog, setQuickLog] = useState(false);
   const [quickLogSeed, setQuickLogSeed] = useState('');
@@ -354,10 +365,14 @@ export default function AppShell() {
 
   useEffect(() => { setTheme(resolveTheme(identity?.prefs.theme || storedTheme())); }, [identity?.prefs.theme]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll reset on path change only
-  useEffect(() => { setDrawer(false); if (!location.hash) window.scrollTo({ top: 0 }); }, [location.pathname]);
+  useEffect(() => { if (drawerOpen.current) drawerLeaving.current = true; setDrawer(false); if (!location.hash) window.scrollTo({ top: 0 }); }, [location.pathname]);
+  // The drawer is the phone's and the tablet's; a window widened past it has the rail, and nothing left open behind it.
+  const desk = useMediaQuery('(min-width: 1024px)');
+  useEffect(() => { if (desk) setDrawer(false); }, [desk]);
   const place = placeOf(location.pathname);
   // The tab says where the page is, as the header does: "Awards · Records · Vantage", never two pages called "Overview".
-  useEffect(() => { document.title = [place.title, place.group, 'Vantage'].filter(Boolean).join(' · '); }, [place.title, place.group]);
+  // A page that names itself (no page here) keeps its name.
+  useEffect(() => { document.title = pageTitle([...new Set([place.title, place.group, 'Vantage'].filter(Boolean))].join(' · ')); }, [place.title, place.group]);
 
   const flush = useCallback(async () => {
     if (!userId) return;
@@ -389,34 +404,54 @@ export default function AppShell() {
     ...groups.map((g) => ({ key: g.key, to: g.pages[0].to })),
   ], [visibleNav, groups]);
   const counts = useCounts(activeGroup?.id);
+  const keysOn = shortcutsOn(identity?.prefs);
 
   useEffect(() => {
+    // The G chord's second key, listened for once and for a moment after G.
+    let second: ((next: KeyboardEvent) => void) | null = null;
+    let expiry = 0;
+    const disarm = () => {
+      if (second) window.removeEventListener('keydown', second, true);
+      second = null;
+      window.clearTimeout(expiry);
+    };
     const onKey = (event: KeyboardEvent) => {
-      const tag = (event.target as HTMLElement)?.tagName;
-      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (event.target as HTMLElement)?.isContentEditable;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPalette((v) => !v); return; }
-      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      // A single key is a shortcut only when the person has them on, nothing has handled it already, and it was not
+      // pressed in a field, a dialog, a menu or a list, all of which take typed letters themselves (WCAG 2.1.4).
+      if (!keysOn || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTextEntry(event.target) || ownsKeys(event.target)) return;
       if (event.key === 'n') { event.preventDefault(); openQuickLog(''); }
       else if (event.key === '/') { event.preventDefault(); setPalette(true); }
       else if (event.key === '?') { event.preventDefault(); setShortcuts((v) => !v); }
       else if (event.key === '[') { event.preventDefault(); toggleRail(); }
       else if (event.key === 'v' && identity?.views && identity.views.length > 1) {
         event.preventDefault();
-        if (!window.matchMedia('(min-width: 1024px)').matches) setDrawer(true);
+        if (!window.matchMedia('(min-width: 1024px)').matches) openDrawer();
         else if (collapsed) toggleRail();
         window.setTimeout(() => window.dispatchEvent(new Event('vantage:open-views')), 80);
       }
       else if (event.key === 'g') {
-        const second = (next: KeyboardEvent) => { const hit = goKeys.find((i) => i.key === next.key); if (hit) { next.preventDefault(); navigate(hit.to); } window.removeEventListener('keydown', second, true); };
+        disarm();
+        second = (next) => {
+          disarm();
+          // The second key passes the same checks as the first: G, then a click into a field and typing, types.
+          if (next.metaKey || next.ctrlKey || next.altKey || isTextEntry(next.target) || ownsKeys(next.target)) return;
+          const hit = goKeys.find((i) => i.key === next.key);
+          if (!hit) return;
+          // Taken here, before the page or this shell's own handler sees it: G G goes to Goals, and does not start G again.
+          next.preventDefault();
+          next.stopImmediatePropagation();
+          navigate(hit.to);
+        };
         window.addEventListener('keydown', second, true);
-        window.setTimeout(() => window.removeEventListener('keydown', second, true), 1200);
+        expiry = window.setTimeout(disarm, 1200);
       }
     };
     const openPalette = () => setPalette(true);
     window.addEventListener('keydown', onKey);
     window.addEventListener('vantage:open-palette', openPalette);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('vantage:open-palette', openPalette); };
-  }, [navigate, openQuickLog, goKeys, identity?.views, collapsed]);
+    return () => { disarm(); window.removeEventListener('keydown', onKey); window.removeEventListener('vantage:open-palette', openPalette); };
+  }, [navigate, openQuickLog, openDrawer, goKeys, identity?.views, collapsed, keysOn]);
 
   const switchPersona = async (persona: 'marine' | 'leader') => {
     try { await api.demoPersona(persona); qc.clear(); navigate('/'); qc.invalidateQueries(); }
@@ -431,7 +466,7 @@ export default function AppShell() {
   // What ⌘K can do besides go somewhere: the things people otherwise hunt through menus for.
   const paletteActions: PaletteAction[] = [
     { id: 'theme', title: theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', keywords: 'theme dark light mode appearance', run: toggleTheme },
-    { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: 'Press ? anywhere', keywords: 'keys hotkeys help', run: () => setShortcuts(true) },
+    { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: keysOn ? 'Press ? anywhere' : 'Turned off; turn them on here', keywords: 'keys hotkeys help single key', run: () => setShortcuts(true) },
     { id: 'whats-new', title: 'What’s new in Vantage', subtitle: `v${VERSION}`, keywords: 'changes changelog release notes updates version', run: openWhatsNew },
     // Import and export, from anywhere, named as the pages name them (ADR-0016).
     { id: 'import-activities', title: 'Import activities', subtitle: `From a CSV, in ${placeName('/record/activities')}`, keywords: 'upload spreadsheet csv entries import', run: () => navigate('/record/activities?import=1') },
@@ -484,7 +519,7 @@ export default function AppShell() {
     const n = count ? counts[count] : 0;
     return n ? <span className="ml-auto rounded-full bg-white/10 px-1.5 py-px font-mono text-[10px] text-white/80">{n}</span> : null;
   };
-  const hint = (page: NavPage | NavGroup, wide: boolean, mobile: boolean) => (wide && !mobile && page.key
+  const hint = (page: NavPage | NavGroup, wide: boolean, mobile: boolean) => (wide && !mobile && keysOn && page.key
     ? <span className="ml-auto hidden font-mono text-[10px] text-white/35 group-hover:inline" aria-hidden>G {page.key.toUpperCase()}</span> : null);
   // The page this address is, by the same lookup as the header and title, so /record/ marks Overview as /record does.
   // The rail's links are plain Links: a NavLink sets aria-current by its own prefix match, which would mark Personnel
@@ -578,7 +613,8 @@ export default function AppShell() {
       ))}
     </nav>
   ) : null;
-  useEffect(() => { document.querySelector('[data-strip] a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' }); }, [location.pathname]);
+  // The strip scrolls to the page you are on by itself; scrollIntoView would also move where the first Tab starts.
+  useEffect(() => { centerInStrip(document.querySelector('[data-strip] a[aria-current="page"]')); }, [location.pathname]);
 
   const workspace = (wide: boolean, mobile = false) => wide ? <ViewSwitcher mobile={mobile} /> : null;
 
@@ -607,35 +643,59 @@ export default function AppShell() {
                     </span>
                   </button>,
                 )}
-                <Tooltip content="Collapse  [" side="right">
+                <Tooltip content={keysOn ? 'Collapse  [' : 'Collapse'} side="right">
                   <button type="button" onClick={toggleRail} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Collapse navigation"><ChevronsLeft className="h-4 w-4" /></button>
                 </Tooltip>
               </div>
             ) : (
-              <Tooltip content="Expand  [" side="right">
+              <Tooltip content={keysOn ? 'Expand  [' : 'Expand'} side="right">
                 <button type="button" onClick={toggleRail} className="flex h-9 w-full items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Expand navigation"><ChevronsRight className="h-4 w-4" /></button>
               </Tooltip>
             )}
           </div>
         </aside>
 
-        {drawer && (
-          <div className="no-print fixed inset-0 z-50 lg:hidden">
-            <button type="button" className="absolute inset-0 bg-deep/60 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
-            <aside className={cn('absolute inset-y-0 left-0 flex w-[min(86vw,292px)] flex-col shadow-modal animate-slide-in-left', railBackground)}>
-              <div className="flex h-[60px] shrink-0 items-center gap-2 px-5">
-                <Logo size={24} reversed />
-                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close menu"><X className="h-4 w-4" /></button>
-              </div>
-              {workspace(true, true)}
-              {navList(true)}
-            </aside>
-          </div>
-        )}
+        {/* The phone's menu is a dialog: focus goes in, to the page you are on, and stays in until it closes; Escape or a tap
+            beside it closes it, and the page behind is out of reach meanwhile. */}
+        <DialogPrimitive.Root open={drawer} onOpenChange={setDrawer}>
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Overlay className="no-print fixed inset-0 z-50 bg-deep/60 backdrop-blur-sm animate-fade-in lg:hidden" />
+            <DialogPrimitive.Content aria-describedby={undefined}
+              className={cn('no-print fixed inset-y-0 left-0 z-50 flex w-[min(86vw,292px)] flex-col shadow-modal animate-slide-in-left focus:outline-none lg:hidden', railBackground)}
+              onOpenAutoFocus={(e) => {
+                const here = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('nav a[aria-current="page"]');
+                if (here) { e.preventDefault(); here.focus(); }
+              }}
+              onCloseAutoFocus={(e) => {
+                e.preventDefault();
+                const from = drawerOpener.current;
+                drawerOpener.current = null;
+                if (drawerLeaving.current) { drawerLeaving.current = false; document.getElementById('main')?.focus({ preventScroll: true }); return; }
+                // The tab bar steps aside while the drawer is open, so its More button is drawn again; find it by its mark.
+                const mark = from instanceof HTMLElement ? from.dataset.drawerOpener : undefined;
+                const back = from instanceof HTMLElement && from.isConnected ? from : mark ? document.querySelector<HTMLElement>(`[data-drawer-opener="${mark}"]`) : null;
+                back?.focus({ preventScroll: true });
+              }}
+              onClick={(e) => {
+                // A page chosen here, even the one already open, closes the menu.
+                if ((e.target as HTMLElement).closest('a[href]') && plainClick(e)) { drawerLeaving.current = true; setDrawer(false); }
+              }}>
+              <DialogPrimitive.Title className="sr-only">Menu</DialogPrimitive.Title>
+              <aside className="flex min-h-0 flex-1 flex-col">
+                <div className="flex h-[60px] shrink-0 items-center gap-2 px-5">
+                  <Logo size={24} reversed />
+                  <DialogPrimitive.Close className="ml-auto rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close menu"><X className="h-4 w-4" /></DialogPrimitive.Close>
+                </div>
+                {workspace(true, true)}
+                {navList(true)}
+              </aside>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line/80 bg-surface/80 px-3 backdrop-blur-xl backdrop-saturate-150 sm:px-5 lg:px-8">
-            <button type="button" className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
+            <button type="button" className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={openDrawer} aria-label="Open menu" aria-haspopup="dialog" data-drawer-opener="menu"><MenuIcon className="h-5 w-5" /></button>
             <p className="flex min-w-0 items-baseline gap-2">
               {place.group && <><span className="hidden shrink-0 text-[15px] text-ink-3 sm:inline">{place.group}</span><span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span></>}
               <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{place.title}</span>
@@ -708,7 +768,7 @@ export default function AppShell() {
           </footer>
         </div>
 
-        <TabBar hidden={drawer || quickLog || palette} leads={teams.has('workload')} onLog={() => openQuickLog('')} onMore={() => setDrawer(true)} />
+        <TabBar hidden={drawer || quickLog || palette} leads={teams.has('workload')} onLog={() => openQuickLog('')} onMore={openDrawer} />
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />

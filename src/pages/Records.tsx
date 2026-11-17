@@ -5,7 +5,7 @@ import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, T
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import RecordDialog from '@/components/RecordDialog';
+import RecordDialog, { missing } from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import MoveRecordDialog from '@/components/MoveRecordDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
@@ -176,7 +176,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); clearFilters(true); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
       ) : view === 'list' ? (
         <div className="card">
-          <Table minWidth={880} head={<><th className="w-24">Date</th><th className="min-w-[18rem]">Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
+          <Table label="Activities" minWidth={880} head={<><th className="w-24">Date</th><th className="min-w-[18rem]">Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
             {filtered.map((a) => {
               const s = strength(a);
               return (
@@ -216,7 +216,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing ? { ...editing } : null} title={editing?.id ? 'Edit activity' : 'New activity'} noun="Activity" size="lg"
-        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('activities', d))} onSaved={() => undefined} />
+        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? missing('title', 'A title is required.') : timeframeCheck('activities', d))} onSaved={() => undefined} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
       <MoveRecordDialog store="activities" row={moving?.row ?? null} suggested={moving?.to} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} />

@@ -34,6 +34,37 @@ test('the server deadline is retained even before an idle-warning listener exist
   finally { fetch.mock.restore(); if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
 });
 
+test('a 401 for a session a newer sign-in replaced keeps that sign-in; a 401 for the current one signs out', async () => {
+  // The page's view of its cookies: only the readable signed-in marker, which each sign-in sets anew.
+  let marker: string | null = 'first-sign-in';
+  const jar = {
+    get cookie() { return marker === null ? '' : `vantage_signed_in=${marker}`; },
+    set cookie(v: string) { if (/^vantage_signed_in=/.test(v)) marker = /max-age=0/i.test(v) ? null : v.split(';')[0].slice('vantage_signed_in='.length); },
+  };
+  const events: string[] = [];
+  const win = new EventTarget();
+  for (const name of ['vantage:signed-in', 'vantage:signed-out']) win.addEventListener(name, () => events.push(name));
+  const previous = { document: Object.getOwnPropertyDescriptor(globalThis, 'document'), window: Object.getOwnPropertyDescriptor(globalThis, 'window') };
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: jar });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: win });
+  // Sent under the first sign-in; the person signs in again (a role grant ended their sessions) before its 401 is back.
+  let fetch = mock.method(globalThis, 'fetch', async () => { marker = 'second-sign-in'; return new Response('{"error":"Sign in."}', { status: 401 }); });
+  try {
+    await assert.rejects(api.get('/synthetic'), (error) => error instanceof ApiError && error.status === 401);
+    assert.equal(marker, 'second-sign-in', 'the newer sign-in keeps its marker, so its next page load is signed in');
+    assert.deepEqual(events, ['vantage:signed-in']);
+    fetch.mock.restore();
+    // Sent under the sign-in that is still current: that session has ended, and the page signs out.
+    fetch = mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 401 }));
+    await assert.rejects(api.get('/synthetic'), (error) => error instanceof ApiError && error.status === 401);
+    assert.equal(marker, null);
+    assert.deepEqual(events, ['vantage:signed-in', 'vantage:signed-out']);
+  } finally {
+    fetch.mock.restore();
+    for (const [key, d] of Object.entries(previous)) { if (d) Object.defineProperty(globalThis, key, d); else Reflect.deleteProperty(globalThis, key); }
+  }
+});
+
 test('an unknown saved theme falls back to the system instead of becoming an invalid theme attribute', () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   let value = 'invalid-theme';

@@ -11,7 +11,7 @@ import { errorReportTypesOf } from './unitConfig.ts';
 import { parseMoney } from '../../shared/money.ts';
 import {
   COLUMN_ROLES, DRILL_LABELS, NOT_STATED, NO_OWNER, PERSISTENT_REPORTS, SINGLE_ROLES,
-  ageOf, centsOf, compareRows, groupLines, groupRow, groupValue, inDrill, normalOwner, normalStatus, shownRow, summarize,
+  ageOf, centsOf, closedByDefault, compareRows, groupLines, groupRow, groupValue, inDrill, normalOwner, normalStatus, shownRow, summarize,
   type ChangeFlag, type ChangeLine, type ColumnRole, type ComparedRow, type ComparisonResult, type Drill, type DrillGroup, type DrillResult, type DrillRow,
   type ErrorReportChoices, type ErrorReportLayout, type ErrorReportPreview, type ErrorReportType, type ErrorReportsOverview, type SeriesFacts,
   type SeriesHistory, type SnapshotRow, type SnapshotSummary, type Standing,
@@ -34,9 +34,11 @@ import {
  * Filing a report never creates or changes a case: the queue is still filled by Import, and a row links to its case.
  */
 
-const ROW_LIMIT = 5000;
 const REJECTIONS_KEPT = 500;
 const TREND_REPORTS = 26;
+/** The rows behind a figure go out a page at a time, cut only after every check and filter has decided which they are. */
+export const DRILL_PAGE = 100;
+export const DRILL_PAGE_MAX = 500;
 
 export interface SnapshotRecord {
   id: string; org_id: string; unit_id: string; type_id: string; source_file_id: string; filename: string; sha256: string;
@@ -45,9 +47,23 @@ export interface SnapshotRecord {
   filed_by: string; filed_at: string; withdrawn_at: string | null; withdrawn_by: string | null; withdrawn_reason: string | null;
 }
 
+/**
+ * What a series reads of each of its reports: what the page lists and a comparison picks by. Not the refusals (up to
+ * REJECTIONS_KEPT of them) or the layout a report was filed with, which only the next filing's layout reads, one report.
+ */
+const SUMMARY_FIELDS = [
+  'id', 'org_id', 'unit_id', 'type_id', 'as_of', 'filename', 'sha256', 'row_count', 'open_count', 'open_cents', 'rejected_rows', 'note',
+  'filed_by', 'filed_at', 'withdrawn_at', 'withdrawn_by', 'withdrawn_reason',
+] as const;
+const summaryColumns = (alias = '') => SUMMARY_FIELDS.map((c) => `${alias}${c}`).join(', ');
+export type SeriesReport = Pick<SnapshotRecord, (typeof SUMMARY_FIELDS)[number]>;
+
 export interface FilingPlan {
   unit_id: string; type_id: string; as_of: string; source_file_id: string; sheet_name: string; header_row: number;
-  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[]; note?: string | null;
+  key_columns: string[]; columns: Record<string, ColumnRole>;
+  /** Null closes the statuses that usually mean closed (CLOSED_WORDS), as the first preview of a series offers them. */
+  closed_statuses: string[] | null;
+  note?: string | null;
 }
 
 interface Reader { unitId: string; unitName: string; orgId: string; detail: boolean; file: boolean; files: boolean }
@@ -81,7 +97,7 @@ function typeOf(ctx: AppContext, orgId: string, typeId: string): ErrorReportType
   return row;
 }
 
-const summaryOf = (s: SnapshotRecord, names: Map<string, string>): SnapshotSummary => ({
+const summaryOf = (s: SeriesReport, names: Map<string, string>): SnapshotSummary => ({
   id: s.id, as_of: s.as_of, filename: s.filename, row_count: s.row_count, open_count: s.open_count, open_cents: s.open_cents,
   rejected_rows: s.rejected_rows, note: s.note, filed_at: s.filed_at, filed_by: names.get(s.filed_by) ?? 'Someone',
   withdrawn: s.withdrawn_at ? { at: s.withdrawn_at, by: names.get(s.withdrawn_by!) ?? 'Someone', reason: s.withdrawn_reason ?? '' } : null,
@@ -97,10 +113,10 @@ function namesOf(ctx: AppContext, ids: Array<string | null | undefined>): Map<st
 }
 
 /** Every report of a series, withdrawn ones too, in the order of the days they stand on. */
-function seriesOf(ctx: AppContext, unitId: string, typeId: string): SnapshotRecord[] {
-  return ctx.db.prepare('SELECT * FROM error_snapshots WHERE unit_id = ? AND type_id = ? ORDER BY as_of, filed_at').all(unitId, typeId) as SnapshotRecord[];
+function seriesOf(ctx: AppContext, unitId: string, typeId: string): SeriesReport[] {
+  return ctx.db.prepare(`SELECT ${summaryColumns()} FROM error_snapshots WHERE unit_id = ? AND type_id = ? ORDER BY as_of, filed_at`).all(unitId, typeId) as SeriesReport[];
 }
-const live = (list: readonly SnapshotRecord[]) => list.filter((s) => !s.withdrawn_at);
+const live = <T extends { withdrawn_at: string | null }>(list: readonly T[]) => list.filter((s) => !s.withdrawn_at);
 
 // ——— Reading a report from its file ———
 
@@ -112,6 +128,8 @@ interface ReadReport {
   rejections: Rejection[];
   dropped: number;
   statuses: Array<{ status: string; rows: number; closed: boolean }>;
+  /** The statuses, as compared, that close a row: those the plan gave, or those on the sheet that usually mean closed. */
+  closed: string[];
   owners: { named: number; matched: number };
 }
 
@@ -195,7 +213,8 @@ function readReport(ctx: AppContext, user: SessionUser, scope: Scope, plan: Fili
     mapping: Object.fromEntries(ignored), visibility: 'unit', unit_id: plan.unit_id,
   });
   const roles = rolesOf(read.headers, plan);
-  const closed = new Set(plan.closed_statuses.map(normalStatus).filter(Boolean));
+  const given = plan.closed_statuses ? new Set(plan.closed_statuses.map(normalStatus).filter(Boolean)) : null;
+  const closes = (status: string) => (given ? given.has(normalStatus(status)) : closedByDefault(status));
   const ownerOf = ownerIndex(ctx, subtreeIds(ctx, plan.unit_id));
   const notes: Rejection[] = [];
   const statuses = new Map<string, { status: string; rows: number; closed: boolean }>();
@@ -221,7 +240,7 @@ function readReport(ctx: AppContext, user: SessionUser, scope: Scope, plan: Fili
     const owner = cell('owner', 120);
     const ownerId = ownerOf(owner);
     if (owner) { named += 1; if (ownerId) matched += 1; }
-    const isClosed = Boolean(status && closed.has(normalStatus(status)));
+    const isClosed = Boolean(status && closes(status));
     if (status) {
       const k = normalStatus(status);
       const s = statuses.get(k) ?? { status, rows: 0, closed: isClosed };
@@ -238,12 +257,13 @@ function readReport(ctx: AppContext, user: SessionUser, scope: Scope, plan: Fili
     source: { id: source.id, filename: source.filename, sha256: source.sha256 },
     headers: read.headers, rows, rejections: [...read.rejections, ...notes], dropped: read.rejections.length,
     statuses: [...statuses.values()].sort((a, b) => b.rows - a.rows).slice(0, 100),
+    closed: given ? [...given] : [...statuses.entries()].filter(([, s]) => s.closed).map(([k]) => k),
     owners: { named, matched },
   };
 }
 
 /** Why a plan cannot be filed for this series as it stands: its day, its type, or a report it repeats. */
-function seriesProblems(ctx: AppContext, user: SessionUser, plan: FilingPlan, reader: Reader, sha256: string): { type: ErrorReportType; previous: SnapshotRecord | null; sameDay: SnapshotRecord | null; sameFile: SnapshotRecord | null } {
+function seriesProblems(ctx: AppContext, user: SessionUser, plan: FilingPlan, reader: Reader, sha256: string): { type: ErrorReportType; previous: SeriesReport | null; sameDay: SeriesReport | null; sameFile: SeriesReport | null } {
   const type = typeOf(ctx, reader.orgId, plan.type_id);
   if (!type.active) throw badRequest(`${type.name} is retired in this Unit Instance. A Unit Manager can restore it.`, { fieldErrors: { type_id: 'Retired.' } });
   const today = zonedDay(zoneOf(ctx, user));
@@ -260,23 +280,31 @@ function seriesProblems(ctx: AppContext, user: SessionUser, plan: FilingPlan, re
 const keyOf = (r: { natural_key: string }) => r.natural_key;
 interface StoredRow {
   natural_key: string; source_row: number; reference: string | null; description: string | null; category: string | null; unit_text: string | null;
-  owner: string | null; owner_user_id: string | null; status: string | null; closed: number; amount_cents: number | null; opened_on: string | null; age_days: number | null; data?: string;
+  owner: string | null; owner_user_id: string | null; status: string | null; closed: number; amount_cents: number | null; opened_on: string | null; age_days: number | null;
 }
-const toRow = (r: StoredRow): ReadRow => ({
+const toRow = (r: StoredRow): SnapshotRow => ({
   key: keyOf(r), source_row: r.source_row, reference: r.reference, description: r.description, category: r.category, unit: r.unit_text,
   owner: r.owner, owner_user_id: r.owner_user_id, status: r.status, closed: Boolean(r.closed), amount_cents: r.amount_cents,
-  opened_on: r.opened_on, age_days: r.age_days, data: r.data ? JSON.parse(r.data) as Record<string, string> : {},
+  opened_on: r.opened_on, age_days: r.age_days,
 });
 
-function rowsOf(ctx: AppContext, snapshotId: string, withData = false): ReadRow[] {
+/** A filed report's rows as compared, without the columns each kept as uploaded: a drill reads those for its page alone. */
+function rowsOf(ctx: AppContext, snapshotId: string): SnapshotRow[] {
   const cols = 'natural_key, source_row, reference, description, category, unit_text, owner, owner_user_id, status, closed, amount_cents, opened_on, age_days';
-  return (ctx.db.prepare(`SELECT ${cols}${withData ? ', data' : ''} FROM error_snapshot_rows WHERE snapshot_id = ? ORDER BY source_row`).all(snapshotId) as StoredRow[]).map(toRow);
+  return (ctx.db.prepare(`SELECT ${cols} FROM error_snapshot_rows WHERE snapshot_id = ? ORDER BY source_row`).all(snapshotId) as StoredRow[]).map(toRow);
 }
 
-/** Every identifier on any report of the series up to and including this one, open or closed. */
-function seenUpTo(ctx: AppContext, unitId: string, typeId: string, upTo: SnapshotRecord): Set<string> {
-  const ids = live(seriesOf(ctx, unitId, typeId)).filter((s) => s.as_of <= upTo.as_of).map((s) => s.id);
-  const rows = ctx.db.prepare('SELECT DISTINCT natural_key FROM error_snapshot_rows WHERE snapshot_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(ids)) as Array<{ natural_key: string }>;
+/**
+ * Of these identifiers, those on any report of the series standing on or before a day, open or closed. Read from the
+ * identifiers rather than the series, whose history grows with every report filed: only these are asked about. The
+ * order is fixed (CROSS JOIN) so each identifier's rows are found by the identifier index and each report by its key;
+ * the unit and type stay in the SQL, since the identifier index holds every Unit Instance's rows.
+ */
+export const SEEN_SQL = `SELECT DISTINCT r.natural_key FROM json_each(?) k
+  CROSS JOIN error_snapshot_rows r ON r.natural_key = k.value CROSS JOIN error_snapshots s ON s.id = r.snapshot_id
+  WHERE s.unit_id = ? AND s.type_id = ? AND s.withdrawn_at IS NULL AND s.as_of <= ?`;
+function seenOf(ctx: AppContext, unitId: string, typeId: string, upTo: string, keys: Iterable<string>): Set<string> {
+  const rows = ctx.db.prepare(SEEN_SQL).all(JSON.stringify([...new Set(keys)]), unitId, typeId, upTo) as Array<{ natural_key: string }>;
   return new Set(rows.map(keyOf));
 }
 
@@ -286,7 +314,8 @@ export function previewSnapshot(ctx: AppContext, user: SessionUser, scope: Scope
   const read = readReport(ctx, user, scope, plan);
   const { type, previous, sameDay, sameFile } = seriesProblems(ctx, user, plan, reader, read.source.sha256);
   const before = previous ? rowsOf(ctx, previous.id) : [];
-  const seen = previous ? seenUpTo(ctx, plan.unit_id, plan.type_id, previous) : new Set<string>();
+  // Only an identifier on this file can be reopened, so only those are looked for in the series.
+  const seen = previous ? seenOf(ctx, plan.unit_id, plan.type_id, previous.as_of, read.rows.map((r) => r.key)) : new Set<string>();
   const compared = compareRows(before, read.rows, seen);
   const count = (what: Standing | ChangeFlag) => compared.filter((r) => r.standing === what || r.flags.includes(what as ChangeFlag)).length;
   const open = read.rows.filter((r) => !r.closed);
@@ -294,7 +323,7 @@ export function previewSnapshot(ctx: AppContext, user: SessionUser, scope: Scope
     type: { id: type.id, code: type.code, name: type.name },
     headers: read.headers, rows: read.rows.length, open: open.length, open_cents: centsOf(open),
     rejected: read.dropped, rejections: read.rejections.slice(0, 50), rejection_count: read.rejections.length,
-    statuses: read.statuses, owners: read.owners,
+    statuses: read.statuses, closed_statuses: read.closed, owners: read.owners,
     // Which Marine an owner names is for those who may open member records, as the figures by Marine are.
     sample: read.rows.slice(0, 20).map(({ data: _data, ...r }) => ({ ...r, owner_user_id: reader.detail ? r.owner_user_id : null })),
     previous: previous ? { id: previous.id, as_of: previous.as_of, open_count: previous.open_count, open_cents: previous.open_cents } : null,
@@ -327,7 +356,7 @@ export function fileSnapshot(ctx: AppContext, user: SessionUser, scope: Scope, p
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id, reader.orgId, plan.unit_id, type.id, read.source.id, read.source.filename, read.source.sha256, plan.as_of, plan.sheet_name, plan.header_row,
-        JSON.stringify(plan.key_columns), JSON.stringify(columns), JSON.stringify([...new Set(plan.closed_statuses.map(normalStatus).filter(Boolean))]),
+        JSON.stringify(plan.key_columns), JSON.stringify(columns), JSON.stringify(read.closed),
         read.rows.length, open.length, centsOf(open), read.dropped, JSON.stringify(read.rejections.slice(0, REJECTIONS_KEPT)), plan.note?.trim() || null, user.id, at,
       );
       const insert = ctx.db.prepare(
@@ -373,7 +402,10 @@ export function withdrawSnapshot(ctx: AppContext, user: SessionUser, scope: Scop
 export function lastLayout(ctx: AppContext, scope: Scope, unitId: string, typeId: string): ErrorReportLayout | null {
   const reader = readerOf(ctx, scope, unitId);
   typeOf(ctx, reader.orgId, typeId);
-  const last = live(seriesOf(ctx, unitId, typeId)).at(-1);
+  // One live report a day (idx_error_snapshots_day), so the latest day is the last report filed for the series.
+  const last = ctx.db.prepare(
+    'SELECT id, as_of, filename, sheet_name, header_row, key_columns, columns, closed_statuses FROM error_snapshots WHERE unit_id = ? AND type_id = ? AND withdrawn_at IS NULL ORDER BY as_of DESC LIMIT 1'
+  ).get(unitId, typeId) as Pick<SnapshotRecord, 'id' | 'as_of' | 'filename' | 'sheet_name' | 'header_row' | 'key_columns' | 'columns' | 'closed_statuses'> | undefined;
   if (!last) return null;
   return {
     from: { id: last.id, as_of: last.as_of, filename: last.filename },
@@ -392,30 +424,50 @@ export function errorReportsOverview(ctx: AppContext, user: SessionUser, scope: 
   return overview;
 }
 
+/**
+ * How many reports each series of these units holds, withdrawn ones too, and how many stand: found by the series index,
+ * each report's withdrawal read from its row. A count that never read the row would need withdrawn_at in an index.
+ */
+export const OVERVIEW_COUNTS_SQL = `SELECT unit_id, type_id, COUNT(*) AS n, SUM(withdrawn_at IS NULL) AS standing
+  FROM error_snapshots WHERE unit_id IN (SELECT value FROM json_each(?)) GROUP BY unit_id, type_id`;
+/**
+ * The latest two reports that stand in each series named ([unit, type] pairs): those on or after the second latest day.
+ * A series has one standing report a day (idx_error_snapshots_day), so that is two at most, and the day index finds
+ * them without reading the rest of the series' history.
+ */
+export const OVERVIEW_LATEST_SQL = `SELECT ${summaryColumns('s.')} FROM json_each(?) g CROSS JOIN error_snapshots s
+  WHERE s.unit_id = json_extract(g.value, '$[0]') AND s.type_id = json_extract(g.value, '$[1]') AND s.withdrawn_at IS NULL
+    AND s.as_of >= COALESCE((SELECT x.as_of FROM error_snapshots x
+      WHERE x.unit_id = json_extract(g.value, '$[0]') AND x.type_id = json_extract(g.value, '$[1]') AND x.withdrawn_at IS NULL
+      ORDER BY x.as_of DESC LIMIT 1 OFFSET 1), '')`;
+
 /** The overview, read without an audit entry: its callers write one, or the report center's run or print does. */
 export function overviewOf(ctx: AppContext, scope: Scope, unitId: string): ErrorReportsOverview {
   const reader = readerOf(ctx, scope, unitId);
   const types = errorReportTypesOf(ctx, reader.orgId);
   // Only the units beneath whose shared records the reader may view: a role held only in this unit reaches no lower.
-  const units = subtreeIds(ctx, unitId).filter((id) => can(scope, PERMISSIONS.VIEW_RECORDS, id));
-  const rows = ctx.db.prepare('SELECT * FROM error_snapshots WHERE unit_id IN (SELECT value FROM json_each(?)) ORDER BY as_of, filed_at').all(JSON.stringify(units)) as SnapshotRecord[];
-  const unitNames = new Map((ctx.db.prepare('SELECT id, name FROM units WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(units)) as Array<{ id: string; name: string }>).map((u) => [u.id, u.name]));
-  const byType = new Map(types.map((t) => [t.id, t]));
-  const groups = new Map<string, SnapshotRecord[]>();
-  for (const r of rows) {
-    const k = `${r.unit_id}\u0000${r.type_id}`;
-    const list = groups.get(k);
-    if (list) list.push(r); else groups.set(k, [r]);
+  // Only those ids are bound, so nothing below reads another unit's reports, or another Unit Instance's.
+  const units = JSON.stringify(subtreeIds(ctx, unitId).filter((id) => can(scope, PERMISSIONS.VIEW_RECORDS, id)));
+  const seriesKey = (r: { unit_id: string; type_id: string }) => `${r.unit_id}\u0000${r.type_id}`;
+  const filed = ctx.db.prepare(OVERVIEW_COUNTS_SQL).all(units) as Array<{ unit_id: string; type_id: string; n: number; standing: number }>;
+  const latest = new Map<string, SeriesReport[]>();
+  const pairs = filed.filter((c) => c.standing > 0).map((c) => [c.unit_id, c.type_id]);
+  for (const s of ctx.db.prepare(OVERVIEW_LATEST_SQL).all(JSON.stringify(pairs)) as SeriesReport[]) {
+    const list = latest.get(seriesKey(s));
+    if (list) list.push(s); else latest.set(seriesKey(s), [s]);
   }
-  const names = namesOf(ctx, rows.flatMap((r) => [r.filed_by, r.withdrawn_by]));
-  const series = [...groups.values()].map((list) => {
-    const kept = live(list);
-    const type = byType.get(list[0].type_id)!;
+  for (const list of latest.values()) list.sort((a, b) => b.as_of.localeCompare(a.as_of));
+  const unitNames = new Map((ctx.db.prepare('SELECT id, name FROM units WHERE id IN (SELECT value FROM json_each(?))').all(units) as Array<{ id: string; name: string }>).map((u) => [u.id, u.name]));
+  const byType = new Map(types.map((t) => [t.id, t]));
+  const names = namesOf(ctx, [...latest.values()].flat().flatMap((r) => [r.filed_by, r.withdrawn_by]));
+  const series = filed.map((c) => {
+    const [last, before] = latest.get(seriesKey(c)) ?? [];
+    const type = byType.get(c.type_id)!;
     return {
-      unit_id: list[0].unit_id, unit_name: unitNames.get(list[0].unit_id) ?? list[0].unit_id,
-      type_id: type.id, code: type.code, name: type.name, reports: kept.length, withdrawn: list.length - kept.length,
-      latest: kept.at(-1) ? summaryOf(kept.at(-1)!, names) : null,
-      previous: kept.at(-2) ? summaryOf(kept.at(-2)!, names) : null,
+      unit_id: c.unit_id, unit_name: unitNames.get(c.unit_id) ?? c.unit_id,
+      type_id: type.id, code: type.code, name: type.name, reports: c.standing, withdrawn: c.n - c.standing,
+      latest: last ? summaryOf(last, names) : null,
+      previous: before ? summaryOf(before, names) : null,
     };
   }).sort((a, b) => Number(b.unit_id === unitId) - Number(a.unit_id === unitId) || a.unit_name.localeCompare(b.unit_name) || a.code.localeCompare(b.code));
   return {
@@ -431,11 +483,14 @@ export function overviewOf(ctx: AppContext, scope: Scope, unitId: string): Error
 export function reportChoices(ctx: AppContext, scope: Scope, unitId: string): ErrorReportChoices {
   const reader = readerOf(ctx, scope, unitId);
   const types = errorReportTypesOf(ctx, reader.orgId);
-  const rows = live(ctx.db.prepare('SELECT * FROM error_snapshots WHERE unit_id = ? ORDER BY as_of DESC, filed_at DESC').all(unitId) as SnapshotRecord[]);
+  const rows = ctx.db.prepare('SELECT id, type_id, as_of FROM error_snapshots WHERE unit_id = ? AND withdrawn_at IS NULL ORDER BY as_of DESC, filed_at DESC').all(unitId) as Array<{ id: string; type_id: string; as_of: string }>;
+  const byType = new Map<string, Array<{ id: string; as_of: string }>>();
+  for (const r of rows) {
+    const list = byType.get(r.type_id);
+    if (list) list.push({ id: r.id, as_of: r.as_of }); else byType.set(r.type_id, [{ id: r.id, as_of: r.as_of }]);
+  }
   return {
-    types: types.filter((t) => t.active || rows.some((r) => r.type_id === t.id)).map((t) => ({
-      id: t.id, code: t.code, name: t.name, reports: rows.filter((r) => r.type_id === t.id).map((r) => ({ id: r.id, as_of: r.as_of })),
-    })),
+    types: types.filter((t) => t.active || byType.has(t.id)).map((t) => ({ id: t.id, code: t.code, name: t.name, reports: byType.get(t.id) ?? [] })),
   };
 }
 
@@ -443,20 +498,42 @@ export function reportChoices(ctx: AppContext, scope: Scope, unitId: string): Er
 
 export interface ComparisonQuery { unit_id: string; type_id: string; snapshot?: string | null; against?: string | null }
 
-interface Compared {
-  reader: Reader; type: ErrorReportType; all: SnapshotRecord[]; after: SnapshotRecord; before: SnapshotRecord | null;
+/** A series as the reader reads it: the unit and what they may do there, the type, and every report filed. */
+interface SeriesRead { reader: Reader; type: ErrorReportType; all: SeriesReport[] }
+
+/** The series a query names, after the checks that decide whether the reader may read it at all. */
+function readSeries(ctx: AppContext, scope: Scope, q: ComparisonQuery): SeriesRead {
+  const reader = readerOf(ctx, scope, q.unit_id);
+  const type = typeOf(ctx, reader.orgId, q.type_id);
+  return { reader, type, all: seriesOf(ctx, q.unit_id, q.type_id) };
+}
+
+interface Compared extends SeriesRead {
+  after: SeriesReport; before: SeriesReport | null;
   compared: ComparedRow[]; facts: SeriesFacts;
 }
 
 /**
- * The two reports a comparison reads, and what the series says about each identifier up to the later one. The later
- * report is the one asked for or the latest; the earlier, the one asked for or the one before it. Withdrawn reports are
- * in no comparison.
+ * For each of the identifiers given, what the series' standing reports up to a day say of it: the first report it was
+ * on, the first and last it was open on, how many it was open on, and how many of those stand after a day (the last
+ * PERSISTENT_REPORTS). Read by identifier, as SEEN_SQL is, so its cost is the history of those identifiers alone, not of
+ * every report the series has had; the identifier index with the report and closed beside it answers it alone.
  */
-function compareSeries(ctx: AppContext, scope: Scope, q: ComparisonQuery, withData = false): Compared {
-  const reader = readerOf(ctx, scope, q.unit_id);
-  const type = typeOf(ctx, reader.orgId, q.type_id);
-  const all = seriesOf(ctx, q.unit_id, q.type_id);
+export const SERIES_HISTORY_SQL = `SELECT r.natural_key, MIN(s.as_of) AS first_any,
+    MIN(CASE WHEN r.closed = 0 THEN s.as_of END) AS first_open, MAX(CASE WHEN r.closed = 0 THEN s.as_of END) AS last_open,
+    SUM(r.closed = 0) AS n_open, SUM(r.closed = 0 AND s.as_of > ?) AS recent_open
+  FROM json_each(?) k
+  CROSS JOIN error_snapshot_rows r ON r.natural_key = k.value CROSS JOIN error_snapshots s ON s.id = r.snapshot_id
+  WHERE s.unit_id = ? AND s.type_id = ? AND s.withdrawn_at IS NULL AND s.as_of <= ?
+  GROUP BY r.natural_key`;
+
+/**
+ * The two reports a comparison reads, and what the series says about each identifier on them up to the later one. The
+ * later report is the one asked for or the latest; the earlier, the one asked for or the one before it. Withdrawn
+ * reports are in no comparison.
+ */
+function compareSeries(ctx: AppContext, read: SeriesRead, q: ComparisonQuery): Compared {
+  const { type, all } = read;
   const kept = live(all);
   if (!kept.length) throw notFound(all.length ? `Every ${type.code} report of this unit was withdrawn, so there is nothing to compare.` : `No ${type.code} report is filed for this unit yet.`);
   const pick = (id: string, which: 'snapshot' | 'against') => {
@@ -471,27 +548,29 @@ function compareSeries(ctx: AppContext, scope: Scope, q: ComparisonQuery, withDa
   const beforeAt = before ? kept.findIndex((s) => s.id === before.id) : -1;
   if (before && beforeAt >= at) throw badRequest('Compare a report with one that stands on an earlier day.', { fieldErrors: { against: 'Earlier than the report it is compared with.' } });
 
-  // One pass over the series up to the later report: for each identifier, the first report it was on, the first and last
-  // it was open on, how many it was open on, and how many of the last PERSISTENT_REPORTS.
-  const positions = Object.fromEntries(kept.slice(0, at + 1).map((s, i) => [s.id, i]));
-  const history = ctx.db.prepare(
-    `SELECT r.natural_key, MIN(p.value) AS first_any,
-       MIN(CASE WHEN r.closed = 0 THEN p.value END) AS first_open, MAX(CASE WHEN r.closed = 0 THEN p.value END) AS last_open,
-       SUM(CASE WHEN r.closed = 0 THEN 1 ELSE 0 END) AS n_open, SUM(CASE WHEN r.closed = 0 AND p.value > ? THEN 1 ELSE 0 END) AS recent_open
-     FROM error_snapshot_rows r JOIN json_each(?) p ON p.key = r.snapshot_id GROUP BY r.natural_key`
-  ).all(at - PERSISTENT_REPORTS, JSON.stringify(positions)) as Array<{ natural_key: string; first_any: number; first_open: number | null; last_open: number | null; n_open: number; recent_open: number }>;
+  // The series' history, for the identifiers on the two reports only: every figure, drill, group and age reads the
+  // history of an identifier on one of them, and of no other. A standing report's day is its place in the series, as
+  // one report a day stands (idx_error_snapshots_day), so its position among those standing is found by its day.
+  const earlierRows = before ? rowsOf(ctx, before.id) : [];
+  const laterRows = rowsOf(ctx, after.id);
+  const keys = [...new Set([...earlierRows, ...laterRows].map((r) => r.key))];
+  const position = new Map(kept.slice(0, at + 1).map((x, i) => [x.as_of, i]));
+  const recentAfter = kept[at - PERSISTENT_REPORTS]?.as_of ?? '';
+  const history = ctx.db.prepare(SERIES_HISTORY_SQL).all(recentAfter, JSON.stringify(keys), q.unit_id, q.type_id, after.as_of) as Array<{
+    natural_key: string; first_any: string; first_open: string | null; last_open: string | null; n_open: number; recent_open: number;
+  }>;
   const seen = new Set<string>();
   const firstOpenOn = new Map<string, string>();
   const persistent = new Set<string>();
   const recurring = new Set<string>();
   for (const h of history) {
-    if (h.first_any <= beforeAt) seen.add(h.natural_key);
-    if (h.first_open != null) firstOpenOn.set(h.natural_key, kept[h.first_open].as_of);
+    if (before && h.first_any <= before.as_of) seen.add(h.natural_key);
+    if (h.first_open != null) firstOpenOn.set(h.natural_key, h.first_open);
     if (h.recent_open >= PERSISTENT_REPORTS) persistent.add(h.natural_key);
-    if (h.last_open === at && h.first_open != null && h.n_open < at - h.first_open + 1) recurring.add(h.natural_key);
+    if (h.last_open === after.as_of && h.first_open != null && h.n_open < at - position.get(h.first_open)! + 1) recurring.add(h.natural_key);
   }
-  const compared = compareRows(before ? rowsOf(ctx, before.id, withData) : [], rowsOf(ctx, after.id, withData), seen);
-  return { reader, type, all, after, before, compared, facts: { firstOpenOn, persistent, recurring, persistentKnown: at + 1 >= PERSISTENT_REPORTS } };
+  const compared = compareRows(earlierRows, laterRows, seen);
+  return { ...read, after, before, compared, facts: { firstOpenOn, persistent, recurring, persistentKnown: at + 1 >= PERSISTENT_REPORTS } };
 }
 
 /** The name a group line is shown by: the Marine an owner names, or the owner as the report wrote it. */
@@ -509,12 +588,12 @@ export const identifierOf = (key: string) => key.split('\u001f').join(' / ');
 
 /** A comparison with every figure, group, the oldest open and the series' trend. Its callers write the audit entry. */
 export function buildComparison(ctx: AppContext, scope: Scope, q: ComparisonQuery): ComparisonResult {
-  return comparisonOf(ctx, compareSeries(ctx, scope, q));
+  return comparisonOf(ctx, compareSeries(ctx, readSeries(ctx, scope, q), q));
 }
 
 /** A comparison and its table of changes, for the report center's Error report comparison. */
 export function comparisonWithChanges(ctx: AppContext, scope: Scope, q: ComparisonQuery): ComparisonResult & { changes: ChangeLine[] } {
-  const c = compareSeries(ctx, scope, q);
+  const c = compareSeries(ctx, readSeries(ctx, scope, q), q);
   const result = comparisonOf(ctx, c);
   const names = c.reader.detail ? namesOf(ctx, c.compared.map((r) => groupRow(r).owner_user_id)) : new Map<string, string>();
   const changes = c.compared.filter((r) => r.standing || r.flags.length).map((r) => {
@@ -562,10 +641,7 @@ function comparisonOf(ctx: AppContext, c: Compared): ComparisonResult {
 }
 
 /** A series every report of which was withdrawn: its history, which is kept, and nothing to compare. Null otherwise. */
-function withdrawnSeries(ctx: AppContext, scope: Scope, q: ComparisonQuery): SeriesHistory | null {
-  const reader = readerOf(ctx, scope, q.unit_id);
-  const type = typeOf(ctx, reader.orgId, q.type_id);
-  const all = seriesOf(ctx, q.unit_id, q.type_id);
+function withdrawnSeries(ctx: AppContext, { reader, type, all }: SeriesRead): SeriesHistory | null {
   if (!all.length || live(all).length) return null;
   const names = namesOf(ctx, all.flatMap((s) => [s.filed_by, s.withdrawn_by]));
   return {
@@ -579,12 +655,14 @@ function withdrawnSeries(ctx: AppContext, scope: Scope, q: ComparisonQuery): Ser
 
 /** A comparison on the page, or the history of a series whose reports were all withdrawn, audited as a read of the unit's error reports. */
 export function viewComparison(ctx: AppContext, user: SessionUser, scope: Scope, q: ComparisonQuery, ip?: string): ComparisonResult | SeriesHistory {
-  const history = withdrawnSeries(ctx, scope, q);
+  // The series is read once, for whichever of the two it turns out to be.
+  const series = readSeries(ctx, scope, q);
+  const history = withdrawnSeries(ctx, series);
   if (history) {
     audit(ctx, { actor_id: user.id, action: 'view_error_report', entity: 'error_snapshots', unit_id: q.unit_id, detail: `${history.type.code}: every report withdrawn (${history.reports.length})`, ip });
     return history;
   }
-  const result = buildComparison(ctx, scope, q);
+  const result = comparisonOf(ctx, compareSeries(ctx, series, q));
   audit(ctx, {
     actor_id: user.id, action: 'view_error_report', entity: 'error_snapshots', entity_id: result.after.id, unit_id: q.unit_id,
     detail: `${result.type.code} as of ${result.after.as_of}${result.before ? ` against ${result.before.as_of}` : ''}`, ip,
@@ -592,35 +670,53 @@ export function viewComparison(ctx: AppContext, user: SessionUser, scope: Scope,
   return result;
 }
 
-export interface DrillQuery extends ComparisonQuery { drill: Drill; group?: DrillGroup | null; value?: string | null }
+export interface DrillQuery extends ComparisonQuery { drill: Drill; group?: DrillGroup | null; value?: string | null; offset?: number; limit?: number }
+
+/** The columns kept as uploaded for some of a report's rows (a drill's page), each found by the report's own key. */
+export const DRILL_DATA_SQL = 'SELECT natural_key, data FROM error_snapshot_rows WHERE snapshot_id = ? AND natural_key IN (SELECT value FROM json_each(?))';
 
 /**
  * The rows behind one figure: the identifiers it counts, each with its file, row number and every column as uploaded,
  * the earlier amount beside the later, and the case in the unit's queue with the same identifier, if there is one.
  * Narrowed to a group, it holds the rows of that line; by Marine needs opening member records, as the figures do.
  * Its rows are the figure's rows whatever the page shows: the same compareRows and inDrill decide both.
+ *
+ * The checks, the drill and the group decide which rows these are, and they are put in order, before a page of them is
+ * cut (`offset`, `limit`); `total` and `cents` are of every one, and `next_offset` says where the next page starts. Only
+ * the page's rows are read with their columns and looked for in the queue.
  */
 export function drillRows(ctx: AppContext, user: SessionUser, scope: Scope, q: DrillQuery, ip?: string): DrillResult {
-  const c = compareSeries(ctx, scope, q, true);
+  const c = compareSeries(ctx, readSeries(ctx, scope, q), q);
   if (q.group === 'owner' && !c.reader.detail) throw forbidden('Figures by Marine need opening member records in this unit.');
   const series = { persistent: c.facts.persistent, recurring: c.facts.recurring };
   let rows = c.compared.filter((r) => inDrill(r, q.drill, series));
   if (q.group) rows = rows.filter((r) => groupValue(groupRow(r), q.group!) === (q.value ?? ''));
   const label = labeller(ctx, rows)('owner');
-  const shown: DrillRow[] = rows.map((r) => {
-    const row = shownRow(r, q.drill) as ReadRow;
+  const shown = rows.map((r) => {
+    const row = shownRow(r, q.drill);
     const snapshot = row === r.before ? c.before! : c.after;
     const age = ageOf(row, snapshot.as_of, c.facts.firstOpenOn.get(r.key) ?? null);
-    return {
+    const line: DrillRow = {
       key: r.key, identifier: identifierOf(r.key), filename: snapshot.filename, as_of: snapshot.as_of, source_row: row.source_row,
       reference: row.reference, description: row.description, category: row.category, unit: row.unit, owner: row.owner,
       marine: c.reader.detail && row.owner_user_id ? label(row, `user:${row.owner_user_id}`) : null,
       status: row.status, closed: row.closed, amount_cents: r.after?.amount_cents ?? null, before_amount_cents: r.before?.amount_cents ?? null,
-      opened_on: row.opened_on, age_days: age.days, age_basis: age.basis, standing: r.standing, flags: r.flags, data: row.data, case_id: null,
+      opened_on: row.opened_on, age_days: age.days, age_basis: age.basis, standing: r.standing, flags: r.flags, data: {}, case_id: null,
     };
-  }).sort((a, b) => (b.age_days ?? -1) - (a.age_days ?? -1)
+    return { line, from: snapshot.id };
+  }).sort(({ line: a }, { line: b }) => (b.age_days ?? -1) - (a.age_days ?? -1)
     || Math.abs(b.amount_cents ?? b.before_amount_cents ?? 0) - Math.abs(a.amount_cents ?? a.before_amount_cents ?? 0) || a.source_row - b.source_row);
-  const page = shown.slice(0, ROW_LIMIT);
+  const offset = Math.max(0, q.offset ?? 0);
+  const limit = Math.min(DRILL_PAGE_MAX, Math.max(1, q.limit ?? DRILL_PAGE));
+  const cut = shown.slice(offset, offset + limit);
+  // Each row's columns as uploaded, from the report it is shown from: one read a report, of the page's rows alone.
+  for (const from of new Set(cut.map((p) => p.from))) {
+    const mine = cut.filter((p) => p.from === from);
+    const kept = ctx.db.prepare(DRILL_DATA_SQL).all(from, JSON.stringify(mine.map((p) => p.line.key))) as Array<{ natural_key: string; data: string }>;
+    const data = new Map(kept.map((d) => [d.natural_key, d.data]));
+    for (const p of mine) p.line.data = JSON.parse(data.get(p.line.key) || '{}') as Record<string, string>;
+  }
+  const page = cut.map((p) => p.line);
   // The case each row is in the unit's queue, by the same identifier, when the unit imported it there. A case another
   // report keyed the same way is not this row's: the columns decide, as they do when the import itself matches a row.
   const cases = new Map((ctx.db.prepare(`SELECT id, natural_key, data FROM work_items WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND natural_key IN (SELECT value FROM json_each(?))`)
@@ -630,17 +726,20 @@ export function drillRows(ctx: AppContext, user: SessionUser, scope: Scope, q: D
     r.case_id = w && sameReport(Object.keys(JSON.parse(w.data || '{}') as Record<string, string>), Object.keys(r.data)) ? w.id : null;
   }
   const headers = [...new Set(page.flatMap((r) => Object.keys(r.data)))];
-  const groupLabel = !q.group ? null : !q.value ? (q.group === 'owner' ? NO_OWNER : NOT_STATED) : q.group === 'owner' ? (page[0]?.marine ?? page[0]?.owner ?? q.value) : q.value;
+  // Named by the drill's first row, whichever page this is, so every page names the group alike.
+  const first = shown[0]?.line;
+  const groupLabel = !q.group ? null : !q.value ? (q.group === 'owner' ? NO_OWNER : NOT_STATED) : q.group === 'owner' ? (first?.marine ?? first?.owner ?? q.value) : q.value;
+  const next = offset + cut.length < shown.length ? offset + cut.length : null;
   audit(ctx, {
     actor_id: user.id, action: 'view_error_report', entity: 'error_snapshots', entity_id: c.after.id, unit_id: q.unit_id,
-    detail: `${c.type.code} as of ${c.after.as_of}${c.before ? ` against ${c.before.as_of}` : ''}: ${q.drill} rows${q.group ? ` by ${q.group}` : ''} (${shown.length})`, ip,
+    detail: `${c.type.code} as of ${c.after.as_of}${c.before ? ` against ${c.before.as_of}` : ''}: ${q.drill} rows${q.group ? ` by ${q.group}` : ''} (${shown.length})${offset ? `, from row ${offset + 1}` : ''}`, ip,
   });
   return {
     drill: q.drill, label: DRILL_LABELS[q.drill], group: q.group ?? null, group_label: groupLabel,
     type: { id: c.type.id, code: c.type.code, name: c.type.name },
     after: { id: c.after.id, as_of: c.after.as_of, filename: c.after.filename },
     before: c.before ? { id: c.before.id, as_of: c.before.as_of, filename: c.before.filename } : null,
-    headers, rows: page, total: shown.length,
+    headers, rows: page, total: shown.length, offset, next_offset: next,
     cents: centsOf(rows.map((r) => (q.drill === 'resolved' || q.drill === 'before' ? r.before : r.after) ?? { amount_cents: null })),
   };
 }

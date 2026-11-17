@@ -260,3 +260,73 @@ test('the configuration pages fit a tablet and a phone without scrolling sideway
     }
   }
 });
+
+test('the People page is a list on a phone, says how many it shows, and every chooser finds a person by name', async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginAs(page, OPERATOR.username);
+  await openConsole(page, 'people', 'People');
+  await expect(page.getByRole('status').filter({ hasText: /^\d+ (person|people) shown/ })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'People' }).getByRole('columnheader', { name: 'Actions' })).toHaveCount(1);
+  // Granting a Unit Instance role: the person is found by name, not picked from the first page of a list.
+  await page.getByRole('button', { name: 'Grant a role' }).click();
+  const grant = page.getByRole('dialog', { name: 'Grant a Unit Instance role' });
+  const person = grant.getByRole('combobox', { name: 'Person' });
+  await person.fill('zzzz-nobody');
+  await expect(grant.getByRole('status').filter({ hasText: 'No active member by that name.' })).toBeVisible();
+  await expect(person).toHaveAttribute('aria-expanded', 'false');
+  await grant.getByRole('button', { name: 'Cancel' }).click();
+  // A unit's leader likewise.
+  await openConsole(page, 'units', 'Units and teams');
+  await page.getByRole('button', { name: /^Set leader for / }).first().click();
+  const leader = page.getByRole('dialog', { name: /^Leader for / });
+  await leader.getByRole('combobox', { name: 'Member' }).fill(OPERATOR.last_name);
+  await expect(leader.getByRole('option', { name: new RegExp(OPERATOR.last_name) })).toBeVisible();
+  await expect(leader.getByRole('status').filter({ hasText: /to choose from\./ })).toBeAttached();
+  expect(serious((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations), 'leader dialog').toEqual([]);
+  await leader.getByRole('button', { name: 'Cancel' }).click();
+
+  for (const [w, h] of [[390, 844], [320, 640]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await openConsole(page, 'people', 'People');
+    await expect(page.getByRole('list', { name: 'People' })).toContainText(OPERATOR.last_name);
+    await expect(page.getByRole('table', { name: 'People' })).toHaveCount(0);
+    await page.waitForLoadState('networkidle');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `/console/G8/people at ${w}px`).toBeLessThanOrEqual(1);
+    expect(serious((await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze()).violations), `people at ${w}px`).toEqual([]);
+  }
+});
+
+test('closing the grant dialog lets go of the person chosen, so Grant waits for a new choice when it opens again', async ({ page, request }) => {
+  await loginAs(page, OPERATOR.username);
+  // Someone to choose: an active member of the Unit Instance other than the Lead Unit Manager, found by a name nobody else has.
+  const last = unique('Grantee');
+  const reg = await request.post('/api/auth/register', { headers: H, data: { username: last.toLowerCase(), password: PASSWORD, first_name: 'Gale', last_name: last, rank_id: 'LCpl' } });
+  expect(reg.ok(), await reg.text()).toBeTruthy();
+  await joinUnit(page.request, request);
+
+  await openConsole(page, 'people', 'People');
+  const grant = page.getByRole('dialog', { name: 'Grant a Unit Instance role' });
+  const grantButton = grant.getByRole('button', { name: 'Grant', exact: true });
+  // Put away with Cancel, then with Escape: each time it opens again showing nobody, and Grant cannot send the earlier choice.
+  const closes: Array<() => Promise<void>> = [
+    () => grant.getByRole('button', { name: 'Cancel' }).click(),
+    () => page.keyboard.press('Escape'),
+  ];
+  for (const close of closes) {
+    await page.getByRole('button', { name: 'Grant a role' }).click();
+    await grant.getByRole('combobox', { name: 'Person' }).fill(last);
+    await grant.getByRole('option', { name: new RegExp(last) }).click();
+    await expect(grant.getByRole('button', { name: new RegExp(`^Change from .*${last} to someone else$`) })).toBeVisible();
+    await expect(grantButton).toBeEnabled();
+    await close();
+    await expect(grant).toBeHidden();
+
+    await page.getByRole('button', { name: 'Grant a role' }).click();
+    await expect(grant.getByRole('combobox', { name: 'Person' })).toHaveValue('');
+    await expect(grant.getByRole('button', { name: /^Change from / })).toHaveCount(0);
+    await expect(grantButton).toBeDisabled();
+    await grant.getByRole('button', { name: 'Cancel' }).click();
+    await expect(grant).toBeHidden();
+  }
+});

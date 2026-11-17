@@ -521,6 +521,39 @@ const MIGRATIONS: Migration[] = [
       instanceBoundaryTriggers(db);
     },
   },
+  {
+    id: 39,
+    name: '039_performance_indexes',
+    // Performance at MCEN scale (Task 25, ADR-0032). Indexes only: no table, column, trigger or row changes. Each serves a
+    // read that otherwise scans a table or sorts it in memory, and the read's test asserts its plan. Built here rather than
+    // in schema.sql because several are on columns earlier migrations added, which schema.sql runs before. The period
+    // indexes are on the exact expression periodClause (server/services/timeframes.ts) writes for the last day a record
+    // covers: an edit to that expression must change these indexes with it, or those reads fall back to a scan.
+    run: (db) => {
+      for (const sql of [
+        // Personnel: the latest roster sync of a Unit Instance; a Marine's trainings and awards in date order.
+        'CREATE INDEX IF NOT EXISTS idx_sync_runs_org ON personnel_sync_runs(org_id, at)',
+        'CREATE INDEX IF NOT EXISTS idx_trainings_user_date ON trainings(user_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_awards_user_date ON awards(user_id, date)',
+        // Report Studio: drafts about a Marine and a unit's shared drafts, newest first.
+        'CREATE INDEX IF NOT EXISTS idx_report_drafts_subject ON report_drafts(subject_id, updated_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_report_drafts_unit ON report_drafts(unit_id, visibility, updated_at DESC)',
+        // Error snapshots: a series' history read by key, and the snapshots filed from one uploaded file.
+        'CREATE INDEX IF NOT EXISTS idx_error_snapshot_rows_key_closed ON error_snapshot_rows(natural_key, snapshot_id, closed)',
+        'CREATE INDEX IF NOT EXISTS idx_error_snapshots_source ON error_snapshots(source_file_id)',
+        // Audit: the actions a trail holds, for its filter.
+        'CREATE INDEX IF NOT EXISTS idx_audit_trail_action ON audit_log(org_id, unit_id, action)',
+        // Duty: the live duty list newest first, page by page; what links an activity to work and to drafts.
+        'CREATE INDEX IF NOT EXISTS idx_duties_live_order ON duties(date DESC, start_time DESC, created_at DESC, id DESC) WHERE deleted_at IS NULL',
+        'CREATE INDEX IF NOT EXISTS idx_work_actions_activity ON work_actions(activity_id) WHERE activity_id IS NOT NULL',
+        'CREATE INDEX IF NOT EXISTS idx_record_drafts_activity ON record_drafts(activity_id) WHERE activity_id IS NOT NULL',
+        // Analytics: a unit's records in a period, bounded on both sides by the last day each covers.
+        "CREATE INDEX IF NOT EXISTS idx_activities_unit_last ON activities(unit_id, visibility, (CASE WHEN ongoing = 1 THEN '9999-12-31' ELSE COALESCE(end_date, date) END)) WHERE deleted_at IS NULL",
+        "CREATE INDEX IF NOT EXISTS idx_trainings_unit_last ON trainings(unit_id, visibility, (CASE WHEN ongoing = 1 THEN '9999-12-31' ELSE COALESCE(end_date, date) END)) WHERE deleted_at IS NULL",
+        'CREATE INDEX IF NOT EXISTS idx_duties_unit_last ON duties(unit_id, (COALESCE(end_date, date)))',
+      ]) db.exec(sql);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -1320,8 +1353,9 @@ export function openDatabase(path: string): Db {
 /**
  * Compiling SQL was the largest single cost of a request: the code prepares its statements where it uses
  * them, so the same text was compiled again on every call. The connection now keeps what it compiled and
- * hands the same statement back. Nothing puts a statement into a special mode (pluck, raw, expand) or holds
- * one open while iterating, so a shared statement always behaves like a fresh one. Bounded, because a few
+ * hands the same statement back. Nothing puts a statement into a special mode (pluck, raw, expand), and a
+ * statement that is iterated has SQL text no other code prepares (the audit chain walk), so a shared statement
+ * always behaves like a fresh one. Bounded, because a few
  * statements are built with a variable number of placeholders.
  */
 function cacheStatements(db: Db, limit = 1000) {

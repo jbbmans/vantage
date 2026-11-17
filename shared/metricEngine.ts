@@ -36,6 +36,15 @@ export interface MetricTotal {
 }
 
 /**
+ * A figure as the metrics report sends it: the total without its outcome ids, which can run to thousands. The page opens
+ * the outcomes behind a figure, or one month of it, from /metrics/contributors.
+ */
+export type MetricFigure = Omit<MetricTotal, 'contributors'>;
+
+/** One month of a figure's series, as the metrics report sends it. */
+export interface MetricPoint { key: string; label: string; value: number; outcomes: number }
+
+/**
  * One key for a unit's singular and plural, read as unitFor in bullets.ts reads a plural ("discrepancies",
  * "boxes", "ULOs"). The singulars of the -ie and -ches/-xes words fold the same way, so "calorie" and "calories" meet.
  */
@@ -153,7 +162,8 @@ export function dedupe(measures: Measure[]): Measure[] {
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
-function apply(aggregation: Aggregation, values: number[]): number {
+/** One figure from its values in date order, as the aggregation reads them. */
+export function aggregateValues(aggregation: Aggregation, values: number[]): number {
   if (!values.length) return 0;
   switch (aggregation) {
     case 'max': return Math.max(...values);
@@ -205,7 +215,7 @@ export function totals(measures: Measure[], opts: AggregateOptions = {}): Metric
     const head = ordered[0];
     out.push({
       metricId, metricLabel: head.metricLabel, kind: head.kind, unit: head.unit, unitKey: head.unitKey,
-      aggregation, value: apply(aggregation, ordered.map((m) => m.value)),
+      aggregation, value: aggregateValues(aggregation, ordered.map((m) => m.value)),
       outcomes: new Set(ordered.map((m) => m.outcomeId)).size,
       headline: head.headline,
       contributors: [...new Set(ordered.map((m) => m.outcomeId))],
@@ -233,7 +243,7 @@ export function series(measures: Measure[], metricId: string, buckets: Bucket[],
     const inBucket = selected.filter((m) => m.date >= b.from && m.date <= b.to);
     return {
       key: b.key, label: b.label,
-      value: apply(opts.aggregation || 'sum', inBucket.map((m) => m.value)),
+      value: aggregateValues(opts.aggregation || 'sum', inBucket.map((m) => m.value)),
       outcomes: new Set(inBucket.map((m) => m.outcomeId)).size,
       contributors: [...new Set(inBucket.map((m) => m.outcomeId))],
     };

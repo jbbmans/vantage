@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { REQUEST_KINDS, type RequestKind } from './requestKinds.ts';
+
+export { REQUEST_KINDS, REQUEST_KIND_LABELS, isRequestKind, type RequestKind } from './requestKinds.ts';
 
 /**
  * What is said on a record or a work case (Task 24, ADR-0031). Nothing here is a chat: every entry hangs on the record it
@@ -7,10 +10,6 @@ import { z } from 'zod';
 export const COMMENT_KINDS = ['comment', 'review_request', 'clarification_request', 'answer', 'assignment_note'] as const;
 export type CommentKind = (typeof COMMENT_KINDS)[number];
 
-export const REQUEST_KINDS = ['review_request', 'clarification_request'] as const;
-export type RequestKind = (typeof REQUEST_KINDS)[number];
-export const isRequestKind = (kind: string): kind is RequestKind => (REQUEST_KINDS as readonly string[]).includes(kind);
-
 /**
  * Where a request stands. A question is answered; a review comes back "looks right" or "needs changes" (with what); its
  * author may withdraw either while it is open; and the workflow it belongs to closes it when it ends: a duty decided, a
@@ -18,11 +17,6 @@ export const isRequestKind = (kind: string): kind is RequestKind => (REQUEST_KIN
  */
 export const REQUEST_STATES = ['open', 'answered', 'looks_right', 'needs_changes', 'withdrawn', 'closed'] as const;
 export type RequestState = (typeof REQUEST_STATES)[number];
-
-export const REQUEST_KIND_LABELS: Record<RequestKind, string> = {
-  review_request: 'Review request',
-  clarification_request: 'Question',
-};
 
 export const REQUEST_STATE_LABELS: Record<RequestState, string> = {
   open: 'Open',

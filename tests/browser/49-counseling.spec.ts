@@ -216,6 +216,12 @@ test('a counseling still in draft is no such record to its Marine, and their own
   await page.getByRole('button', { name: 'New counseling' }).first().click();
   const form = page.getByRole('dialog', { name: 'New counseling' });
   await expect(form.getByRole('button', { name: 'Save draft' })).toHaveCount(0);
+  // With no summary it is refused at the Summary, which takes focus and says why once.
+  await form.getByRole('button', { name: 'Add counseling' }).click();
+  await expect(form.getByLabel('Summary')).toBeFocused();
+  await expect(form.getByLabel('Summary')).toHaveAttribute('aria-invalid', 'true');
+  await expect(form.getByLabel('Summary')).toHaveAccessibleDescription(/A summary is required\./);
+  await expect(page.locator('[role="alert"]').filter({ hasText: 'A summary is required.' })).toHaveCount(1);
   await form.getByLabel('Summary').fill('My notes from the quarterly with SSgt Reyes');
   await form.getByLabel('Counselor').fill('SSgt Reyes');
   await form.getByRole('button', { name: 'Add counseling' }).click();

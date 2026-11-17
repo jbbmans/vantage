@@ -58,7 +58,8 @@ export default function AccountImport({ orgId, onDone }: { orgId: string; onDone
           : <><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" disabled={!plan || !plan.counts.create} loading={busy && Boolean(plan)} onClick={apply}><UserPlus className="h-4 w-4" />{plan ? `Create ${plan.counts.create} ${plan.counts.create === 1 ? 'account' : 'accounts'}` : 'Create accounts'}</Button></>}
       >
         {!done && (
-          <label className="mb-4 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-line px-4 py-6 text-center text-sm hover:border-accent">
+          // The hidden input is the drop zone's only Tab stop, so the zone itself shows where the keyboard is.
+          <label className="mb-4 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-line px-4 py-6 text-center text-sm hover:border-accent has-[:focus-visible]:border-accent has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent">
             <FileSpreadsheet className="h-5 w-5 text-ink-3" />
             <span className="font-medium text-ink">{file ? file.name : 'Choose a roster file'}</span>
             <span className="text-xs text-ink-3">{busy && !plan ? 'Reading…' : '.xlsx or .csv, up to 500 people'}</span>
@@ -86,7 +87,7 @@ export default function AccountImport({ orgId, onDone }: { orgId: string; onDone
               </div>
             ) : null}
             <div className="card" style={{ overflow: 'hidden' }}>
-              <Table minWidth={760} head={<><th className="w-12">Row</th><th>Marine</th><th className="w-48">Unit</th><th className="w-36">Role</th><th className="w-24">Status</th></>}>
+              <Table label="Accounts imported" minWidth={760} head={<><th className="w-12">Row</th><th>Marine</th><th className="w-48">Unit</th><th className="w-36">Role</th><th className="w-24">Status</th></>}>
                 {shown.accounts.map((a) => (
                   <tr key={a.line}>
                     <td className="fig text-ink-3">{a.line}</td>
