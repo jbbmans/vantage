@@ -554,6 +554,19 @@ const MIGRATIONS: Migration[] = [
       ]) db.exec(sql);
     },
   },
+  {
+    id: 40,
+    name: '040_form_edipi',
+    // The EDIPI a person types for their counseling worksheets (ADR-0033): what the form's EDIPI box prints when their CAC
+    // has not proved one. It is only ever set by its own person (PUT /api/me/edipi), is never unique, and is never read to
+    // sign anyone in: `users.edipi`, the CAC's, stays the only sign-in link, and wins over it. Two columns, added empty;
+    // no row is changed. Rolled back by dropping both columns, which nothing before 040 reads.
+    run: (db) => {
+      const users = columnsOf(db, 'users');
+      if (!users.has('form_edipi')) db.exec(`ALTER TABLE users ADD COLUMN form_edipi TEXT CHECK (form_edipi IS NULL OR (length(form_edipi) = 10 AND form_edipi NOT GLOB '*[^0-9]*'))`);
+      if (!users.has('form_edipi_at')) db.exec('ALTER TABLE users ADD COLUMN form_edipi_at TEXT CHECK ((form_edipi_at IS NULL) = (form_edipi IS NULL))');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

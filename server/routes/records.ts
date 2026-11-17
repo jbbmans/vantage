@@ -83,9 +83,15 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   res.json(imported ? { ...row, imported } : row);
 }));
 
+/** Whose EDIPI a counseling's PDF printed, for the trail: never the number. */
+const edipiPrinted = (doc: { edipi: { reported: boolean; senior: boolean } }) => {
+  const whose = [doc.edipi.reported && 'Marine', doc.edipi.senior && 'counselor'].filter(Boolean);
+  return whose.length ? `; EDIPI of ${whose.join(' and ')}` : '';
+};
+
 /**
- * One record to keep: as JSON, a one-row CSV, or a ZIP with its files; a counseling also as its worksheet in the NAVMC
- * 2795 layout (ADR-0027), drawn from the stored record and never stored itself. Whoever may read the record may download it.
+ * One record to keep: as JSON, a one-row CSV, or a ZIP with its files; a counseling also as its COUNSELING WORKSHEET
+ * (ADR-0027, ADR-0033), drawn from the stored record and never stored itself. Whoever may read the record may download it.
  */
 recordsRouter.get('/:table/:id/export', wrap(async (req, res) => {
   const table = tableParam(req);
@@ -94,7 +100,7 @@ recordsRouter.get('/:table/:id/export', wrap(async (req, res) => {
     const doc = counselingWorksheet(req.ctx, req.user, String(req.params.id), { revision, purpose: 'pdf' }, req, clientIp(req));
     const pdf = await renderCounselingPdf(doc);
     const subject = getRecord(req.ctx, 'counselings', doc.id, { includeDeleted: true });
-    audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: doc.id, subject_id: subject && subject.user_id !== req.user.id ? subject.user_id : null, unit_id: subject?.unit_id ?? null, detail: `pdf; revision ${doc.revision}${doc.stage === 'final' ? '' : `; ${doc.stage}`}`, ip: clientIp(req) });
+    audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: doc.id, subject_id: subject && subject.user_id !== req.user.id ? subject.user_id : null, unit_id: subject?.unit_id ?? null, detail: `pdf; revision ${doc.revision}${doc.stage === 'final' ? '' : `; ${doc.stage}`}${edipiPrinted(doc)}`, ip: clientIp(req) });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${worksheetFileName(doc)}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');

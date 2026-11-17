@@ -6,7 +6,11 @@ import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import * as api from '@/lib/api';
 
-export interface DownloadChoice { label: string; url: string; fallback: string; hint?: string }
+export interface DownloadChoice {
+  label: string; url: string; fallback: string; hint?: string;
+  /** Asked first: false stops the download (a counseling worksheet asks for one's EDIPI when it is missing). */
+  before?: () => Promise<boolean>;
+}
 
 /** One Download button with its formats: a record on its own page, or one category of records (ADR-0019). */
 export default function DownloadMenu({ choices, label = 'Download', size = 'md', variant = 'default' }: { choices: DownloadChoice[]; label?: string; size?: 'xs' | 'sm' | 'md'; variant?: 'default' | 'ghost' }) {
@@ -14,6 +18,7 @@ export default function DownloadMenu({ choices, label = 'Download', size = 'md',
   const [busy, setBusy] = useState(false);
   // The whole of a person's data asks for their password again, as it always has; one record of theirs does not.
   const run = async (c: DownloadChoice) => {
+    if (c.before && !(await c.before())) return;
     setBusy(true);
     try { const name = await withSudo(() => api.downloadFile(c.url, c.fallback)); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }

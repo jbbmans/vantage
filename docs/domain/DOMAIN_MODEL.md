@@ -156,7 +156,9 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   final it changes only by amendment (its counselor, or a records manager of its unit), which keeps the
   text it replaced in `counseling_revisions` and asks the Marine to acknowledge the new text. Never its
   subject's to change. The person's own notes are theirs and always final. It prints, and downloads as a
-  PDF, as a worksheet in the layout of NAVMC 2795 Appendix A, drawn from the record and never stored.
+  PDF, as the COUNSELING WORKSHEET (sections A to G, ADR-0033), drawn from the record and never stored. Its EDIPI
+  boxes print each person's EDIPI from their own profile (the account's, else `users.form_edipi`, which only they set),
+  only on the copy for the Marine and the counselor.
 - **Timeframe** (ADR-0018): when a record happened. Activities and training have a start (`date`), an end
   (`end_date`, none for a single day), optional times (`start_time`, `end_time`, wall-clock HH:MM) and
   `ongoing` (begun, no end yet). An award has its date (the day it was given, and the end of the period it

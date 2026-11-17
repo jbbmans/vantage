@@ -1,6 +1,25 @@
 # Progress
 
-_Updated 2026-11-16_
+_Updated 2026-11-17_
+
+## What changed (2026-11-17: the counseling worksheet form, EDIPI from the profile, and a redesign)
+
+**In review.** HawkScan not run (no key); CI disregarded on John's word.
+
+An edit John asked for between Task 25 and Task 26 ([ADR-0033](engineering/ADR/0033-counseling-worksheet-form-and-edipi.md),
+migration 040).
+
+- **The counseling worksheet is the form in use.** Print, the PDF and the preview draw the one-page COUNSELING
+  WORKSHEET from John's photograph (references NAVMC 2795, MCI 8002, MCI 7104, IRAM, MCO P1610.7E; sections A to G;
+  upright white-on-black bars), not Appendix A's figures. Each Vantage field sits in its box; long text shrinks to 7pt
+  and then runs on with "(CONTINUED)" bars.
+- **Fillable PDF.** Every box Vantage leaves blank is a form field named for it, with a tooltip and a length limit; the
+  signature boxes are signature fields. No JavaScript in the file.
+- **EDIPI, not SSN, from each person's own profile.** The account's EDIPI, else one the person typed once
+  (`users.form_edipi`, never used to sign in). Download asks for it first; the print page asks inline; Settings →
+  Profile holds it. Only its own person sets it ("Each person types their own"). Masked on screen, whole on paper, only
+  for the Marine and the counselor; `/api/me` sends only its last four digits; the audit trail never holds the number.
+- **A typed counselor's rank** goes in the Rank box ("Sgt Juandiego, Luis").
 
 ## What changed (2026-11-16: performance, accessibility and responsive layout)
 

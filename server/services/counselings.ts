@@ -11,8 +11,8 @@ import { REDACTED } from '../../shared/constants.ts';
 import { DEFAULT_REPORT_MARKING } from '../../shared/reportCatalog.ts';
 import { counselingSchema } from '../../shared/schemas.ts';
 import {
-  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, counselingDocument, counselingOptions, counselorWritten,
-  type CounselingAuthority, type CounselingDocument, type CounselingField, type CounselingOptions, type CounselingParticulars, type CounselingRevision, type CounselingStage,
+  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, EDIPI_PATTERN, counselingDocument, counselingOptions, counselorWritten, maskEdipi,
+  type CounselingAuthority, type CounselingDocument, type CounselingEdipi, type EdipiBox, type CounselingField, type CounselingOptions, type CounselingParticulars, type CounselingRevision, type CounselingStage,
 } from '../../shared/counseling.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
@@ -96,21 +96,43 @@ export function withCounselingDetail<T extends Row>(ctx: AppContext, viewerId: s
 
 /** Who a counseling is about and who counseled, as they are now: what finalizing it keeps, and what a draft prints. */
 export function particularsNow(ctx: AppContext, row: Pick<CounselingRow, 'user_id' | 'unit_id' | 'counselor_id'> & { counselor_name?: unknown }): CounselingParticulars {
-  const person = ctx.db.prepare(`SELECT u.first_name, u.last_name, u.middle_initial, u.mos, r.abbr, r.grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?`).get(row.user_id) as
+  const personOf = (id: string) => ctx.db.prepare(`SELECT u.first_name, u.last_name, u.middle_initial, u.mos, r.abbr, r.grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?`).get(id) as
     { first_name: string; last_name: string; middle_initial: string | null; mos: string | null; abbr: string | null; grade: string | null } | undefined;
+  // A billet is held in a unit: the counseling's, else the person's primary unit, else any unit they hold one in.
+  const billetOf = (id: string) => (ctx.db.prepare(`SELECT billet FROM unit_members WHERE user_id = ? AND billet IS NOT NULL AND billet <> ''
+      ORDER BY (unit_id = ?) DESC, is_primary DESC, unit_id LIMIT 1`).get(id, row.unit_id ?? '') as { billet: string | null } | undefined)?.billet ?? null;
+  const person = personOf(row.user_id);
   const unit = row.unit_id ? ctx.db.prepare('SELECT name FROM units WHERE id = ?').get(row.unit_id) as { name: string } | undefined : undefined;
   const billet = row.unit_id ? (ctx.db.prepare('SELECT billet FROM unit_members WHERE user_id = ? AND unit_id = ?').get(row.user_id, row.unit_id) as { billet: string | null } | undefined)?.billet ?? null : null;
-  const counselor = row.counselor_id && row.counselor_id !== row.user_id
-    ? ctx.db.prepare('SELECT u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?').get(row.counselor_id) as { first_name: string; last_name: string; abbr: string | null } | undefined
-    : undefined;
+  const counselor = row.counselor_id && row.counselor_id !== row.user_id ? personOf(row.counselor_id) : undefined;
   const named = typeof row.counselor_name === 'string' && row.counselor_name.trim() ? row.counselor_name.trim() : null;
   return {
     subject: {
       name: person ? `${person.last_name}, ${person.first_name}${person.middle_initial ? ` ${person.middle_initial}` : ''}` : 'Unknown',
       rank: person?.abbr ?? null, grade: person?.grade ?? null, mos: person?.mos ?? null, billet, unit: unit?.name ?? null,
+      last_name: person?.last_name ?? null, first_name: person?.first_name ?? null, middle_initial: person?.middle_initial ?? null,
     },
-    counselor: counselor ? { name: `${counselor.last_name}, ${counselor.first_name}`, rank: counselor.abbr } : named ? { name: named, rank: null } : null,
+    counselor: counselor
+      ? { name: `${counselor.last_name}, ${counselor.first_name}`, rank: counselor.abbr, last_name: counselor.last_name, first_name: counselor.first_name, middle_initial: counselor.middle_initial, billet: billetOf(row.counselor_id!) }
+      : named ? { name: named, rank: null } : null,
   };
+}
+
+/**
+ * The EDIPI each box of a counseling's worksheet prints, from each person's own profile: the one their CAC proved, else the
+ * one they typed for their forms. Only the Marine and the counselor are given them (the paper is theirs alone, NAVMC 2795
+ * para 3005.1.i), and nobody is on an anonymized one. On screen they are masked; whole only on the print page and the PDF.
+ */
+export function worksheetEdipi(ctx: AppContext, reader: SessionUser, row: Pick<CounselingRow, 'user_id' | 'counselor_id'>, opts: { hidden: boolean; whole: boolean }): CounselingEdipi {
+  const counselorId = counselorWritten(row) ? row.counselor_id! : null;
+  const yours: EdipiBox | null = reader.id === row.user_id ? 'reported' : counselorId && reader.id === counselorId ? 'senior' : null;
+  if (opts.hidden || !yours) return { reported: null, senior: null, yours: opts.hidden ? null : yours };
+  const of = (id: string | null) => {
+    if (!id) return null;
+    const v = (ctx.db.prepare('SELECT COALESCE(edipi, form_edipi) AS v FROM users WHERE id = ?').get(id) as { v: string | null } | undefined)?.v ?? null;
+    return v && EDIPI_PATTERN.test(v) ? (opts.whole ? v : maskEdipi(v)) : null;
+  };
+  return { reported: of(row.user_id), senior: of(counselorId), yours };
 }
 
 const parseParticulars = (raw: unknown): CounselingParticulars | null => {
@@ -367,12 +389,15 @@ export function counselingWorksheet(ctx: AppContext, user: SessionUser, id: stri
     return p ? rankName(p) : null;
   };
   const reader = ctx.db.prepare('SELECT u.last_name, u.first_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?').get(user.id) as { last_name: string; first_name: string; abbr: string | null } | undefined;
+  const purpose = opts.purpose ?? 'view';
+  const edipi = worksheetEdipi(ctx, user, row, { hidden, whole: purpose !== 'view' });
   const doc = counselingDocument({
     id: row.id, version: row.version, stage: row.stage, revision: wanted, current_revision: row.revision, own_notes: !counselorWritten(row),
     content: kept ? kept.fields : contentOf(row),
     // Anonymized under its retention schedule: nobody is named on it, not even as they are now.
     particulars: hidden ? { subject: { name: REDACTED, rank: null, grade: null, mos: null, billet: null, unit: null }, counselor: null } : particulars,
     particulars_as_of: hidden || kept?.particulars || stored ? 'finalized' : 'now',
+    edipi,
     // When and by whom the counseling was finalized, on every revision: who amended it, and when, is in its amendments,
     // so a revision's worksheet says the same once a later amendment replaces it.
     finalized: { at: row.finalized_at, by: nameOf(row.finalized_by) },
@@ -386,8 +411,8 @@ export function counselingWorksheet(ctx: AppContext, user: SessionUser, id: stri
     marking: ctx.runtime.reportMarking || DEFAULT_REPORT_MARKING,
     generated: { on: zonedDay(zoneOf(ctx, user)), by: reader ? rankName(reader) : user.username, zone: zoneOf(ctx, user) },
   });
-  const purpose = opts.purpose ?? 'view';
-  if (purpose === 'print') audit(ctx, { actor_id: user.id, action: 'print_counseling', entity: 'counselings', entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: row.unit_id, detail: `revision ${wanted}${row.stage === 'final' ? '' : `; ${row.stage}`}`, ip });
+  const printed = [edipi.reported && 'Marine', edipi.senior && 'counselor'].filter(Boolean);
+  if (purpose === 'print') audit(ctx, { actor_id: user.id, action: 'print_counseling', entity: 'counselings', entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: row.unit_id, detail: `revision ${wanted}${row.stage === 'final' ? '' : `; ${row.stage}`}${printed.length ? `; EDIPI of ${printed.join(' and ')}` : ''}`, ip });
   else if (purpose === 'view' && row.user_id !== user.id) audit(ctx, { actor_id: user.id, action: 'view_record', entity: 'counselings', entity_id: id, subject_id: row.user_id, unit_id: row.unit_id, detail: `worksheet; revision ${wanted}`, ip });
   return doc;
 }

@@ -5,7 +5,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor, orgOfUnit } from '../authz/scope.ts';
-import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
+import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField, formEdipiSchema } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
@@ -43,7 +43,9 @@ meRouter.get('/', wrap((req, res) => {
   const passkeys = (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(req.user.id) as { n: number }).n;
   let prefs = {};
   try { prefs = JSON.parse(req.user.prefs || '{}'); } catch {}
-  const { prefs: _p, ...user } = req.user;
+  // The EDIPI goes out as where it comes from and its last four digits, never whole: the page needs no more (ADR-0033).
+  const { prefs: _p, edipi: card, form_edipi: typed, form_edipi_at: _fa, ...user } = req.user as typeof req.user & { edipi?: string | null; form_edipi?: string | null; form_edipi_at?: string | null };
+  const edipiOnFile = card ? { source: 'account' as const, last4: card.slice(-4) } : typed ? { source: 'typed' as const, last4: typed.slice(-4) } : null;
   // How this person can confirm it is them for a sensitive change: their password where one is set and accepted here,
   // their card where one is linked (ADR-0009). Neither means signing in again, which confirms it too.
   const credentials = ctx.db.prepare("SELECT password_hash <> '' AS has_password, edipi IS NOT NULL AS has_card FROM users WHERE id = ?").get(req.user.id) as { has_password: number; has_card: number };
@@ -54,7 +56,7 @@ meRouter.get('/', wrap((req, res) => {
   // Where the person's own Unit Instance opens reports when they have not chosen (ADR-0012): the one holding their primary unit.
   const homeOrg = scope.primaryUnitId ? orgOfUnit(ctx, scope.primaryUnitId) : null;
   res.json({
-    user: { ...user, rank, passkeys },
+    user: { ...user, rank, passkeys, edipi_on_file: edipiOnFile },
     prefs,
     unitDefaults: { reportPeriod: homeOrg ? unitSettingsOf(ctx, homeOrg).reports.defaultPeriod : null },
     memberships: scope.memberships,
@@ -117,6 +119,25 @@ meRouter.put('/profile', wrap((req, res) => {
   withPersonnelNote(ctx, { actorId: req.user.id, source: 'self' }, () => ctx.db.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...vals, now(), req.user.id));
   audit(ctx, { actor_id: req.user.id, action: 'edit_profile', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, detail: Object.keys(body).filter((k) => (body as Record<string, unknown>)[k] !== undefined).join(', '), ip: clientIp(req) });
   res.json({ ok: true, changed: sets.map((s) => s.split(' ')[0]) });
+}));
+
+/**
+ * The EDIPI a person's counseling worksheets print when their CAC has not proved one (ADR-0033). Only its own person sets
+ * it: never a Unit Manager, a counselor or Vantage support, so nobody puts a number on someone else's paper. It is a
+ * column of its own, never unique and never read to sign in, so typing a number links no card to any account; a proven
+ * EDIPI on the account (users.edipi, from the CAC or the unit's roster) is the one the form prints, and is corrected as
+ * ADR-0009 says: by Vantage support once proven, by the person's own Unit Instance before.
+ */
+meRouter.put('/edipi', wrap((req, res) => {
+  const ctx = req.ctx;
+  const { edipi } = parse(formEdipiSchema, req.body);
+  const row = ctx.db.prepare('SELECT edipi, form_edipi FROM users WHERE id = ?').get(req.user.id) as { edipi: string | null; form_edipi: string | null };
+  if (row.edipi) throw badRequest('Your account already carries your EDIPI, and your forms print that one. If it is wrong, your Unit Manager or Vantage support corrects it.', { code: 'edipi_on_account', fieldErrors: { edipi: 'Already on your account.' } });
+  if ((edipi ?? null) === row.form_edipi) return res.json({ ok: true, changed: false, on_file: Boolean(edipi) });
+  ctx.db.prepare('UPDATE users SET form_edipi = ?, form_edipi_at = ?, updated_at = ? WHERE id = ?').run(edipi, edipi ? now() : null, now(), req.user.id);
+  // The trail says it changed, never the number.
+  audit(ctx, { actor_id: req.user.id, action: 'edit_profile', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, detail: edipi ? `form EDIPI ${row.form_edipi ? 'changed' : 'added'}` : 'form EDIPI removed', ip: clientIp(req) });
+  res.json({ ok: true, changed: true, on_file: Boolean(edipi) });
 }));
 
 meRouter.get('/prefs', wrap((req, res) => { let prefs = {}; try { prefs = JSON.parse(req.user.prefs || '{}'); } catch {} res.json(prefs); }));
