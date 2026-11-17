@@ -106,7 +106,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await expect(sheet.getByRole('heading', { name: 'COUNSELING WORKSHEET' })).toBeVisible();
   await expect(sheet).toContainText('References: NAVMC 2795 (Guide to Counseling), MCI 8002, MCI 7104, IRAM, MCO P1610.7E (PES)');
   for (const bar of ['A. ADMINISTRATIVE INFORMATION', 'B. BILLET TITLE', 'C. MAJOR ACCOMPLISHMENTS/SIGNIFICANT EVENTS', 'D. EVALUATION OF PERFORMANCE THIS PERIOD', 'E. TASKS ASSIGNED NEXT PERIOD', 'F. ADDITIONAL COMMENTS', 'G. CERTIFICATION']) {
-    await expect(sheet.getByRole('heading', { name: new RegExp(`^${bar.replace(/[.()/]/g, '\\$&')}`) })).toBeVisible();
+    await expect(sheet.getByRole('heading', { name: new RegExp(`^${bar.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')}`) })).toBeVisible();
   }
   await expect(sheet.getByRole('region', { name: 'E. TASKS ASSIGNED NEXT PERIOD' })).toContainText('Close the three oldest delinquencies by the 15th.');
   await expect(sheet).not.toContainText('SSN');

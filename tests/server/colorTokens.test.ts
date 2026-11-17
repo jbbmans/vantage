@@ -12,8 +12,9 @@ type Palette = Record<string, Rgb>;
 function tokens(body: string): Palette {
   return Object.fromEntries([...body.matchAll(/--([\w-]+):\s*(\d+) (\d+) (\d+)/g)].map((m) => [m[1], [+m[2], +m[3], +m[4]] as Rgb]));
 }
+// A rule may name more selectors after this one (the dark tokens also serve what stands on the navy frame, `.on-navy`).
 function rule(selector: RegExp): Palette {
-  const m = CSS.match(new RegExp(`^\\s*${selector.source}\\s*\\{([^}]*)\\}`, 'm'));
+  const m = CSS.match(new RegExp(`^\\s*${selector.source}(?:\\s*,[^{]*)?\\s*\\{([^}]*)\\}`, 'm'));
   assert.ok(m, `index.css has a rule for ${selector.source}`);
   return tokens(m[1]);
 }
