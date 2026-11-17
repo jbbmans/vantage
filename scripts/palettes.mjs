@@ -28,13 +28,15 @@ function rgb(L, C, h) {
 const lum = ([r, g, b]) => 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
 const contrast = (x, y) => { const [a, b] = [lum(x), lum(y)].sort((p, q) => q - p); return (a + 0.05) / (b + 0.05); };
 
-const LIGHT = { canvas: [246, 247, 249], surface: [255, 255, 255], 'surface-2': [243, 245, 248], 'surface-3': [233, 237, 243], line: [227, 232, 239], 'line-strong': [206, 214, 225], ink: [10, 27, 51], 'ink-2': [58, 76, 101], 'ink-3': [92, 108, 130], rail: [8, 22, 42], 'rail-ink': [190, 205, 226], 'rail-active': [18, 40, 70], deep: [10, 27, 51], 'deep-2': [18, 41, 74] };
-const DARK = { canvas: [11, 19, 32], surface: [17, 28, 46], 'surface-2': [23, 37, 59], 'surface-3': [32, 49, 76], line: [37, 55, 82], 'line-strong': [53, 74, 105], ink: [234, 240, 248], 'ink-2': [180, 196, 218], 'ink-3': [140, 158, 184], rail: [9, 17, 30], 'rail-ink': [176, 192, 216], 'rail-active': [36, 58, 92], deep: [9, 17, 30], 'deep-2': [21, 36, 60] };
+// Dress blues: navy ink on a warm paper, the frame in the coat's navy. Must match the base blocks in index.css.
+const LIGHT = { canvas: [245, 244, 240], surface: [255, 255, 255], 'surface-2': [241, 240, 235], 'surface-3': [232, 231, 225], line: [224, 222, 214], 'line-strong': [200, 197, 187], ink: [11, 22, 44], 'ink-2': [50, 61, 84], 'ink-3': [86, 95, 112], rail: [12, 25, 48], 'rail-ink': [196, 205, 222], 'rail-active': [30, 48, 82], deep: [12, 25, 48], 'deep-2': [24, 42, 74] };
+const DARK = { canvas: [10, 16, 28], surface: [16, 25, 42], 'surface-2': [22, 33, 54], 'surface-3': [31, 45, 70], line: [36, 50, 76], 'line-strong': [54, 72, 104], ink: [236, 239, 245], 'ink-2': [184, 194, 214], 'ink-3': [142, 154, 178], rail: [7, 13, 25], 'rail-ink': [178, 190, 212], 'rail-active': [30, 46, 76], deep: [7, 13, 25], 'deep-2': [20, 33, 56] };
 
 const TINT = { surface: 0.014, canvas: 0.009, 'surface-2': 0.012, 'surface-3': 0.016, line: 0.016, 'line-strong': 0.02, ink: 0.042, 'ink-2': 0.034, 'ink-3': 0.03, rail: 0.06, 'rail-ink': 0.03, 'rail-active': 0.07, deep: 0.055, 'deep-2': 0.065 };
 
 const PALETTES = {
-  cobalt: { neutrals: null, light: { accent: [37, 99, 235], 'accent-ink': [255, 255, 255], 'accent-soft': [236, 242, 254], 'accent-2': [15, 118, 110], marker: [20, 184, 166] }, dark: { accent: [122, 162, 255], 'accent-ink': [6, 13, 24], 'accent-soft': [26, 45, 78], 'accent-2': [79, 209, 192], marker: [45, 212, 191] } },
+  // The default: dress blue for action, gold for the marker and the rules, scarlet for the one global action.
+  cobalt: { neutrals: null, light: { accent: [28, 78, 178], 'accent-ink': [255, 255, 255], 'accent-soft': [234, 239, 249], 'accent-2': [133, 96, 16], marker: [222, 178, 72], signal: [186, 12, 47], 'signal-ink': [255, 255, 255] }, dark: { accent: [140, 172, 255], 'accent-ink': [6, 12, 26], 'accent-soft': [28, 42, 74], 'accent-2': [226, 190, 110], marker: [230, 190, 90], signal: [190, 28, 56], 'signal-ink': [255, 255, 255] } },
   ocean: { hue: 222, tint: 1.25, light: { accent: [3, 105, 161], 'accent-ink': [255, 255, 255], 'accent-soft': [228, 243, 250], 'accent-2': [15, 118, 110], marker: [34, 211, 238] }, dark: { accent: [125, 200, 240], 'accent-ink': [3, 22, 30], 'accent-soft': [12, 52, 66], 'accent-2': [79, 209, 192], marker: [103, 232, 249] } },
   teal: { hue: 188, tint: 1.1, light: { accent: [15, 118, 110], 'accent-ink': [255, 255, 255], 'accent-soft': [228, 246, 243], 'accent-2': [30, 90, 200], marker: [45, 212, 191] }, dark: { accent: [94, 234, 212], 'accent-ink': [4, 30, 27], 'accent-soft': [12, 56, 52], 'accent-2': [147, 197, 253], marker: [94, 234, 212] } },
   forest: { hue: 155, tint: 1.05, light: { accent: [21, 122, 58], 'accent-ink': [255, 255, 255], 'accent-soft': [231, 245, 236], 'accent-2': [15, 108, 110], marker: [52, 211, 153] }, dark: { accent: [110, 231, 183], 'accent-ink': [4, 32, 20], 'accent-soft': [16, 56, 38], 'accent-2': [94, 234, 212], marker: [52, 211, 153] } },
@@ -71,19 +73,38 @@ function check(name, n, s, dark) {
   need(s.accent, s['accent-soft'], 4.3, 'accent text on its soft fill');
   need(s['accent-2'], n.surface, 4.5, 'accent-2 text on cards');
   need(s.marker, n.rail, 3, 'marker on the rail');
+  need(s['signal-ink'], s.signal, 4.5, 'text on the signal');
   return bad.map((b) => `${name}${dark ? ' dark' : ''}: ${b}`);
 }
+
+// The navy ground (the masthead, the top bar, the phone's tab bar) is the light theme's rail, and what sits on it takes
+// the dark theme's tokens (.on-navy): its eyebrow is the dark marker, so that must read as text on either theme's rail.
+function checkNavy(name, nl, nd, p) {
+  const bad = [];
+  for (const [ground, which] of [[nl.rail, 'light'], [nd.rail, 'dark']]) {
+    const r = contrast(p.dark.marker, ground);
+    if (r < 4.5) bad.push(`${name}: eyebrow on the ${which} navy ${r.toFixed(2)} < 4.5`);
+    const t = contrast(nd['ink-3'], ground);
+    if (t < 4.5) bad.push(`${name}: muted text on the ${which} navy ${t.toFixed(2)} < 4.5`);
+  }
+  return bad;
+}
+
+// Every palette has a signal: the one global action (Log activity). It is the accent unless the palette names one.
+const withSignal = (s) => ({ ...s, signal: s.signal ?? s.accent, 'signal-ink': s['signal-ink'] ?? s['accent-ink'] });
 
 const line = (vars) => Object.entries(vars).map(([k, v]) => `--${k}: ${v.join(' ')};`).join(' ');
 const blocks = [];
 const problems = [];
-for (const [name, p] of Object.entries(PALETTES)) {
+for (const [name, raw] of Object.entries(PALETTES)) {
+  const p = { ...raw, light: withSignal(raw.light), dark: withSignal(raw.dark) };
   const nl = neutrals(LIGHT, p, false); const nd = neutrals(DARK, p, true);
-  problems.push(...check(name, nl, p.light, false), ...check(name, nd, p.dark, true));
+  problems.push(...check(name, nl, p.light, false), ...check(name, nd, p.dark, true), ...checkNavy(name, nl, nd, p));
   const light = name === 'cobalt' ? p.light : { ...p.light, ...nl, 'shadow-rgb': nl.ink };
   const dark = name === 'cobalt' ? p.dark : { ...p.dark, ...nd, 'shadow-rgb': [0, 0, 0] };
   blocks.push(`  ${name === 'cobalt' ? ":root, [data-accent='cobalt']" : `[data-accent='${name}']`} { ${line(light)} }`);
-  blocks.push(`  ${name === 'cobalt' ? "[data-theme='dark'][data-accent='cobalt'], [data-theme='dark']:not([data-accent])" : `[data-theme='dark'][data-accent='${name}']`} { ${line(dark)} }`);
+  // What sits on the navy ground (.on-navy) takes the palette's dark tokens, in either theme.
+  blocks.push(`  ${name === 'cobalt' ? "[data-theme='dark'][data-accent='cobalt'], [data-theme='dark']:not([data-accent]), .on-navy" : `[data-theme='dark'][data-accent='${name}'], [data-accent='${name}'] .on-navy`} { ${line(dark)} }`);
 }
 const css = `  /* palettes:begin — generated by scripts/palettes.mjs; edit that, not this */\n${blocks.join('\n')}\n  /* palettes:end */`;
 

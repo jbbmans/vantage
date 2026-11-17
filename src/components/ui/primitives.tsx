@@ -5,15 +5,18 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Square-cut and flat, like a well-made form: a solid fill or a hairline edge, a darker underside for weight, no glow.
 const VARIANTS = {
-  primary: 'bg-accent text-accent-ink border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/.18),0_1px_2px_rgb(var(--accent)/.3),0_6px_16px_-8px_rgb(var(--accent)/.55)] hover:brightness-[1.07]',
-  default: 'bg-surface text-ink border-transparent shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_2px_rgb(var(--shadow-rgb)/.05)] hover:bg-surface-2 hover:shadow-[0_0_0_1px_rgb(var(--ink-3)/.45),0_1px_2px_rgb(var(--shadow-rgb)/.05)]',
+  primary: 'bg-accent text-accent-ink border-transparent shadow-[inset_0_-1px_0_rgb(0_0_0/.22),0_1px_1px_rgb(var(--shadow-rgb)/.12)] hover:brightness-[1.1]',
+  // The one global action (Log activity): scarlet by default, the accent in other palettes.
+  signal: 'bg-signal text-signal-ink border-transparent shadow-[inset_0_-1px_0_rgb(0_0_0/.22),0_1px_1px_rgb(var(--shadow-rgb)/.12)] hover:brightness-[1.1]',
+  default: 'bg-surface text-ink border-line-strong shadow-[0_1px_0_rgb(var(--shadow-rgb)/.04)] hover:border-ink-3/60 hover:bg-surface-2',
   soft: 'bg-surface-2 text-ink-2 border-transparent hover:bg-surface-3 hover:text-ink',
   ghost: 'bg-transparent border-transparent text-ink-2 hover:text-ink hover:bg-surface-2',
-  danger: 'bg-surface border-transparent text-bad shadow-[0_0_0_1px_rgb(var(--line-strong))] hover:bg-bad/[.07] hover:shadow-[0_0_0_1px_rgb(var(--bad)/.45)]',
+  danger: 'bg-surface border-line-strong text-bad hover:border-bad/50 hover:bg-bad/[.06]',
   outline: 'bg-transparent border-ink-3/40 text-ink hover:bg-surface-2',
 } as const;
-const SIZES = { xs: 'h-6 px-2 text-xs gap-1 rounded-md', sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-lg', md: 'h-9 px-3.5 text-base gap-2 rounded-[9px]', lg: 'h-11 px-5 text-md gap-2 rounded-[11px]', icon: 'h-9 w-9 justify-center rounded-[9px]', 'icon-sm': 'h-7 w-7 justify-center rounded-lg', 'icon-xs': 'h-6 w-6 justify-center rounded-md' } as const;
+const SIZES = { xs: 'h-6 px-2 text-xs gap-1 rounded-sm', sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-sm', md: 'h-9 px-3.5 text-base gap-2 rounded-[4px]', lg: 'h-11 px-5 text-md gap-2 rounded-[5px]', icon: 'h-9 w-9 justify-center rounded-[4px]', 'icon-sm': 'h-7 w-7 justify-center rounded-sm', 'icon-xs': 'h-6 w-6 justify-center rounded-sm' } as const;
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES; asChild?: boolean; loading?: boolean }
 /**
@@ -25,7 +28,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const busy = loading && !disabled;
   return (
     <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled}
-      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', busy && 'cursor-progress opacity-70', VARIANTS[variant], SIZES[size], className)} {...props}
+      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[0] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', busy && 'cursor-progress opacity-70', VARIANTS[variant], SIZES[size], className)} {...props}
       aria-disabled={busy || props['aria-disabled'] || undefined} aria-busy={busy || undefined} data-loading={busy || undefined}
       // A press while busy does nothing, not even submit its form (an Enter in a field presses the form's submit button).
       onClick={busy ? (e: React.MouseEvent<HTMLButtonElement>) => { e.preventDefault(); e.stopPropagation(); } : onClick}>
@@ -85,7 +88,7 @@ export function Field({ label, hint, error, children, className, required }: { l
   return (
     <div className={cn('min-w-0', className)}>
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
+        <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-bad" aria-hidden>*</span>}</span>
         {hint && <span id={hintId} className="text-xs leading-snug text-ink-3">{hint}</span>}
       </div>
       {applyToControl(children, extra)}
@@ -133,7 +136,7 @@ export function Select({ value, onValueChange, options, placeholder = 'Select…
             {options.map((opt) => {
               const o = typeof opt === 'string' ? { value: opt, label: opt } : opt;
               return (
-                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center rounded-lg px-2.5 py-[7px] pr-8 text-base text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink data-[state=checked]:text-ink data-[disabled]:opacity-40">
+                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center rounded-sm px-2.5 py-[7px] pr-8 text-base text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink data-[state=checked]:text-ink data-[disabled]:opacity-40">
                   <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>
                   <SelectPrimitive.ItemIndicator className="absolute right-2"><Check className="h-3.5 w-3.5 text-accent" /></SelectPrimitive.ItemIndicator>
                 </SelectPrimitive.Item>
@@ -165,7 +168,7 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content side={side} sideOffset={7} className="z-50 max-w-xs rounded-lg bg-deep px-2.5 py-1.5 text-xs leading-snug text-white shadow-pop ring-1 ring-white/10 animate-scale-in">{content}</TooltipPrimitive.Content>
+        <TooltipPrimitive.Content side={side} sideOffset={7} className="z-50 max-w-xs rounded-[4px] bg-deep px-2.5 py-1.5 text-xs leading-snug text-white shadow-pop ring-1 ring-white/10 animate-scale-in">{content}</TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
@@ -179,7 +182,7 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
         // pushes the page wider than a phone (WCAG 1.4.10). The title keeps at least 8rem beside them before that happens.
         <header className="panel-head flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-3.5">
           <div className="min-w-0 flex-1 basis-32">
-            {title && <h2 className="truncate text-md font-semibold tracking-[-0.012em] text-ink">{title}</h2>}
+            {title && <h2 className="truncate text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
           </div>
           {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
@@ -193,7 +196,7 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
 export function EmptyState({ icon: Icon, title, description, action, className }: { icon?: React.ComponentType<{ className?: string }>; title: string; description?: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
     <div className={cn('flex flex-col items-center justify-center px-4 py-12 text-center', className)}>
-      {Icon && <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-[13px] bg-surface-2 text-ink-3 shadow-[inset_0_0_0_1px_rgb(var(--line))]"><Icon className="h-[18px] w-[18px]" /></div>}
+      {Icon && <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-[5px] bg-surface-2 text-ink-3 shadow-[inset_0_0_0_1px_rgb(var(--line))]"><Icon className="h-[18px] w-[18px]" /></div>}
       <p className="text-lg font-semibold tracking-[-0.015em] text-ink">{title}</p>
       {description && <p className="mt-1.5 max-w-sm text-base leading-relaxed text-ink-3">{description}</p>}
       {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
@@ -203,11 +206,11 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 
 export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: 'accent' | 'good' | 'warn' | 'bad'; to?: string; icon?: React.ComponentType<{ className?: string }> }) {
   const body = (
-    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-4 sm:p-5">
+    <div className="card card-hover stat flex h-full min-w-0 flex-col justify-between p-4 sm:p-5">
       <div className="flex items-start justify-between gap-2">
         {/* Two lines before an ellipsis: three cards across a phone leave a label about ten characters. */}
-        <p className="line-clamp-2 text-sm font-medium leading-snug text-ink-2">{label}</p>
-        {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-ink-3"><Icon className="h-3.5 w-3.5 shrink-0" /></span>}
+        <p className="stat-label line-clamp-2">{label}</p>
+        {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-surface-2 text-ink-3"><Icon className="h-3.5 w-3.5 shrink-0" /></span>}
       </div>
       <p className={cn('stat-value mt-5', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
       {hint && <p className="mt-1.5 line-clamp-2 text-xs text-ink-3">{hint}</p>}
@@ -230,13 +233,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
   // One tab is always the way in, even when the value matches none of them.
   const entry = options.some((o) => o.value === value) ? value : options[0]?.value;
   return (
-    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[10px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
+    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[5px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(var(--shadow-rgb)/.08)]' : 'text-ink-3 hover:text-ink')}>
+            className={cn('shrink-0 whitespace-nowrap rounded-[3px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_1px_rgb(var(--shadow-rgb)/.06)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
           </button>
         );
@@ -313,7 +316,7 @@ export function Tabs<T extends string>({ value, onChange, tabs, className, label
             id={panel ? tabId(panel, t.value) : undefined} aria-controls={panel} tabIndex={t.value === entry ? 0 : -1}
             onClick={() => onChange(t.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-ink')}>
-            {t.label}{t.count != null && <span className={cn('fig rounded-md px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
+            {t.label}{t.count != null && <span className={cn('fig rounded-sm px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
         );
       })}
@@ -329,8 +332,8 @@ export function TabPanel({ id, value, className, children }: { id: string; value
 export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={cn('h-full rounded-full transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
+    <div className={cn('h-1.5 w-full overflow-hidden rounded-[1px] bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className={cn('h-full transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -341,11 +344,13 @@ export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd classNa
 export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
   // An eyebrow that only repeats the title ("WORK" over "Work") is a line spent saying nothing; the breadcrumb already names the page.
   const showEyebrow = Boolean(eyebrow) && !(typeof title === 'string' && eyebrow!.trim().toLowerCase() === title.trim().toLowerCase());
+  // The masthead: the page's title on the navy ground, its foot piped in gold and scarlet (index.css). What it holds takes
+  // the dark tokens (on-navy), so a lede, a link or a button passed in keeps its contrast there.
   return (
-    <div className="mb-6">
+    <div className="masthead on-navy">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1 basis-[22rem]">
-          {showEyebrow && <p className="eyebrow mb-3 flex items-center gap-2"><span className="h-px w-5 bg-accent" aria-hidden />{eyebrow}</p>}
+          {showEyebrow && <p className="eyebrow mb-3 flex items-center gap-2.5"><span className="h-px w-6 bg-marker" aria-hidden />{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
         </div>

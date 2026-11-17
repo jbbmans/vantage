@@ -42,7 +42,8 @@ export default function TabBar({ hidden, leads, onLog, onMore }: { hidden: boole
   );
 
   return (
-    <nav className="tabbar no-print lg:hidden" aria-label="Quick navigation">
+    // On the navy ground, as the rail is on a desk (index.css); what it holds takes the dark tokens.
+    <nav className="tabbar on-navy no-print lg:hidden" aria-label="Quick navigation">
       {link('/', 'Today', Gauge, pathname === '/')}
       {link('/work/queue', 'Work', Briefcase, group === 'work')}
       <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log activity">
