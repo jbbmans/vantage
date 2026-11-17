@@ -165,10 +165,10 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await expect(tools.getByRole('button', { name: 'PDF' })).toBeDisabled();
   const asked = printed.getByRole('region', { name: 'Add your EDIPI to print this worksheet' });
   await asked.getByRole('textbox', { name: 'Your EDIPI' }).fill('12345');
-  await expect(asked.getByRole('button', { name: 'Save' })).toBeDisabled();
+  await expect(asked.getByRole('button', { name: 'Save EDIPI' })).toBeDisabled();
   expect(await axe(printed), 'the print page, asking for the EDIPI').toEqual([]);
   await asked.getByRole('textbox', { name: 'Your EDIPI' }).fill('1234567890');
-  await asked.getByRole('button', { name: 'Save' }).click();
+  await asked.getByRole('button', { name: 'Save EDIPI' }).click();
   await toast(printed, 'EDIPI saved to your profile.');
   await expect(asked).toHaveCount(0);
   await expect(tools.getByRole('button', { name: 'Print' })).toBeEnabled();

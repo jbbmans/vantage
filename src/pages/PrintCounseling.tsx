@@ -53,7 +53,7 @@ export default function PrintCounseling() {
         <section className="no-print mx-auto mt-4 max-w-[8.5in] rounded-md border border-line bg-surface p-4" aria-labelledby="edipi-first">
           <h2 id="edipi-first" className="mb-1 text-sm font-semibold text-ink">Add your EDIPI to print this worksheet</h2>
           <p className="mb-3 text-sm text-ink-2">It is not on your Vantage profile, and the worksheet prints it in your EDIPI box.</p>
-          <EdipiForm autoFocus submitLabel="Save" />
+          <EdipiForm autoFocus />
         </section>
       )}
       <main id="main" className="report-print-sheet cw-sheet">

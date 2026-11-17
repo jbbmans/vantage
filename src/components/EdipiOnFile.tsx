@@ -17,7 +17,7 @@ import { EDIPI_PATTERN, counselorWritten } from '../../shared/counseling';
 export const ownsEdipiBox = (row: { user_id: string; counselor_id?: string | null }, me: string | undefined) =>
   Boolean(me && (row.user_id === me || (counselorWritten({ user_id: row.user_id, counselor_id: row.counselor_id ?? null }) && row.counselor_id === me)));
 
-export function EdipiForm({ onSaved, submitLabel = 'Save', autoFocus }: { onSaved?: () => void; submitLabel?: string; autoFocus?: boolean }) {
+export function EdipiForm({ onSaved, submitLabel = 'Save EDIPI', autoFocus }: { onSaved?: () => void; submitLabel?: string; autoFocus?: boolean }) {
   const { data: identity } = useIdentity();
   const qc = useQueryClient();
   const toast = useToast();
