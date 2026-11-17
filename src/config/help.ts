@@ -271,10 +271,11 @@ export const HELP: HelpSection[] = [
         a: [
           'Write a counseling from the Marine’s page. Save it as a draft only you see, share it with the Marine for review, or finalize it. A Marine reads a draft you shared and answers in its comments; they acknowledge it once it is final. What the two of you say in its comments before it is final stays between you.',
           'Once final, a counseling changes only by amendment: say what changed and why. What it said before is kept in its amendment history, and the Marine is asked to acknowledge the amended text. Acknowledging means they read it, not that they agree.',
-          'Print a counseling, or download it as a PDF, as a worksheet in the layout of NAVMC 2795 (User’s Guide to Counseling) Appendix A: Figure A-1 for a Lance Corporal and below, Figure A-2 for a Corporal and above. It is not an official form, and it never shows an SSN. The record stays the source; the PDF is one way to read it.',
+          'Print a counseling, or download it as a PDF, on the COUNSELING WORKSHEET: sections A to G, each Vantage field in its box. Boxes Vantage does not hold, such as date of rank, billet MOS and the signatures, stay blank, and the PDF lets you type into them. The record stays the source; the PDF is one way to read it.',
+          'Each EDIPI box prints that person’s EDIPI from their own Vantage profile: the one on their account (from their CAC or their unit’s roster), or one they typed in Settings → Profile. If yours is not there, Vantage asks for it before you print or download, and saves it to your profile. Nobody else can set yours, it is never used to sign in, and the screen only ever shows its last four digits. It prints only on the copy for the Marine and the counselor.',
           'Your own notes of a counseling you received are always final and yours to edit.',
         ],
-        also: ['acknowledge', 'counsel', '6105', 'navmc 2795', 'worksheet', 'amend', 'draft'],
+        also: ['acknowledge', 'counsel', '6105', 'navmc 2795', 'worksheet', 'counseling worksheet', 'edipi', 'amend', 'draft'],
       },
       {
         id: 'invite',

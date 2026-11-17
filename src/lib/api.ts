@@ -158,6 +158,8 @@ export const acceptInvite = (payload: unknown) => api.post('/auth/invite/accept'
 export const me = () => api.get('/me');
 export const org = () => api.get<OrgResponse>('/me/org');
 export const updateProfile = (payload: unknown) => api.put('/me/profile', payload);
+/** The EDIPI one's own counseling worksheets print, typed by oneself; null removes it (ADR-0033). */
+export const saveFormEdipi = (edipi: string | null) => api.put('/me/edipi', { edipi }) as Promise<{ ok: true; changed: boolean; on_file: boolean }>;
 export const savePrefs = (patch: unknown) => api.put('/me/prefs', patch);
 export const changePassword = (current_password: string, new_password: string) => api.post('/me/password', { current_password, new_password });
 export const mySessions = () => api.get('/me/sessions');

@@ -7,6 +7,7 @@ import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, Badge,
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
+import { EdipiForm } from '@/components/EdipiOnFile';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import RecordImportDialog from '@/components/RecordImportDialog';
 import { Table, useParam } from '@/components/common';
@@ -103,6 +104,7 @@ function Profile() {
         </div>
       </Panel>
       <Panel title="Units" action={<Button size="xs" variant="ghost" asChild><Link to={`/team/${identity!.user.id}`}>Your personnel record</Link></Button>}><ul className="space-y-2">{identity!.memberships.map((m) => <li key={m.unit_id} className="rounded-md border border-line px-3 py-2 text-sm"><span className="flex items-center justify-between"><span className="font-medium text-ink">{m.unit_short || m.unit_name}</span>{m.is_primary ? <Badge tone="accent">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{m.billet || 'No billet'} · joined {timeAgo(m.joined_at)}</span><span className="mt-1 flex flex-wrap gap-1">{identity!.roles.filter((r) => r.unit_id === m.unit_id).map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></li>)}{!identity!.memberships.length && <li className="text-sm text-ink-3">Not in a unit yet. Ask a leader for an invitation or a join code.</li>}</ul>{!identity!.demo && <JoinUnit />}</Panel>
+      <Panel title="EDIPI for your forms" subtitle="Printed in your EDIPI box on counseling worksheets"><EdipiForm /></Panel>
     </div>
   );
 }

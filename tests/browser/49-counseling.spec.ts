@@ -5,8 +5,9 @@ import { confirmSudoIfAsked, ensureSetup, joinUnit, loginAs, registerAs, unique,
 /**
  * Counseling (Task 20, ADR-0027). A counselor drafts a counseling only they see, may share it with its Marine for review,
  * and finalizes it; its Marine reads it, answers in its comments and acknowledges it. A final counseling changes only by
- * amendment, which keeps what it said before and asks the Marine to acknowledge the new text. It prints as a worksheet in
- * the layout of NAVMC 2795 Appendix A, on a page without the app around it, and downloads as a PDF of the same worksheet.
+ * amendment, which keeps what it said before and asks the Marine to acknowledge the new text. It prints as the COUNSELING
+ * WORKSHEET itself (ADR-0033), on a page without the app around it, and downloads as a fillable PDF of the same form; each
+ * person's EDIPI box prints the EDIPI on their own profile, which they type once if it is not there.
  * Every view reads cleanly to assistive technology and fits a phone.
  */
 
@@ -98,14 +99,19 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await row.getByRole('button', { name: summary }).click();
   view = page.getByRole('dialog', { name: /counseling/i });
   await expect(view.getByTestId('counseling-standing')).toContainText('Acknowledge it to confirm you read it');
-  // Its worksheet, previewed: a Lance Corporal's is Figure A-1, with no SSN.
-  await view.getByRole('tab', { name: 'Worksheet (NAVMC 2795)' }).click();
+  // Its worksheet, previewed: the COUNSELING WORKSHEET itself (ADR-0033), each Vantage field in its box. The Marine's
+  // EDIPI is not on their profile, so their EDIPI box offers to add it; what Vantage does not hold is left blank.
+  await view.getByRole('tab', { name: 'Worksheet' }).click();
   const sheet = view.getByRole('article', { name: 'Counseling worksheet' });
-  await expect(sheet.getByRole('heading', { name: 'COUNSELING WORKSHEET - LANCE CORPORAL AND BELOW' })).toBeVisible();
-  await expect(sheet).toContainText('Figure A-1 layout. Not an official form.');
-  await expect(sheet.getByRole('heading', { name: 'Tasks Assigned Next Period' })).toBeVisible();
-  await expect(sheet).toContainText('Close the three oldest delinquencies by the 15th.');
-  await expect(sheet).toContainText('Vantage does not record or print an SSN');
+  await expect(sheet.getByRole('heading', { name: 'COUNSELING WORKSHEET' })).toBeVisible();
+  await expect(sheet).toContainText('References: NAVMC 2795 (Guide to Counseling), MCI 8002, MCI 7104, IRAM, MCO P1610.7E (PES)');
+  for (const bar of ['A. ADMINISTRATIVE INFORMATION', 'B. BILLET TITLE', 'C. MAJOR ACCOMPLISHMENTS/SIGNIFICANT EVENTS', 'D. EVALUATION OF PERFORMANCE THIS PERIOD', 'E. TASKS ASSIGNED NEXT PERIOD', 'F. ADDITIONAL COMMENTS', 'G. CERTIFICATION']) {
+    await expect(sheet.getByRole('heading', { name: new RegExp(`^${bar.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')}`) })).toBeVisible();
+  }
+  await expect(sheet.getByRole('region', { name: 'E. TASKS ASSIGNED NEXT PERIOD' })).toContainText('Close the three oldest delinquencies by the 15th.');
+  await expect(sheet).not.toContainText('SSN');
+  await expect(view).toContainText('Your EDIPI is not on your profile, so your EDIPI box is blank.');
+  await expect(sheet.getByRole('button', { name: 'Add yours' })).toBeVisible();
   expect(await axe(page), 'the worksheet preview').toEqual([]);
   await view.getByRole('button', { name: 'Acknowledge' }).click();
   await toast(page, 'Acknowledged.');
@@ -149,10 +155,24 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   const printed = await opened;
   await printed.waitForLoadState();
   expect(new URL(printed.url()).pathname).toMatch(/^\/career\/counseling\/[^/]+\/print$/);
-  await expect(printed.getByRole('heading', { level: 1, name: 'COUNSELING WORKSHEET - LANCE CORPORAL AND BELOW' })).toBeVisible();
-  await expect(printed.getByText('AMENDED - REVISION 2', { exact: true })).toBeVisible();
+  await expect(printed.getByRole('heading', { level: 1, name: 'COUNSELING WORKSHEET' })).toBeVisible();
+  await expect(printed.getByText('AMENDED - REVISION 2', { exact: true }).first()).toBeVisible();
   await expect(printed.locator('aside, header.sticky, footer, nav.tabbar')).toHaveCount(0);
   await expect(printed.getByRole('toolbar', { name: 'Print' })).toBeVisible();
+  // The Marine's EDIPI is not on their profile: they type it first, it saves to their profile, and prints in their box.
+  const tools = printed.getByRole('toolbar', { name: 'Print' });
+  await expect(tools.getByRole('button', { name: 'Print' })).toBeDisabled();
+  await expect(tools.getByRole('button', { name: 'PDF' })).toBeDisabled();
+  const asked = printed.getByRole('region', { name: 'Add your EDIPI to print this worksheet' });
+  await asked.getByRole('textbox', { name: 'Your EDIPI' }).fill('12345');
+  await expect(asked.getByRole('button', { name: 'Save EDIPI' })).toBeDisabled();
+  expect(await axe(printed), 'the print page, asking for the EDIPI').toEqual([]);
+  await asked.getByRole('textbox', { name: 'Your EDIPI' }).fill('1234567890');
+  await asked.getByRole('button', { name: 'Save EDIPI' }).click();
+  await toast(printed, 'EDIPI saved to your profile.');
+  await expect(asked).toHaveCount(0);
+  await expect(tools.getByRole('button', { name: 'Print' })).toBeEnabled();
+  await expect(printed.getByRole('article', { name: 'Counseling worksheet' }).getByRole('group', { name: 'EDIPI' }).first()).toHaveText('1234567890');
   expect(await axe(printed), 'the print page').toEqual([]);
 
   // The PDF is the same worksheet, named for the record and its revision.
@@ -236,7 +256,7 @@ test('a counseling still in draft is no such record to its Marine, and their own
   await row.getByRole('button', { name: /My notes from the quarterly/ }).click();
   const view = page.getByRole('dialog', { name: /counseling/i });
   await expect(view.getByTestId('counseling-standing')).toContainText('Your own notes of a counseling.');
-  await view.getByRole('tab', { name: 'Worksheet (NAVMC 2795)' }).click();
+  await view.getByRole('tab', { name: 'Worksheet' }).click();
   await expect(view.getByRole('article', { name: 'Counseling worksheet' })).toContainText('No counselor finalized or signed them in Vantage.');
   expect(await axe(page), 'own counseling notes').toEqual([]);
 

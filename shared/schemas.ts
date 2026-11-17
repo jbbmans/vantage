@@ -308,6 +308,14 @@ export const profileSchema = z.object({
   timezone: z.string().trim().max(64).refine((tz) => !tz || isTimeZone(tz), 'Choose a timezone from the list.').nullable().optional(),
 });
 
+/**
+ * The EDIPI a person types for their own counseling worksheets (ADR-0033), or null to remove it. Ten digits, the DoD ID
+ * on the back of a CAC. It prints in the form's EDIPI box and is never used to sign in.
+ */
+export const formEdipiSchema = z.object({
+  edipi: z.string().trim().regex(/^\d{10}$/, 'An EDIPI is ten digits.').nullable(),
+});
+
 /** A timezone this runtime knows. */
 export function isTimeZone(tz: string): boolean {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }

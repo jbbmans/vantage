@@ -7,6 +7,26 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-17',
+    title: 'A new look: dress blues',
+    items: [
+      'The menu, the top bar and each page’s heading now stand on navy, with gold marking the page you are on and a gold and scarlet stripe under the heading. Page titles are set in a book serif, like the head of an official document.',
+      'Cards and buttons are square-cut and flat, on a warm paper background, in light and dark.',
+      'Scarlet is kept for what needs you: Log activity and unread notices. Every colour setting in Settings → Appearance still works, in its own colours.',
+      'Nothing moved: every page, button and shortcut is where it was.',
+    ],
+  },
+  {
+    date: '2026-11-17',
+    title: 'Counselings print on the COUNSELING WORKSHEET itself, with your EDIPI',
+    items: [
+      'Print and the PDF are now the actual COUNSELING WORKSHEET, sections A to G, rather than a look-alike. Its headings are upright white on black, and each Vantage field sits in its box.',
+      'The PDF is fillable: type into any box Vantage left blank, such as date of rank or billet MOS, and sign it there.',
+      'Each EDIPI box prints that person’s EDIPI from their own profile. If yours is missing, Vantage asks for it once and saves it to your profile; you can also add or change it in Settings → Profile. Nobody else can set it, and it is never used to sign in.',
+      'A counselor typed in by hand, such as “Sgt Juandiego, Luis”, prints with the rank in the Rank box.',
+    ],
+  },
+  {
     date: '2026-11-15',
     title: 'Ask one person a question or for a review, on the record it is about, and choose what you are told',
     items: [

@@ -145,7 +145,7 @@ export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow
       <aside className="sticky top-0 hidden h-[100dvh] w-64 shrink-0 flex-col border-r border-white/[.06] bg-rail lg:flex" aria-label={railLabel}>
         <div className="flex h-[60px] shrink-0 items-center gap-2 px-5">
           <Logo size={24} reversed />
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80">{badge}</span>
+          <span className="whitespace-nowrap rounded-sm bg-white/10 px-1.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-wider text-white/80">{badge}</span>
         </div>
         {context && <div className="px-3 pb-3">{context}</div>}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-2" aria-label="Sections">{shown.map((s) => link(s, true))}</nav>

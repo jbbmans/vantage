@@ -41,7 +41,7 @@ test('the privacy inventory reads the live schema and names its gaps', async ({ 
 
   await page.getByRole('cell', { name: 'users', exact: true }).click();
   await expect(page.getByText(/password_hash · authentication/)).toBeVisible();
-  await expect(page.getByText(/edipi · identifier/)).toBeVisible();
+  await expect(page.getByText('edipi · identifier', { exact: true })).toBeVisible();
 });
 
 test('the owner imports accounts from a roster: a preview first, then the accounts', async ({ page, request }) => {

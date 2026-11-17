@@ -1,6 +1,37 @@
 # Progress
 
-_Updated 2026-11-16_
+_Updated 2026-11-17_
+
+## What changed (2026-11-17: the counseling worksheet form, EDIPI from the profile, and a redesign)
+
+**In review.** HawkScan not run (no key); CI disregarded on John's word.
+
+An edit John asked for between Task 25 and Task 26 ([ADR-0033](engineering/ADR/0033-counseling-worksheet-form-and-edipi.md),
+migration 040).
+
+- **The counseling worksheet is the form in use.** Print, the PDF and the preview draw the one-page COUNSELING
+  WORKSHEET from John's photograph (references NAVMC 2795, MCI 8002, MCI 7104, IRAM, MCO P1610.7E; sections A to G;
+  upright white-on-black bars), not Appendix A's figures. Each Vantage field sits in its box; long text shrinks to 7pt
+  and then runs on with "(CONTINUED)" bars.
+- **Fillable PDF.** Every box Vantage leaves blank is a form field named for it, with a tooltip and a length limit; the
+  signature boxes are signature fields. No JavaScript in the file.
+- **EDIPI, not SSN, from each person's own profile.** The account's EDIPI, else one the person typed once
+  (`users.form_edipi`, never used to sign in). Download asks for it first; the print page asks inline; Settings →
+  Profile holds it. Only its own person sets it ("Each person types their own"). Masked on screen, whole on paper, only
+  for the Marine and the counselor; `/api/me` sends only its last four digits; the audit trail never holds the number.
+- **A typed counselor's rank** goes in the Rank box ("Sgt Juandiego, Luis").
+- **A new look: dress blues** ([DESIGN_SYSTEM.md](design/DESIGN_SYSTEM.md#dress-blues-2026-11-17)). Chosen from two
+  directions John was shown (A "Refined command", B "Dress blues", recommended); B shipped while he decides. A navy
+  frame (rail, top bar, each page's masthead, the phone's tab bar) over warm paper; page titles in a book serif at
+  regular weight; square-cut, flat cards and buttons; gold marks the page you are on and key figures; scarlet only for
+  Log activity, the phone's centre button and unread badges; the masthead's piping (gold over scarlet) once per page.
+  Every colour setting keeps its own hue. No text, roles, names, routes or behaviour changed; the counseling worksheet
+  keeps paper's colours and fonts in every theme. Also fixed: the console's Unit Instance name was white on white on a
+  phone.
+- **Tests.** Server suite 1243/1243. Browser: spec 49 (counseling) asserts the form, the EDIPI flow and axe; spec 18's
+  privacy check names `edipi` exactly now that `form_edipi` sits beside it; Settings' EDIPI button is "Save EDIPI" so
+  spec 06's profile Save stays unique. Specs 06, 18, 30, 40, 49, 55 and 56 run in the cloud container; GitHub's
+  browser job stops at its 25-minute limit before the end of the 28-minute suite.
 
 ## What changed (2026-11-16: performance, accessibility and responsive layout)
 

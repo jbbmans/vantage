@@ -31,14 +31,20 @@ export default {
         deep: token('--deep'),
         'deep-2': token('--deep-2'),
         'accent-2': token('--accent-2'),
-        // The rail's active marker and its glows: the palette's brightest note.
+        // The rail's active marker and the rule under a key figure: the palette's brightest note (gold, by default).
         marker: token('--marker'),
+        // The one global action (Log activity): scarlet by default, the accent in every other palette.
+        signal: token('--signal'),
+        'signal-ink': token('--signal-ink'),
+        // The navy ground of the rail, the top bar and the masthead, as the root reads it.
+        frame: token('--frame'),
         'brand-teal': token('--brand-teal'),
       },
       fontFamily: {
         sans: ['Geist', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
-        serif: ['Georgia', '"Iowan Old Style"', '"Times New Roman"', 'serif'],
+        // A book serif already on the machine: Iowan on a Mac, Charter on Linux, Sitka or Cambria on Windows, Georgia last.
+        serif: ['"Iowan Old Style"', 'Charter', '"Bitstream Charter"', '"Sitka Text"', 'Cambria', 'Georgia', '"Times New Roman"', 'serif'],
       },
       fontSize: {
         '2xs': ['10px', { lineHeight: '14px', letterSpacing: '0.04em' }],
@@ -52,7 +58,8 @@ export default {
         '3xl': ['34px', { lineHeight: '38px', letterSpacing: '-0.028em' }],
         '4xl': ['43px', { lineHeight: '46px', letterSpacing: '-0.033em' }],
       },
-      borderRadius: { DEFAULT: '6px', none: '0px', sm: '5px', md: '8px', lg: '10px', xl: '14px', '2xl': '18px', '3xl': '24px', full: '9999px' },
+      // Square-cut, like a well-made document: a card is 6px, a control 4px, a chip 3px. Pills (full) stay for dots and avatars.
+      borderRadius: { DEFAULT: '4px', none: '0px', sm: '3px', md: '4px', lg: '5px', xl: '6px', '2xl': '8px', '3xl': '10px', full: '9999px' },
       boxShadow: {
         // Depth is tinted with the ink and defined per theme in index.css.
         hairline: 'var(--shadow-hairline)',

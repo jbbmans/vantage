@@ -64,7 +64,7 @@ export default function Dashboard() {
       <PageHeader eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}>
         <Button onClick={() => navigate('/work/queue')}><Inbox className="h-4 w-4" />Find work</Button>
         {/* The header carries a labelled Log activity button from xl up; below that it is an icon, so this one stays. */}
-        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
+        <Button variant="signal" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
 
       <GettingStarted />
@@ -344,10 +344,11 @@ function PersonalPanel({ summary }: { summary: any }) {
   return (
     <Panel title="Your record and development">
       {summary && (
-        <Link to="/record" className="mb-3 grid grid-cols-3 gap-2 rounded-md border border-line p-2 text-center hover:border-line-strong">
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.contributions.documents_researched}</span><span className="text-2xs text-ink-3">documents researched</span></span>
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.contributions.verified_outcomes}</span><span className="text-2xs text-ink-3">verified</span></span>
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.personal.activities}</span><span className="text-2xs text-ink-3">own entries</span></span>
+        // A ledger line across the panel's head, not a box in the box: three figures between hairline rules.
+        <Link to="/record" className="-mx-5 -mt-5 mb-4 grid grid-cols-3 divide-x divide-line border-b border-line text-center transition-colors hover:bg-surface-2">
+          <span className="px-2 py-3"><span className="fig block text-xl font-semibold text-ink">{summary.contributions.documents_researched}</span><span className="text-2xs text-ink-3">documents researched</span></span>
+          <span className="px-2 py-3"><span className="fig block text-xl font-semibold text-ink">{summary.contributions.verified_outcomes}</span><span className="text-2xs text-ink-3">verified</span></span>
+          <span className="px-2 py-3"><span className="fig block text-xl font-semibold text-ink">{summary.personal.activities}</span><span className="text-2xs text-ink-3">own entries</span></span>
         </Link>
       )}
       <ul className="space-y-3 text-sm">
@@ -461,8 +462,8 @@ function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; t
 
 function Tile({ label, value, hint, to, tone }: { label: string; value: number; hint: string; to: string; tone?: 'accent' | 'bad' | 'warn' }) {
   return (
-    <Link to={to} className="card card-hover lift block p-4">
-      <p className="text-sm font-medium text-ink-2">{label}</p>
+    <Link to={to} className="card card-hover stat block p-4">
+      <p className="stat-label">{label}</p>
       <p className={cn('stat-value mt-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}><CountUp value={value} /></p>
       <p className="mt-1 truncate text-xs text-ink-3">{hint}</p>
     </Link>

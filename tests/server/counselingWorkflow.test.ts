@@ -9,22 +9,22 @@ import { saveSchedule, runDisposition, REDACTED } from '../../server/services/re
 import { readZip } from '../../server/lib/zip.ts';
 import { auditListedRecords } from '../../server/services/audit.ts';
 import {
-  COUNSELING_STAGES, counselingDocument, counselingOptions, dayOf, documentBand, sessionKindFor, signatureNotes, worksheetBlocks, worksheetFor,
-  type CounselingDocument, type CounselingDocumentInput,
+  COUNSELING_STAGES, EDIPI_NOTICE, WORKSHEET_COLUMNS, counselingDocument, counselingOptions, counselingWorksheet, dayOf, documentBand, formDay, leadingRank, nameParts,
+  signatureNotes, worksheetFills, worksheetSections, type CounselingDocument, type CounselingDocumentInput, type CounselingParticulars,
 } from '../../shared/counseling.ts';
 
 /**
  * Task 20 (ADR-0027): a counseling is structured data. A leader drafts it, may share it with the Marine to review, and
  * finalizes it; once final it changes only by an amendment that keeps what it replaced. The Marine acknowledges the text
- * as it stands. Its NAVMC 2795 worksheet, on screen, in print and as a PDF, is drawn from the stored record and never
+ * as it stands. Its COUNSELING WORKSHEET (ADR-0033), on screen, in print and as a PDF, is drawn from the stored record and never
  * stored itself. Until it is final it is nobody's but its counselor's (and, shared for review, its Marine's).
  */
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
-/** The Marine counseled: a Corporal, so Figure A-2. */
+/** The Marine counseled: a Corporal. */
 let diaz: { token: string; id: string };
-/** A Lance Corporal: Figure A-1. */
+/** A Lance Corporal. */
 let kim: { token: string; id: string };
 /** A Fire Team Leader: counsels, reads shared records, corrects nobody's. The counselor here. */
 let lopez: { token: string; id: string };
@@ -113,22 +113,49 @@ test('the workflow rule: who may do what, at each stage', () => {
   // A Marine's own notes: edited as any record, with no workflow.
   assert.deepEqual(counselingOptions({ ...none, subject: true }, { user_id: 'm', counselor_id: null, stage: 'final' }, true), { edit: true, share: false, withdraw: false, finalize: false, amend: false, acknowledge: false });
 
-  assert.equal(worksheetFor('E-1'), 'A-1');
-  assert.equal(worksheetFor('E-3'), 'A-1');
-  assert.equal(worksheetFor('E-4'), 'A-2');
-  assert.equal(worksheetFor('O-3'), 'A-2');
-  assert.equal(worksheetFor(null), 'A-2', 'a Marine whose grade is unknown takes the Corporal-and-above worksheet');
-  assert.equal(sessionKindFor('initial'), 'ics');
-  assert.equal(sessionKindFor('quarterly'), 'follow_on');
-  assert.equal(sessionKindFor('event'), 'event');
-  assert.equal(sessionKindFor('other'), null);
-  // "Areas to improve" has no block of its own on either worksheet: it goes, labelled, where the guide asks for comments.
-  const a1 = worksheetBlocks('A-1', { summary: 'S', strengths: 'G', improvements: 'I', goals_set: 'T' });
-  assert.deepEqual(a1.map((b) => b.label), ['Tasks Assigned Next Period', 'Subjects on Which Guidance Was Provided', 'Major Accomplishments and/or Comments']);
-  assert.deepEqual(a1[2].parts, [{ label: 'Major accomplishments', text: 'G' }, { label: 'Areas to improve', text: 'I' }]);
-  const a2 = worksheetBlocks('A-2', { summary: 'S', strengths: 'G', goals_set: 'T' });
-  assert.deepEqual(a2.map((b) => b.label), ['Agenda/Subjects Discussed', 'Major Accomplishments', 'Targets for Coming Period and/or Comments']);
-  assert.deepEqual(a2[2].parts, [{ label: null, text: 'T' }], 'no label when there is nothing beside it');
+  // The COUNSELING WORKSHEET (ADR-0033): one form for every grade, box for box. Each Vantage field goes where the form asks
+  // for it; "Areas to improve" is part of the evaluation, labelled; the next session is an additional comment.
+  const sections = worksheetSections({ summary: 'S', strengths: 'G', improvements: 'I', goals_set: 'T', follow_up_date: '2026-12-10' });
+  assert.deepEqual(sections.map((x) => x.heading), ['C. MAJOR ACCOMPLISHMENTS/SIGNIFICANT EVENTS', 'D. EVALUATION OF PERFORMANCE THIS PERIOD', 'E. TASKS ASSIGNED NEXT PERIOD', 'F. ADDITIONAL COMMENTS']);
+  assert.deepEqual(sections[0].parts, [{ label: null, text: 'G' }]);
+  assert.deepEqual(sections[1].parts, [{ label: null, text: 'S' }, { label: 'Areas to improve', text: 'I' }]);
+  assert.deepEqual(sections[3].parts, [{ label: null, text: 'Target date for next counseling: 20261210.' }]);
+  assert.deepEqual(worksheetSections({ summary: 'S' })[3].parts, [], 'no follow-up date, nothing in F');
+  assert.equal(formDay('2026-11-03'), '20261103');
+  assert.equal(formDay(null), '');
+  // Particulars kept before the form split names hold "Last, First M": split for its three boxes; a typed name is kept whole.
+  assert.deepEqual(nameParts({ name: 'Diaz, Ana M' }), { last: 'Diaz', first: 'Ana', mi: 'M' });
+  assert.deepEqual(nameParts({ name: 'Lopez, Maria' }), { last: 'Lopez', first: 'Maria', mi: '' });
+  assert.deepEqual(nameParts({ name: 'Van Der Berg, Jo Ann' }), { last: 'Van Der Berg', first: 'Jo Ann', mi: '' });
+  assert.deepEqual(nameParts({ name: 'SSgt Ramos (S-3)' }), { last: 'SSgt Ramos (S-3)', first: '', mi: '' });
+  assert.deepEqual(nameParts({ name: 'x', last_name: 'Diaz', first_name: 'Ana', middle_initial: null }), { last: 'Diaz', first: 'Ana', mi: '' });
+  const particulars: CounselingParticulars = {
+    subject: { name: 'Diaz, Ana M', rank: 'Cpl', grade: 'E-4', mos: '3451', billet: 'Fiscal Clerk', unit: 'G-8', last_name: 'Diaz', first_name: 'Ana', middle_initial: 'M' },
+    counselor: { name: 'Lopez, Maria', rank: 'Sgt', last_name: 'Lopez', first_name: 'Maria', middle_initial: null, billet: 'Section Leader' },
+  };
+  const sheet = counselingWorksheet({ particulars, content: { date: '2026-11-03', summary: 'S' }, type_label: 'Monthly', edipi: { reported: '1234567890', senior: null, yours: 'senior' } });
+  const box = (key: string) => [...sheet.admin.rows.flat(), sheet.billet.box, ...sheet.certification.rows.map((r) => r.date)].find((b) => b.key === key)!;
+  assert.deepEqual(sheet.admin.rows[0].map((b) => b.label.at(-1)), ['Last Name', 'First Name', 'MI', 'EDIPI', 'Rank', 'DOR', 'PMOS', 'BILMOS']);
+  assert.deepEqual(sheet.admin.rows[0].map((b) => b.value), ['DIAZ', 'ANA', 'M', '1234567890', 'CPL', '', '3451', '']);
+  assert.deepEqual(sheet.admin.rows[1].map((b) => [b.key, b.value]), [['occasion', 'MONTHLY'], ['period_from', ''], ['period_to', '20261103']]);
+  assert.deepEqual(sheet.admin.rows[2].map((b) => b.value), ['LOPEZ', 'MARIA', '', '', 'SGT', 'SECTION LEADER']);
+  assert.equal(box('billet_title').value, 'FISCAL CLERK');
+  // A counselor typed in by hand: a leading rank goes in the Rank box, and the rest is split as a name.
+  assert.deepEqual(leadingRank('Sgt Juandiego, Luis'), { rank: 'Sgt', name: 'Juandiego, Luis' });
+  assert.deepEqual(leadingRank('MAJGEN Smith'), { rank: 'MajGen', name: 'Smith' });
+  assert.deepEqual(leadingRank('Major Payne'), { rank: null, name: 'Major Payne' }, 'a name that only starts like a rank is left alone');
+  const typed = counselingWorksheet({ particulars: { ...particulars, counselor: { name: 'Sgt Juandiego, Luis', rank: null } }, content: { date: '2026-11-03' }, type_label: 'Monthly', edipi: { reported: null, senior: null, yours: null } });
+  assert.deepEqual(typed.admin.rows[2].map((b) => b.value), ['JUANDIEGO', 'LUIS', '', '', 'SGT', '']);
+  assert.equal(box('reported_edipi').pii, true, 'an EDIPI on file is printed, and marked as PII');
+  // Every row covers the form's eight columns, edge to edge, with no gap or overlap.
+  for (const r of sheet.admin.rows) {
+    r.forEach((b, i) => assert.equal(b.cols[0], i ? r[i - 1].cols[1] : 0));
+    assert.equal(r.at(-1)!.cols[1], WORKSHEET_COLUMNS.length);
+  }
+  // What Vantage does not hold is left for the reader: a PDF form field each, an EDIPI no longer than ten digits.
+  assert.deepEqual(worksheetFills(sheet).map((b) => b.key), ['reported_dor', 'reported_bilmos', 'period_from', 'senior_mi', 'senior_edipi', 'senior_signed', 'reported_signed']);
+  assert.equal(box('senior_edipi').fill!.maxLength, 10);
+  assert.equal(box('reported_dor').fill!.maxLength, 8);
   assert.equal(documentBand({ stage: 'draft', revision: 1, current_revision: 1, superseded_at: null }), 'DRAFT - NOT FINAL');
   assert.equal(documentBand({ stage: 'review', revision: 1, current_revision: 1, superseded_at: null }), 'DRAFT FOR REVIEW - NOT FINAL');
   assert.equal(documentBand({ stage: 'final', revision: 1, current_revision: 1, superseded_at: null }), null);
@@ -332,8 +359,8 @@ test('finalizing stamps who and when, keeps the particulars as they stood, and t
   assert.equal(noticesFor(diaz.id, c.id).length, 1);
   assert.match(noticesFor(diaz.id, c.id)[0].title, /recorded a counseling for you$/);
   const particulars = JSON.parse(stored(c.id).particulars);
-  assert.deepEqual(particulars.subject, { name: 'Diaz, Ana', rank: 'Cpl', grade: 'E-4', mos: '3451', billet: null, unit: 'G-8 Comptroller' });
-  assert.deepEqual(particulars.counselor, { name: 'Lopez, Maria', rank: 'Sgt' });
+  assert.deepEqual(particulars.subject, { name: 'Diaz, Ana', rank: 'Cpl', grade: 'E-4', mos: '3451', billet: null, unit: 'G-8 Comptroller', last_name: 'Diaz', first_name: 'Ana', middle_initial: null });
+  assert.deepEqual(particulars.counselor, { name: 'Lopez, Maria', rank: 'Sgt', last_name: 'Lopez', first_name: 'Maria', middle_initial: null, billet: null });
   assert.equal((await post(lopez.token, `${path}/finalize`, { version: final.version })).status, 409, 'final once');
   assert.equal((await post(lopez.token, `${path}/withdraw`, { version: final.version })).status, 409);
 
@@ -353,7 +380,7 @@ test('finalizing stamps who and when, keeps the particulars as they stood, and t
     const sheet = await get(diaz.token, `${path}/worksheet`);
     assert.equal(sheet.body.particulars.subject.rank, 'Cpl');
     assert.equal(sheet.body.particulars_as_of, 'finalized');
-    assert.equal(sheet.body.worksheet.key, 'A-2');
+    assert.equal(sheet.body.worksheet.admin.rows[0].find((b: any) => b.key === 'reported_rank').value, 'CPL', 'the form prints the rank kept');
     const draft = await written({}, reyes.token);
     assert.equal((await get(reyes.token, `/api/records/counselings/${draft.id}/worksheet`)).body.particulars.subject.rank, 'Sgt', 'a draft shows them as they are now');
   } finally { app.ctx.db.prepare("UPDATE users SET rank_id = 'Cpl' WHERE id = ?").run(diaz.id); }
@@ -440,7 +467,7 @@ test('an amendment keeps what it replaced, why and by whom; the Marine acknowled
   assert.equal(old.status, 200);
   assert.equal(old.body.revision, 1);
   assert.equal(old.body.current_revision, 3);
-  assert.ok(old.body.blocks.some((b: any) => b.parts.some((p: any) => p.text === 'Original summary of the session.')));
+  assert.ok(old.body.worksheet.sections.some((b: any) => b.parts.some((p: any) => p.text === 'Original summary of the session.')));
   assert.match(documentBand(old.body)!, /^REVISION 1 OF 3 - REPLACED BY AN AMENDMENT ON \d{4}-\d{2}-\d{2}$/);
   assert.equal(old.body.acknowledgement.due, false);
   const current = await get(diaz.token, `${path}/worksheet`);
@@ -493,30 +520,55 @@ test('a counselor who no longer counsels the Marine reads what they wrote but no
   }
 });
 
-test('the worksheet follows NAVMC 2795: Figure A-1 or A-2 by grade, no SSN, its handling marking, never stored', async () => {
-  const forKim = await finalize(await written({ summary: 'Weapons cleaning and the duty roster.' }, lopez.token, kim.id));
-  const a1 = await get(kim.token, `/api/records/counselings/${forKim.id}/worksheet`);
-  assert.equal(a1.status, 200, JSON.stringify(a1.body));
-  assert.equal(a1.body.form, 'vantage-counseling/1');
-  assert.equal(a1.body.worksheet.key, 'A-1');
-  assert.equal(a1.body.worksheet.caption, 'COUNSELING WORKSHEET - LANCE CORPORAL AND BELOW');
-  assert.deepEqual(a1.body.blocks.map((b: any) => b.key), ['tasks', 'subjects', 'accomplishments']);
-  assert.equal(a1.body.session_kind, 'follow_on');
-  assert.equal(a1.body.marking, 'Working paper');
-  assert.match(a1.body.source, /NAVMC 2795.*Figure A-1.*Not an official form/);
-  assert.ok(a1.body.notices.some((n: string) => /para 3005\.1\.i/.test(n)));
-  assert.ok(a1.body.notices.some((n: string) => /No SSN/.test(n)));
-  assert.equal(JSON.stringify(a1.body).match(/\b\d{3}-?\d{2}-?\d{4}\b/), null);
-
+test('the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its own person’s profile, the rest left to fill in, its marking, never stored', async () => {
   const forDiaz = await finalize(await written({ type: 'initial', summary: 'Initial counseling: expectations and the section SOP.' }));
-  const a2 = await get(diaz.token, `/api/records/counselings/${forDiaz.id}/worksheet`);
-  assert.equal(a2.body.worksheet.key, 'A-2');
-  assert.equal(a2.body.session_kind, 'ics');
-  assert.deepEqual(a2.body.blocks.map((b: any) => b.label), ['Agenda/Subjects Discussed', 'Major Accomplishments', 'Targets for Coming Period and/or Comments']);
+  const sheetOf = async (token: string, purpose?: 'print') => (await get(token, `/api/records/counselings/${forDiaz.id}/worksheet${purpose ? `?purpose=${purpose}` : ''}`)).body;
+  const boxOf = (doc: any, key: string) => doc.worksheet.admin.rows.flat().find((b: any) => b.key === key);
+  // Nobody has an EDIPI on their profile yet: both boxes are blank, to fill in.
+  let mine = await sheetOf(diaz.token);
+  assert.equal(mine.form, 'vantage-counseling/2');
+  assert.equal(mine.worksheet.title, 'COUNSELING WORKSHEET');
+  assert.equal(mine.worksheet.references, 'References:  NAVMC 2795 (Guide to Counseling), MCI 8002, MCI 7104, IRAM, MCO P1610.7E (PES)');
+  assert.deepEqual(mine.worksheet.sections.map((x: any) => x.key), ['accomplishments', 'evaluation', 'tasks', 'comments']);
+  assert.deepEqual(mine.edipi, { reported: false, senior: false, yours: 'reported' });
+  assert.equal(boxOf(mine, 'reported_edipi').value, '');
+  assert.equal(boxOf(mine, 'reported_edipi').fill.maxLength, 10);
+  assert.equal(boxOf(mine, 'occasion').value, 'INITIAL');
+  assert.equal(mine.marking, 'Working paper');
+  assert.match(mine.source, /^COUNSELING WORKSHEET \(references NAVMC 2795/);
+  assert.ok(mine.notices.some((n: string) => /para 3005\.1\.i/.test(n)));
+  assert.ok(mine.notices.includes(EDIPI_NOTICE));
 
-  // The PDF, rendered when asked and never kept: Letter, the guide's caption, the marking, no SSN, nobody's name in its file name.
+  // The Marine types theirs: it saves to their own profile, apart from the CAC sign-in EDIPI, and the trail never holds it.
+  assert.equal((await put(diaz.token, '/api/me/edipi', { edipi: '12345' })).status, 400);
+  assert.equal((await put(diaz.token, '/api/me/edipi', { edipi: '12345abcde' })).status, 400);
+  let seq = lastSeq();
+  assert.equal((await put(diaz.token, '/api/me/edipi', { edipi: '1234567890' })).status, 200);
+  assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['edit_profile', 'form EDIPI added']]);
+  const account = app.ctx.db.prepare('SELECT edipi, form_edipi, form_edipi_at FROM users WHERE id = ?').get(diaz.id) as Record<string, string | null>;
+  assert.equal(account.edipi, null, 'a typed EDIPI links no card: it is never the sign-in EDIPI');
+  assert.equal(account.form_edipi, '1234567890');
+  assert.ok(account.form_edipi_at);
+  const me = await get(diaz.token, '/api/me');
+  assert.deepEqual(me.body.user.edipi_on_file, { source: 'typed', last4: '7890' });
+  assert.ok(!JSON.stringify(me.body).includes('1234567890'), 'the page is told its last four, never the number');
+
+  // On screen it is masked; on the print page and in the PDF the form prints it whole, only for the Marine and the counselor.
+  mine = await sheetOf(diaz.token);
+  assert.deepEqual(mine.edipi, { reported: true, senior: false, yours: 'reported' });
+  assert.equal(boxOf(mine, 'reported_edipi').value, '••••••7890');
+  assert.ok(!JSON.stringify(mine).includes('1234567890'));
+  assert.equal(boxOf(await sheetOf(diaz.token, 'print'), 'reported_edipi').value, '1234567890');
+  const counselorSees = await sheetOf(lopez.token, 'print');
+  assert.equal(boxOf(counselorSees, 'reported_edipi').value, '1234567890', 'the counselor’s copy carries it, as the paper does');
+  assert.equal(counselorSees.edipi.yours, 'senior');
+  const leader = await sheetOf(reyes.token, 'print');
+  assert.deepEqual(leader.edipi, { reported: false, senior: false, yours: null }, 'nobody else is given it');
+  assert.ok(!JSON.stringify(leader).includes('1234567890'));
+
+  // The PDF: Letter, the form's title and bars in upright type, the marking, nobody's name in its file name.
   const filesBefore = (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments').get() as { n: number }).n;
-  const seq = lastSeq();
+  seq = lastSeq();
   const res = await file(reyes.token, `/api/records/counselings/${forDiaz.id}/export?format=pdf`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'application/pdf');
@@ -525,18 +577,41 @@ test('the worksheet follows NAVMC 2795: Figure A-1 or A-2 by grade, no SSN, its 
   const pdf = res.buffer!;
   assert.equal(pdf.subarray(0, 5).toString('latin1'), '%PDF-');
   assert.match(pdf.toString('latin1'), /\/MediaBox \[0 0 612 792\]/);
-  assert.ok(pdfDraws(pdf, 'COUNSELING WORKSHEET - CORPORAL AND ABOVE'));
-  assert.ok(pdfDraws(pdf, 'Figure A-2 layout. Not an official form.'));
-  assert.ok(pdfDraws(pdf, 'Working paper'), 'the handling marking');
-  assert.ok(pdfDraws(pdf, 'Initial counseling: expectations and the section SOP.'));
-  assert.ok(pdfDraws(pdf, 'Agenda/Subjects Discussed'));
-  assert.ok(pdfDraws(pdf, 'Marine Counseled'));
-  assert.ok(pdfDraws(pdf, 'The SSN block on the worksheet is left out: Vantage does not record or print an SSN.'));
-  assert.ok(!pdf.toString('latin1').includes('Diaz'), 'nobody’s name in its document info');
+  for (const text of ['COUNSELING WORKSHEET', 'A. ADMINISTRATIVE INFORMATION', 'B. BILLET TITLE', 'C. MAJOR ACCOMPLISHMENTS/SIGNIFICANT EVENTS', 'D. EVALUATION OF PERFORMANCE THIS PERIOD',
+    'E. TASKS ASSIGNED NEXT PERIOD', 'F. ADDITIONAL COMMENTS', 'G. CERTIFICATION', 'Marine Reported On:', 'Marine Performing Counseling (Reporting Senior)', 'BILMOS',
+    'Signature of Marine Reported On', 'DIAZ', 'INITIAL', 'Initial counseling: expectations and the section SOP.', 'Working paper']) assert.ok(pdfDraws(pdf, text), text);
+  const raw = pdf.toString('latin1');
+  assert.doesNotMatch(raw, /Oblique|Italic/, 'nothing on the form is set in italic');
+  assert.ok(!pdfDraws(pdf, '1234567890'), 'a leader’s copy carries no EDIPI');
+  assert.doesNotMatch(raw, /\/JavaScript|\/JS\b|\/AA\b/, 'no script anywhere in the file');
+  assert.ok(!raw.includes('Diaz'), 'nobody’s name in its document info');
   assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments').get() as { n: number }).n, filesBefore, 'nothing stored');
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail, e.subject_id]), [['export_record', 'pdf; revision 1', diaz.id]]);
-  // A Lance Corporal's prints Figure A-1.
-  assert.ok(pdfDraws((await file(kim.token, `/api/records/counselings/${forKim.id}/export?format=pdf`)).buffer!, 'COUNSELING WORKSHEET - LANCE CORPORAL AND BELOW'));
+  // Each blank box is an empty text field to type in after downloading, at a fixed size, with its longest value and what
+  // it is for; each signature line is a signature field.
+  const fieldOf = (name: string) => {
+    const at = raw.indexOf(`/T (${name})`);
+    assert.ok(at > 0, `a field named ${name}`);
+    return raw.slice(raw.lastIndexOf('<<', at), raw.indexOf('>>\nendobj', at));
+  };
+  for (const name of ['reported_edipi', 'senior_edipi', 'reported_dor', 'reported_bilmos', 'period_from', 'senior_signed', 'reported_signed']) {
+    const f = fieldOf(name);
+    assert.match(f, /\/FT \/Tx/);
+    assert.match(f, /\/V \(\)/);
+    assert.match(f, /\/DA \(\/F\d+ 10 Tf 0 g\)/);
+  }
+  assert.match(fieldOf('senior_edipi'), /\/MaxLen 10/);
+  assert.match(fieldOf('reported_dor'), /\/MaxLen 8/);
+  assert.match(fieldOf('senior_edipi'), /\/TU \(EDIPI: not on this person's Vantage profile\. Type it here; once filled in, this file holds PII\.\)/);
+  assert.match(fieldOf('senior_signature'), /\/FT \/Sig/);
+  assert.match(fieldOf('reported_signature'), /\/FT \/Sig/);
+  assert.match(raw, /\/AcroForm \d+ 0 R/);
+  // The Marine's own copy prints their EDIPI, and the trail says whose was printed, never the number.
+  seq = lastSeq();
+  const theirs = (await file(diaz.token, `/api/records/counselings/${forDiaz.id}/export?format=pdf`)).buffer!;
+  assert.ok(pdfDraws(theirs, '1234567890'));
+  assert.ok(!theirs.toString('latin1').includes('/T (reported_edipi)'), 'a printed EDIPI is not a field');
+  assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['export_record', 'pdf; revision 1; EDIPI of Marine']]);
   // The Unit Instance's own marking replaces the default.
   const marking = app.ctx.runtime.reportMarking;
   app.ctx.runtime.reportMarking = 'CUI';
@@ -548,13 +623,17 @@ test('the worksheet follows NAVMC 2795: Figure A-1 or A-2 by grade, no SSN, its 
   // Printing and reading it are in the trail; the Marine reading their own is not a read of anyone's record.
   const since = lastSeq();
   assert.equal((await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet`)).status, 200);
-  assert.equal((await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`)).status, 200);
+  const reyesPrint = await get(reyes.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`);
+  assert.equal(reyesPrint.status, 200);
+  // A records manager who is neither of its two people prints it with no EDIPI in either box.
+  assert.deepEqual(reyesPrint.body.edipi, { reported: false, senior: false, yours: null });
+  assert.equal(reyesPrint.body.worksheet.admin.rows[0].find((b: any) => b.key === 'reported_edipi').value, '');
   assert.equal((await get(diaz.token, `/api/records/counselings/${forDiaz.id}/worksheet`)).status, 200);
   assert.equal((await get(diaz.token, `/api/records/counselings/${forDiaz.id}/worksheet?purpose=print`)).status, 200);
   assert.deepEqual(auditSince(since).map((e) => [e.action, e.actor_id === diaz.id ? 'diaz' : 'reyes', e.detail, e.subject_id]), [
     ['view_record', 'reyes', 'worksheet; revision 1', diaz.id],
     ['print_counseling', 'reyes', 'revision 1', diaz.id],
-    ['print_counseling', 'diaz', 'revision 1', null],
+    ['print_counseling', 'diaz', 'revision 1; EDIPI of Marine', null],
   ]);
 
   // A draft prints as one, and says so in its file name.
@@ -563,6 +642,41 @@ test('the worksheet follows NAVMC 2795: Figure A-1 or A-2 by grade, no SSN, its 
   assert.equal(draftPdf.status, 200);
   assert.match(draftPdf.headers.get('content-disposition')!, /-r1-draft\.pdf"$/);
   assert.ok(pdfDraws(draftPdf.buffer!, 'DRAFT - NOT FINAL'));
+
+  // Removing it leaves the box blank again.
+  seq = lastSeq();
+  assert.equal((await put(diaz.token, '/api/me/edipi', { edipi: null })).status, 200);
+  assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['edit_profile', 'form EDIPI removed']]);
+  assert.equal(boxOf(await sheetOf(diaz.token, 'print'), 'reported_edipi').value, '');
+});
+
+test('an EDIPI on a worksheet is its own person’s to give: the account’s one wins, and nobody sets anyone else’s', async () => {
+  const forKim = await finalize(await written({ summary: 'Weapons cleaning and the duty roster.' }, lopez.token, kim.id));
+  // The EDIPI on the account (from the CAC or the roster) is what the form prints, and is not typed over.
+  app.ctx.db.prepare("UPDATE users SET edipi = '5550001111' WHERE id = ?").run(kim.id);
+  try {
+    const refused = await put(kim.token, '/api/me/edipi', { edipi: '1112223333' });
+    assert.equal(refused.status, 400);
+    assert.equal(refused.body.code, 'edipi_on_account');
+    assert.equal((app.ctx.db.prepare('SELECT form_edipi FROM users WHERE id = ?').get(kim.id) as { form_edipi: string | null }).form_edipi, null);
+    const sheet = (await get(kim.token, `/api/records/counselings/${forKim.id}/worksheet?purpose=print`)).body;
+    assert.equal(sheet.worksheet.admin.rows[0].find((b: any) => b.key === 'reported_edipi').value, '5550001111');
+    assert.deepEqual((await get(kim.token, '/api/me')).body.user.edipi_on_file, { source: 'account', last4: '1111' });
+  } finally { app.ctx.db.prepare('UPDATE users SET edipi = NULL WHERE id = ?').run(kim.id); }
+  // Nobody else sets it: the profile a leader may edit does not take it, and there is no route that writes another's.
+  const before = (app.ctx.db.prepare('SELECT form_edipi FROM users WHERE id = ?').get(kim.id) as { form_edipi: string | null }).form_edipi;
+  await put(op.token, `/api/org/team/${kim.id}/profile`, { form_edipi: '9998887777', edipi: '9998887777' });
+  await put(lopez.token, `/api/org/team/${kim.id}/profile`, { form_edipi: '9998887777' });
+  const after = app.ctx.db.prepare('SELECT edipi, form_edipi FROM users WHERE id = ?').get(kim.id) as { edipi: string | null; form_edipi: string | null };
+  assert.equal(after.form_edipi, before);
+  assert.equal(after.edipi, null);
+  // The counselor's own number goes in the counselor's box, from the counselor's profile.
+  assert.equal((await put(lopez.token, '/api/me/edipi', { edipi: '4445556666' })).status, 200);
+  try {
+    const kims = (await get(kim.token, `/api/records/counselings/${forKim.id}/worksheet?purpose=print`)).body;
+    assert.equal(kims.worksheet.admin.rows[2].find((b: any) => b.key === 'senior_edipi').value, '4445556666');
+    assert.equal(kims.worksheet.admin.rows[0].find((b: any) => b.key === 'reported_edipi').value, '');
+  } finally { await put(lopez.token, '/api/me/edipi', { edipi: null }); }
 });
 
 test('the PDF renders the same document the same way, and long words flow onto more pages, never cut', async () => {
@@ -570,7 +684,7 @@ test('the PDF renders the same document the same way, and long words flow onto m
     id: '0123456789abcdef', version: 3, stage: 'final', revision: 2, current_revision: 2, own_notes: false,
     content: { date: '2026-11-01', type: 'quarterly', summary, strengths: 'Steady.', improvements: 'Delegate more.', goals_set: 'Close the backlog.', follow_up_date: '2026-12-01' },
     particulars: { subject: { name: 'Diaz, Ana', rank: 'Cpl', grade: 'E-4', mos: '3451', billet: 'Fiscal clerk', unit: 'G-8 Comptroller' }, counselor: { name: 'Lopez, Maria', rank: 'Sgt' } },
-    particulars_as_of: 'finalized', finalized: { at: '2026-11-01T15:00:00.000Z', by: 'Sgt Lopez, Maria' }, acknowledged_at: null,
+    particulars_as_of: 'finalized', edipi: { reported: '1234567890', senior: null, yours: 'reported' }, finalized: { at: '2026-11-01T15:00:00.000Z', by: 'Sgt Lopez, Maria' }, acknowledged_at: null,
     amendments: [{ revision: 2, at: '2026-11-02T10:00:00.000Z', by: 'SSgt Reyes, Sam', reason: 'Wrong date.', changed: ['Date'], acknowledged_at: '2026-11-01T18:00:00.000Z' }],
     amendments_total: 1, superseded_at: null, marking: 'Working paper', generated: { on: '2026-11-13', by: 'Sgt Lopez, Maria' },
   });
@@ -582,10 +696,15 @@ test('the PDF renders the same document the same way, and long words flow onto m
   assert.ok(pdfDraws(one, 'Amendment history (1)'));
   assert.ok(pdfDraws(one, 'Why: Wrong date.'));
 
-  const long = Array.from({ length: 400 }, (_, i) => `Sentence ${i + 1} of the counseling, every one of them kept.`).join(' ');
+  // A long counseling keeps the form on one page as far as it can, in smaller type; past that it runs on, under its bar.
+  const medium = Array.from({ length: 30 }, (_, i) => `Sentence ${i + 1} of the counseling, every one of them kept.`).join(' ');
+  assert.equal(pages(await renderCounselingPdf(counselingDocument(input(medium)))), 2, 'the form on one page, and its amendments on the next');
+  const long = `${Array.from({ length: 400 }, (_, i) => `Sentence ${i + 1} of the counseling, every one of them kept.`).join(' ')} END-OF-COUNSELING.`;
   const longPdf = await renderCounselingPdf(counselingDocument(input(long)));
   assert.ok(pages(longPdf) >= 3, `flows onto more pages (${pages(longPdf)})`);
-  assert.ok(pdfDraws(longPdf, 'Sentence 400 of the counseling'));
+  assert.ok(pdfDraws(longPdf, 'END-OF-COUNSELING.'), 'the last word is drawn');
+  assert.ok(pdfDraws(longPdf, 'D. EVALUATION OF PERFORMANCE THIS PERIOD (CONTINUED)'));
+  assert.ok(pdfDraws(longPdf, 'G. CERTIFICATION'));
   assert.ok(pdfDraws(longPdf, `Page ${pages(longPdf)} of ${pages(longPdf)}`), 'every page numbered of the whole');
 });
 

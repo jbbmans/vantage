@@ -1,6 +1,7 @@
 # ADR-0027 · Counseling as structured data: a draft, a review, a final text that changes only by amendment, and a NAVMC 2795 worksheet
 
-**Status:** accepted · **Date:** 2026-11-13 · **Builds on:** [ADR-0008](0008-unit-instance-data-isolation.md),
+**Status:** accepted; its worksheet is amended by [ADR-0033](0033-counseling-worksheet-form-and-edipi.md) (the
+COUNSELING WORKSHEET in use, not Appendix A's figures; EDIPI boxes from each person's profile) · **Date:** 2026-11-13 · **Builds on:** [ADR-0008](0008-unit-instance-data-isolation.md),
 [ADR-0013](0013-security-audit-least-privilege.md), [ADR-0015](0015-core-record-architecture.md),
 [ADR-0019](0019-import-export-restore.md), [ADR-0020](0020-reports-printable-output.md)
 

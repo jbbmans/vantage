@@ -9,6 +9,7 @@ import { DraftStrip, useResumeDraft } from '@/components/FormDrafts';
 import { CourseCodeText, CourseLookupPanel, CourseMark, TrainingCourse, courseMarks, useCourseLookup, type CourseDraft } from '@/components/Course';
 import { AmendDialog, CounselingActions, CounselingDialog, CounselingHistory, CounselingPreview, CounselingStatus, counselingDownloads, counselingDraft, counselingStanding, emptyCounseling, openCounselingPrint, type CounselingDraft } from '@/components/Counseling';
 import { Discussion } from '@/components/Comments';
+import { useEdipiGate } from '@/components/EdipiOnFile';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
@@ -191,6 +192,8 @@ export default function Career({ section }: { section: CareerSection }) {
   const startMove = (store: 'trainings' | 'awards', row: Training | AwardRow) => { setView(null); if (openId) setOpenId(''); setMoving({ store, row }); };
   // The counseling open in the dialog, as the list now holds it: a step taken in the dialog shows there at once.
   const shownCounseling: Counseling | null = view?.kind === 'counseling' ? (counselings?.find((c) => c.id === view.row.id) ?? view.row) : null;
+  // A worksheet prints one's own EDIPI: missing from one's profile, it is asked for first (ADR-0033).
+  const edipiGate = useEdipiGate();
   const editCounseling = (c: Counseling) => setCounseling({ draft: counselingDraft(c), row: c });
   const awaitingMe = (counselings || []).filter((c) => c.workflow?.acknowledge).length;
   const myDrafts = (counselings || []).filter((c) => counselorWritten(c) && c.counselor_id === me && c.stage !== 'final').length;
@@ -254,9 +257,10 @@ export default function Career({ section }: { section: CareerSection }) {
       <CounselingDialog open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling?.draft ?? null} row={counseling?.row} leader={Boolean(counseling?.row && counselorWritten(counseling.row))}
         title={!counseling?.draft.id ? 'New counseling' : counseling.row?.stage === 'review' ? 'Edit counseling shared for review' : counseling.row && counselorWritten(counseling.row) ? 'Edit draft counseling' : 'Edit counseling'} />
       <AmendDialog row={amending} open={Boolean(amending)} onOpenChange={(o) => { if (!o) setAmending(null); }} />
+      {edipiGate.dialog}
 
-      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.kind === 'training' || view?.kind === 'award' ? formatTimeframe(view.kind === 'award' ? 'awards' : 'trainings', view.row, { pattern: 'd MMMM yyyy' }) || undefined : view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
-        footer={shownCounseling ? <>{shownCounseling.workflow?.acknowledge && <span className="mr-auto basis-full text-xs text-ink-3 sm:basis-auto">Acknowledging confirms you read it, not that you agree.</span>}<DownloadMenu size="sm" choices={counselingDownloads(shownCounseling)} /><Button size="sm" onClick={() => openCounselingPrint(shownCounseling.id)}><Printer className="h-4 w-4" aria-hidden />Print</Button>
+      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} size={shownCounseling && counselingPane === 'worksheet' ? 'lg' : 'md'} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.kind === 'training' || view?.kind === 'award' ? formatTimeframe(view.kind === 'award' ? 'awards' : 'trainings', view.row, { pattern: 'd MMMM yyyy' }) || undefined : view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
+        footer={shownCounseling ? <>{shownCounseling.workflow?.acknowledge && <span className="mr-auto basis-full text-xs text-ink-3 sm:basis-auto">Acknowledging confirms you read it, not that you agree.</span>}<DownloadMenu size="sm" choices={counselingDownloads(shownCounseling, null, () => edipiGate.ask(shownCounseling))} /><Button size="sm" onClick={() => openCounselingPrint(shownCounseling.id)}><Printer className="h-4 w-4" aria-hidden />Print</Button>
           <CounselingActions row={shownCounseling} size="sm" onEdit={() => editCounseling(shownCounseling)} onAmend={() => setAmending(shownCounseling)} /></>
           : view ? <><DownloadMenu size="sm" choices={recordDownloads(view.kind === 'award' ? 'awards' : 'trainings', view.row.id, true)} />{canMove(view.row) ? <Button onClick={() => startMove(view.kind === 'award' ? 'awards' : 'trainings', view.row)}><ArrowRightLeft className="h-4 w-4" />Move to…</Button> : undefined}</> : undefined}>
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
@@ -268,7 +272,7 @@ export default function Career({ section }: { section: CareerSection }) {
         {(view?.kind === 'award' || view?.kind === 'training') && <RecordLineage store={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} onUndone={goTo} className="mt-4" />}
         {shownCounseling && <div className="space-y-3">
           <p className="text-sm leading-relaxed text-ink-2" data-testid="counseling-standing">{counselingStanding(shownCounseling, me)}</p>
-          <Segmented label="Show" size="sm" value={counselingPane} onChange={setCounselingPane} options={[{ value: 'record', label: 'Record' }, { value: 'worksheet', label: 'Worksheet (NAVMC 2795)' }]} />
+          <Segmented label="Show" size="sm" value={counselingPane} onChange={setCounselingPane} options={[{ value: 'record', label: 'Record' }, { value: 'worksheet', label: 'Worksheet' }]} />
           {counselingPane === 'worksheet' ? <CounselingPreview row={shownCounseling} /> : <>
             <DescriptionList items={[['Counselor', shownCounseling.counselor_name || (shownCounseling.counselor_id === me ? 'You' : null)], ['Subject', shownCounseling.subject_name || null], ['Follow-up', <DateText value={shownCounseling.follow_up_date} fallback="" />], ['Finalized', shownCounseling.finalized_at ? formatStamp(shownCounseling.finalized_at) : null], ['Acknowledged', shownCounseling.acknowledged_at ? formatStamp(shownCounseling.acknowledged_at) : null]]} />
             {[['Summary', shownCounseling.summary], ['Strengths', shownCounseling.strengths], ['Areas to improve', shownCounseling.improvements], ['Goals set', shownCounseling.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}

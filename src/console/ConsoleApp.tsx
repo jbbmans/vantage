@@ -65,7 +65,7 @@ function OrgConsole({ identity }: { identity: Identity }) {
   }
   const switcher = orgs.length > 1
     ? <Select aria-label="Unit Instance" value={current.id} onValueChange={(id) => navigate(`/${id}${rest.length ? `/${rest.join('/')}` : ''}`)} options={orgs.map((o) => ({ value: o.id, label: o.short_name || o.name }))} />
-    : <p className="truncate px-2 text-xs text-white/60 lg:text-white/60">{current.name}</p>;
+    : <p className="truncate px-2 text-xs text-ink-3 lg:text-white/60">{current.name}</p>;
   const roleLabel = current.roles.map((r) => ORG_ROLES[r as OrgRole]?.label ?? r).join(', ');
   const access = identity.vantageAccess.length > 0;
   return (

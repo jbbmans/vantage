@@ -27,7 +27,9 @@ export const queryClient = new QueryClient({
 export interface UnitView { id: string; name: string; short_name: string | null; parent_id: string | null; depth: number; level: 'full' | 'overview'; member: boolean; teams: number }
 
 export interface Identity {
-  user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
+  user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null;
+    /** The EDIPI the person's counseling worksheets print: proved by their CAC, or typed by them (ADR-0033). Only its last four. */
+    edipi_on_file?: { source: 'account' | 'typed'; last4: string } | null };
   prefs: Prefs;
   /** What the person's own Unit Instance sets where they have not chosen (ADR-0012). */
   unitDefaults?: { reportPeriod: PeriodKey | null };

@@ -14,9 +14,10 @@ import { formatStamp, humanize, isoDay, todayIso } from '@/lib/utils';
 import { COUNSELING_TYPES } from '../../shared/constants';
 import { formatDate } from '../../shared/metrics';
 import {
-  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, amendmentLine, counselingTypeLabel, counselorWritten, documentBand,
-  personLine, signatureNotes, worksheetHead, type CounselingDocument, type CounselingField, type CounselingOptions,
+  COUNSELING_CONTENT, COUNSELING_FIELD_LABELS, COUNSELING_LIMITS, WORKSHEET_COLUMNS, amendmentLine, counselingTypeLabel, counselorWritten, dayOf, documentBand,
+  signatureNotes, type CounselingDocument, type CounselingField, type CounselingOptions, type WorksheetBox,
 } from '../../shared/counseling';
+import { EdipiForm } from '@/components/EdipiOnFile';
 import type { Counseling } from '../../shared/types';
 
 /**
@@ -125,9 +126,12 @@ export function counselingStanding(row: Counseling, me?: string): string {
   return `${final} ${ack} It changes only by amendment, which keeps what it said before.`;
 }
 
-/** What one counseling downloads as: its worksheet as a PDF, then the record itself. */
-export const counselingDownloads = (row: Pick<Counseling, 'id' | 'revision'>, revision?: number | null): DownloadChoice[] => [
-  { label: 'As a worksheet (PDF)', url: api.counselingPdfUrl(row.id, revision), fallback: `vantage-counseling-${row.id.slice(0, 8)}-r${revision || row.revision}.pdf`, hint: 'NAVMC 2795 layout' },
+/**
+ * What one counseling downloads as: its COUNSELING WORKSHEET as a PDF, then the record itself. `before` runs ahead of the
+ * worksheet (the EDIPI gate, which asks for one's own EDIPI when it is not on one's profile).
+ */
+export const counselingDownloads = (row: Pick<Counseling, 'id' | 'revision'>, revision?: number | null, before?: () => Promise<boolean>): DownloadChoice[] => [
+  { label: 'As a worksheet (PDF)', url: api.counselingPdfUrl(row.id, revision), fallback: `vantage-counseling-${row.id.slice(0, 8)}-r${revision || row.revision}.pdf`, hint: 'COUNSELING WORKSHEET, fillable', before },
   ...recordDownloads('counselings', row.id, false),
 ];
 
@@ -245,61 +249,101 @@ export function CounselingHistory({ row, className }: { row: Counseling; classNa
   );
 }
 
+const COLS = WORKSHEET_COLUMNS.map((c) => `${c}fr`).join(' ');
+const span = (b: WorksheetBox) => ({ gridColumn: `${b.cols[0] + 1} / ${b.cols[1] + 1}` });
+
 /**
- * The worksheet itself, in the layout of NAVMC 2795 Appendix A, drawn from the document the server builds: the preview in
- * a dialog (`screen`) and the page laid out for paper (`print`) are this, and the PDF draws the same document.
+ * The COUNSELING WORKSHEET itself, box for box as the form Marines use (ADR-0033), drawn from the document the server
+ * builds: the preview in a dialog (`screen`) and the page laid out for paper (`print`) are this, and the PDF draws the
+ * same document. A box Vantage leaves blank says so on screen and is blank on paper. On screen the EDIPI boxes show
+ * only the last four digits; the print page and the PDF print them whole. `onAddEdipi` offers the reader's own empty
+ * EDIPI box a way to fill it from their profile.
  */
-export function CounselingWorksheet({ doc, variant = 'screen' }: { doc: CounselingDocument; variant?: 'screen' | 'print' }) {
+export function CounselingWorksheet({ doc, variant = 'screen', onAddEdipi }: { doc: CounselingDocument; variant?: 'screen' | 'print'; onAddEdipi?: () => void }) {
   const band = documentBand(doc);
   const notes = signatureNotes(doc);
+  const w = doc.worksheet;
   const H1 = variant === 'print' ? 'h1' : 'h3';
   const H2 = variant === 'print' ? 'h2' : 'h4';
-  const cells = (rows: ReturnType<typeof worksheetHead>) => rows.map((r, i) => (
-    <div key={i} className="cw-row" style={{ '--cw-cols': r.map((c) => `${c.span}fr`).join(' ') } as React.CSSProperties}>
-      {r.map((c) => <div key={c.label} className="cw-cell"><span className="cw-label">{c.label}</span><span className="cw-value">{c.value || ' '}</span></div>)}
+  const uid = `cw-${doc.id.slice(0, 8)}-${variant}`;
+  const yours = doc.edipi.yours ? `${doc.edipi.yours}_edipi` : null;
+  // A box Vantage has nothing for stays empty, as on the paper form; a screen reader hears that it is blank. The
+  // reader's own empty EDIPI box offers to add it ("If not there, make them type").
+  const blank = (b: WorksheetBox) => (variant === 'print' ? null
+    : b.key === yours && onAddEdipi ? <button type="button" className="cw-add" onClick={onAddEdipi}>Add yours</button>
+      : <span className="sr-only">{b.key.endsWith('_edipi') ? 'Blank, not on their profile' : 'Blank'}</span>);
+  const row = (boxes: WorksheetBox[], short = false) => (
+    <div className={`cw-grid${short ? ' is-short' : ''}`} style={{ '--cw-cols': COLS } as React.CSSProperties}>
+      {boxes.map((b) => (
+        <span key={`l-${b.key}`} className="cw-lab" style={span(b)} id={`${uid}-${b.key}`}>{b.label.map((l) => <span key={l}>{l}</span>)}</span>
+      ))}
+      {boxes.map((b) => (
+        <span key={`v-${b.key}`} className="cw-val" style={span(b)} aria-labelledby={`${uid}-${b.key}`} role="group">{b.value || blank(b)}</span>
+      ))}
     </div>
-  ));
-  const body = (
-    <>
-      <header className="cw-head">
-        <p className="cw-eyebrow">Vantage · User’s Guide to Counseling (NAVMC 2795)</p>
-        <H1 className="cw-title">{doc.worksheet.caption}</H1>
-        <p className="cw-sub">{doc.worksheet.figure} layout. Not an official form.</p>
-      </header>
-      {band && <p className="cw-band">{band}</p>}
-      <div className="cw-grid">{cells(worksheetHead(doc))}</div>
-      <p className="cw-aside">The SSN block on the worksheet is left out: Vantage does not record or print an SSN.</p>
-      {doc.blocks.map((b) => (
-        <section key={b.key} className="cw-block" aria-labelledby={`cw-${doc.id}-${b.key}`}>
-          <H2 id={`cw-${doc.id}-${b.key}`} className="cw-block-head">{b.label}</H2>
-          {!b.parts.length ? <p className="cw-empty">Nothing recorded.</p> : b.parts.map((p, i) => (
-            <div key={i}>{p.label && <p className="cw-part">{p.label}</p>}<p className="cw-text">{p.text}</p></div>
-          ))}
+  );
+  const annex = Boolean(band || doc.amendments.length || doc.own_notes || (doc.particulars_as_of === 'now' && doc.stage === 'final'));
+  const form = (
+    <div className="cw-form">
+      <H1 className="cw-title">{w.title}</H1>
+      {band && variant === 'screen' && <p className="cw-band">{band}</p>}
+      <p className="cw-refs">{w.references}</p>
+      <section aria-labelledby={`${uid}-a`}>
+        <H2 id={`${uid}-a`} className="cw-bar">{w.admin.heading}</H2>
+        {row(w.admin.rows[0])}
+        {row(w.admin.rows[1], true)}
+        {row(w.admin.rows[2])}
+      </section>
+      <section aria-labelledby={`${uid}-b`}>
+        <H2 id={`${uid}-b`} className="cw-bar">{w.billet.heading} <small>{w.billet.note}</small></H2>
+        <p className="cw-line">{w.billet.box.value || blank(w.billet.box)}</p>
+      </section>
+      {w.sections.map((sec) => (
+        <section key={sec.key} className="cw-section" aria-labelledby={`${uid}-${sec.key}`}>
+          <H2 id={`${uid}-${sec.key}`} className="cw-bar">{sec.heading}</H2>
+          <div className="cw-narrative" data-key={sec.key}>
+            {sec.parts.length ? sec.parts.map((p, i) => <p key={i}>{p.label ? `${p.label.toUpperCase()}:\n` : ''}{p.text}</p>) : variant === 'screen' ? <span className="cw-hint">Nothing recorded in Vantage.</span> : null}
+          </div>
         </section>
       ))}
-      <div className="cw-signs">
-        <div className="cw-sign"><strong>Marine Counseled</strong><span>{personLine({ name: doc.particulars.subject.name, rank: doc.particulars.subject.rank }) || ' '}</span><small>{notes.subject}</small></div>
-        <div className="cw-sign"><strong>Marine Performing Counseling</strong><span>{personLine(doc.particulars.counselor) || ' '}</span><small>{notes.counselor}</small></div>
-      </div>
-      <div className="cw-grid">{cells([[{ label: 'Target Date for Next Session', value: doc.follow_up_date ?? '', span: 1 }]])}</div>
-      {doc.amendments.length > 0 && (
-        <section className="cw-block" aria-labelledby={`cw-${doc.id}-amendments`}>
-          <H2 id={`cw-${doc.id}-amendments`} className="cw-block-head">Amendment history ({doc.amendments_total})</H2>
-          <ol className="cw-amendments">{doc.amendments.map((a) => <li key={a.revision}><p className="cw-part">{amendmentLine(a, doc.generated.zone)}</p><p className="cw-text">Why: {a.reason}</p></li>)}</ol>
-          {doc.amendments_total > doc.amendments.length && <p className="cw-empty">{doc.amendments_total - doc.amendments.length} earlier amendments are in the record’s history.</p>}
-        </section>
-      )}
-      <ul className="cw-notes">{[...doc.notices, doc.source].map((n) => <li key={n}>{n}</li>)}</ul>
-    </>
+      <section aria-labelledby={`${uid}-g`}>
+        <H2 id={`${uid}-g`} className="cw-bar">{w.certification.heading}</H2>
+        {w.certification.rows.map((r) => (
+          <div key={r.key} className="cw-sign" style={{ '--cw-cols': COLS } as React.CSSProperties}>
+            <span style={{ gridColumn: '1 / 6' }}>{r.label}</span>
+            <span style={{ gridColumn: '6 / 9' }}>{r.date.label[0]}</span>
+            <div style={{ gridColumn: '1 / 6' }} aria-label={`${r.label}: blank, to sign`} role="group" />
+            <div style={{ gridColumn: '6 / 9' }} aria-label={`${r.date.label[0]}: blank, to fill in`} role="group" />
+          </div>
+        ))}
+      </section>
+    </div>
   );
-  const foot = `${doc.worksheet.figure} · record ${doc.id.slice(0, 8)} · revision ${doc.revision}${band ? ` · ${band}` : ''} · Generated ${doc.generated.on} by ${doc.generated.by} in Vantage, from the structured counseling record.`;
+  // What Vantage knows that the form has no box for. On paper it prints on a page of its own, only when there is
+  // something to say; on screen it always shows, with what the reader needs to know about the blank boxes.
+  const about = (
+    <section className="cw-about" data-annex={String(annex)} aria-labelledby={`${uid}-about`}>
+      <H2 id={`${uid}-about`}>About this worksheet</H2>
+      <p className="cw-status">Marine reported on: {notes.subject}<br />Marine performing counseling: {notes.counselor}</p>
+      {doc.amendments.length > 0 && <>
+        <h4>Amendment history ({doc.amendments_total})</h4>
+        <ol className="cw-amendments">{doc.amendments.map((a) => <li key={a.revision}><p><strong>{amendmentLine(a, doc.generated.zone)}</strong></p><p>Why: {a.reason}</p></li>)}</ol>
+        {doc.amendments_total > doc.amendments.length && <p>{doc.amendments_total - doc.amendments.length} earlier amendments are in the record’s history.</p>}
+      </>}
+      <ul>{[...doc.notices, doc.source].map((n) => <li key={n}>{n}</li>)}</ul>
+    </section>
+  );
+  const status = [doc.finalized.at ? `finalized ${dayOf(doc.finalized.at, doc.generated.zone)}${doc.finalized.by ? ` by ${doc.finalized.by}` : ''}` : null, doc.acknowledgement.at ? `acknowledged ${dayOf(doc.acknowledgement.at, doc.generated.zone)}` : null].filter(Boolean).join(' · ');
+  const foot = `Vantage record ${doc.id.slice(0, 8)} · revision ${doc.revision}${status ? ` · ${status}` : ''} · generated ${doc.generated.on} by ${doc.generated.by}`;
+  // Keeps the form's proportions: on a phone it scrolls sideways inside itself, not the page. On paper it is the page's width.
+  const scroller = <div className="cw-scroll" tabIndex={0} role="region" aria-label="The worksheet form; scrolls sideways on a narrow screen">{form}</div>;
   if (variant === 'screen') {
     return (
       <article className="report-doc cw report-screen" aria-label="Counseling worksheet">
         <p className="report-marking">{doc.marking}</p>
-        {body}
+        {scroller}
         <p className="report-marking report-marking-foot">{doc.marking}</p>
-        <p className="cw-foot">{foot}</p>
+        {about}
       </article>
     );
   }
@@ -308,9 +352,9 @@ export function CounselingWorksheet({ doc, variant = 'screen' }: { doc: Counseli
   return (
     <article className="report-doc cw report-print" aria-label="Counseling worksheet">
       <table className="report-frame" role="presentation">
-        <thead><tr><td><p className="report-running"><span>{doc.marking}</span><span>{doc.worksheet.figure}{band ? ` · ${band}` : ''}</span></p></td></tr></thead>
+        <thead><tr><td><p className="report-running"><span>{doc.marking}</span>{band && <span>{band}</span>}</p></td></tr></thead>
         <tfoot><tr><td><p className="report-running report-running-foot"><span>{doc.marking}</span><span>{foot}</span></p></td></tr></tfoot>
-        <tbody><tr><td>{body}</td></tr></tbody>
+        <tbody><tr><td>{scroller}{about}</td></tr></tbody>
       </table>
     </article>
   );
@@ -319,9 +363,19 @@ export function CounselingWorksheet({ doc, variant = 'screen' }: { doc: Counseli
 /** The worksheet of one counseling as a preview inside its dialog, read from the server when it is shown. */
 export function CounselingPreview({ row }: { row: Counseling }) {
   const { data, error, isPending } = useWorksheet(row.id, row.version);
+  const [adding, setAdding] = useState(false);
   if (isPending) return <div aria-busy="true"><Skeleton className="h-64" /></div>;
   if (error || !data) return <EmptyState title="Could not prepare the worksheet" description={api.errorText(error)} />;
-  return <CounselingWorksheet doc={data} />;
+  // The reader's own EDIPI box is empty: they type it here, and it saves to their profile (ADR-0033).
+  const missing = data.edipi.yours !== null && !data.edipi[data.edipi.yours];
+  return (
+    <div className="space-y-3">
+      {missing && (adding
+        ? <div className="rounded-md border border-line bg-surface-2 p-3"><EdipiForm autoFocus onSaved={() => setAdding(false)} /></div>
+        : <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">Your EDIPI is not on your profile, so your EDIPI box is blank. <Button size="xs" variant="ghost" onClick={() => setAdding(true)}>Add it</Button></p>)}
+      <CounselingWorksheet doc={data} onAddEdipi={missing ? () => setAdding(true) : undefined} />
+    </div>
+  );
 }
 
 /** The worksheet for one version of a counseling: a new version draws a new worksheet. */

@@ -93,20 +93,20 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
   const badge = (viewLabel(view) || identity?.instance.organizationName || 'V').replace(/^the\s+/i, '').slice(0, 3).toUpperCase();
   if (!views.length) {
     return (
-      <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
-        <button type="button" onClick={() => navigate('/settings')} className="flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left hover:bg-white/[.08]">
+      <div className="mx-3 mb-3 mt-1 rounded-[5px] bg-white/[.03] p-1 ring-1 ring-white/[.08]">
+        <button type="button" onClick={() => navigate('/settings')} className="flex w-full items-center gap-2.5 rounded-[4px] bg-white/[.04] px-2.5 py-2 text-left hover:bg-white/[.08]">
           <span className="min-w-0 flex-1"><span className="block truncate text-[11px] leading-tight text-white/55">{identity?.instance.organizationName || 'Workspace'}</span><span className="block truncate text-sm font-medium leading-tight text-white">No unit yet</span></span>
         </button>
       </div>
     );
   }
   return (
-    <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
+    <div className="mx-3 mb-3 mt-1 rounded-[5px] bg-white/[.03] p-1 ring-1 ring-white/[.08]">
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <button ref={trigger} type="button" aria-label={`Viewing ${viewLabel(view)}. Switch view`} aria-keyshortcuts={keysOn ? 'v' : undefined} data-testid="view-switcher"
-            className="group flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgb(255_255_255/.06)] transition-colors hover:bg-white/[.08]">
-            <span key={view?.id} className="view-badge flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rail-active [background-image:linear-gradient(to_bottom,rgb(255_255_255/.14),rgb(255_255_255/0))] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{badge}</span>
+            className="group flex w-full items-center gap-2.5 rounded-[4px] bg-white/[.04] px-2.5 py-2 text-left transition-colors hover:bg-white/[.08]">
+            <span key={view?.id} className="view-badge flex h-8 w-8 shrink-0 items-center justify-center rounded-[3px] bg-rail-active text-2xs font-semibold tracking-[0.06em] text-white ring-1 ring-inset ring-marker/45">{badge}</span>
             <span key={`${view?.id}-label`} className="view-label min-w-0 flex-1">
               <span className="block truncate text-[11px] leading-tight text-white/55">{caption}</span>
               <span className="block truncate text-sm font-medium leading-tight text-white">{viewLabel(view)}</span>
@@ -116,7 +116,7 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content side={mobile ? 'bottom' : 'right'} align="start" sideOffset={mobile ? 6 : 14} collisionPadding={12} onOpenAutoFocus={(e) => { e.preventDefault(); list.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus(); }}
-            className="z-50 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-1.5 shadow-modal animate-scale-in focus:outline-none">
+            className="z-50 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-scale-in focus:outline-none">
             <p className="px-2.5 pb-1.5 pt-1 text-2xs font-semibold uppercase tracking-[0.14em] text-ink-3">Views</p>
             <ul ref={list} onKeyDown={step} className="stagger max-h-[60vh] space-y-0.5 overflow-y-auto p-0.5" role="listbox" aria-label="Views">
               {views.map((v, i) => {
@@ -125,9 +125,9 @@ function ViewSwitcher({ mobile }: { mobile: boolean }) {
                 return (
                   <li key={v.id} style={{ '--i': i } as React.CSSProperties}>
                     <button type="button" role="option" aria-selected={selected} onClick={() => { setView(v.id); setOpen(false); track('view.switched', { depth: Math.min(v.depth, 3), whole: kids > 0 }); }}
-                      className={cn('flex w-full items-center gap-2.5 rounded-lg py-2 pr-2.5 text-left text-sm transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40', selected && 'bg-accent-soft')}
+                      className={cn('flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 text-left text-sm transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40', selected && 'bg-accent-soft')}
                       style={{ paddingLeft: `${10 + v.depth * 18}px` }}>
-                      <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', kids ? 'bg-deep text-white' : 'bg-surface-3 text-ink-2')}>
+                      <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-sm', kids ? 'bg-deep text-white' : 'bg-surface-3 text-ink-2')}>
                         {kids ? <Building2 className="h-3.5 w-3.5" aria-hidden /> : <Users className="h-3.5 w-3.5" aria-hidden />}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -244,7 +244,7 @@ function NotificationBell() {
           return (
             <li key={n.id}>
               <Link to={noticeHref(n)} onClick={(e) => follow(e, n)}
-                className={cn('flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-surface-2', !n.read_at && 'bg-accent-soft/50')}>
+                className={cn('flex w-full items-start gap-3 rounded-[4px] px-2.5 py-2.5 text-left transition-colors hover:bg-surface-2', !n.read_at && 'bg-accent-soft/50')}>
                 <span className={cn('mt-1.5 badge-dot shrink-0', n.read_at ? 'bg-line-strong' : 'bg-accent')} aria-hidden />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-start gap-2">
@@ -272,15 +272,16 @@ function NotificationBell() {
       <Popover.Root open={open} onOpenChange={(o) => { setOpen(o); if (o) refetch(); }}>
         <Popover.Trigger asChild>
           {/* 36px to the eye; its hit area reaches 44px, for a thumb. */}
-          <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] text-ink-2 transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-surface-2 hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}>
+          <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[4px] text-ink-2 transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-white/[.07] hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}>
             <Bell className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
-            {unread > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-ink ring-2 ring-surface" aria-hidden>{unread > 9 ? '9+' : unread}</span>}
+            {/* Attention, so scarlet: the signal colour, ringed in the bar's navy. */}
+            {unread > 0 && <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-[3px] bg-signal px-1 text-[10px] font-semibold text-signal-ink ring-2 ring-frame" aria-hidden>{unread > 9 ? '9+' : unread}</span>}
           </button>
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content ref={content} aria-labelledby={headingId} align="end" sideOffset={10} collisionPadding={12}
             onCloseAutoFocus={(e) => { if (following.current) e.preventDefault(); }}
-            className="z-50 flex w-[min(calc(100vw-1.5rem),400px)] flex-col overflow-hidden rounded-2xl bg-surface shadow-pop animate-scale-in focus:outline-none">
+            className="z-50 flex w-[min(calc(100vw-1.5rem),400px)] flex-col overflow-hidden rounded-xl bg-surface shadow-pop animate-scale-in focus:outline-none">
             <div className="flex items-center justify-between gap-3 px-4 pb-1.5 pt-3">
               <h2 id={headingId} className="text-md font-semibold text-ink">Notifications</h2>
               {unread > 0 && <button type="button" onClick={markAll} className="tap -mr-2 inline-flex items-center rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:underline">Mark all read</button>}
@@ -485,7 +486,7 @@ export default function AppShell() {
       <MenuTrigger asChild>{trigger}</MenuTrigger>
       <MenuContent>
         <div className="mb-1 flex items-center gap-2.5 border-b border-line px-2.5 pb-2.5 pt-1.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white">{initials(user?.first_name, user?.last_name)}</span>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[4px] bg-rail-active text-xs font-semibold text-white">{initials(user?.first_name, user?.last_name)}</span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold text-ink">{who}</span>
             <span className="block truncate text-xs text-ink-3">{view ? `${roleLine(identity, view)} · ${viewLabel(view)}` : 'No unit yet'}</span>
@@ -517,7 +518,7 @@ export default function AppShell() {
 
   const badge = (count?: Count) => {
     const n = count ? counts[count] : 0;
-    return n ? <span className="ml-auto rounded-full bg-white/10 px-1.5 py-px font-mono text-[10px] text-white/80">{n}</span> : null;
+    return n ? <span className="ml-auto rounded-[3px] bg-white/10 px-1.5 py-px font-mono text-[10px] text-white/80">{n}</span> : null;
   };
   const hint = (page: NavPage | NavGroup, wide: boolean, mobile: boolean) => (wide && !mobile && keysOn && page.key
     ? <span className="ml-auto hidden font-mono text-[10px] text-white/35 group-hover:inline" aria-hidden>G {page.key.toUpperCase()}</span> : null);
@@ -560,7 +561,7 @@ export default function AppShell() {
           {hint(g, wide, mobile)}
           {!single && (
             <button type="button" onClick={() => setGroupOpen(g.id, !open)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the ${g.label} pages`}
-              className="relative z-10 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white">
+              className="relative z-10 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-white/45 hover:bg-white/10 hover:text-white">
               <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-200', !open && '-rotate-90')} />
             </button>
           )}
@@ -602,13 +603,14 @@ export default function AppShell() {
   // The pages of the group you are in, along the top of the page, where the sidebar does not list them.
   const strip = activeGroup ? groups.find((g) => g.id === activeGroup.id)?.pages ?? [] : [];
   const sectionStrip = strip.length > 1 ? (
-    <nav data-strip aria-label={`${activeGroup!.label} pages`} className={cn('no-print page -mt-3 mb-6 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]', !collapsed && 'lg:hidden')}>
+    // On the navy ground, above the masthead (index.css): the page you are on is the white tab.
+    <nav data-strip aria-label={`${activeGroup!.label} pages`} className={cn('on-navy no-print page -mt-3 mb-6 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]', !collapsed && 'lg:hidden')}>
       {strip.map((p) => (
         <Link key={p.to} to={p.to} aria-current={isCurrent(p) ? 'page' : undefined}
-          className={cn('flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ring-1 transition-colors', isCurrent(p) ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-2 ring-line hover:text-ink hover:ring-line-strong')}>
+          className={cn('flex shrink-0 items-center gap-1.5 rounded-[4px] px-3 py-1.5 text-sm font-medium ring-1 ring-inset transition-colors', isCurrent(p) ? 'bg-ink text-rail ring-ink' : 'bg-white/[.04] text-ink-2 ring-white/10 hover:text-ink hover:ring-white/25')}>
           {p.label}
           {p.away && <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}
-          {p.count && counts[p.count] ? <span className={cn('rounded-full px-1.5 font-mono text-[10px]', isCurrent(p) ? 'bg-surface/20' : 'bg-surface-2 text-ink-3')}>{counts[p.count]}</span> : null}
+          {p.count && counts[p.count] ? <span className={cn('rounded-[3px] px-1.5 font-mono text-[10px]', isCurrent(p) ? 'bg-rail/10' : 'bg-white/10 text-ink-2')}>{counts[p.count]}</span> : null}
         </Link>
       ))}
     </nav>
@@ -618,38 +620,40 @@ export default function AppShell() {
 
   const workspace = (wide: boolean, mobile = false) => wide ? <ViewSwitcher mobile={mobile} /> : null;
 
-  const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(var(--accent)/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(var(--marker)/.1),transparent_70%)]';
+  // The coat's navy, plain: no glow, no gradient. The top bar and the masthead stand on the same colour.
+  const railBackground = 'bg-frame';
 
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-[100dvh] bg-canvas">
         <a href="#main" className="skip-link">Skip to content</a>
         <ActivityBar />
-        <aside className={cn('no-print sticky top-0 hidden h-[100dvh] shrink-0 flex-col border-r border-white/[.06] transition-[width] duration-300 [transition-timing-function:var(--ease-spring)] lg:flex', railBackground, collapsed ? 'w-[72px]' : 'w-[248px]')}>
-          <div className={cn('flex h-[60px] shrink-0 items-center px-5', collapsed && 'justify-center px-0')}>
+        <aside className={cn('no-print sticky top-0 hidden h-[100dvh] shrink-0 flex-col border-r border-white/[.07] transition-[width] duration-300 [transition-timing-function:var(--ease-spring)] lg:flex', railBackground, collapsed ? 'w-[72px]' : 'w-[248px]')}>
+          <div className={cn('flex h-[60px] shrink-0 items-center border-b border-white/[.07] px-5', collapsed && 'justify-center px-0')}>
             {collapsed ? <Mark size={26} reversed /> : <Logo size={24} reversed />}
           </div>
+          <div className="h-3 shrink-0" aria-hidden />
           {workspace(!collapsed)}
           {navList(false)}
-          <div className="border-t border-white/[.06] p-3">
+          <div className="border-t border-white/[.07] p-3">
             {!collapsed ? (
               <div className="flex items-center gap-1">
                 {accountMenu(
-                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>
-                    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-rail" aria-hidden />}</span>
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>
+                    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-inset ring-white/10">{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-marker ring-2 ring-frame" aria-hidden />}</span>
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-white">{who}</span>
-                      <span className="block truncate text-2xs text-white/50">{roleLine(identity, view)}</span>
+                      <span className="block truncate text-2xs text-white/60">{roleLine(identity, view)}</span>
                     </span>
                   </button>,
                 )}
                 <Tooltip content={keysOn ? 'Collapse  [' : 'Collapse'} side="right">
-                  <button type="button" onClick={toggleRail} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Collapse navigation"><ChevronsLeft className="h-4 w-4" /></button>
+                  <button type="button" onClick={toggleRail} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Collapse navigation"><ChevronsLeft className="h-4 w-4" /></button>
                 </Tooltip>
               </div>
             ) : (
               <Tooltip content={keysOn ? 'Expand  [' : 'Expand'} side="right">
-                <button type="button" onClick={toggleRail} className="flex h-9 w-full items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Expand navigation"><ChevronsRight className="h-4 w-4" /></button>
+                <button type="button" onClick={toggleRail} className="flex h-9 w-full items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/[.06] hover:text-white" aria-label="Expand navigation"><ChevronsRight className="h-4 w-4" /></button>
               </Tooltip>
             )}
           </div>
@@ -682,9 +686,9 @@ export default function AppShell() {
               }}>
               <DialogPrimitive.Title className="sr-only">Menu</DialogPrimitive.Title>
               <aside className="flex min-h-0 flex-1 flex-col">
-                <div className="flex h-[60px] shrink-0 items-center gap-2 px-5">
+                <div className="mb-3 flex h-[60px] shrink-0 items-center gap-2 border-b border-white/[.07] px-5">
                   <Logo size={24} reversed />
-                  <DialogPrimitive.Close className="ml-auto rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close menu"><X className="h-4 w-4" /></DialogPrimitive.Close>
+                  <DialogPrimitive.Close className="ml-auto rounded-[4px] p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close menu"><X className="h-4 w-4" /></DialogPrimitive.Close>
                 </div>
                 {workspace(true, true)}
                 {navList(true)}
@@ -694,75 +698,77 @@ export default function AppShell() {
         </DialogPrimitive.Root>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line/80 bg-surface/80 px-3 backdrop-blur-xl backdrop-saturate-150 sm:px-5 lg:px-8">
-            <button type="button" className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={openDrawer} aria-label="Open menu" aria-haspopup="dialog" data-drawer-opener="menu"><MenuIcon className="h-5 w-5" /></button>
+          {/* The top bar is the rail's navy, so the two read as one frame; what it holds takes the dark tokens (on-navy). */}
+          <header className="on-navy no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-white/[.07] bg-frame px-3 sm:px-5 lg:px-8">
+            <button type="button" className="rounded-[4px] p-1.5 text-ink-2 hover:bg-white/[.07] hover:text-ink lg:hidden" onClick={openDrawer} aria-label="Open menu" aria-haspopup="dialog" data-drawer-opener="menu"><MenuIcon className="h-5 w-5" /></button>
             <p className="flex min-w-0 items-baseline gap-2">
-              {place.group && <><span className="hidden shrink-0 text-[15px] text-ink-3 sm:inline">{place.group}</span><span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span></>}
+              {place.group && <><span className="hidden shrink-0 text-[15px] text-ink-3 sm:inline">{place.group}</span><span className="hidden shrink-0 text-marker/70 sm:inline" aria-hidden>/</span></>}
               <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{place.title}</span>
-              {!place.group && place.detail && <><span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span><span className="hidden truncate text-sm text-ink-3 sm:inline">{place.detail}</span></>}
+              {!place.group && place.detail && <><span className="hidden shrink-0 text-marker/70 sm:inline" aria-hidden>/</span><span className="hidden truncate text-sm text-ink-3 sm:inline">{place.detail}</span></>}
             </p>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-8 items-center gap-1.5 rounded-full bg-warn/10 px-3 text-xs font-medium text-warn ring-1 ring-warn/20"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
-              {online && pending > 0 && <button type="button" onClick={() => setQueueOpen(true)} title="Entries waiting to sync" className="flex h-8 items-center gap-1.5 rounded-full bg-info/10 px-3 text-xs font-medium text-info ring-1 ring-info/20 hover:bg-info/15"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
-              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full bg-surface-2 px-3 text-sm text-ink-3 ring-1 ring-line transition-[box-shadow,color,background-color] hover:bg-surface hover:text-ink-2 hover:ring-line-strong md:w-64 lg:w-80" aria-label="Search">
+              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-8 items-center gap-1.5 rounded-[4px] bg-warn/10 px-3 text-xs font-medium text-warn ring-1 ring-warn/25"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
+              {online && pending > 0 && <button type="button" onClick={() => setQueueOpen(true)} title="Entries waiting to sync" className="flex h-8 items-center gap-1.5 rounded-[4px] bg-info/10 px-3 text-xs font-medium text-info ring-1 ring-info/25 hover:bg-info/15"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
+              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-[4px] bg-white/[.05] px-3 text-sm text-ink-3 ring-1 ring-inset ring-white/[.12] transition-[box-shadow,color,background-color] hover:bg-white/[.08] hover:text-ink-2 hover:ring-white/25 md:w-64 lg:w-80" aria-label="Search">
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
-              {/* Below the large breakpoint the tab bar carries this, in reach of a thumb. */}
+              {/* Below the large breakpoint the tab bar carries this, in reach of a thumb. The one global action, so the signal colour. */}
               <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity"
-                className="group hidden h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 lg:flex text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
+                className="group hidden h-9 items-center gap-2 rounded-[4px] bg-signal pl-3 pr-1 lg:flex text-sm font-semibold text-signal-ink shadow-[inset_0_-1px_0_rgb(0_0_0/.25)] transition-[filter,transform] hover:brightness-[1.1] xl:pl-3.5">
                 <span className="hidden xl:inline">Log activity</span>
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-black/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
               </button>
               <NotificationBell />
               {accountMenu(
-                <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" aria-hidden />}</button>,
+                <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[4px] bg-white/10 text-xs font-semibold text-white ring-1 ring-inset ring-white/15 transition-[filter] hover:brightness-125 lg:hidden" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-marker ring-2 ring-frame" aria-hidden />}</button>,
               )}
             </div>
           </header>
 
           {demo && (
-            <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-accent/15 bg-gradient-to-r from-accent-soft/80 via-accent-soft/40 to-transparent px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
+            <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-surface px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
               {/* One row on a phone: what this is, whose eyes, and a way to start again. The sentence is for wider screens. */}
-              <span className="flex items-center gap-2 font-medium"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span><span className="sm:hidden">Demo</span><span className="hidden sm:inline">Synthetic demo</span></span>
+              <span className="flex items-center gap-2 font-semibold"><span className="flex h-6 w-6 items-center justify-center rounded-[3px] bg-accent-soft text-accent ring-1 ring-inset ring-accent/20"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span><span className="sm:hidden">Demo</span><span className="hidden sm:inline">Synthetic demo</span></span>
               <span className="hidden text-ink-2 sm:inline">
                 You are {who}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
                 <span className="hidden md:inline"> Everything here is invented; changes last {demo.ttl_hours} hours.</span>
               </span>
               <span className="ml-auto flex items-center gap-1">
-                <span className="flex rounded-full bg-surface p-0.5 ring-1 ring-line">
+                <span className="flex rounded-[4px] bg-surface-2 p-0.5 ring-1 ring-inset ring-line">
                   <button type="button" onClick={() => demo.workspace?.persona === 'leader' && switchPersona('marine')} aria-pressed={demo.workspace?.persona !== 'leader'}
                     aria-label={demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}
-                    className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona !== 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
+                    className={cn('rounded-[3px] px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona !== 'leader' ? 'bg-frame text-white' : 'text-ink-2 hover:text-ink')}>
                     <span className="sm:hidden">Marine</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}</span>
                   </button>
                   <button type="button" onClick={() => demo.workspace?.persona !== 'leader' && switchPersona('leader')} aria-pressed={demo.workspace?.persona === 'leader'}
                     aria-label={demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}
-                    className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona === 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
+                    className={cn('rounded-[3px] px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona === 'leader' ? 'bg-frame text-white' : 'text-ink-2 hover:text-ink')}>
                     <span className="sm:hidden">Section lead</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}</span>
                   </button>
                 </span>
-                <button type="button" onClick={startOver} className="ml-1 rounded-full px-2.5 py-1 text-xs font-medium text-ink-2 hover:bg-surface hover:text-ink sm:px-3">Start over</button>
+                <button type="button" onClick={startOver} className="ml-1 rounded-[4px] px-2.5 py-1 text-xs font-medium text-ink-2 hover:bg-surface-2 hover:text-ink sm:px-3">Start over</button>
               </span>
             </div>
           )}
-          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-7 outline-none sm:px-6 lg:px-10 lg:pb-16 lg:pt-10">
+          {/* --main-pt is the page's top padding, which a masthead that opens the page takes back to meet the bar (index.css). */}
+          <main id="main" tabIndex={-1} className="app-main min-w-0 flex-1 px-4 pb-24 pt-[var(--main-pt)] outline-none [--main-pt:1.75rem] sm:px-6 lg:px-10 lg:pb-16 lg:[--main-pt:2.5rem]">
             {updateReady && (
               <div role="status" className="no-print page card mb-5 flex items-center gap-3 px-4 py-3 text-base text-ink">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-info/10 text-info"><RefreshCw className="h-4 w-4" /></span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-info/10 text-info"><RefreshCw className="h-4 w-4" /></span>
                 <span className="flex-1">A new version of Vantage is ready.</span>
-                <button type="button" className="rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-surface hover:brightness-125" onClick={() => { navigator.serviceWorker?.getRegistration().then((r) => r?.waiting?.postMessage('skip-waiting')); setTimeout(() => window.location.reload(), 300); }}>Reload</button>
+                <button type="button" className="rounded-[4px] bg-ink px-3.5 py-1.5 text-xs font-medium text-surface hover:brightness-125" onClick={() => { navigator.serviceWorker?.getRegistration().then((r) => r?.waiting?.postMessage('skip-waiting')); setTimeout(() => window.location.reload(), 300); }}>Reload</button>
               </div>
             )}
             {identity?.instance.announcement && (
               <div role="status" className="no-print page card mb-5 flex items-start gap-3 px-4 py-3 text-base text-ink">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent"><AlertTriangle className="h-4 w-4" /></span><span className="pt-0.5">{identity.instance.announcement}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-accent/10 text-accent"><AlertTriangle className="h-4 w-4" /></span><span className="pt-0.5">{identity.instance.announcement}</span>
               </div>
             )}
             {sectionStrip}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
-          <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
-            <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
+          <footer className="no-print mx-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pb-[calc(1.25rem+var(--tabbar,0px))] pt-4 text-xs text-ink-3 sm:mx-6 lg:mx-10">
+            <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded-sm font-medium text-ink-2 transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
             <span>Your Unit Instance’s records are kept apart from every other’s.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>

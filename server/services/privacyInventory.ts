@@ -34,6 +34,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       prefs: 'none', digest_last_sent_at: 'technical', last_login_at: 'technical', timezone: 'none',
       failed_sign_ins: 'authentication', locked_until: 'authentication', oidc_issuer: 'authentication', oidc_subject: 'identifier',
       edipi_verified_at: 'authentication',
+      // Typed by the person for their counseling worksheets (ADR-0033); never a sign-in credential.
+      form_edipi: 'identifier', form_edipi_at: 'technical',
       created_at: 'technical', updated_at: 'technical',
     },
   },
