@@ -1,6 +1,37 @@
 # Progress
 
-_Updated 2026-11-17_
+_Updated 2026-11-18_
+
+## What changed (2026-11-18: Task 26, short task-based tutorials)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Twelve short tutorials, one task each, offered where the task is done and followed in the application itself
+([ADR-0034](engineering/ADR/0034-task-based-tutorials.md), PD-018). No migration, no server change.
+
+- **The specification's twelve.** Getting started, Logging work, Personnel, Import and export, Error reports, Case
+  diagnosis, Duty, Training, Certificates, Counselings, Reports and Analytics (`src/config/tutorials.ts`), three to six
+  steps each, every claim checked against the page, the server rule and the permission behind it.
+- **Offered in context, never opened by itself.** A line under the title of each page a tutorial is about ("Tutorial ·
+  Duty, 6 steps", marked once finished; it can be turned off in Settings → Appearance), Help → Field guide (list and
+  search by the words of the steps), the command palette ("Tutorial: …") and Today's Getting started card.
+- **A panel beside the page, not a dialog.** Every step listed and openable; Go to opens the step's page and shows its
+  control; Show me outlines the control and gives it focus; it stays open from page to page and across a reload for this
+  tab and person; it folds down on a phone, on a short screen and wherever it would cover the control; it says it waits
+  while a window or menu is open. Focus: its heading on opening and after Go to, untouched after a reload, back to what
+  opened it on closing, and to Help's list from Other tutorials.
+- **Who is offered what** follows the menu's own rule plus a permission held in at least one unit; the server decides
+  every action as before. The client's `can()` now uses the shared `has()` rule (ADMINISTRATOR never implies Approve
+  own duty).
+- **Progress is a setting** (`prefs.tutorials.done`, `prefs.tutorialPrompts`), validated and merged by `PUT
+  /api/me/prefs`; finishing reads the saved list first, so a tutorial finished in another tab is kept.
+- **Corrected on the way.** Field guide answers and page hints that described the application before Tasks 13 to 25;
+  Import work and the diagnoser list only units with Create shared work; the Report studio's "I have read the updated
+  facts" now stops citing a record that was deleted or moved and reads the rest at the version the refusal names,
+  so the save goes through instead of being refused again.
+- **Tests.** See the handoff (`task26/HANDOFF.md`): server suite, browser spec 57 (walks every step offered to a unit
+  leader), spec 14's new deleted-source case, and the full browser suite in the cloud container (GitHub's browser job
+  stops at its 25-minute limit).
 
 ## What changed (2026-11-17: the counseling worksheet form, EDIPI from the profile, and a redesign)
 

@@ -19,7 +19,7 @@ import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
 import { shortcutsOn } from '@/lib/keyboard';
-import { DEFAULT_PERIOD } from '../../shared/metrics';
+import { DEFAULT_PERIOD, PERIOD_OPTIONS } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
 
@@ -104,7 +104,7 @@ function Profile() {
         </div>
       </Panel>
       <Panel title="Units" action={<Button size="xs" variant="ghost" asChild><Link to={`/team/${identity!.user.id}`}>Your personnel record</Link></Button>}><ul className="space-y-2">{identity!.memberships.map((m) => <li key={m.unit_id} className="rounded-md border border-line px-3 py-2 text-sm"><span className="flex items-center justify-between"><span className="font-medium text-ink">{m.unit_short || m.unit_name}</span>{m.is_primary ? <Badge tone="accent">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{m.billet || 'No billet'} · joined {timeAgo(m.joined_at)}</span><span className="mt-1 flex flex-wrap gap-1">{identity!.roles.filter((r) => r.unit_id === m.unit_id).map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></li>)}{!identity!.memberships.length && <li className="text-sm text-ink-3">Not in a unit yet. Ask a leader for an invitation or a join code.</li>}</ul>{!identity!.demo && <JoinUnit />}</Panel>
-      <Panel title="EDIPI for your forms" subtitle="Printed in your EDIPI box on counseling worksheets"><EdipiForm /></Panel>
+      <Panel title="EDIPI for your forms" data-tutorial="edipi-for-forms" subtitle="Printed in your EDIPI box on counseling worksheets"><EdipiForm /></Panel>
     </div>
   );
 }
@@ -169,7 +169,7 @@ function Security() {
       </Panel>
       <Panel title="Passkeys" subtitle="Face ID, Windows Hello, or a security key. Phishing-resistant." action={<Badge tone={pk?.passkeys?.length ? 'good' : 'neutral'}>{pk?.passkeys?.length || 0} registered</Badge>}>
         <ul className="mb-3 space-y-1.5">{(pk?.passkeys || []).map((p: any) => <li key={p.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span className="flex items-center gap-2"><Fingerprint className="h-4 w-4 text-ink-3" /><span><span className="block text-ink">{p.name}</span><span className="block text-2xs text-ink-3">added {timeAgo(p.created_at)}{p.last_used_at ? ` · used ${timeAgo(p.last_used_at)}` : ''}{p.backed_up ? ' · synced' : ''}</span></span></span><Button size="xs" variant="ghost" onClick={() => removePasskey(p.id)}>Remove</Button></li>)}</ul>
-        <div className="flex gap-2"><Input aria-label="Passkey name" placeholder="This phone" value={pkName} onChange={(e) => setPkName(e.target.value)} /><Button variant="primary" onClick={addPasskey}><Fingerprint className="h-4 w-4" />Add passkey</Button></div>
+        <div className="flex gap-2"><Input aria-label="Passkey name" placeholder="This phone" value={pkName} onChange={(e) => setPkName(e.target.value)} /><Button variant="primary" onClick={addPasskey} data-tutorial="add-passkey"><Fingerprint className="h-4 w-4" />Add passkey</Button></div>
         <p className="mt-2 text-2xs text-ink-3">Registered for {pk?.rpId || window.location.hostname}. Add one per device you sign in from.</p>
       </Panel>
       <Panel title="Authenticator app" subtitle="A six-digit code as a second step" action={<Badge tone={u.totp_enabled ? 'good' : 'neutral'}>{u.totp_enabled ? 'On' : 'Off'}</Badge>}>
@@ -212,7 +212,7 @@ function RecordAccessLog() {
     if (added) window.requestAnimationFrame(() => document.getElementById(`my-access-${added.id}`)?.focus());
   };
   return (
-    <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
+    <Panel className="lg:col-span-2" data-tutorial="access-log" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
       {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-24" /></div>
         : log.isError && !log.data ? <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="Your access log" />
         : !rows.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : (
@@ -267,6 +267,11 @@ function Appearance() {
           <Field label="New entries are"><Select value={prefs.defaultVisibility || 'private'} onValueChange={(v) => save.mutate({ defaultVisibility: v as never })} options={VISIBILITIES.map((v) => ({ value: v, label: v === 'private' ? 'Only me' : 'Shared with my unit' }))} /></Field>
           <div className="pt-5"><Switch checked={Boolean(prefs.quickLogExpanded)} onChange={(v) => save.mutate({ quickLogExpanded: v })} label="Show every field in Quick Log" description="Organization, system, notes, and visibility open by default." /></div>
         </div>
+      </Panel>
+      {/* The line under a page's title that offers its tutorials (ADR-0034). Every tutorial stays in Help and in search. */}
+      <Panel title="Tutorials" className="lg:col-span-2">
+        <Switch checked={prefs.tutorialPrompts !== false} onChange={(v) => save.mutate({ tutorialPrompts: v })} label="Offer a page’s tutorial under its title"
+          description="A line under the title of a page names the tutorials for what is done there. Off, every tutorial is still in Help → Field guide and in search (⌘K)." />
       </Panel>
       {/* Single printable keys can be turned off (WCAG 2.1.4): a stray key, or a word said to speech input, acts on none of them. */}
       <Panel title="Keyboard" className="lg:col-span-2">
@@ -380,7 +385,7 @@ function DataTab() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Export everything" subtitle="Your record belongs to you" className="lg:col-span-2">
-        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'}><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={() => exportAll('xlsx')} loading={exporting === 'xlsx'}><Download className="h-4 w-4" />Everything (Excel)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'} data-tutorial="export-everything"><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={() => exportAll('xlsx')} loading={exporting === 'xlsx'}><Download className="h-4 w-4" />Everything (Excel)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />{PERIOD_OPTIONS.find((p) => p.value === DEFAULT_PERIOD)?.label ?? 'This period'} as PDF</Button></div>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">The ZIP holds every piece of data tied to your account: profile, rank, MOS and EAS, units, memberships and roles, every activity, task, project, goal, training, award and counseling (recycle bin included), readiness figures, attachments as files, notifications, preferences, the audit trail of your record, AI usage, and email history. It arrives as one JSON file plus a CSV per dataset. Secrets never leave: no password, authenticator, or passkey material.</p>
         <p className="mt-2 text-xs leading-relaxed text-ink-3">Each record keeps its type: awards come out as awards, training as training, counselings as counselings, and the Excel workbook has a sheet for each. Import any of them back with Import records, here or in another Vantage, and each comes back as what it was. Rows with a Vantage ID update the original instead of duplicating it.</p>
       </Panel>
@@ -402,7 +407,7 @@ function DataTab() {
         </div>
       </Panel>
       <Panel title="Import" subtitle="From a Vantage export or any spreadsheet">
-        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => setRecordsOpen(true)}><Upload className="h-4 w-4" />Import records</Button><Button onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Activities from a CSV</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => setRecordsOpen(true)} data-tutorial="import-records"><Upload className="h-4 w-4" />Import records</Button><Button onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Activities from a CSV</Button></div>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">Import records reads a Vantage export (JSON or ZIP), a CSV, or an Excel workbook, and shows what each row is, where it goes and what looks like something you already have. Nothing is written until you import, and an import can be undone.</p>
       </Panel>
       <Panel title="Recent imports" subtitle="What each one did">

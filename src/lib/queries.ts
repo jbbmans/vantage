@@ -7,7 +7,7 @@ import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
-import { PERMISSIONS } from '../../shared/permissions.ts';
+import { has } from '../../shared/permissions.ts';
 import type { MetricFigure, MetricPoint } from '../../shared/metricEngine.ts';
 import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
@@ -349,10 +349,13 @@ export const useDiscussion = (h: api.DiscussionHost, enabled = true) => useQuery
 export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled, staleTime: 60_000, refetchOnWindowFocus: false, retry: false });
 export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
 
-/** Whether the person holds `flag` in the unit. ADMINISTRATOR holds every permission, as it does on the server. */
+/**
+ * Whether the person holds `flag` in the unit, by the server's own rule (shared has()): ADMINISTRATOR holds every
+ * permission except those a role must name, so leading a unit is never approving one's own duty (ADR-0024).
+ */
 export function can(identity: Identity | undefined, flag: number, unitId?: string | null): boolean {
   if (!identity || !unitId) return false;
-  return Boolean((identity.permissions[unitId] || 0) & (flag | PERMISSIONS.ADMINISTRATOR));
+  return has(identity.permissions[unitId] || 0, flag);
 }
 /** Whether the reader may correct this duty, as the server decides (ADR-0023 §4): the same rule on every page. */
 export const canCorrectDuty = (identity: Identity | undefined, r: Parameters<typeof mayCorrectDuty>[0]) =>

@@ -71,7 +71,7 @@ export default function Timeline() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow={place.group} title="Timeline" lede="Your activities, training, awards, counselings and goals reached, newest first. Each is read from its own record when you open this page, not copied here: open one to change it.">
+      <PageHeader eyebrow={place.group} title="Timeline" lede="Your activities, training, awards, counselings, duty and goals reached, newest first. Each is read from its own record when you open this page, not copied here: open one to change it.">
         <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
       {timeline.isError ? <QueryFailure error={timeline.error} what="Your timeline" onRetry={() => timeline.refetch()} /> : (

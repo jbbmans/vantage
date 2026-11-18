@@ -104,10 +104,10 @@ test('a Marine exports the categories they choose, and downloads one record from
 
   // Awards exports its own and opens the import; the award downloads from its view.
   await page.goto('/career/awards');
-  await page.getByRole('button', { name: 'Import' }).click();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Import records' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /As an Excel workbook/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.goto(`/career/awards?open=${award.id}`);

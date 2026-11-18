@@ -39,7 +39,7 @@ test('a new Marine finds out what Vantage is and where everything lives, from To
   await expect(answer(page, 'Where do my records live?').getByRole('link', { name: 'Records → Timeline' })).toBeVisible();
   // Someone who leads nobody is told when Personnel appears, and offered no link they could not open.
   const people = answer(page, 'Where are my Marines?');
-  await expect(people).toContainText('Personnel appears in the menu when you lead a unit');
+  await expect(people).toContainText('Personnel appears in the menu once you belong to a unit');
   await expect(people.getByRole('link')).toHaveCount(0);
   await expect(answer(page, 'How do I see how I am doing?').getByRole('link', { name: /Unit dashboard/ })).toHaveCount(0);
 

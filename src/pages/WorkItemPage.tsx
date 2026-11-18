@@ -32,6 +32,7 @@ import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../sha
 import { formatCents, parseMoney } from '../../shared/money';
 import type { CaseEventView, CaseIntegrity, CaseView, EventBody, WorkItemView } from '../../shared/caseView';
 import { REQUEST_MAX, type Speaker } from '../../shared/workflowMessages';
+import TutorialPrompt from '@/components/TutorialPrompt';
 
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
@@ -134,6 +135,8 @@ export default function WorkItemPage() {
           {item.amount != null && <div className="text-ink-2"><dt className="inline text-ink-3">Amount on the sheet </dt><dd className="fig inline font-medium text-ink">{formatCents(Math.round(Number(item.amount) * 100))}</dd></div>}
           {c.integrity?.count ? <div><dt className="sr-only">History</dt><dd><IntegrityBadge integrity={c.integrity} /></dd></div> : null}
         </dl>
+        {/* A case draws its own header, not PageHeader, so it offers its tutorials itself (ADR-0034). */}
+        <TutorialPrompt />
       </header>
 
       {item.source_changed_at && (

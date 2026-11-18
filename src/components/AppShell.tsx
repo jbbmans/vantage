@@ -25,6 +25,9 @@ import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import TabBar from '@/components/TabBar';
+import TutorialPanel from '@/components/TutorialPanel';
+import { TutorialProvider } from '@/lib/tutorials';
+import { useTutorials } from '@/lib/tutorialContext';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -272,7 +275,7 @@ function NotificationBell() {
       <Popover.Root open={open} onOpenChange={(o) => { setOpen(o); if (o) refetch(); }}>
         <Popover.Trigger asChild>
           {/* 36px to the eye; its hit area reaches 44px, for a thumb. */}
-          <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[4px] text-ink-2 transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-white/[.07] hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}>
+          <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[4px] text-ink-2 transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-white/[.07] hover:text-ink" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} data-tutorial="notifications-bell">
             <Bell className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
             {/* Attention, so scarlet: the signal colour, ringed in the bar's navy. */}
             {unread > 0 && <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-[3px] bg-signal px-1 text-[10px] font-semibold text-signal-ink ring-2 ring-frame" aria-hidden>{unread > 9 ? '9+' : unread}</span>}
@@ -330,7 +333,12 @@ function useCounts(group: string | undefined): Record<Count, number> {
   };
 }
 
+/** The shell, inside the tutorials it offers (ADR-0034): the page header, the palette and the panel all read them. */
 export default function AppShell() {
+  return <TutorialProvider><Shell /></TutorialProvider>;
+}
+
+function Shell() {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
@@ -463,6 +471,7 @@ export default function AppShell() {
     catch (e) { toast.error(api.errorText(e)); }
   };
 
+  const tutorials = useTutorials();
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
   // What ⌘K can do besides go somewhere: the things people otherwise hunt through menus for.
   const paletteActions: PaletteAction[] = [
@@ -476,6 +485,12 @@ export default function AppShell() {
     { id: 'export-activities', title: 'Export activities', subtitle: 'A CSV of the last 12 months, which imports back without duplicates', keywords: 'download csv spreadsheet entries export', run: () => { api.downloadFile(api.reportCsvUrl({ period: 'last12' }), 'vantage-activities.csv').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
     { id: 'export-pdf', title: 'Export my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'download export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
     { id: 'export-everything', title: 'Export everything Vantage holds about me', subtitle: 'Settings → Your data', keywords: 'download export personal data privacy archive', run: () => navigate('/settings?tab=data') },
+    // Each tutorial this person may take, by its name and the words of its steps (ADR-0034). It takes focus itself.
+    ...(tutorials?.offered ?? []).map((t) => ({
+      id: `tutorial-${t.id}`, title: `Tutorial: ${t.title}`, subtitle: t.outcome, ownsFocus: true,
+      keywords: `tutorial how to learn guide walkthrough ${t.keywords ?? ''} ${tutorials!.stepsOf(t).map((s) => s.title).join(' ')}`,
+      run: () => tutorials!.start(t.id),
+    })),
   ];
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
@@ -709,11 +724,11 @@ export default function AppShell() {
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-8 items-center gap-1.5 rounded-[4px] bg-warn/10 px-3 text-xs font-medium text-warn ring-1 ring-warn/25"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
               {online && pending > 0 && <button type="button" onClick={() => setQueueOpen(true)} title="Entries waiting to sync" className="flex h-8 items-center gap-1.5 rounded-[4px] bg-info/10 px-3 text-xs font-medium text-info ring-1 ring-info/25 hover:bg-info/15"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
-              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-[4px] bg-white/[.05] px-3 text-sm text-ink-3 ring-1 ring-inset ring-white/[.12] transition-[box-shadow,color,background-color] hover:bg-white/[.08] hover:text-ink-2 hover:ring-white/25 md:w-64 lg:w-80" aria-label="Search">
+              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-[4px] bg-white/[.05] px-3 text-sm text-ink-3 ring-1 ring-inset ring-white/[.12] transition-[box-shadow,color,background-color] hover:bg-white/[.08] hover:text-ink-2 hover:ring-white/25 md:w-64 lg:w-80" aria-label="Search" data-tutorial="search">
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
               {/* Below the large breakpoint the tab bar carries this, in reach of a thumb. The one global action, so the signal colour. */}
-              <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity"
+              <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity" data-tutorial="log-activity"
                 className="group hidden h-9 items-center gap-2 rounded-[4px] bg-signal pl-3 pr-1 lg:flex text-sm font-semibold text-signal-ink shadow-[inset_0_-1px_0_rgb(0_0_0/.25)] transition-[filter,transform] hover:brightness-[1.1] xl:pl-3.5">
                 <span className="hidden xl:inline">Log activity</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-black/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
@@ -766,6 +781,8 @@ export default function AppShell() {
             )}
             {sectionStrip}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
+            {/* Room to scroll the foot of a page out from under an open tutorial (--tutorial is its height, TutorialPanel). */}
+            <div aria-hidden className="no-print h-[var(--tutorial,0px)]" />
           </main>
           <footer className="no-print mx-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pb-[calc(1.25rem+var(--tabbar,0px))] pt-4 text-xs text-ink-3 sm:mx-6 lg:mx-10">
             <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded-sm font-medium text-ink-2 transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
@@ -780,6 +797,7 @@ export default function AppShell() {
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} nav={visibleNav} groups={groups} views={(identity?.views?.length || 0) > 1} />
         <WhatsNewDialog open={whatsNew} onOpenChange={setWhatsNew} />
+        <TutorialPanel />
         {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>

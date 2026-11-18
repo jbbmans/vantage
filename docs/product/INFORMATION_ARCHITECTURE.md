@@ -56,9 +56,10 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | How to import | Import activities (Records → Activities); Import work (Work → Queue) |
 | How to export | Export activities; Export analysis PDF and Export JEPES input PDF (Reports & Analytics → Analysis); Settings → Your data |
 | How to view performance | Reports & Analytics → Analysis; Training & Development → Readiness; the Unit dashboard for leaders |
-| How to view duty | Logged as an activity and filed under Operations; Activities filtered to Operations, and the Timeline (duty records are Task 17) |
+| How to view duty | Records → Duty: each duty stood, its hours and points, and where its review stands; a reviewer's queue is its To review tab (ADR-0023, ADR-0024); the Timeline too |
 | Where notices and questions are | The bell and Notifications; what is asked of you, and what you asked, on Today too; the Discussion on each record |
 | How to find help | Help → Field guide, ⌘K or /, ? for shortcuts, Help → Support |
+| How to learn a task | The line under a page's title names its tutorial; Help → Field guide lists every tutorial, and ⌘K finds them (ADR-0034) |
 
 ## Audit (2026-10-19, desktop 1440px and phone 390px, every page in the menu)
 
@@ -73,7 +74,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Cards and dashboards | Today and the Records overview each answer one question; Packages and Analysis overlap (both read the record for evaluation input) | Left in place, named consistently | Reports and printable output: Task 14; unified analytics: Task 21 |
 | Tables | Wide tables scroll inside their card; no page scrolled sideways at 390px except Help, after its keyboard line grew | Help's keyboard line fixed | Personnel tables: done in Task 11 (the roster is a list on a phone); performance and responsive pass: Task 25 |
 | Duplicate workflows | Two ways in for awards and training (an activity, or its own record) | Settled by Task 9's move suggestions; Find your way points to the right place | — |
-| Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: Task 26; duty records: Task 17 |
+| Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: done in Task 26 (ADR-0034), twelve short ones offered under the titles of the pages they are about; duty records: Task 17 |
 | Drafts | Records → Drafts held only entries drawn from work; a goal, award, training entry, task or billet change had no draft, and closing its form lost the text | Each form saves a draft in context and asks before closing with unsaved text; each page lists its own drafts; Records → Drafts lists every kind, each opening where it is finished, and says who else can read it; Today shows the newest; the menu counts what waits on you | Done in Task 23 (ADR-0030) |
 | Messages and notices | Comments on records only, written by anyone who could read the record; a review request, a question or an assignment note had nowhere to go; the bell was the only list of notices, with no groups and no way to turn any off | Discussion on each record and requests on a work case, to one named person; a Notifications page with Notices and Asked of you / You asked; Today shows both; Settings → Notifications turns off Discussion, Work updates and Announcements | Task 24 (ADR-0031) |
 

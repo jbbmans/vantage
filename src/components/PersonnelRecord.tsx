@@ -402,7 +402,7 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
                     <span className="block text-ink">{unitName(a)}{a.is_primary ? <Badge tone="accent" className="ml-2">Primary</Badge> : <Badge className="ml-2">Secondary</Badge>}</span>
                     <span className="block text-xs text-ink-3">{a.billet || 'No billet'}{a.billet && !a.billet_id ? ' (not on the billet list)' : ''} · {a.assignment_start || a.assignment_end ? `assigned ${a.assignment_start ? formatDate(a.assignment_start) : '?'} – ${a.assignment_end ? formatDate(a.assignment_end) : 'open'}` : `joined ${formatDate(a.joined_at)}`}</span>
                   </span>
-                  {a.canManage && <Button size="xs" variant="ghost" onClick={() => setEditing(editTarget(inst, a))} aria-label={`Change ${person.last_name}’s assignment in ${unitName(a)}`}><PenLine className="h-3.5 w-3.5" />Change</Button>}
+                  {a.canManage && <Button size="xs" variant="ghost" onClick={() => setEditing(editTarget(inst, a))} data-tutorial="personnel-change" aria-label={`Change ${person.last_name}’s assignment in ${unitName(a)}`}><PenLine className="h-3.5 w-3.5" />Change</Button>}
                 </li>
               ))}
             </ul>

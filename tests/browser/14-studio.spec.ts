@@ -78,6 +78,37 @@ test('a save is refused when a cited record changed, and goes through once the a
   void draft;
 });
 
+test('a cited record deleted while the author writes stops being cited once they have read it, so the save goes through', async ({ page }) => {
+  await seedRecord(page, 'A record that stays cited');
+  const gone = await seedRecord(page, 'A record that will be deleted');
+  await (await page.request.post('/api/studio/reports', {
+    headers: H, data: { title: 'Deleted source check', period_start: daysAgo(30), period_end: today() },
+  })).json();
+
+  await page.goto('/reports');
+  await page.getByText('Deleted source check').click();
+  await page.getByRole('button', { name: 'Choose', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose the records this report cites' });
+  await picker.getByText('A record that stays cited').click();
+  await picker.getByText('A record that will be deleted').click();
+  await picker.getByRole('button', { name: /Use 2 selected/ }).click();
+  await page.getByLabel('Mission accomplishment text').fill('A claim that rests on two records.');
+
+  // The record is deleted elsewhere while the author is still typing.
+  const deleted = await page.request.delete(`/api/records/activities/${gone.id}`, { headers: H });
+  expect(deleted.ok(), await deleted.text()).toBeTruthy();
+
+  await page.getByRole('button', { name: 'Save revision' }).click();
+  await expect(page.getByRole('alert').getByText('This was not saved')).toBeVisible();
+  await expect(page.getByText('It was deleted after you cited it.')).toBeVisible();
+
+  // Read, the deleted record is no longer cited, and the save is not refused for it again.
+  await page.getByRole('button', { name: 'I have read the updated facts' }).click();
+  await expect(page.getByText('One record you cited was deleted or moved, so it is no longer cited.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Save revision' }).click();
+  await expect(page.getByText('Saved as a new revision.')).toBeVisible();
+});
+
 test('an exported revision carries the facts as they were, not as they are now', async ({ page }) => {
   const record = await seedRecord(page, 'Original wording of the source', { quantity: 11 });
   const draft = await (await page.request.post('/api/studio/reports', {

@@ -6,7 +6,8 @@ import { parseMoney, centsToInput } from '../../../shared/money';
 import { PROCEDURES } from '../../../shared/procedures';
 import { Button, Field, Input, NumberInput, Select, Switch } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
-import { useIdentity } from '@/lib/queries';
+import { can, useIdentity } from '@/lib/queries';
+import { PERMISSIONS } from '../../../shared/permissions';
 import * as api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import LifecycleBars from './LifecycleBars';
@@ -95,7 +96,7 @@ export default function Diagnoser() {
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-      <section className="card self-start p-5" aria-label="The figures">
+      <section className="card self-start p-5" aria-label="The figures" data-tutorial="diagnoser-figures">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold tracking-[-0.015em] text-ink"><Stethoscope className="h-4 w-4 text-accent" aria-hidden />Diagnose a balance</h2>
@@ -228,12 +229,13 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
             : { kind: 'observation', field: FIELD_OF[p.key], amount: centsToInput(cents), step: 'observe_balances', system: 'OAS' }, `${key}-${p.key}`);
         }
       }
-      toast.success('The case is open and in your hands, with the figures recorded as you read them.');
+      toast.success(LIFECYCLE_PROCEDURES.has(procedure) ? 'The case is open and in your hands, with the figures recorded as you read them.' : 'The case is open and in your hands, with its steps ready.');
       navigate(`/work/items/${item.id}`);
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
   };
-  const units = identity?.memberships || [];
+  // A unit's queue only where the person may post work to it (the server's rule); Private to me always.
+  const units = (identity?.memberships || []).filter((m) => can(identity, PERMISSIONS.CREATE_SHARED_WORK, m.unit_id));
   return (
     <div className="mt-6 rounded-2xl bg-surface-2/70 p-4 ring-1 ring-inset ring-line">
       <p className="text-sm font-semibold text-ink">Work it as a case</p>
@@ -243,7 +245,7 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
         <Field label="Where it goes">
           <Select value={unit} onValueChange={setUnit} options={[{ value: 'private', label: 'Private to me' }, ...units.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))]} />
         </Field>
-        <Button variant="primary" loading={busy} disabled={!reference.trim()} onClick={open} className={cn('rounded-full pr-1.5')}>
+        <Button variant="primary" loading={busy} disabled={!reference.trim()} onClick={open} className={cn('rounded-full pr-1.5')} data-tutorial="diagnoser-open-case">
           Open the case<span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15"><ArrowUpRight className="h-3.5 w-3.5" /></span>
         </Button>
       </div>

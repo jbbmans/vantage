@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ExternalLink, LifeBuoy, Search, X } from 'lucide-react';
 import FindYourWay from '@/components/FindYourWay';
+import TutorialList, { searchTutorials } from '@/components/TutorialList';
+import { useTutorials } from '@/lib/tutorialContext';
 import { useNav } from '@/lib/useNav';
 import { PageHeader, Panel, Kbd, Input, Button, EmptyState } from '@/components/ui/primitives';
 import { EVAL_REFERENCES, EVAL_VERIFIED } from '../../shared/evalRefs';
@@ -37,9 +39,16 @@ export default function Help() {
   const [query, setQuery] = useState(q);
   const searchRef = useRef<HTMLInputElement>(null);
   const results = useMemo(() => searchHelp(query), [query]);
+  const tutorials = useTutorials();
+  const offered = tutorials?.offered;
+  const stepsOf = tutorials?.stepsOf;
+  const lessons = useMemo(() => (stepsOf ? searchTutorials(query, offered ?? [], stepsOf) : []), [query, offered, stepsOf]);
   const searching = query.trim().length > 0;
 
   useEffect(() => { const t = setTimeout(() => setQ(query), 250); return () => clearTimeout(t); }, [query, setQ]);
+  // Sent to the list of tutorials while a search is showing (a tutorial's Other tutorials): the search gives way to it.
+  const { hash, key } = useLocation();
+  useEffect(() => { if (hash === '#tutorials') setQuery(''); }, [hash, key]);
 
   useEffect(() => {
     const id = window.location.hash.slice(1);
@@ -94,14 +103,18 @@ export default function Help() {
       </div>
 
       {searching ? (
-        <Panel title={`${results.length} ${results.length === 1 ? 'answer' : 'answers'} for “${query.trim()}”`} bodyClassName="p-0">
-          {results.length === 0
-            ? <div className="p-4"><EmptyState title="Nothing matches that" description="Try a word somebody would say out loud — “share”, “delete”, “CAC”, “how many people”." /></div>
-            : <div>{results.map((entry) => <QA key={entry.id} entry={entry} highlight />)}</div>}
-        </Panel>
+        <div className="space-y-4">
+          <TutorialList only={lessons} />
+          <Panel title={`${results.length} ${results.length === 1 ? 'answer' : 'answers'} for “${query.trim()}”`} bodyClassName="p-0">
+            {results.length === 0
+              ? <div className="p-4"><EmptyState title={lessons.length ? 'No answer matches that' : 'Nothing matches that'} description="Try a word somebody would say out loud — “share”, “delete”, “CAC”, “how many people”." /></div>
+              : <div>{results.map((entry) => <QA key={entry.id} entry={entry} highlight />)}</div>}
+          </Panel>
+        </div>
       ) : (
         <div className="space-y-4">
           <FindYourWay />
+          <TutorialList />
 
           <Panel title="The idea">
             <div className="prose-tight space-y-2 text-sm leading-relaxed text-ink-2">

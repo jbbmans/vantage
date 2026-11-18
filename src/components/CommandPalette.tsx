@@ -11,9 +11,12 @@ import { useView, viewLabel } from '@/lib/view';
 import { recentVisits } from '@/lib/recent';
 import { cn } from '@/lib/utils';
 
-interface Item { id: string; title: string; subtitle?: string | null; kind: string; to?: string; run?: () => void }
-/** Something the palette can do rather than open; matched on its title and its keywords. */
-export interface PaletteAction { id: string; title: string; subtitle?: string; keywords?: string; run: () => void }
+interface Item { id: string; title: string; subtitle?: string | null; kind: string; to?: string; run?: () => void; ownsFocus?: boolean }
+/**
+ * Something the palette can do rather than open; matched on its title and its keywords. One that `ownsFocus` puts focus
+ * somewhere itself (a tutorial's panel), so the palette does not hand it back to Search as it closes.
+ */
+export interface PaletteAction { id: string; title: string; subtitle?: string; keywords?: string; run: () => void; ownsFocus?: boolean }
 
 export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, extra = [] }: { open: boolean; onOpenChange: (o: boolean) => void; onQuickLog: (seed?: string) => void; nav: NavPage[]; extra?: PaletteAction[] }) {
   const navigate = useNavigate();
@@ -27,6 +30,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
   // Closed, focus goes back to what opened it (the header's Search), or to the page that was chosen here.
   useReturnFocus(open);
   const leaving = useRef(false);
+  const handsOff = useRef(false);
 
   useEffect(() => { if (open) { setQuery(''); setResults([]); setReference([]); setActive(0); } }, [open]);
   useEffect(() => {
@@ -48,7 +52,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
     const q = query.trim().toLowerCase();
     // A typed apostrophe is straight; titles are set with curly ones (“What’s new”). Either finds either.
     const plain = (s: string) => s.replace(/[‘’]/g, "'");
-    const more: Item[] = extra.filter((a) => !q || plain(`${a.title} ${a.keywords || ''}`.toLowerCase()).includes(plain(q))).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run }));
+    const more: Item[] = extra.filter((a) => !q || plain(`${a.title} ${a.keywords || ''}`.toLowerCase()).includes(plain(q))).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run, ownsFocus: a.ownsFocus }));
     const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: keysOn ? 'Press N anywhere' : undefined, kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
     // An action named by what was typed ("dark", "pdf") comes before the catch-all "log this sentence".
     const actions: Item[] = q ? (more.length ? [...more, log] : [log]) : [log];
@@ -62,7 +66,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
 
   useEffect(() => { setActive(0); }, [items.length]);
 
-  const choose = (item: Item) => { onOpenChange(false); if (item.run) item.run(); else if (item.to) { leaving.current = true; navigate(item.to); } };
+  const choose = (item: Item) => { onOpenChange(false); if (item.ownsFocus) handsOff.current = true; if (item.run) item.run(); else if (item.to) { leaving.current = true; navigate(item.to); } };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(items.length - 1, a + 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
@@ -74,7 +78,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/45 backdrop-blur-[3px] animate-fade-in" />
         <DialogPrimitive.Content aria-describedby=""
-          onCloseAutoFocus={(e) => { if (!leaving.current) return; leaving.current = false; e.preventDefault(); document.getElementById('main')?.focus({ preventScroll: true }); }}
+          onCloseAutoFocus={(e) => { if (handsOff.current) { handsOff.current = false; e.preventDefault(); return; } if (!leaving.current) return; leaving.current = false; e.preventDefault(); document.getElementById('main')?.focus({ preventScroll: true }); }}
           className="fixed left-1/2 top-[12vh] z-50 w-[calc(100vw-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface shadow-modal animate-popover-in focus:outline-none">
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">

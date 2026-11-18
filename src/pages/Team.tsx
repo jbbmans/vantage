@@ -64,7 +64,8 @@ export default function Team({ section }: { section: TeamSection }) {
   const unit = view?.id || '';
   const full = view?.level === 'full';
   const subtree = useMemo(() => (unit ? subtreeOf(views, unit) : []), [views, unit]);
-  useEffect(() => { markTeamSeen(identity?.user.id); }, [identity?.user.id]);
+  // Meet your team (Your first week) is done once there is a team to meet: not on the page that says there is none.
+  useEffect(() => { if (views.length) markTeamSeen(identity?.user.id); }, [identity?.user.id, views.length]);
   const units = org?.units || [];
   const unitLabel = (id: string) => { const u = units.find((x) => x.id === id); return u ? u.short_name || u.name : id; };
   // Accounts and membership are closed in the synthetic demo, so it offers none of the actions that change them.
@@ -85,7 +86,7 @@ export default function Team({ section }: { section: TeamSection }) {
   // From the dashboard, the report covers the window on screen, so its figures are the dashboard's (the roster stands on today).
   const printWindow = shown === 'dashboard' && dashboardShow !== 'personnel' ? lastDays(windowOf(dashboardDays)) : null;
   // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
-  if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
+  if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of the units you belong to. Join one with an invitation or a join code: enter a code in Settings, under Join with a code." /></div></div>;
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
   // A section this view does not offer keeps the name it was asked for, as the menu and the address do, and says so.
   const missing = shown !== section;
@@ -98,7 +99,7 @@ export default function Team({ section }: { section: TeamSection }) {
     <div className="page">
       <PageHeader eyebrow={section === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={section === 'overview' ? where || 'Personnel' : SECTION_LABELS[section]} lede={missing ? undefined : SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
-        {!missing && unit && report && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit, ...(printWindow || {}) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
+        {!missing && unit && report && <Button asChild data-tutorial="dashboard-print"><Link to={`/reports/library?${new URLSearchParams({ type: report, subject: 'unit', unit_id: unit, ...(printWindow || {}) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       {missing ? (
@@ -187,7 +188,7 @@ function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: st
   const status = (p: PersonnelRosterRow) => (p.status && p.status !== 'active' ? <Badge tone={ACCOUNT_STATUS[p.status].tone}>{ACCOUNT_STATUS[p.status].label}</Badge> : null);
   const dates = (p: PersonnelRosterRow) => [p.checked_in_on && `In ${formatDate(p.checked_in_on)}`, p.assignment.assignment_end && `Ends ${formatDate(p.assignment.assignment_end)}`].filter(Boolean).join(' · ');
   // The box sits in a label a finger can hit (44 px), as the rest of the row's controls are.
-  const checkbox = (p: PersonnelRosterRow, className: string) => (selectable(p) ? <label className={cn('inline-flex shrink-0 cursor-pointer items-center justify-center', className)}><input type="checkbox" className="h-4 w-4 accent-accent" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${nameOf(p)}`} /></label> : null);
+  const checkbox = (p: PersonnelRosterRow, className: string) => (selectable(p) ? <label className={cn('inline-flex shrink-0 cursor-pointer items-center justify-center', className)}><input type="checkbox" data-tutorial="roster-select" className="h-4 w-4 accent-accent" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${nameOf(p)}`} /></label> : null);
   // The same controls in the table and in the phone list, so the two never offer different things.
   const actions = (p: PersonnelRosterRow) => {
     const m = p.assignment;
@@ -197,7 +198,7 @@ function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: st
         <Button size="xs" variant="ghost" onClick={() => edit(p)} aria-label={`Change ${p.last_name}’s billet`} title="Billet, dates, supervisor and check-in"><PenLine className="h-3.5 w-3.5" /></Button>
         {moveTargets.some((t) => t.id !== m.unit_id && !memberships.some((x) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: { id: p.id, rank_abbr: p.rank_abbr, last_name: p.last_name, memberships }, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}
         <Button size="xs" variant="ghost" onClick={() => setRemoving({ person: p, unit: m.unit_id })} aria-label={`Remove ${p.last_name} from ${unitLabel(m.unit_id)}`}><UserMinus className="h-3.5 w-3.5" /></Button>
-      </>}<Button size="xs" asChild><Link to={`/team/${p.id}`} aria-label={`Open ${p.rank_abbr || ''} ${p.last_name}`.replace(/\s+/g, ' ')}>Open</Link></Button></span>
+      </>}<Button size="xs" asChild data-tutorial="roster-open"><Link to={`/team/${p.id}`} aria-label={`Open ${p.rank_abbr || ''} ${p.last_name}`.replace(/\s+/g, ' ')}>Open</Link></Button></span>
     );
   };
   const counts = (f: (typeof ROSTER_FILTERS)[number]) => matching.filter((r) => f.test(r, soon)).length;
@@ -214,7 +215,7 @@ function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: st
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search roster" className="pl-8" placeholder="Name, rank, MOS, billet, supervisor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search roster" data-tutorial="roster-search" className="pl-8" placeholder="Name, rank, MOS, billet, supervisor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canManage && <Button variant="primary" onClick={() => setEnroll(true)}><UserPlus className="h-4 w-4" />Enroll an existing account</Button>}
       </div>
       {data && data.rows.length > 0 && <Segmented className="mb-3" size="sm" label="Show" value={filter} onChange={setFilter} options={ROSTER_FILTERS.map((f) => ({ value: f.value, label: f.value === 'all' ? f.label : `${f.label} (${counts(f)})` }))} />}
@@ -354,7 +355,8 @@ function EnrollDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean
   const { data: rolesData } = useRoles(open);
   const [picked, setPicked] = useState<DirectoryCandidate | null>(null);
   const [roleId, setRoleId] = useState(''); const [billet, setBillet] = useState(''); const [primary, setPrimary] = useState(false); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!open) { setPicked(null); setRoleId(''); setBillet(''); } }, [open]);
+  // Every choice starts again, Make this their primary unit included: the next Marine's primary unit never changes unasked.
+  useEffect(() => { if (!open) { setPicked(null); setRoleId(''); setBillet(''); setPrimary(false); } }, [open]);
   // Each offered name carries the account it is, so the account itself is enrolled rather than the picker's row, even
   // when a search is answered again from the query cache after the roster was left and opened again.
   const search = useMemo<PersonSearch>(() => ({
@@ -456,7 +458,7 @@ function JoinCodes({ unitId, unitLabel }: { unitId: string; unitLabel: (id: stri
             <Field label="Uses" hint="blank: no limit"><Input type="number" inputMode="numeric" min={1} max={1000} value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} /></Field>
           </div>
           <Field label="Note" hint="who it is for; Marines see it"><Input maxLength={200} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Second squad, 1 October formation" /></Field>
-          <Button variant="primary" className="w-full" onClick={create} loading={busy}><Ticket className="h-4 w-4" />Create join code</Button>
+          <Button variant="primary" className="w-full" onClick={create} loading={busy} data-tutorial="join-code-create"><Ticket className="h-4 w-4" />Create join code</Button>
           {created && <div className="border-l-2 border-l-good border-y border-r border-line p-3 text-xs"><p className="font-medium text-ink">Copy it now. Vantage keeps only a fingerprint of it and cannot show it again.</p><p data-join-code className="mt-1 font-mono text-lg tracking-wider text-ink">{created.code}</p><Button size="xs" className="mt-2" onClick={async () => { if (await copyToClipboard(created.code)) toast.success('Code copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3 w-3" />Copy code</Button></div>}
         </div>
       </Panel>
@@ -583,7 +585,7 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-tutorial="dashboard-show">
         <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS.map((s) => ({ ...s, id: `dashboard-tab-${s.value}`, controls: 'dashboard-panel' }))} />
         {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={WINDOWS} />}
         <span className="text-xs text-ink-3">{shown === 'output' ? `Shared entries only · ${formatRange(from, to)}` : shown === 'personnel' ? 'As of today' : formatRange(from, to)}</span>

@@ -1,5 +1,6 @@
 import { Video as VideoIcon } from 'lucide-react';
-import type { VideoSlot as Slot } from '@/config/videos';
+import { olderThanLook, type VideoSlot as Slot } from '@/config/videos';
+import { formatDate } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
 
 export default function VideoSlotCard({ slot, className }: { slot: Slot; className?: string }) {
@@ -38,6 +39,9 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
           </span>
         </div>
         <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{slot.description}</p>
+        {olderThanLook(slot) && (
+          <p className="mt-2 text-xs text-ink-3">Recorded {formatDate(slot.published!, 'd MMMM yyyy')}, before the current look, so some screens differ from yours. The tutorials follow this build.</p>
+        )}
         {slot.src && !slot.captions && !slot.textOnly && (
           <p className="mt-2 text-xs text-warn">Captions have not been added to this video yet.</p>
         )}

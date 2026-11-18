@@ -8,6 +8,17 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-11-17',
+    title: 'Short tutorials, one task each, where you do the task',
+    items: [
+      'Twelve tutorials: Getting started, Logging work, Personnel, Import and export, Error reports, Case diagnosis, Duty, Training, Certificates, Counselings, Reports and Analytics. Each takes three to six steps.',
+      'A page whose task has a tutorial names it in a line under its title. Every tutorial is also in Help → Field guide, under Tutorials, and in search (⌘K or Ctrl+K).',
+      'A tutorial opens at the foot of the screen and leaves the page usable, so you do each step as you read it. Go to takes you to the step’s page, and Show me points out the button it is about.',
+      'It stays open as you move between pages, and one you finish is marked as finished on every device. Settings → Appearance turns off the line under titles.',
+      'Help answers were brought up to date with how Vantage works now.',
+    ],
+  },
+  {
+    date: '2026-11-17',
     title: 'A new look: dress blues',
     items: [
       'The menu, the top bar and each page’s heading now stand on navy, with gold marking the page you are on and a gold and scarlet stripe under the heading. Page titles are set in a book serif, like the head of an official document.',

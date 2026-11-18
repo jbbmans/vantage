@@ -117,7 +117,7 @@ export type CareerSection = 'plan' | 'training' | 'awards' | 'counseling';
 
 const HEADINGS: Record<CareerSection, [string, string]> = {
   plan: ['Your career plan', 'Where you are headed, the next steps toward it, and what to finish before your next evaluation.'],
-  training: ['Training', 'PME, MarineNet courses, certifications and college. Hours here feed your record and your readiness.'],
+  training: ['Training', 'PME, MarineNet courses, certifications and college. Hours here feed your training-hour goals, your analysis and your evaluation package.'],
   awards: ['Awards', 'Recommendations in progress and awards presented, with the citation and who signed off.'],
   counseling: ['Counseling', 'Counselings you received and gave. Acknowledging one confirms you read it, not that you agree.'],
 };
@@ -201,10 +201,10 @@ export default function Career({ section }: { section: CareerSection }) {
   return (
     <div className="page">
       <PageHeader eyebrow={place.group} title={HEADINGS[tab][0]} lede={HEADINGS[tab][1]}>
-        {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />New training</Button>}
+        {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))} data-tutorial="training-new"><Plus className="h-4 w-4" />New training</Button>}
         {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />New award</Button>}
         {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling({ draft: emptyCounseling(vis, unit) })}><Plus className="h-4 w-4" />New counseling</Button>}
-        {SECTION[tab] && <><Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import</Button><DownloadMenu label="Export" choices={categoryDownloads(SECTION[tab]!)} /></>}
+        {SECTION[tab] && <><Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import</Button><DownloadMenu label="Export" choices={categoryDownloads(SECTION[tab]!)} data-tutorial="export-category" /></>}
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
@@ -218,7 +218,7 @@ export default function Career({ section }: { section: CareerSection }) {
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table label="Training" minWidth={720} head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-24">Evidence</th><th className="w-28">Status</th><th className="w-44"></th></>}>
-          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{(t.provider || t.course_code) && <span className="block text-xs text-ink-3"><CourseCodeText row={t} />{t.course_code && t.provider ? ' · ' : ''}{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining(trainingDraft(t))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
+          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })} data-tutorial="training-open">{t.title}</button>{(t.provider || t.course_code) && <span className="block text-xs text-ink-3"><CourseCodeText row={t} />{t.course_code && t.provider ? ' · ' : ''}{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td className="text-xs">{evidenceCount(t.evidence_count)}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining(trainingDraft(t))} data-tutorial="training-edit">Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 
@@ -235,8 +235,8 @@ export default function Career({ section }: { section: CareerSection }) {
         </div>
       ))}
 
-      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Record what your leadership told you, or what you told your Marines. Counselings recorded by a leader ask for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling({ draft: emptyCounseling(vis, unit) })}>New counseling</Button>} /></div> : (
-        <div className="card" style={{ overflow: 'hidden' }}><Table label="Counselings" head={<><th className="w-24">Date</th><th>Counseling</th><th className="w-28">Type</th><th className="w-32">Follow-up</th><th className="w-32">Status</th><th className="w-28"></th></>}>
+      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card" data-tutorial="counseling-list"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Keep your own notes of a counseling you received here. To counsel one of your Marines, choose New counseling on their page; a counseling a leader writes for you asks for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling({ draft: emptyCounseling(vis, unit) })}>New counseling</Button>} /></div> : (
+        <div className="card" style={{ overflow: 'hidden' }} data-tutorial="counseling-list"><Table label="Counselings" head={<><th className="w-24">Date</th><th>Counseling</th><th className="w-28">Type</th><th className="w-32">Follow-up</th><th className="w-32">Status</th><th className="w-28"></th></>}>
           {(counselings || []).map((c) => (
             <tr key={c.id}><td className="text-xs"><DateText value={c.date} fallback="No date" /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => { setCounselingPane('record'); setView({ kind: 'counseling', row: c }); }}>{c.summary.length > 90 ? `${c.summary.slice(0, 90)}…` : c.summary}</button><span className="block text-xs text-ink-3">{c.counselor_name ? `by ${c.counselor_name}` : ''}{c.user_id !== me && c.subject_name ? ` · for ${c.subject_name}` : ''}</span></td><td className="text-xs">{humanize(c.type)}</td><td className="text-xs"><DateText value={c.follow_up_date} fallback="" /></td><td><CounselingStatus row={c} me={me} /></td>
               <td className="text-right"><CounselingActions row={c} size="xs" only={['acknowledge']} />{c.workflow?.edit && <><Button size="xs" variant="ghost" onClick={() => editCounseling(c)}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'counselings', row: c })}>Delete</Button></>}</td></tr>

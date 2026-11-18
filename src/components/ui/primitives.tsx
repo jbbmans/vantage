@@ -4,6 +4,7 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import TutorialPrompt from '@/components/TutorialPrompt';
 
 // Square-cut and flat, like a well-made form: a solid fill or a hairline edge, a darker underside for weight, no glow.
 const VARIANTS = {
@@ -174,9 +175,9 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
   );
 }
 
-export function Panel({ title, subtitle, action, children, className, bodyClassName, id, padded = true }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string; bodyClassName?: string; id?: string; padded?: boolean }) {
+export function Panel({ title, subtitle, action, children, className, bodyClassName, id, padded = true, 'data-tutorial': tutorial }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string; bodyClassName?: string; id?: string; padded?: boolean; /** The name a tutorial step shows this panel by (ADR-0034). */ 'data-tutorial'?: string }) {
   return (
-    <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
+    <section id={id} data-tutorial={tutorial} className={cn('card min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
         // The actions go under the title when the two do not fit side by side, and wrap among themselves, so a panel never
         // pushes the page wider than a phone (WCAG 1.4.10). The title keeps at least 8rem beside them before that happens.
@@ -219,7 +220,7 @@ export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: stri
   return to ? <a href={to} onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('vantage:navigate', { detail: to })); }} className="block h-full">{body}</a> : body;
 }
 
-export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string; id?: string; controls?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
+export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string; id?: string; controls?: string; /** The name a tutorial step shows this tab by (ADR-0034). */ 'data-tutorial'?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
   const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const move = (from: number, key: string) => {
     let next: number | null = null;
@@ -237,7 +238,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
       {options.map((o, i) => {
         const active = o.value === value;
         return (
-          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
+          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} data-tutorial={o['data-tutorial']} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
             className={cn('shrink-0 whitespace-nowrap rounded-[3px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_1px_rgb(var(--shadow-rgb)/.06)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
@@ -353,6 +354,8 @@ export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: strin
           {showEyebrow && <p className="eyebrow mb-3 flex items-center gap-2.5"><span className="h-px w-6 bg-marker" aria-hidden />{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
+          {/* The tutorials for what is done on this page, when there are any (ADR-0034). */}
+          <TutorialPrompt />
         </div>
         {/* No wider than the page, so what it holds wraps or truncates on a phone instead of widening it. */}
         {children && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{children}</div>}

@@ -4,6 +4,7 @@ import { Check, KeyRound, ShieldCheck, UserRound, PenLine, Users, X } from 'luci
 import { useIdentity, useRecordSummary, useSavePrefs } from '@/lib/queries';
 import { useView, viewLabel } from '@/lib/view';
 import { cn, todayIso } from '@/lib/utils';
+import { useTutorials } from '@/lib/tutorialContext';
 
 const seenKey = (userId: string) => `vantage.seen-team.${userId}`;
 export const markTeamSeen = (userId: string | undefined) => { if (userId) { try { localStorage.setItem(seenKey(userId), '1'); } catch { /* ignore */ } } };
@@ -22,6 +23,8 @@ export default function GettingStarted() {
   const summary = useRecordSummary({ from: '2000-01-01', to: today });
   const save = useSavePrefs();
   const user = identity?.user;
+  const tutorials = useTutorials();
+  const tour = tutorials?.offered.find((t) => t.id === 'getting-started');
 
   const steps: Step[] = useMemo(() => {
     if (!user) return [];
@@ -30,7 +33,7 @@ export default function GettingStarted() {
       { key: 'secure', title: 'Protect your sign-in', hint: 'Add a passkey or an authenticator app, so a password alone is never enough.', done: Boolean(user.passkeys || user.totp_enabled), icon: ShieldCheck, to: '/settings?tab=security', action: 'Secure' },
       { key: 'profile', title: 'Check your profile', hint: 'Rank, MOS and an email for reset links. Rank decides JEPES or FITREP.', done: Boolean(user.rank_id && user.mos && user.email), icon: UserRound, to: '/settings?tab=profile', action: 'Review' },
       { key: 'first', title: 'Log your first activity', hint: 'One sentence is enough. Press N anywhere.', done: (summary.data?.personal?.activities || 0) > 0, icon: PenLine, onClick: () => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' })), action: 'Log activity' },
-      { key: 'team', title: view ? `Meet ${viewLabel(view)}` : 'Meet your team', hint: 'Who is on your team, the command above it, and the goals you share.', done: teamSeen(user.id), icon: Users, to: '/team', action: 'Open' },
+      { key: 'team', title: view ? `Meet ${viewLabel(view)}` : 'Meet your team', hint: 'Who is on your team, and the goals it and its command are working toward.', done: teamSeen(user.id), icon: Users, to: '/team', action: 'Open' },
     ];
   }, [user, summary.data, view]);
 
@@ -45,7 +48,7 @@ export default function GettingStarted() {
         <div>
           <h2 id="getting-started" className="text-md font-semibold text-ink">Your first week</h2>
           {/* What Vantage is, and where things live, for somebody who has not been told. The map itself is on Help, built from the menu. */}
-          <p className="mt-0.5 text-sm text-ink-2">Vantage keeps your work, your records and your training in one place, and turns them into evaluation input. <Link to="/help#find-your-way" className="link font-medium">Where everything is</Link></p>
+          <p className="mt-0.5 text-sm text-ink-2">Vantage keeps your work, your records and your training in one place, and turns them into evaluation input. <Link to="/help#find-your-way" className="link font-medium">Where everything is</Link>{tour && <>{' · '}<button type="button" onClick={() => tutorials!.start(tour.id)} className="link font-medium">Take the {tour.title} tutorial</button></>}</p>
           <p className="mt-1 text-xs text-ink-3">{done} of {steps.length} done. Each step ticks itself off.</p>
         </div>
         <button type="button" onClick={() => save.mutate({ onboardingDone: true })} className="rounded-md p-1.5 text-ink-3 hover:bg-surface-2 hover:text-ink" aria-label="Hide the first-week list"><X className="h-4 w-4" /></button>

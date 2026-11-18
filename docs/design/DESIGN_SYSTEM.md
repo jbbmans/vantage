@@ -188,6 +188,13 @@ The analytics kit (`src/components/analytics/`) draws every chart outside the FM
   source and limitations, the causes the reference offers. Routine actions are never hidden behind one.
   Secondary filters fold behind a "Filters" button that counts the ones set and opens when a link sets one
   (Activities); search and the period stay in view.
+- **Tutorials** (ADR-0034). A page whose task has a tutorial names it in one line under its title (`TutorialPrompt`);
+  nothing opens by itself. The tutorial opens in a panel at the foot of the screen, not a dialog, so the page stays
+  usable: every step listed, the open one with **Go to** (another page) or **Show me** (outlines the control for a few
+  seconds and focuses it). It folds to its heading on a phone and wherever it would cover the control, and says it
+  waits while a modal window is open. A step points at a control on the page, never inside a form; a control a step
+  names carries a static `data-tutorial` name, and its visible label is the step's `control`. Words follow the
+  house rules: at most two plain sentences a step, the control's own name, no promise the server does not keep.
 - **Page headers.** The heading is the page's menu label, or that label made specific to the person ("Your
   record", "JEPES readiness"); the eyebrow is its group, from `usePlace()`, with the unit on a unit's pages. A
   sentence that names a place uses `placeName()` ("Records → Awards"), never a hand-written path.
