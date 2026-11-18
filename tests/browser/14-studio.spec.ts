@@ -72,6 +72,10 @@ test('a save is refused when a cited record changed, and goes through once the a
   await expect(page.getByRole('alert').getByText('This was not saved')).toBeVisible();
   await expect(page.getByText(/facts changed after this wording was written/i)).toBeVisible();
 
+  // It changes once more after the refusal: reading the facts reads them as they are now, not as the refusal saw them.
+  const again = await page.request.put(`/api/records/activities/${record.id}`, { headers: H, data: { quantity: 401, version: record.version + 1 } });
+  expect(again.ok(), await again.text()).toBeTruthy();
+
   await page.getByRole('button', { name: 'I have read the updated facts' }).click();
   await page.getByRole('button', { name: 'Save revision' }).click();
   await expect(page.getByText('Saved as a new revision.')).toBeVisible();

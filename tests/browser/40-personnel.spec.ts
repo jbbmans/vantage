@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, instanceDay, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
  * Personnel management (Task 11, ADR-0017): a leader sets a Marine's billet, supervisor and check-in from the roster,
@@ -138,7 +138,8 @@ test('a leader sets a billet, supervisor and check-in, changes two Marines at on
   expect((await page.request.post('/api/orgs/G8/duty-types/standard', { headers: H })).ok()).toBeTruthy();
   const options = await (await page.request.get('/api/record/duty/options')).json();
   const saf = (options.types as Array<{ id: string; code: string }>).find((t) => t.code === 'SAF');
-  const today = new Date().toISOString().slice(0, 10);
+  // The instance's day, not UTC's: from midnight UTC until midnight in New York, UTC's date is still to come there.
+  const today = instanceDay();
   const watch = `Phone watch ${unique('')}`;
   const stood = await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: saf!.id, unit_id: 'G8', title: watch, date: today, start_time: '0800', end_date: today, end_time: '1600', visibility: 'unit', user_id: a.id } });
   expect(stood.ok(), await stood.text()).toBeTruthy();

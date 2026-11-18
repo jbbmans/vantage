@@ -226,8 +226,10 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
     }
     setVersions((v) => {
       const next = { ...v };
-      for (const s of current) if (next[s.id] != null) next[s.id] = s.version;
+      // The refusal's version first, then the list just fetched, which is newer where it holds the record (it may have
+      // changed again since the refusal); the refusal's stands for a record the list does not reach.
       for (const s of listed) if (s.actual_version != null) next[s.id] = s.actual_version;
+      for (const s of current) if (next[s.id] != null) next[s.id] = s.version;
       for (const sid of gone) delete next[sid];
       return next;
     });
