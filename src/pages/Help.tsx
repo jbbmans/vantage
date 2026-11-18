@@ -45,10 +45,23 @@ export default function Help() {
   const lessons = useMemo(() => (stepsOf ? searchTutorials(query, offered ?? [], stepsOf) : []), [query, offered, stepsOf]);
   const searching = query.trim().length > 0;
 
-  useEffect(() => { const t = setTimeout(() => setQ(query), 250); return () => clearTimeout(t); }, [query, setQ]);
   // Sent to the list of tutorials while a search is showing (a tutorial's Other tutorials): the search gives way to it.
   const { hash, key } = useLocation();
   useEffect(() => { if (hash === '#tutorials') setQuery(''); }, [hash, key]);
+  // The search goes into the address a moment after typing stops, when the address does not already say it, by
+  // replacing the current history entry (which drops any #). The router lands a navigation in a transition, so a write
+  // that fell due while one was on its way would replace the new entry before Help ever saw it: Other tutorials pressed
+  // just then kept the search and lost #tutorials. So the write goes ahead only while the entry in the address is the
+  // one this render holds (its key, so a second visit to the same address counts), and runs again once the next lands.
+  useEffect(() => {
+    if (query === q) return;
+    const t = setTimeout(() => {
+      const entry = window.history.state as { key?: string } | null;
+      if ((entry?.key ?? 'default') !== key) return;
+      setQ(query);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, q, setQ, key]);
 
   useEffect(() => {
     const id = window.location.hash.slice(1);
