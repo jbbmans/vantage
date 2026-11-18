@@ -32,6 +32,7 @@ export const FINE_PRINT = 'Synthetic demo data. Not an official DoD or USMC syst
 
 export function Trailer() {
   const tl = film(ID);
+  const { fps } = useVideoConfig();
   const accent = DB.gold;
   const at = (id: string) => {
     const s = tl.scenes.find((x) => x.id === id);
@@ -67,7 +68,7 @@ export function Trailer() {
             const early = i === 0 ? s.from - windowFrom : 0;
             return (
               <Sequence key={s.id} from={s.from - windowFrom - early} durationInFrames={s.to - s.from + early + (i < shots.length - 1 ? OVERLAP : 30)} name={s.id}>
-                <Footage takeKey={`${ID}/${s.id}`} fadeIn={i > 0} offset={-early / 30} />
+                <Footage takeKey={`${ID}/${s.id}`} fadeIn={i > 0} offset={-early / fps} />
               </Sequence>
             );
           })}

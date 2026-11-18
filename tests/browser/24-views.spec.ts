@@ -59,11 +59,11 @@ test('every Field guide walkthrough is recorded, and none is missing words it ne
   await expect(page.getByText('Captions have not been added to this video yet.')).toHaveCount(0);
 
   // The trailer leads Starting out, recorded in the current look, with every line it writes listed beside it (ADR-0036).
-  const trailer = page.locator('#video-trailer');
+  const trailer = page.locator('#start #video-trailer');
   await expect(trailer.getByRole('heading', { name: 'Vantage, the trailer' })).toBeVisible();
   await expect(trailer).not.toContainText('before the current look');
   await trailer.getByText('What the film says', { exact: true }).click();
-  await expect(trailer.getByRole('listitem')).toHaveCount(17);
+  await expect(trailer.getByRole('listitem')).toHaveCount(16);
   await expect(trailer.getByRole('listitem').first()).toHaveText('The work gets done every day. Vantage keeps it on the record.');
   await expect(trailer.getByRole('listitem').last()).toHaveText('Unit Managers govern it. Vantage Administrators run the service.');
   await expect(page.locator('#video-ad, #video-tour')).toHaveCount(0);

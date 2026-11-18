@@ -62,6 +62,15 @@ test('the published trailer is the file its address names, with its poster, its 
   assert.deepEqual(t.transcript, TRAILER.scenes.flatMap((s) => s.cards.map((c) => c.trim())).filter(Boolean), 'the text alternative is what the film writes, in order');
 });
 
+test('every published film lists what it writes on screen, in order, as its text alternative', () => {
+  for (const f of FILMS) {
+    const published = films[f.slot];
+    if (!published) continue;
+    assert.equal(published.textOnly, true, `${f.slot} has no narration`);
+    assert.deepEqual(published.transcript, f.scenes.flatMap((s) => s.cards.map((c) => c.trim())).filter(Boolean), `${f.slot}'s transcript is its cards`);
+  }
+});
+
 test('the ad and the tour are retired from the slots, the index and the disk, and every published film has a slot', () => {
   assert.equal(slots[0], 'trailer', 'the trailer leads Starting out');
   for (const gone of ['ad', 'tour']) {

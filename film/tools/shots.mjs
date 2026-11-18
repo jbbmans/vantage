@@ -202,8 +202,6 @@ async function queue(browser) {
     await tk.reveal(gate, { anchor: 0.3 });
     await tk.focus(gate.locator('xpath=ancestor::section[1]'), { zoom: 1.4, ease: 0.8, pad: 10, dy: -40 });
     await tk.finish(c.dur);
-    await still(page, 'hero-gate', { locator: gate.locator('xpath=ancestor::section[1]') });
-    await still(page, 'hero-procedure', { locator: checklist });
   }
   await page.getByText('Back to the next step').click().catch(() => undefined);
   // Off camera: hand it to the section lead, who records the amendment.
@@ -220,10 +218,6 @@ async function queue(browser) {
   await role(page, 'button', 'Record as submitted').click();
   await settle(page);
   await page.request.post('/api/demo/persona', { data: { persona: 'marine' }, headers: { 'x-vantage-client': '1' } });
-  await page.goto(url, { waitUntil: 'networkidle' });
-  await still(page, 'hero-history', { locator: page.locator('section', { has: page.getByRole('heading', { name: 'History' }) }) });
-  await still(page, 'hero-who', { locator: page.locator('section', { hasText: 'Who worked this' }) });
-  await still(page, 'hero-calc', { locator: page.locator('section', { hasText: 'Candidate calculation' }) });
   await page.goto(url, { waitUntil: 'networkidle' });
   {
     const c = cue(F, 'q-history');
@@ -1199,8 +1193,13 @@ async function trailer(browser) {
     return res.json();
   };
   const as = async (persona) => { await ok(await page.request.post('/api/demo/persona', { data: { persona }, headers: H }), `persona ${persona}`); };
+  const box = async (target) => {
+    const b = await target.first().boundingBox();
+    if (!b) throw new Error(`trailer: nothing visible at ${target}`);
+    return b;
+  };
   const union = async (...targets) => {
-    const boxes = await Promise.all(targets.map(async (t) => { const b = await t.first().boundingBox(); if (!b) throw new Error(`trailer: nothing visible at ${t}`); return b; }));
+    const boxes = await Promise.all(targets.map(box));
     const x = Math.min(...boxes.map((b) => b.x)); const y = Math.min(...boxes.map((b) => b.y));
     return { x, y, width: Math.max(...boxes.map((b) => b.x + b.width)) - x, height: Math.max(...boxes.map((b) => b.y + b.height)) - y };
   };
@@ -1368,8 +1367,8 @@ async function trailer(browser) {
     tk.until(0.5);
     await tk.focus(panel.getByText(/No AI wrote it/).first(), { zoom: 1.9, ease: 0.9, pad: 24 });
     tk.until(3.3);
-    const badge = await panel.getByText('Recommendation', { exact: true }).nth(1).boundingBox();
-    const whole = await panel.boundingBox();
+    const badge = await box(panel.getByText('Recommendation', { exact: true }).nth(1));
+    const whole = await box(panel);
     await tk.focus({ x: badge.x, y: badge.y - 8, width: whole.x + whole.width - badge.x - 16, height: 84 }, { zoom: 1.6, ease: 0.9, pad: 20 });
     await tk.finish(c.dur);
   }
@@ -1391,7 +1390,7 @@ async function trailer(browser) {
     await tk.capture(400);
     tk.until(c.card(1) + 0.1);
     // The notice runs the width of the page; its words take the first 640 pixels or so.
-    const notice = await page.getByText(/You are seeing only what this Marine shared/).first().boundingBox();
+    const notice = await box(page.getByText(/You are seeing only what this Marine shared/));
     await tk.focus({ ...notice, width: Math.min(notice.width, 660) }, { zoom: 1.9, ease: 0.9, pad: 24 });
     await tk.finish(c.dur);
   }

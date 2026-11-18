@@ -59,14 +59,19 @@ a chime rising one step at each outcome, normalised to −14 LUFS.
 
 The film has no narration; everything it says is on screen. Publishing now writes each text-only film's cards, in
 order, as `transcript` in `src/config/films.generated.json`, and the Field guide's card and the public page show it under
-the player as "What the film says" (a media alternative for prerecorded video, WCAG 2.2 1.2.1 and 1.2.3).
+the player as "What the film says" (a media alternative for prerecorded video, WCAG 2.2 1.2.1 and 1.2.3). The thirteen
+chapters get theirs from the same script, whose chapter cards have not changed since the chapters were published
+(`eb67311`); a test holds every published film's transcript to its cards.
 
 ### 6. The demo scores duty
 
 Each new demo workspace gets the standard duty types (`addStandardDutyTypes`) and one scoring version, the
 specification's worked examples (DNCO 5, ADNCO 3, barracks bands, per-day SAF and range, per-hour working parties and
-events, holiday ×1.5 and weekend ×1.25, the higher applying), in force from 120 days back, published by the section lead
-and audited as `duty_scoring_policy_published`, as the Unit Manager console would do it. A Marine's duty in the demo is
+events, holiday ×1.5 and weekend ×1.25, the higher applying), in force from 120 days back, recorded as published by the section lead 121 days
+ago. It is the workspace's invented past, like the rest of its history, so no audit entry stamped today claims it was
+published today. The content is held to the console's own rules (`scoringPolicyProblems`) before it is written; the
+console's `publishScoringPolicy` itself is not reused, because it rightly refuses a version that takes effect before
+tomorrow. A Marine's duty in the demo is
 scored and goes to the section lead for review. It is removed with the workspace, like everything else in it.
 
 ### 7. Retired

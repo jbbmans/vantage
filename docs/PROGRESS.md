@@ -17,10 +17,11 @@ migration.
 - **The ad and the tour are retired** (code, captures and files, about 74 MB): earlier look, earlier product, and a
   public-site pitch. The trailer leads Help → Field guide → Starting out and is the legacy public page's film. The
   thirteen chapters are unchanged.
-- **A text alternative beside the player.** Publishing writes each text-only film's cards as `transcript`; the Field
-  guide card and the public page list them under "What the film says".
+- **A text alternative beside the player.** Publishing writes each text-only film's cards as `transcript` (the
+  chapters' from the same, unchanged script); the Field guide card and the public page list them under "What the film
+  says".
 - **The demo scores duty:** each workspace gets the standard duty types and one scoring version (the specification's
-  worked examples) from 120 days back, published by the section lead and audited.
+  worked examples) from 120 days back, recorded as the section lead's, held to the console's rules.
 - **Capture** (`film/tools/shots.mjs` `trailer`) makes what the demo does not seed through the product's API first:
   two duties as the Marine, last week's and this week's ULO reports as the section lead.
 - **Tests.** `tests/server/trailer.test.ts` (the ten outcomes in order; no public-SaaS wording in the script or the

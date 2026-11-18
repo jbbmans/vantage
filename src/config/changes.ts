@@ -11,7 +11,7 @@ export const CHANGES: Change[] = [
     title: 'A trailer of the finished product',
     items: [
       'Help → Field guide, under Starting out, now opens with a trailer: under two minutes on the Marine dashboard, Personnel, Records, Duty, Training, financial workflows, error analysis, case guidance, Reports and Analytics, recorded in the current look on synthetic demo data.',
-      'It has no narration. Everything it says is on screen, and What the film says, under the player, lists each line in order.',
+      'It has no narration. Everything it says is on screen, and What the film says, under the player, lists each line in order. Every other Field guide film now lists its lines the same way.',
       'The one-minute film and the tour are gone: they showed an earlier look and an earlier Vantage. The other Field guide films stay as they were.',
       'The synthetic demo now has duty to score: the section has the standard duty types and a published scoring policy.',
     ],

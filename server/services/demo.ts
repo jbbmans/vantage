@@ -9,7 +9,6 @@ import { formatCents } from '../../shared/money.ts';
 import { UMT_2WAY, UMT_FORMULA, PROCEDURES } from '../../shared/procedures.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { addStandardDutyTypes } from './unitConfig.ts';
-import { audit } from './audit.ts';
 import { scoringPolicyProblems, type ScoringPolicyContent, type ScoringRule } from '../../shared/dutyScoring.ts';
 
 export const DEMO_UNIT_NAME = 'G-8 Budget Execution (synthetic)';
@@ -576,15 +575,13 @@ function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) 
   };
   const problems = scoringPolicyProblems(content, new Map(types.map((t) => [t.id, t.name])));
   if (problems.length) throw new Error(`The demo's duty scoring is not valid: ${problems.join(' ')}`);
+  // The version is the workspace's invented past, like the rest of its history: its row says who published it and when,
+  // and no audit entry stamped today claims it was published today, 120 days after it took effect.
   const policyId = newId();
   const since = dayOffset(-DEMO_SCORING_SINCE_DAYS);
   const note = 'The section’s scoring (synthetic): the specification’s worked examples.';
   ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)')
     .run(policyId, unitId, since, JSON.stringify(content), note, ids.leader, isoAt(DEMO_SCORING_SINCE_DAYS + 1, 15));
-  audit(ctx, {
-    actor_id: ids.leader, action: 'duty_scoring_policy_published', entity: 'duty_scoring_policies', entity_id: policyId, org_id: unitId,
-    detail: `version 1 from ${since}: ${content.rules.length} duty types scored, ${content.multipliers.length} multipliers (${content.combine}); ${note}`,
-  });
 }
 
 export function purgeWorkspace(ctx: AppContext, wsId: string) {
