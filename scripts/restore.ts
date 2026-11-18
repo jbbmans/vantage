@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { loadConfig } from '../server/config.ts';
 import { SCHEMA_VERSION, metaGet, metaSet } from '../server/db/index.ts';
-import { loadChainKey } from '../server/lib/keys.ts';
+import { loadChainKey, resealStoredSecrets } from '../server/lib/keys.ts';
 import { verifyAuditChain } from '../server/services/audit.ts';
 import { appendRestore, chainPoint, lostSince, writeLineageFile, type ChainPoint, type RestoreRecord } from '../server/services/restoreLog.ts';
 import type { AppContext } from '../server/context.ts';
@@ -111,6 +111,11 @@ let chainKey = '';
 try { chainKey = loadChainKey(db, config); } catch (error) { abandon(`The backup was sealed under another secret: ${(error as Error).message}`); }
 const chain = verifyAuditChain({ db, chainKey } as unknown as AppContext);
 if (!chain.ok) abandon(`The backup's audit trail does not verify (${chain.reason}). It was changed after it was written, or sealed under another secret.`);
+// Opening the chain key above wrapped it again under the current secret when only VANTAGE_SECRET_PREVIOUS opened it. The
+// values sealed with the secret are sealed again with it too, so the restored service does not start under the current
+// secret alone with authenticators, mailbox tokens and the signing key it can no longer open (ADR-0014).
+const resealed = resealStoredSecrets(db, config);
+if (resealed) console.log(`Sealed ${resealed} stored secret${resealed === 1 ? '' : 's'} again under the current VANTAGE_SECRET.`);
 
 // ——— 4. Who authorized it: an active Lead Vantage Administrator, as the live database has it, or the backup when there is no live one ———
 type Owner = { id: string; username: string; first_name: string; last_name: string };

@@ -1373,6 +1373,9 @@ export function openDatabase(path: string): Db {
   db.pragma('cache_size = -32000');
   db.exec(SCHEMA);
   migrate(db);
+  // The audit log is append-only on every start, not only from the migration that first made it so (ADR-0013): a
+  // database restored or copied without the triggers gets them back before anything is served.
+  auditAppendOnlyTriggers(db);
   seed(db);
   // Refresh the planner's statistics where they have gone stale; SQLite's advice for a long-lived connection.
   db.pragma('optimize = 0x10002');

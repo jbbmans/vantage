@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AppContext } from '../context.ts';
 import { AUDIT_CATEGORIES, auditActionsIn, auditCategoryOf } from '../../shared/auditCatalog.ts';
+import { maskEdipi } from '../../shared/counseling.ts';
 
 /**
  * Reading one audit trail a page at a time: the platform's own (ADR-0011) or a Unit Instance's (ADR-0012). Each is
@@ -36,13 +37,31 @@ export interface AuditTrail {
   /** Also match the search against the actor's and subject's names, not only their usernames. */
   names?: boolean;
   /**
-   * Leave out usernames Vantage made from a card, which are the person's EDIPI (`edipi-` and the number), from what is
-   * returned and from what the search matches: a Unit Instance's trail is read by roles that never see an EDIPI.
+   * Leave out every EDIPI, from what is returned and from what the search matches: a Unit Instance's trail is read by
+   * roles that never see one. That is the usernames Vantage made from a card (`edipi-` and the number), a roster entry's
+   * EDIPI, and the number a card link's words carry (withoutEdipis).
    */
   hideCacUsernames?: boolean;
 }
 
 const CAC_USERNAME_GLOB = "'edipi-[0-9]*'";
+
+/** Ten digits standing alone: how an EDIPI appears in an entry's words. */
+const EDIPI_IN_WORDS = /(?<!\d)\d{10}(?!\d)/g;
+/** The actions whose words name an EDIPI in full: linking a card in the Unit Instance's personnel (ADR-0012). */
+const EDIPI_WORDS_ACTIONS = ['personnel_link'];
+
+/**
+ * An entry as a reader who never sees an EDIPI reads it: a roster entry, which the MCTFS feed keys by EDIPI, and any
+ * EDIPI its words carry, masked to the last four digits as the screen masks one (shared/counseling.ts). The entry in the
+ * log is untouched; only what is shown or handed over is masked.
+ */
+export function withoutEdipis<T extends Record<string, unknown>>(row: T): T {
+  const out: Record<string, unknown> = row;
+  if (out.entity === 'personnel_roster' && typeof out.entity_id === 'string') out.entity_id = maskEdipi(out.entity_id);
+  if (typeof out.detail === 'string') out.detail = out.detail.replace(EDIPI_IN_WORDS, (d) => maskEdipi(d));
+  return row;
+}
 
 /** What a list page shows of each entry: everything but the seals, which only an exported file carries. */
 const LIST_COLUMNS = 'al.seq, al.id, al.at, al.action, al.category, al.actor_id, al.subject_id, al.entity, al.entity_id, al.unit_id, al.org_id, al.detail, al.ip';
@@ -67,8 +86,11 @@ function filterSql(trail: AuditTrail, q: Omit<AuditQuery, 'limit'>) {
   if (q.q) {
     const like = `%${q.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
     const people = trail.names ? ['u', 's'].map((p) => `lower(coalesce(${p}.first_name || ' ' || ${p}.last_name, '')) LIKE ? ESCAPE '\\'`) : [];
-    where.push(`(lower(al.action) LIKE ? ESCAPE '\\' OR lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('u')}, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('s')}, '')) LIKE ? ESCAPE '\\'${people.map((p) => ` OR ${p}`).join('')} OR al.entity_id = ? OR al.ip = ?)`);
-    params.push(like, like, like, like, ...people.map(() => like), q.q, q.q);
+    // A trail that hides EDIPIs never matches one either: not a roster entry's, nor the number a card link's words carry.
+    const words = trail.hideCacUsernames ? `(lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' AND al.action NOT IN (${EDIPI_WORDS_ACTIONS.map(() => '?').join(', ')}))` : `lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\'`;
+    const entity = trail.hideCacUsernames ? "(al.entity_id = ? AND al.entity IS NOT 'personnel_roster')" : 'al.entity_id = ?';
+    where.push(`(lower(al.action) LIKE ? ESCAPE '\\' OR ${words} OR lower(coalesce(${username('u')}, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('s')}, '')) LIKE ? ESCAPE '\\'${people.map((p) => ` OR ${p}`).join('')} OR ${entity} OR al.ip = ?)`);
+    params.push(like, like, ...(trail.hideCacUsernames ? EDIPI_WORDS_ACTIONS : []), like, like, ...people.map(() => like), q.q, q.q);
   }
   return { where: where.join(' AND '), params, username };
 }
@@ -83,7 +105,10 @@ export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery
   const rows = ctx.db.prepare(`SELECT ${LIST_COLUMNS}${seals ? `, ${SEAL_COLUMNS}` : ''}, ${username('u')} AS actor_username, ${username('s')} AS subject_username${trail.columns ? `, ${trail.columns}` : ''} FROM audit_log al
       ${JOINS}
      WHERE ${where} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number; action: string; category: string | null }>;
-  for (const row of rows) row.category ??= auditCategoryOf(row.action);
+  for (const row of rows) {
+    row.category ??= auditCategoryOf(row.action);
+    if (trail.hideCacUsernames) withoutEdipis(row);
+  }
   return rows;
 }
 

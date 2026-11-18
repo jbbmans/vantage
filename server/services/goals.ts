@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
-import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor, subtreeIds, type Scope } from '../authz/scope.ts';
 import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation } from '../../shared/metricEngine.ts';
 import type { GoalProgress } from '../../shared/types.ts';
 
@@ -57,9 +57,20 @@ export function measuresUnit(ctx: AppContext, goal: Pick<GoalRow, 'measure_scope
   return goal.measure_scope === 'unit' && Boolean(goal.unit_id) && can(scopeFor(ctx, { id: goal.user_id }), PERMISSIONS.VIEW_RECORDS, goal.unit_id);
 }
 
-function measuresForGoal(ctx: AppContext, goal: GoalRow) {
+/**
+ * The units a unit-wide goal reads: its unit and those beneath it where the person who set it views shared records in
+ * their own right, as the dashboard reads them (readableSubtree), so a role that does not reach down (position 0) measures
+ * its own unit alone. Its contributors, which name entries by title and amount, are also held to the units the person
+ * reading them views.
+ */
+function goalUnits(ctx: AppContext, goal: GoalRow, reader?: Scope): string[] {
+  const setter = scopeFor(ctx, { id: goal.user_id });
+  return subtreeIds(ctx, goal.unit_id!).filter((u) => can(setter, PERMISSIONS.VIEW_RECORDS, u) && (!reader || can(reader, PERMISSIONS.VIEW_RECORDS, u)));
+}
+
+function measuresForGoal(ctx: AppContext, goal: GoalRow, reader?: Scope) {
   const window = goalWindow(goal);
-  if (goal.measure_scope === 'unit' && goal.unit_id) return measuresUnit(ctx, goal) ? unitMeasures(ctx, goal.unit_id, window) : [];
+  if (goal.measure_scope === 'unit' && goal.unit_id) return measuresUnit(ctx, goal) ? unitMeasures(ctx, goalUnits(ctx, goal, reader), window) : [];
   return subjectMeasures(ctx, goal.assignee_id || goal.user_id, {
     ...window,
     unitId: goal.unit_id,
@@ -140,13 +151,13 @@ export function withTypedProgress(ctx: AppContext, goals: GoalRow[]) {
 
 export interface GoalContributor { table: string; id: string; date: string; title: string; value: number; unit: string }
 
-export function goalContributors(ctx: AppContext, goal: GoalRow): GoalContributor[] {
+export function goalContributors(ctx: AppContext, goal: GoalRow, reader?: Scope): GoalContributor[] {
   const saved = goal.metric_id || legacyMetricId(goal);
   const metricId = saved ? canonicalMetricId(saved) : saved;
   if (!metricId) return [];
   const filters = { ...parseFilters(goal.filters), ...(goal.category && !goal.metric_id ? { category: goal.category } : {}) };
   const window = goalWindow(goal);
-  const measures = measuresForGoal(ctx, goal);
+  const measures = measuresForGoal(ctx, goal, reader);
   const chosen = selectMeasures(measures, { filters, from: window.from, to: window.to }).filter((m) => m.metricId === metricId);
   // One lookup per table for the titles, not one per contributing entry.
   const ids = { activities: new Set<string>(), trainings: new Set<string>() };

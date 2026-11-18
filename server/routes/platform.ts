@@ -267,13 +267,17 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   assertRuntimePatchAllowed(ctx.config, patch);
   const before = structuredClone(ctx.runtime) as unknown as Record<string, unknown>;
   const { metrics, ...rest } = patch;
-  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+  // The whole change is checked before any of it is in force: a refused save changes nothing, so nothing is in force
+  // that is neither saved nor in the trail.
   if (metrics) {
     const keys = metrics.value_types.map((t) => t.key);
     if (new Set(keys).size !== keys.length) throw badRequest('Value type keys must be unique.');
     const names = metrics.categories.map((c) => c.name.toLowerCase());
     if (new Set(names).size !== names.length) throw badRequest('Category names must be unique.');
     if (!metrics.value_types.some((t) => t.summable)) throw badRequest('At least one value type must count toward the headline total.');
+  }
+  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+  if (metrics) {
     ctx.runtime.metrics = normalizeMetrics(metrics);
     setCurrencySymbol(ctx.runtime.metrics.currency_symbol);
   }

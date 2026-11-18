@@ -57,8 +57,9 @@ recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, 'goals', String(req.params.id), req) as Record<string, unknown>;
   // A unit-wide goal's contributors are other people's entries, by title and amount: only for someone who could open
   // them anyway. A member who can see the goal still sees its progress, which is a total.
-  if (raw.measure_scope === 'unit' && !can(scopeFor(req.ctx, req.user, req), PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
-  res.json(goalContributors(req.ctx, raw as never));
+  const scope = scopeFor(req.ctx, req.user, req);
+  if (raw.measure_scope === 'unit' && !can(scope, PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
+  res.json(goalContributors(req.ctx, raw as never, scope));
 }));
 
 recordsRouter.post('/activities/import', wrap((req, res) => {

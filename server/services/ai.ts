@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { summableKeys } from '../../shared/constants.ts';
 import { record } from './telemetry.ts';
 import type { AppContext, SessionUser } from '../context.ts';
-import { PERMISSIONS, can, scopeFor, detailUnitsFor, subtreeIds } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
 import { HttpError } from '../lib/errors.ts';
 import { limiters } from '../auth/limiter.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -14,6 +14,7 @@ import { standing } from '../../shared/procedures.ts';
 import { diagnosisFor } from './caseDiagnosis.ts';
 import { diagnosisForBrief } from '../../shared/caseDiagnosis.ts';
 import { periodClause } from './timeframes.ts';
+import { readableSubtree } from './dashboard.ts';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const state = { lockedAt: null as string | null, unlockUrl: null as string | null, lastErrorAt: null as string | null, lastErrorCode: null as string | number | null };
@@ -72,10 +73,11 @@ function sharedActivities(ctx: AppContext, userId: string, unitId: string, from:
   return (ctx.db.prepare(`SELECT ${ACTIVITY_CONTEXT} FROM activities WHERE user_id = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql} ORDER BY date DESC LIMIT ?`).all(userId, unitId, ...period.params, limit) as Array<Record<string, unknown>>).map(sanitize);
 }
 
-function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
+/** Totals of the shared entries of the units given: the caller decides which units the reader may read. */
+function aggregate(ctx: AppContext, unitIds: readonly string[], from: string, to: string) {
   const period = periodClause('activities', 'activities', from, to);
   const base = `FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql}`;
-  const units = JSON.stringify(subtreeIds(ctx, unitId));
+  const units = JSON.stringify(unitIds);
   const headline = summableKeys(ctx.runtime.metrics);
   const headlineSum = headline.length
     ? `COALESCE(SUM(CASE WHEN dollar_type IN (${headline.map(() => '?').join(',')}) OR dollar_type IS NULL THEN dollar_amount ELSE 0 END), 0)`
@@ -189,13 +191,15 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     }
     case 'command_brief': {
       const unitId = str(safe.unit_id, 120);
-      if (!unitId || !can(scope, PERMISSIONS.EXPORT_DATA, unitId)) throw new AiError('You cannot generate an aggregate brief for that unit.', 403, 'forbidden');
+      // The brief's totals are of shared records, read as the dashboard reads them: View shared records as well as Export
+      // data, and the units beneath only where the reader reads them in their own right (readableSubtree).
+      if (!unitId || !can(scope, PERMISSIONS.EXPORT_DATA, unitId) || !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw new AiError('You cannot generate an aggregate brief for that unit.', 403, 'forbidden');
       const from = date(safe.from, windowStart(ctx, 30))!;
       const to = date(safe.to, nowDay)!;
       if (from > to) throw new AiError('The brief start must be before its end.', 400, 'validation');
       const unit = ctx.db.prepare('SELECT short_name, name FROM units WHERE id = ? AND active = 1').get(unitId) as { short_name: string | null; name: string } | undefined;
       if (!unit) throw new AiError('No such unit.', 404, 'not_found');
-      return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, unitId, from, safe.to ? to : queryEnd) };
+      return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, readableSubtree(ctx, scope, unitId).units, from, safe.to ? to : queryEnd) };
     }
     default:
       throw new AiError('Unknown AI workflow.', 400, 'validation');

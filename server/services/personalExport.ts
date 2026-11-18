@@ -16,8 +16,17 @@ import { buildZip, type ZipEntry } from '../lib/zip.ts';
 import { membershipHistory } from './membership.ts';
 import { isAnonymizedDuty } from './duties.ts';
 import { exportableNotices } from './notifications.ts';
+import { withoutEdipis } from './auditQuery.ts';
 
 type Row = Record<string, unknown>;
+
+/**
+ * Somebody else as the export names them, over a users alias: their username, or, where Vantage made the username from
+ * a card, which makes it the person's EDIPI (server/auth/cac.ts), their rank and name. A Marine's own download never
+ * carries another person's EDIPI, as the roster download does not (routes/orgs.ts).
+ */
+const nameOf = (p: string) =>
+  `CASE WHEN ${p}.username GLOB 'edipi-[0-9]*' THEN COALESCE((SELECT abbr || ' ' FROM ranks WHERE id = ${p}.rank_id), '') || ${p}.last_name || ', ' || ${p}.first_name ELSE ${p}.username END`;
 
 /** A person as their own export names them: "Cpl Diaz, Ana". */
 function personLabel(ctx: AppContext, id: unknown): string | null {
@@ -56,11 +65,11 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const units = db.prepare(`SELECT id, code, name, short_name, echelon, location, parent_id, owner_user_id = ? AS owned_by_me, created_at FROM units WHERE id IN (SELECT unit_id FROM unit_members WHERE user_id = ?) OR owner_user_id = ? ORDER BY name`).all(userId, userId, userId) as Row[];
   const readiness = db.prepare('SELECT * FROM readiness WHERE user_id = ?').get(userId) as Row | undefined;
   // Their personnel record in each Unit Instance, the responsibilities they hold or held, and its history (ADR-0017).
-  const personnelRecords = db.prepare(`SELECT pr.org_id, o.name AS organization, s.username AS supervisor, pr.checked_in_on, pr.updated_at
+  const personnelRecords = db.prepare(`SELECT pr.org_id, o.name AS organization, ${nameOf('s')} AS supervisor, pr.checked_in_on, pr.updated_at
     FROM personnel_records pr LEFT JOIN organizations o ON o.id = pr.org_id LEFT JOIN users s ON s.id = pr.supervisor_id WHERE pr.user_id = ? ORDER BY pr.org_id`).all(userId) as Row[];
-  const responsibilities = db.prepare(`SELECT r.id, r.org_id, r.unit_id, r.title, r.starts_on, r.ends_on, a.username AS assigned_by, r.created_at, r.ended_at, e.username AS ended_by, r.end_reason
+  const responsibilities = db.prepare(`SELECT r.id, r.org_id, r.unit_id, r.title, r.starts_on, r.ends_on, ${nameOf('a')} AS assigned_by, r.created_at, r.ended_at, ${nameOf('e')} AS ended_by, r.end_reason
     FROM personnel_responsibilities r LEFT JOIN users a ON a.id = r.assigned_by LEFT JOIN users e ON e.id = r.ended_by WHERE r.user_id = ? ORDER BY r.created_at`).all(userId) as Row[];
-  const personnelHistory = db.prepare(`SELECT ev.at, ev.org_id, ev.unit_id, ev.field, ev.from_value, ev.to_value, ev.source, ev.reason, CASE WHEN ev.actor_id = ? THEN 'me' ELSE a.username END AS actor, ev.batch_id
+  const personnelHistory = db.prepare(`SELECT ev.at, ev.org_id, ev.unit_id, ev.field, ev.from_value, ev.to_value, ev.source, ev.reason, CASE WHEN ev.actor_id = ? THEN 'me' ELSE ${nameOf('a')} END AS actor, ev.batch_id
     FROM personnel_events ev LEFT JOIN users a ON a.id = ev.actor_id WHERE ev.user_id = ? ORDER BY ev.at, ev.id`).all(userId, userId) as Row[];
 
   const records: Record<string, Row[]> = {};
@@ -212,7 +221,9 @@ export interface AuditTrailCut { kept: number; total: number; oldest_seq: number
  * over both columns makes SQLite read and sort every entry of a busy leader, or walk the whole log.
  */
 export function personalAuditTrail(ctx: AppContext, userId: string, max = PERSONAL_AUDIT_MAX): { rows: Row[]; cut: AuditTrailCut | null } {
-  const columns = `al.seq, al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = @me THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = @me THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject`;
+  // Where an entry came from is the Marine's to take only for what they did: another person's address is for audit
+  // readers alone, and the Marine's own view of who opened their record leaves it out too (GET /api/me/audit).
+  const columns = `al.seq, al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, CASE WHEN al.actor_id = @me THEN al.ip END AS ip, CASE WHEN al.actor_id = @me THEN 'me' ELSE COALESCE(${nameOf('u')}, al.actor_id) END AS actor, CASE WHEN al.subject_id = @me THEN 'me' ELSE COALESCE(${nameOf('s')}, al.subject_id) END AS subject`;
   const from = 'FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id';
   const rows = ctx.db.prepare(`SELECT ${columns} ${from} WHERE al.actor_id = @me
     UNION ALL SELECT ${columns} ${from} WHERE al.subject_id = @me AND al.actor_id IS NOT @me
@@ -224,8 +235,14 @@ export function personalAuditTrail(ctx: AppContext, userId: string, max = PERSON
     const oldest = kept.at(-1)!;
     cut = { kept: kept.length, total: n, oldest_seq: Number(oldest.seq), oldest_at: String(oldest.at) };
   }
-  // The entries keep the columns an export has always had; the position was only for putting them in order.
-  for (const r of kept) delete r.seq;
+  // The entries keep the columns an export has always had; the position was only for putting them in order. Somebody
+  // else's EDIPI is masked as the screen masks it: one a roster entry is keyed by, or one a card link's words carry. An
+  // entry about the Marine keeps theirs whole.
+  for (const r of kept) {
+    delete r.seq;
+    const aboutMe = r.subject === 'me' || (r.subject == null && r.actor === 'me' && r.entity !== 'personnel_roster');
+    if (!aboutMe) withoutEdipis(r);
+  }
   return { rows: kept, cut };
 }
 
