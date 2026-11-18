@@ -4,7 +4,7 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -391,4 +391,18 @@ test('a restore across a secret change seals the stored secrets again, so the se
       assert.equal(decryptSecret(NEW, sealed), 'JBSWY3DPEHPK3PXP', 'the authenticator opens under the current secret alone');
     } finally { db.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the database, its write-ahead log and its directory are the service’s alone, whatever the umask', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-perm-'));
+  const previous = process.umask(0o022);
+  try {
+    const path = join(dir, 'data', 'vantage.db');
+    const db = openDatabase(path);
+    try {
+      db.prepare("INSERT INTO meta (key, value) VALUES ('gate_probe', '1')").run();
+      for (const file of [path, `${path}-wal`, `${path}-shm`]) assert.equal(statSync(file).mode & 0o777, 0o600, file);
+      assert.equal(statSync(join(dir, 'data')).mode & 0o777, 0o700);
+    } finally { db.close(); }
+  } finally { process.umask(previous); rmSync(dir, { recursive: true, force: true }); }
 });

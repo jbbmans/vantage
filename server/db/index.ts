@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
@@ -1348,8 +1348,11 @@ function isLegacyDatabase(db: Db): boolean {
 }
 
 export function openDatabase(path: string): Db {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+  // The database holds every personnel record, sealed secret and audit entry: its directory and file are this service's
+  // alone, and SQLite gives the WAL and shared-memory files the database file's own permissions.
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   let db = new Database(path);
+  if (path !== ':memory:') { try { chmodSync(path, 0o600); } catch { /* a file this account does not own keeps the host's permissions */ } }
   // Refuse an unknown/newer schema before applying even the idempotent base DDL. An older binary must not silently
   // open a database written by a newer release, nor treat damaged version metadata as an empty database.
   const hasMeta = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
@@ -1364,6 +1367,7 @@ export function openDatabase(path: string): Db {
     for (const suffix of ['', '-wal', '-shm']) if (existsSync(`${path}${suffix}`)) renameSync(`${path}${suffix}`, `${path}.legacy-${stamp}${suffix}`);
     console.warn(`Found a pre-5.0 Vantage database at ${path}. It was moved to ${path}.legacy-${stamp} and a fresh database was created. Restore it on a 4.x build if you need its contents.`);
     db = new Database(path);
+    try { chmodSync(path, 0o600); } catch { /* as above */ }
   }
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

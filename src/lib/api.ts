@@ -1,4 +1,5 @@
 import { clearDrafts } from './drafts.ts';
+import { clearRecentVisits } from './recent.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { DirectoryResponse, MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { OrgMembersPage } from './tenancy';
@@ -67,6 +68,7 @@ function markSignedOut() {
   sessionState = 'none';
   consentAccepted = false;
   clearDrafts();
+  clearRecentVisits();
   try { document.cookie = 'vantage_signed_in=; Max-Age=0; path=/'; } catch {}
 }
 
