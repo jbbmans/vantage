@@ -17,11 +17,12 @@ export interface VideoSlot {
   voiced?: boolean;
   /** No narration: everything the film says is written on screen, so it needs no caption track. */
   textOnly?: boolean;
+  /** What a text-only film writes on screen, in order: its text alternative, beside the player. */
+  transcript?: string[];
 }
 
 const VIDEO_SLOTS: VideoSlot[] = [
-  { id: 'ad', title: 'Vantage in a minute', description: 'What happens to the work nobody writes down, and how Vantage keeps it: log it in one line, work the queue, and have it ready for your JEPES or FITREP.', length: '1 min', topic: 'getting-started' },
-  { id: 'tour', title: 'The tour', description: 'The whole product in one pass: Quick Log, the queue, cases that follow written procedures, the case history, credit for the work, writing a package and the leader view.', length: '80 sec', topic: 'getting-started' },
+  { id: 'trailer', title: 'Vantage, the trailer', description: 'The finished product on synthetic demo data: the Marine dashboard, personnel, records, duty, training, financial workflows, error analysis, case guidance, reports and analytics, and who governs a Unit Instance.', length: '1 min 40 sec', topic: 'getting-started' },
   { id: 'first-week', title: 'Your first week', description: 'Set your password from the sign-in email, work through the first-week checklist, secure your account, log your first entry and find your team.', length: '50 sec', topic: 'getting-started' },
   { id: 'quick-log', title: 'Quick Log', description: 'Press N on any page, type what you did, check what Vantage filled in, and save. Works without a connection too.', length: '40 sec', topic: 'records' },
   { id: 'visibility', title: 'Who can see what', description: 'Pick who can see each entry when you save it: only you, or your unit. See where that is shown and who has opened your record.', length: '45 sec', topic: 'records' },
@@ -37,13 +38,13 @@ const VIDEO_SLOTS: VideoSlot[] = [
   { id: 'governance', title: 'Retention and privacy', description: 'Turn on a retention schedule, preview it, place a legal hold, and export the privacy inventory for your privacy impact assessment.', length: '45 sec', topic: 'admin' },
 ];
 
-interface PublishedFilm { src: string; poster: string; captions?: string; seconds: number; published: string; voiced?: boolean; textOnly?: boolean }
+interface PublishedFilm { src: string; poster: string; captions?: string; seconds: number; published: string; voiced?: boolean; textOnly?: boolean; transcript?: string[] }
 
 const length = (seconds: number) => (seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ''}`);
 
 export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map((slot) => {
   const film = (films as Record<string, PublishedFilm>)[slot.id];
-  return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds), voiced: film.voiced !== false, textOnly: Boolean(film.textOnly) } : slot;
+  return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds), voiced: film.voiced !== false, textOnly: Boolean(film.textOnly), transcript: film.transcript } : slot;
 });
 
 export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launch, openDemo, openInstance, settle, still, take, collectTakes } from './capture.mjs';
+import { launch, openDemo, openInstance, settle, still, take, collectTakes, VIEW } from './capture.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.VANTAGE_DEMO_URL || 'http://localhost:8798';
@@ -19,123 +19,6 @@ function cue(filmId, sceneId) {
 
 const role = (page, r, name, exact = true) => page.getByRole(r, { name, exact });
 const itemId = async (page, ref) => (await (await page.request.get(`/api/work/items?q=${encodeURIComponent(ref)}`)).json()).items[0].id;
-
-async function hero(browser) {
-  const { context, page } = await openDemo(browser, BASE);
-  // Stills: the product as it is, for the plates.
-  await still(page, 'hero-today');
-  await page.goto('/work', { waitUntil: 'networkidle' });
-  await role(page, 'button', 'Open to claim').click();
-  await settle(page);
-  await still(page, 'hero-queue');
-
-  // capture: a sentence becomes a record.
-  {
-    const c = cue('hero', 'capture');
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.keyboard.press('n');
-    await settle(page, 300);
-    const tk = take(page, 'hero', 'capture');
-    await tk.start();
-    tk.focus(page.getByRole('dialog', { name: 'Log activity' }), { zoom: 1.12, ease: 0.01, pad: 10 });
-    await tk.focus(page.getByLabel('What did you do?'), { zoom: 1.75, ease: 0.8, pad: 30 });
-    tk.hold(0.3);
-    await tk.type(null, 'Reconciled 30 ULOs totaling $41,806.12 in SABRS yesterday', { cps: 21 });
-    // "Vantage reads the numbers" — the camera moves to what it read.
-    tk.until(c.dur * 0.45);
-    await tk.focus(page.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.4, ease: 1.1, pad: 30 });
-    tk.until(c.dur * 0.7);
-    await tk.focus(page.getByText('Bullet preview', { exact: false }).locator('xpath=..'), { zoom: 1.55, ease: 1.0, pad: 24 });
-    await tk.finish(c.dur);
-  }
-  await page.keyboard.press('Escape');
-
-  // queue: one queue, and a claim.
-  {
-    const c = cue('hero', 'queue');
-    await page.goto('/work', { waitUntil: 'networkidle' });
-    await role(page, 'button', 'Open to claim').click();
-    await settle(page);
-    const tk = take(page, 'hero', 'queue');
-    await tk.start();
-    tk.focus(page.locator('table').first(), { zoom: 1.06, ease: 0.01, pad: 20 });
-    tk.until(1.4);
-    const row = page.locator('tr', { hasText: 'SYN-26-P-0047' });
-    await tk.focus(row, { zoom: 1.6, ease: 0.8, pad: 30 });
-    await tk.click(row.getByRole('button', { name: 'Claim' }), { travel: 0.6, after: 0.2 });
-    await tk.capture(400);
-    await tk.finish(c.dur);
-  }
-
-  // Stills for the case, the history and the record.
-  const umt = await itemId(page, 'SYN-26-P-0047');
-  await workUmt(page, umt);
-  await page.goto(`/work/items/${umt}`, { waitUntil: 'networkidle' });
-  await still(page, 'hero-case-procedure', { selector: 'section:has(h2:text-is("Procedure")), aside section:has-text("Procedure")' }).catch(() => undefined);
-  await still(page, 'hero-case', { fullPage: true });
-  const ocmt = await itemId(page, 'SYN-26-OB-0103');
-  await page.goto(`/work/items/${ocmt}`, { waitUntil: 'networkidle' });
-  await still(page, 'hero-case-ocmt', { fullPage: true });
-  await page.goto('/record', { waitUntil: 'networkidle' });
-  await still(page, 'hero-record');
-  await context.close();
-
-  const lead = await openDemo(browser, BASE, { persona: 'leader' });
-  await still(lead.page, 'hero-lead');
-  await lead.context.close();
-
-  const own = await openDemo(browser, BASE);
-  await own.page.keyboard.press('n');
-  const log = own.page.getByRole('dialog', { name: 'Log activity' });
-  await log.getByLabel('What did you do?').fill('Briefed 14 Marines on the travel policy');
-  await log.getByRole('button', { name: /Organization, system, notes, visibility/ }).click();
-  await log.getByRole('radio', { name: 'Only me' }).click();
-  await still(own.page, 'hero-private', { locator: log.getByRole('radio', { name: 'Only me' }).locator('xpath=ancestor::*[@role="radiogroup"][1]') });
-  await own.context.close();
-}
-
-async function ad(browser) {
-  const F = 'ad';
-  const { context, page } = await openDemo(browser, BASE);
-  const dialog = page.getByRole('dialog', { name: 'Log activity' });
-  {
-    const c = cue(F, 'ad-capture');
-    await page.keyboard.press('n');
-    await settle(page, 300);
-    const tk = take(page, F, 'ad-capture');
-    await tk.start();
-    tk.focus(dialog, { zoom: 1.12, ease: 0.01, pad: 10 });
-    await tk.focus(page.getByLabel('What did you do?'), { zoom: 1.75, ease: 0.7, pad: 30 });
-    tk.hold(0.3);
-    await tk.type(null, 'Reconciled 30 ULOs totaling $41,806.12 in SABRS yesterday', { cps: 24 });
-    tk.until(c.card(1) - 0.2);
-    const chips = dialog.getByText('dollar figure', { exact: true }).locator('xpath=ancestor::div[1]');
-    await tk.focus(chips, { zoom: 1.8, ease: 0.8, pad: 20 });
-    tk.hold(1.3);
-    await tk.focus(page.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.4, ease: 0.9, pad: 30 });
-    tk.until(c.dur - 1.8);
-    await tk.click(dialog.getByRole('button', { name: 'Save activity' }), { travel: 0.5, after: 0.1 });
-    tk.wide({ ease: 0.6 });
-    await tk.capture(300);
-    await tk.finish(c.dur);
-  }
-  {
-    const c = cue(F, 'ad-queue');
-    await page.goto('/work', { waitUntil: 'networkidle' });
-    await role(page, 'button', 'Open to claim').click();
-    await settle(page);
-    const tk = take(page, F, 'ad-queue');
-    await tk.start();
-    tk.focus(page.locator('table').first(), { zoom: 1.06, ease: 0.01, pad: 20 });
-    tk.until(1.2);
-    const row = page.locator('tr', { hasText: 'SYN-26-P-0047' });
-    await tk.focus(row, { zoom: 1.6, ease: 0.8, pad: 30 });
-    await tk.click(row.getByRole('button', { name: 'Claim' }), { travel: 0.6, after: 0.2 });
-    await tk.capture(400);
-    await tk.finish(c.dur);
-  }
-  await context.close();
-}
 
 async function workUmt(page, id, { claim = true, decide = true } = {}) {
   await page.goto(`/work/items/${id}`, { waitUntil: 'networkidle' });
@@ -319,8 +202,6 @@ async function queue(browser) {
     await tk.reveal(gate, { anchor: 0.3 });
     await tk.focus(gate.locator('xpath=ancestor::section[1]'), { zoom: 1.4, ease: 0.8, pad: 10, dy: -40 });
     await tk.finish(c.dur);
-    await still(page, 'hero-gate', { locator: gate.locator('xpath=ancestor::section[1]') });
-    await still(page, 'hero-procedure', { locator: checklist });
   }
   await page.getByText('Back to the next step').click().catch(() => undefined);
   // Off camera: hand it to the section lead, who records the amendment.
@@ -337,10 +218,6 @@ async function queue(browser) {
   await role(page, 'button', 'Record as submitted').click();
   await settle(page);
   await page.request.post('/api/demo/persona', { data: { persona: 'marine' }, headers: { 'x-vantage-client': '1' } });
-  await page.goto(url, { waitUntil: 'networkidle' });
-  await still(page, 'hero-history', { locator: page.locator('section', { has: page.getByRole('heading', { name: 'History' }) }) });
-  await still(page, 'hero-who', { locator: page.locator('section', { hasText: 'Who worked this' }) });
-  await still(page, 'hero-calc', { locator: page.locator('section', { hasText: 'Candidate calculation' }) });
   await page.goto(url, { waitUntil: 'networkidle' });
   {
     const c = cue(F, 'q-history');
@@ -1303,7 +1180,325 @@ async function counselingFilm(browser) {
   await context.close();
 }
 
-const FILMS = { ad, hero, 'quick-log': quickLog, queue, 'reading-a-balance': balance, record, 'report-studio': studio, 'unit-dashboard': leading, setup: setupFilm, governance, 'first-week': firstWeek, visibility, import: importFilm, analysis: analysisFilm, counseling: counselingFilm };
+/**
+ * The trailer: ten outcomes, one take each, all from one synthetic workspace. What a take needs that the demo does not
+ * seed (duty to review, two weekly error reports) is made first through the product's own API, as the Marine or the
+ * section lead would make it.
+ */
+async function trailer(browser) {
+  const F = 'trailer';
+  const { context, page } = await openDemo(browser, BASE);
+  const ok = async (res, what) => {
+    if (!res.ok()) throw new Error(`trailer: ${what}: ${res.status()} ${await res.text()}`);
+    return res.json();
+  };
+  const as = async (persona) => { await ok(await page.request.post('/api/demo/persona', { data: { persona }, headers: H }), `persona ${persona}`); };
+  const box = async (target) => {
+    const b = await target.first().boundingBox();
+    if (!b) throw new Error(`trailer: nothing visible at ${target}`);
+    return b;
+  };
+  const union = async (...targets) => {
+    const boxes = await Promise.all(targets.map(box));
+    const x = Math.min(...boxes.map((b) => b.x)); const y = Math.min(...boxes.map((b) => b.y));
+    return { x, y, width: Math.max(...boxes.map((b) => b.x + b.width)) - x, height: Math.max(...boxes.map((b) => b.y + b.height)) - y };
+  };
+  const top = async (target, at) => { await target.first().evaluate((el) => el.scrollIntoView({ block: 'start' })); await page.evaluate((y) => window.scrollBy(0, -y), at); await settle(page, 200); };
+  const go = async (path) => { await page.goto(path, { waitUntil: 'networkidle' }); await settle(page, 300); await page.mouse.move(VIEW.width - 2, VIEW.height - 2); };
+
+  // The Marine records two duties: a 24-hour DNCO and a working party.
+  const options = await ok(await page.request.get('/api/record/duty/options'), 'duty options');
+  const me = await ok(await page.request.get('/api/me'), 'me');
+  const today = options.today;
+  const before = (n) => { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const dutyType = (code) => {
+    const t = options.types.find((x) => x.code === code);
+    if (!t) throw new Error(`trailer: no duty type ${code}`);
+    return t.id;
+  };
+  for (const d of [
+    { code: 'DNCO', title: 'DNCO, Building 1012', date: before(6), start_time: '0800', end_date: before(5), end_time: '0800' },
+    { code: 'WORKING-PARTY', title: 'Working party: warehouse inventory', date: before(3), start_time: '0700', end_date: before(3), end_time: '1500' },
+  ]) {
+    const { code, ...rest } = d;
+    await ok(await page.request.post('/api/records/duties', { headers: H, data: { duty_type_id: dutyType(code), unit_id: me.primaryUnitId, visibility: 'unit', ...rest } }), `duty ${code}`);
+  }
+
+  // The section lead files last week's ULO report and this week's: two new, three still open, one reopened, two resolved.
+  await as('leader');
+  const lead = await ok(await page.request.get('/api/me'), 'me (lead)');
+  const unit = lead.primaryUnitId;
+  const overview = await ok(await page.request.get(`/api/error-reports?unit_id=${encodeURIComponent(unit)}`), 'error reports');
+  const ulo = overview.types.find((t) => t.code === 'ULO');
+  if (!ulo) throw new Error('trailer: no ULO report type');
+  const HEAD = 'Document,Line,Description,Error,Amount,Owner,Status,Opened,Office';
+  const COLUMNS = { Document: 'reference', Line: 'keep', Description: 'description', Error: 'category', Amount: 'amount', Owner: 'owner', Status: 'status', Opened: 'opened', Office: 'unit' };
+  const weeks = [
+    { name: 'ULO weekly (synthetic) last week.csv', asOf: before(7), rows: [
+      `SYN-ULO-0101,1,Obligation not liquidated,Unmatched,"4,120.00",Avery,Open,${before(60)},G-8 BE`,
+      `SYN-ULO-0102,1,Duplicate invoice,Duplicate,"1,250.50",Chen,In research,${before(41)},G-8 BE`,
+      `SYN-ULO-0103,1,Overage on receipt,Overage,310.00,,Closed,${before(30)},G-8 BE`,
+      `SYN-ULO-0104,1,Travel advance not liquidated,Unmatched,"2,980.00",Patel,Open,${before(52)},G-8 BE`,
+      `SYN-ULO-0105,1,Expired funds still obligated,Expired,"6,400.00",Nguyen,Open,${before(75)},G-8 BE`,
+      `SYN-ULO-0106,1,No matching receipt,Unmatched,845.25,Avery,Open,${before(22)},G-8 BE`,
+    ] },
+    { name: 'ULO weekly (synthetic) this week.csv', asOf: today, rows: [
+      `SYN-ULO-0101,1,Obligation not liquidated,Unmatched,"3,980.00",Avery,Open,${before(60)},G-8 BE`,
+      `SYN-ULO-0103,1,Overage on receipt,Overage,310.00,,Open,${before(30)},G-8 BE`,
+      `SYN-ULO-0104,1,Travel advance not liquidated,Unmatched,"2,980.00",Patel,Closed,${before(52)},G-8 BE`,
+      `SYN-ULO-0105,1,Expired funds still obligated,Expired,"6,400.00",Nguyen,Open,${before(75)},G-8 BE`,
+      `SYN-ULO-0106,1,No matching receipt,Unmatched,845.25,Avery,Open,${before(22)},G-8 BE`,
+      `SYN-ULO-0107,1,Sync error from DAI,Sync,520.00,,Open,${before(4)},G-8 BE`,
+      `SYN-ULO-0108,1,Obligation without a receipt,Unmatched,"1,175.00",Brooks,Open,${before(5)},G-8 BE`,
+    ] },
+  ];
+  for (const w of weeks) {
+    const file = await ok(await page.request.post('/api/work/sources', {
+      headers: { ...H, 'content-type': 'text/csv', 'x-filename': w.name, 'x-visibility': 'private' },
+      data: Buffer.from([HEAD, ...w.rows].join('\n')),
+    }), `upload ${w.name}`);
+    await ok(await page.request.post('/api/error-reports/snapshots', { headers: H, data: {
+      unit_id: unit, type_id: ulo.id, as_of: w.asOf, source_file_id: file.id, sheet_name: file.sheet_name ?? 'Sheet1', header_row: 1,
+      key_columns: ['Document'], columns: COLUMNS, closed_statuses: ['Closed'], note: null,
+    } }), `file ${w.name}`);
+  }
+  await as('marine');
+
+  // 1. Marine dashboard: what needs you.
+  await go('/');
+  {
+    const c = cue(F, 't-dashboard');
+    const tk = take(page, F, 't-dashboard');
+    await tk.start();
+    tk.until(0.7);
+    const yours = page.getByRole('heading', { name: 'Your work' }).locator('xpath=ancestor::section[1]');
+    await tk.focus(yours, { zoom: 1.45, ease: 1.0, pad: 16 });
+    tk.until(2.2);
+    await tk.point(yours.getByText('Overdue', { exact: true }).first(), { travel: 0.6, scroll: false });
+    tk.until(3.6);
+    await tk.point(yours.getByText(/in \d+ days/).first(), { travel: 0.6, scroll: false });
+    tk.until(4.9);
+    await tk.focus(yours.getByText('Overdue', { exact: true }).first().locator('xpath=ancestor::li[1]'), { zoom: 1.95, ease: 0.9, pad: 24 });
+    await tk.finish(c.dur);
+  }
+
+  // 3. Records: one line, read and checked.
+  await go('/record');
+  {
+    const c = cue(F, 't-records');
+    const tk = take(page, F, 't-records');
+    const dialog = page.getByRole('dialog', { name: 'Log activity' });
+    await tk.start();
+    tk.until(0.4);
+    await tk.press('n', { after: 0.2 });
+    tk.focus(dialog, { zoom: 1.12, ease: 0.5, pad: 10 });
+    await tk.focus(dialog.getByLabel('What did you do?'), { zoom: 1.7, ease: 0.6, pad: 30 });
+    await tk.type(null, 'Reconciled 30 ULOs totaling $41,806.12 in SABRS yesterday', { cps: 26 });
+    tk.until(c.card(1) - 0.1);
+    await tk.focus(dialog.getByText('dollar figure', { exact: true }).locator('xpath=ancestor::div[1]'), { zoom: 1.8, ease: 0.7, pad: 20 });
+    tk.hold(1.4);
+    await tk.focus(dialog.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.4, ease: 0.8, pad: 30 });
+    tk.until(c.dur - 1.7);
+    await tk.click(dialog.getByRole('button', { name: 'Save activity' }), { travel: 0.5, after: 0.1 });
+    tk.wide({ ease: 0.6 });
+    await tk.capture(300);
+    await tk.finish(c.dur);
+  }
+
+  // 5. Training: a certificate, attached to the training it proves.
+  await go('/career/training');
+  {
+    const c = cue(F, 't-training');
+    const tk = take(page, F, 't-training');
+    const title = 'Corporals Course DEP';
+    const dialog = page.getByRole('dialog', { name: title });
+    await tk.start();
+    tk.until(0.5);
+    await tk.click(page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: title }), { travel: 0.55, after: 0.15 });
+    await tk.focus(dialog, { zoom: 1.15, ease: 0.6, pad: 10 });
+    await tk.click(dialog.getByRole('button', { name: 'Add evidence' }), { travel: 0.45, after: 0.1 });
+    const form = dialog.getByRole('group', { name: 'Add evidence' });
+    await tk.focus(form, { zoom: 1.5, ease: 0.6, pad: 24 });
+    await tk.click(form.getByRole('combobox', { name: 'What it is' }), { travel: 0.4, after: 0.05 });
+    await tk.click(page.getByRole('option', { name: 'Certificate', exact: true }), { travel: 0.35, after: 0.1 });
+    await form.getByLabel('File', { exact: true }).setInputFiles({ name: 'corporals-course-certificate.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n% Corporals Course certificate (synthetic)\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n') });
+    await tk.capture(200);
+    tk.hold(0.3);
+    await tk.click(form.getByRole('button', { name: 'Attach' }), { travel: 0.45, after: 0.1 });
+    await tk.capture(300);
+    await tk.focus(dialog.getByRole('listitem').filter({ hasText: 'corporals-course-certificate.pdf' }), { zoom: 1.7, ease: 0.7, pad: 30 });
+    await tk.finish(c.dur);
+    await page.keyboard.press('Escape');
+  }
+
+  // 6. FM workflows: one queue, a claim, and the procedure's next step.
+  await go('/work/queue');
+  await role(page, 'button', 'Open to claim').click();
+  await settle(page, 300);
+  const umt = await itemId(page, 'SYN-26-P-0047');
+  {
+    const c = cue(F, 't-work');
+    const tk = take(page, F, 't-work');
+    await tk.start();
+    tk.until(0.6);
+    await tk.focus(page.locator('table').first(), { zoom: 1.12, ease: 0.9, pad: 20 });
+    tk.until(1.5);
+    const row = page.locator('tr', { hasText: 'SYN-26-P-0047' });
+    await tk.focus(row, { zoom: 1.6, ease: 0.8, pad: 30 });
+    await tk.click(row.getByRole('button', { name: 'Claim' }), { travel: 0.6, after: 0.2 });
+    await tk.capture(400);
+    tk.until(c.card(1) - 0.35);
+    await tk.goto(`/work/items/${umt}`);
+    const steps = page.getByText('applicable steps done', { exact: false }).locator('xpath=ancestor::section[1]');
+    const next = await union(page.getByText('Next step', { exact: true }), steps);
+    await tk.focus({ ...next, height: 330 }, { zoom: 1.35, ease: 0.8, pad: 16 });
+    await tk.finish(c.dur);
+  }
+
+  // 8. Case guidance: written rules, every recommendation sourced.
+  const ocmt = await itemId(page, 'SYN-26-OB-0103');
+  await go(`/work/items/${ocmt}`);
+  await top(page.locator('#diagnosis').getByText('Diagnosis', { exact: true }), 110);
+  {
+    const c = cue(F, 't-diagnosis');
+    const tk = take(page, F, 't-diagnosis');
+    const panel = page.locator('#diagnosis');
+    await tk.start();
+    tk.until(0.5);
+    await tk.focus(panel.getByText(/No AI wrote it/).first(), { zoom: 1.9, ease: 0.9, pad: 24 });
+    tk.until(3.3);
+    const badge = await box(panel.getByText('Recommendation', { exact: true }).nth(1));
+    const whole = await box(panel);
+    await tk.focus({ x: badge.x, y: badge.y - 8, width: whole.x + whole.width - badge.x - 16, height: 84 }, { zoom: 1.6, ease: 0.9, pad: 20 });
+    await tk.finish(c.dur);
+  }
+
+  await as('leader');
+
+  // 2. Personnel: the roster, and a Marine's page that shows only what they shared.
+  await go('/team/roster');
+  {
+    const c = cue(F, 't-personnel');
+    const tk = take(page, F, 't-personnel');
+    await tk.start();
+    tk.until(0.5);
+    await tk.focus(page.locator('table').first(), { zoom: 1.15, ease: 0.9, pad: 16 });
+    tk.until(1.6);
+    const row = page.getByRole('row').filter({ hasText: 'Avery, Jordan' });
+    await tk.click(row.getByRole('button', { name: /^Open/ }).or(row.getByRole('link', { name: /^Open/ })), { travel: 0.7, after: 0 });
+    tk.cut();
+    await tk.capture(400);
+    tk.until(c.card(1) + 0.1);
+    // The notice runs the width of the page; its words take the first 640 pixels or so.
+    const notice = await box(page.getByText(/You are seeing only what this Marine shared/));
+    await tk.focus({ ...notice, width: Math.min(notice.width, 660) }, { zoom: 1.9, ease: 0.9, pad: 24 });
+    await tk.finish(c.dur);
+  }
+
+  // 4. Duty: scored by the published policy, counted once approved.
+  await go('/record/duty?who=review');
+  await top(page.getByRole('table').first(), 300);
+  {
+    const c = cue(F, 't-duty');
+    const tk = take(page, F, 't-duty');
+    await tk.start();
+    const row = page.getByRole('row').filter({ hasText: 'DNCO, Building 1012' });
+    tk.until(0.5);
+    await tk.focus(page.getByRole('table').filter({ has: row }).first(), { zoom: 1.25, ease: 0.9, pad: 16 });
+    tk.until(2.2);
+    await tk.focus(row, { zoom: 1.7, ease: 0.8, pad: 24 });
+    tk.until(3.4);
+    await tk.click(row.getByRole('button', { name: /^Approve/ }), { travel: 0.6, after: 0.2 });
+    await tk.capture(400);
+    await tk.focus(page.getByRole('status').filter({ hasText: 'Approved' }).first(), { zoom: 1.6, ease: 0.7, pad: 40 });
+    await tk.finish(c.dur);
+  }
+
+  // 7. Error analysis: last week's report against this week's.
+  await go(`/work/error-reports?unit=${encodeURIComponent(unit)}&type=${encodeURIComponent(ulo.id)}`);
+  await top(page.getByText(/ against /).first(), 70);
+  {
+    const c = cue(F, 't-errors');
+    const tk = take(page, F, 't-errors');
+    const fig = (label) => page.getByRole('button', { name: new RegExp(`^${label}: `) }).first();
+    await tk.start();
+    tk.until(0.3);
+    await tk.focus(await union(fig('Open'), fig('Owner changed')), { zoom: 1.2, ease: 0.9, pad: 12 });
+    for (const [i, label] of ['New', 'Still open', 'Reopened', 'Resolved'].entries()) {
+      tk.until(1.4 + i * 0.75);
+      await tk.point(fig(label), { travel: 0.45, scroll: false });
+    }
+    tk.until(4.5);
+    await tk.click(fig('Resolved'), { travel: 0.3, after: 0.2, scroll: false });
+    await tk.focus(page.getByRole('dialog', { name: 'Resolved' }), { zoom: 1.15, ease: 0.7, pad: 10 });
+    await tk.finish(c.dur);
+    await page.keyboard.press('Escape');
+  }
+
+  // 9. Reports: the library, a unit report run, and the file it makes.
+  await go('/reports/library');
+  {
+    const c = cue(F, 't-reports');
+    const tk = take(page, F, 't-reports');
+    await tk.start();
+    tk.until(0.5);
+    await tk.click(page.getByRole('button', { name: /^Unit performance/ }).or(page.getByRole('radio', { name: /^Unit performance/ })).first(), { travel: 0.55, after: 0.2 });
+    await tk.focus(role(page, 'button', 'Run report').locator('xpath=ancestor::section[1] | ancestor::div[contains(@class,"card")][1]').first(), { zoom: 1.3, ease: 0.8, pad: 16 }).catch(() => undefined);
+    tk.until(1.9);
+    await tk.click(role(page, 'button', 'Run report'), { travel: 0.55, after: 0.1 });
+    await tk.capture(600);
+    const printBtn = role(page, 'button', 'Print');
+    await tk.reveal(printBtn, { anchor: 0.3, seconds: 0.8 });
+    await tk.focus(await union(printBtn, page.getByRole('heading', { name: 'Unit performance', exact: true }).last()), { zoom: 1.4, ease: 0.8, pad: 24 });
+    tk.until(4.7);
+    await tk.click(role(page, 'button', /^Download/, false), { travel: 0.5, after: 0.15, scroll: false });
+    await tk.capture(300);
+    await tk.focus(page.getByRole('menu').first(), { zoom: 1.6, ease: 0.7, pad: 30 }).catch(() => undefined);
+    await tk.finish(c.dur);
+    await page.keyboard.press('Escape');
+  }
+
+  // 10. Analytics: shared records only, every figure opens what it counts.
+  await go('/team/dashboard');
+  {
+    const c = cue(F, 't-analytics');
+    const tk = take(page, F, 't-analytics');
+    await tk.start();
+    tk.until(0.5);
+    const first = page.getByRole('button', { name: /^Dollars reconciled/ }).first();
+    await tk.focus(first.locator('xpath=ancestor::*[contains(@class,"grid")][1]'), { zoom: 1.25, ease: 0.9, pad: 16 });
+    tk.until(2.4);
+    await tk.click(first, { travel: 0.6, after: 0.2 });
+    await tk.capture(400);
+    await tk.focus(page.getByRole('dialog').first(), { zoom: 1.15, ease: 0.7, pad: 10 });
+    await tk.finish(c.dur);
+    await page.keyboard.press('Escape');
+  }
+
+  // 11. The close: each Unit Instance kept apart; Unit Managers govern it, Vantage Administrators run the service.
+  await go('/governance');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await settle(page, 200);
+  {
+    const c = cue(F, 't-close');
+    const tk = take(page, F, 't-close');
+    await tk.start();
+    tk.until(0.4);
+    await tk.focus(page.getByText(/records are kept apart from every other/).first(), { zoom: 2.0, ease: 1.0, pad: 24 });
+    tk.until(c.card(1) - 0.4);
+    tk.cut();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    tk.wide({ ease: 0.01 });
+    await tk.capture(250);
+    const cards = page.getByText('Unit Managers', { exact: true }).first().locator('xpath=ancestor::*[contains(@class,"grid")][1]');
+    await tk.reveal(cards, { anchor: 0.3, seconds: 0.8 });
+    await tk.focus(cards, { zoom: 1.2, ease: 0.8, pad: 16 });
+    await tk.finish(c.dur);
+  }
+  await context.close();
+}
+
+const FILMS = { trailer, 'quick-log': quickLog, queue, 'reading-a-balance': balance, record, 'report-studio': studio, 'unit-dashboard': leading, setup: setupFilm, governance, 'first-week': firstWeek, visibility, import: importFilm, analysis: analysisFilm, counseling: counselingFilm };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const want = process.argv.slice(2);

@@ -63,6 +63,15 @@ test.describe('the public site', () => {
     expect(seen.size, 'every walkthrough in the list points at the same file').toBe(count);
   });
 
+  test('the landing page’s film is the trailer, with what it says beside the player', async ({ page }) => {
+    await page.goto('/display', { waitUntil: 'networkidle' });
+    const watch = page.locator('#watch');
+    await expect(watch.getByText('The film', { exact: true })).toBeVisible();
+    await expect(watch.getByRole('heading', { name: 'Vantage, the trailer' })).toBeVisible();
+    await watch.getByText('What the film says', { exact: true }).click();
+    await expect(watch.getByRole('listitem').first()).toHaveText('The work gets done every day. Vantage keeps it on the record.');
+  });
+
   test('does not point to the source repository, in a link or in structured data', async ({ page, request }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
     expect(await page.locator('a[href*="github.com"]').count(), 'a link to the repository').toBe(0);

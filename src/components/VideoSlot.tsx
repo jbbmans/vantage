@@ -42,6 +42,14 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
         {olderThanLook(slot) && (
           <p className="mt-2 text-xs text-ink-3">Recorded {formatDate(slot.published!, 'd MMMM yyyy')}, before the current look, so some screens differ from yours. The tutorials follow this build.</p>
         )}
+        {slot.src && slot.transcript?.length ? (
+          <details className="mt-2 text-xs leading-relaxed text-ink-2">
+            <summary className="cursor-pointer font-medium text-ink">What the film says</summary>
+            <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+              {slot.transcript.map((line, i) => <li key={i}>{line}</li>)}
+            </ol>
+          </details>
+        ) : null}
         {slot.src && !slot.captions && !slot.textOnly && (
           <p className="mt-2 text-xs text-warn">Captions have not been added to this video yet.</p>
         )}

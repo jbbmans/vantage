@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { MOMENTS } from '../src/moments.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FF_DIR = join(ROOT, 'node_modules', '@remotion', 'compositor-linux-x64-gnu');
@@ -316,18 +315,6 @@ function hat(bus, t, { amp = 0.05, open = false, pan = 0.2 } = {}) {
   bus.mono(t, s, amp, pan);
 }
 
-/** A clock that has been left running. */
-function clockTick(bus, t, hi) { tick(bus, t, { amp: 0.09, pitch: hi ? 3200 : 2500, pan: hi ? 0.15 : -0.15 }); thock(bus, t, { amp: 0.05 }); }
-
-function counterTicks(bus, t0, dur, to, amp = 0.05) {
-  let last = -1; let lastT = -1;
-  for (let i = 0; i <= dur * 200; i++) {
-    const x = i / (dur * 200); const v = Math.floor(to * (1 - (1 - x) ** 3));
-    const t = t0 + x * dur;
-    if (v !== last && t - lastT > 0.028) { tick(bus, t, { amp, pitch: 2600 + v * 8 }); last = v; lastT = t; }
-  }
-}
-
 /** The interface's own sounds, read from a take's event log. */
 function takeSounds(bus, key, t0, { amp = 1 } = {}) {
   const tk = TAKES[key];
@@ -514,7 +501,7 @@ function arrange(tl, id) {
   home.forEach((m, j) => felt(B.lead, end.start + 0.12 + j * 0.05, m, { vel: 0.5, dur: 6, pan: (j - 2.5) / 5 }));
   shimmer(B.pads, end.start, end.end - end.start - 0.5, voicing(music, 1).arp.slice(3), { amp: 0.04 });
 
-  // The dark opening of the ad and the tour: sparse piano over the pad.
+  // The dark opening before the title: sparse piano over the pad.
   for (const s of secs.filter((x) => x.level === 'dark')) {
     const v = voicing(music, 1);
     for (let t = s.start + 0.4, j = 0; t < s.end - 0.6; t += beat * 2, j++) felt(B.lead, t, v.arp[[2, 1, 3, 0][j % 4]], { vel: 0.38, dur: 4, pan: j % 2 ? 0.3 : -0.3 });
@@ -522,39 +509,23 @@ function arrange(tl, id) {
 
   // The product's own sounds.
   for (const s of tl.scenes) takeSounds(B.ui, `${id}/${s.id}`, s.start, { amp: 1 });
-  for (const s of tl.scenes) if (id === 'ad' && (s.id === 'ad-capture' || s.id === 'ad-queue')) takeSounds(B.ui, `ad/${s.id}`, s.start, { amp: 1 });
-  if (id === 'hero') for (const k of ['capture', 'queue']) { const s = tl.scenes.find((x) => x.id === k); if (s) takeSounds(B.ui, `hero/${k}`, s.start, { amp: 1 }); }
-  designedSounds(B, tl, id);
+  outcomeMarks(B, tl);
 
   return { B, T, kicks, pump: groove.pump, beat };
 }
 
-/** Sounds for the designed scenes of the ad and the tour, from the same moments the picture uses. */
-function designedSounds(B, tl, id) {
-  if (id !== 'ad' && id !== 'hero') return;
-  const sc = (x) => tl.scenes.find((s) => s.id === x);
-  const counterScene = sc(id === 'ad' ? 'ad-work' : 'detail');
-  if (counterScene) counterTicks(B.fx, counterScene.start + MOMENTS.counter.at, MOMENTS.counter.dur, 30, 0.05);
-  const gapScene = sc(id === 'ad' ? 'ad-gap' : 'detail');
-  if (gapScene) { const stamp = gapScene.start + (gapScene.end - gapScene.start) * MOMENTS.gap.stamp; thock(B.fx, stamp, { amp: 0.25 }); chime(B.fx, stamp + 0.05, 81, { amp: 0.09, pan: 0.3 }); }
-  const later = sc('ad-later');
-  if (later) for (let i = 0; i < MOMENTS.months.count; i++) clockTick(B.fx, later.start + MOMENTS.months.at + i * MOMENTS.months.step, i % 2 === 0);
-  const scatter = sc(id === 'ad' ? 'ad-scatter' : 'scatter');
-  if (scatter) {
-    for (let k = 0; k < 3; k++) whoosh(B.fx, scatter.start + MOMENTS.scatter.first + k * MOMENTS.scatter.step - 0.35, { dur: 0.75, amp: 0.13, from: [-0.8, 0, 0.8][k] - 0.3, to: [-0.8, 0, 0.8][k] + 0.3, lo: 300, hi: 2400 });
-    for (let i = 0; i < 50; i++) { const r = rng(i + 5); tick(B.fx, scatter.end - 1.4 + r() * 1.2, { amp: 0.015 + r() * 0.015, pitch: 3000 + r() * 3000, pan: r() * 1.6 - 0.8 }); }
-  }
-  const history = sc(id === 'ad' ? 'ad-history' : 'sealed');
-  if (history) {
-    const d = history.end - history.start;
-    for (let i = 0; i < 6; i++) tick(B.fx, history.start + MOMENTS.history.first + i * MOMENTS.history.step, { amp: 0.07, pitch: 1900 + i * 120 });
-    thock(B.fx, history.start + d * MOMENTS.history.seal, { amp: 0.24 }); chime(B.fx, history.start + d * MOMENTS.history.seal + 0.04, 86, { amp: 0.06 });
-  }
-  const report = sc(id === 'ad' ? 'ad-report' : 'report');
-  if (report) {
-    const d = report.end - report.start;
-    for (let i = 0; i < 70; i++) keystroke(B.ui, report.start + MOMENTS.report.type + (i / 70) * d * 0.28, i * 13, { amp: 0.03 });
-    chime(B.fx, report.start + d * MOMENTS.report.cite, 84, { amp: 0.06, pan: 0.4 }); chime(B.fx, report.start + d * MOMENTS.report.cite + 0.27, 88, { amp: 0.05, pan: 0.5 });
+/**
+ * The trailer: a small bell as each of the ten outcomes takes its mark, on the scene's first frame, where the picture
+ * fills the next gold mark. Notes from the minor pentatonic over the film's tonic, climbing through the ten.
+ */
+function outcomeMarks(B, tl) {
+  if (tl.kind !== 'trailer') return;
+  const steps = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22];
+  let i = 0;
+  for (const s of tl.scenes) {
+    if (!s.outcome) continue;
+    chime(B.fx, s.start + 0.02, tl.music.tonic + 24 + steps[i % steps.length], { amp: 0.045, pan: -0.36 + (i % 5) * 0.18 });
+    i++;
   }
 }
 

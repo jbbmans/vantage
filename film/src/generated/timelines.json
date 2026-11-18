@@ -1,15 +1,15 @@
 {
- "ad": {
-  "id": "ad",
-  "title": "Vantage",
-  "slot": "ad",
-  "kind": "ad",
+ "trailer": {
+  "id": "trailer",
+  "title": "Vantage, the trailer",
+  "slot": "trailer",
+  "kind": "trailer",
   "n": null,
-  "accent": "#3fd0bd",
+  "accent": "#deb248",
   "music": {
    "tonic": 57,
    "mode": "minor",
-   "bpm": 100,
+   "bpm": 96,
    "progression": [
     1,
     6,
@@ -18,489 +18,292 @@
    ],
    "groove": "drive",
    "lead": "piano",
-   "seed": 11
+   "seed": 41
   },
   "fps": 30,
-  "beat": 0.6,
-  "seconds": 62.4,
-  "frames": 1872,
+  "beat": 0.625,
+  "seconds": 101.25,
+  "frames": 3038,
   "scenes": [
    {
-    "id": "ad-work",
-    "cue": "build",
+    "id": "t-open",
+    "cue": null,
+    "outcome": null,
     "start": 0,
-    "end": 3.5999999999999996,
+    "end": 5,
     "cards": [
      {
-      "text": "You reconciled 30 ULOs this week.",
+      "text": "The work gets done every day. Vantage keeps it on the record.",
       "start": 0,
-      "end": 3.5999999999999996,
+      "end": 5,
       "from": 0,
-      "to": 108
+      "to": 150
      }
     ],
     "from": 0,
-    "to": 108
+    "to": 150
    },
    {
-    "id": "ad-gap",
-    "cue": null,
-    "start": 3.5999999999999996,
-    "end": 8.399999999999999,
-    "cards": [
-     {
-      "text": "And caught a $1,275 funding gap before it turned into a problem.",
-      "start": 3.5999999999999996,
-      "end": 8.399999999999999,
-      "from": 108,
-      "to": 252
-     }
-    ],
-    "from": 108,
-    "to": 252
-   },
-   {
-    "id": "ad-later",
-    "cue": "drop",
-    "start": 8.399999999999999,
-    "end": 14.399999999999999,
-    "cards": [
-     {
-      "text": "Six months later you need it for your JEPES or FITREP, and you can’t find half of it.",
-      "start": 8.399999999999999,
-      "end": 14.399999999999999,
-      "from": 252,
-      "to": 432
-     }
-    ],
-    "from": 252,
-    "to": 432
-   },
-   {
-    "id": "ad-scatter",
-    "cue": null,
-    "start": 14.399999999999999,
-    "end": 20.4,
-    "cards": [
-     {
-      "text": "It’s in a spreadsheet, an old email, and a sticky note somewhere.",
-      "start": 14.399999999999999,
-      "end": 20.4,
-      "from": 432,
-      "to": 612
-     }
-    ],
-    "from": 432,
-    "to": 612
-   },
-   {
-    "id": "ad-logo",
+    "id": "t-title",
     "cue": "hit",
-    "start": 20.4,
-    "end": 24,
+    "outcome": null,
+    "start": 5,
+    "end": 8.75,
     "cards": [
      {
       "text": "",
-      "start": 20.4,
-      "end": 24,
-      "from": 612,
-      "to": 720
+      "start": 5,
+      "end": 8.75,
+      "from": 150,
+      "to": 263
      }
     ],
-    "from": 612,
-    "to": 720
+    "from": 150,
+    "to": 263
    },
    {
-    "id": "ad-capture",
+    "id": "t-dashboard",
     "cue": "lift",
-    "start": 24,
-    "end": 33.6,
+    "outcome": "Marine dashboard",
+    "start": 8.75,
+    "end": 16.25,
     "cards": [
      {
-      "text": "Type what you did in plain English.",
-      "start": 24,
-      "end": 27.6,
-      "from": 720,
-      "to": 828
+      "text": "Today starts with what needs you: the work you hold, what’s due and what’s overdue.",
+      "start": 8.75,
+      "end": 16.25,
+      "from": 263,
+      "to": 488
+     }
+    ],
+    "from": 263,
+    "to": 488
+   },
+   {
+    "id": "t-personnel",
+    "cue": null,
+    "outcome": "Personnel",
+    "start": 16.25,
+    "end": 25,
+    "cards": [
+     {
+      "text": "Personnel lists every Marine’s billet, supervisor and roles.",
+      "start": 16.25,
+      "end": 20,
+      "from": 488,
+      "to": 600
      },
      {
-      "text": "It pulls out the numbers. You check them and save.",
-      "start": 27.6,
-      "end": 33.6,
-      "from": 828,
-      "to": 1008
+      "text": "A Marine’s page shows only what they shared, and opening it is logged.",
+      "start": 20,
+      "end": 25,
+      "from": 600,
+      "to": 750
      }
     ],
-    "from": 720,
-    "to": 1008
+    "from": 488,
+    "to": 750
    },
    {
-    "id": "ad-queue",
+    "id": "t-records",
     "cue": null,
-    "start": 33.6,
-    "end": 39.6,
+    "outcome": "Records",
+    "start": 25,
+    "end": 33.75,
     "cards": [
      {
-      "text": "Your section’s work is in one list. Claim something and it’s yours.",
-      "start": 33.6,
-      "end": 39.6,
-      "from": 1008,
-      "to": 1188
+      "text": "Log what you did in one line.",
+      "start": 25,
+      "end": 28.75,
+      "from": 750,
+      "to": 863
+     },
+     {
+      "text": "Vantage reads the numbers. You check them and save.",
+      "start": 28.75,
+      "end": 33.75,
+      "from": 863,
+      "to": 1013
      }
     ],
-    "from": 1008,
-    "to": 1188
+    "from": 750,
+    "to": 1013
    },
    {
-    "id": "ad-history",
+    "id": "t-duty",
     "cue": null,
-    "start": 39.6,
-    "end": 44.4,
+    "outcome": "Duty",
+    "start": 33.75,
+    "end": 41.25,
     "cards": [
      {
-      "text": "Everything you do on it is logged with your name and the date.",
-      "start": 39.6,
-      "end": 44.4,
-      "from": 1188,
-      "to": 1332
+      "text": "Duty is scored by your Unit Instance’s published policy, and counts once a reviewer approves it.",
+      "start": 33.75,
+      "end": 41.25,
+      "from": 1013,
+      "to": 1238
      }
     ],
-    "from": 1188,
-    "to": 1332
+    "from": 1013,
+    "to": 1238
    },
    {
-    "id": "ad-report",
-    "cue": "lift",
-    "start": 44.4,
-    "end": 49.199999999999996,
-    "cards": [
-     {
-      "text": "When it goes into your JEPES or FITREP, it’s already logged.",
-      "start": 44.4,
-      "end": 49.199999999999996,
-      "from": 1332,
-      "to": 1476
-     }
-    ],
-    "from": 1332,
-    "to": 1476
-   },
-   {
-    "id": "ad-lead",
+    "id": "t-training",
     "cue": null,
-    "start": 49.199999999999996,
-    "end": 52.8,
+    "outcome": "Training",
+    "start": 41.25,
+    "end": 48.75,
     "cards": [
      {
-      "text": "Leaders can see what’s overdue or stuck without asking around.",
-      "start": 49.199999999999996,
-      "end": 52.8,
-      "from": 1476,
-      "to": 1584
+      "text": "Attach the certificate to the training it proves. Vantage checks the file is what it says it is.",
+      "start": 41.25,
+      "end": 48.75,
+      "from": 1238,
+      "to": 1463
      }
     ],
-    "from": 1476,
-    "to": 1584
+    "from": 1238,
+    "to": 1463
    },
    {
-    "id": "ad-private",
-    "cue": null,
-    "start": 52.8,
-    "end": 56.4,
-    "cards": [
-     {
-      "text": "Your entries stay private unless you share them.",
-      "start": 52.8,
-      "end": 56.4,
-      "from": 1584,
-      "to": 1692
-     }
-    ],
-    "from": 1584,
-    "to": 1692
-   },
-   {
-    "id": "ad-end",
-    "cue": "resolve",
-    "start": 56.4,
-    "end": 62.4,
-    "cards": [
-     {
-      "text": "",
-      "start": 56.4,
-      "end": 62.4,
-      "from": 1692,
-      "to": 1872
-     }
-    ],
-    "from": 1692,
-    "to": 1872
-   }
-  ]
- },
- "hero": {
-  "id": "hero",
-  "title": "Vantage, the tour",
-  "slot": "tour",
-  "kind": "hero",
-  "n": null,
-  "accent": "#3fd0bd",
-  "music": {
-   "tonic": 62,
-   "mode": "minor",
-   "bpm": 84,
-   "progression": [
-    1,
-    6,
-    3,
-    7
-   ],
-   "groove": "pulse",
-   "lead": "piano",
-   "seed": 3
-  },
-  "fps": 30,
-  "beat": 0.7142857142857143,
-  "seconds": 81.42857142857144,
-  "frames": 2443,
-  "scenes": [
-   {
-    "id": "open",
-    "cue": null,
-    "start": 0,
-    "end": 5.714285714285714,
-    "cards": [
-     {
-      "text": "Most of the work a Marine does never gets written down anywhere.",
-      "start": 0,
-      "end": 5.714285714285714,
-      "from": 0,
-      "to": 171
-     }
-    ],
-    "from": 0,
-    "to": 171
-   },
-   {
-    "id": "detail",
-    "cue": null,
-    "start": 5.714285714285714,
-    "end": 11.428571428571429,
-    "cards": [
-     {
-      "text": "30 reconciliations. A funding gap caught in time.",
-      "start": 5.714285714285714,
-      "end": 11.428571428571429,
-      "from": 171,
-      "to": 343
-     }
-    ],
-    "from": 171,
-    "to": 343
-   },
-   {
-    "id": "scatter",
-    "cue": null,
-    "start": 11.428571428571429,
-    "end": 17.142857142857142,
-    "cards": [
-     {
-      "text": "By the next morning it’s in a spreadsheet, an inbox, or someone’s head.",
-      "start": 11.428571428571429,
-      "end": 17.142857142857142,
-      "from": 343,
-      "to": 514
-     }
-    ],
-    "from": 343,
-    "to": 514
-   },
-   {
-    "id": "title",
-    "cue": "hit",
-    "start": 17.142857142857142,
-    "end": 21.428571428571427,
-    "cards": [
-     {
-      "text": "",
-      "start": 17.142857142857142,
-      "end": 21.428571428571427,
-      "from": 514,
-      "to": 643
-     }
-    ],
-    "from": 514,
-    "to": 643
-   },
-   {
-    "id": "capture",
-    "cue": "lift",
-    "start": 21.428571428571427,
-    "end": 30,
-    "cards": [
-     {
-      "text": "Log what you did in one line. Vantage reads the numbers and shows you before saving.",
-      "start": 21.428571428571427,
-      "end": 30,
-      "from": 643,
-      "to": 900
-     }
-    ],
-    "from": 643,
-    "to": 900
-   },
-   {
-    "id": "queue",
-    "cue": null,
-    "start": 30,
-    "end": 37.142857142857146,
-    "cards": [
-     {
-      "text": "All of your section’s work in one queue. Claim a case and it’s on your list.",
-      "start": 30,
-      "end": 37.142857142857146,
-      "from": 900,
-      "to": 1114
-     }
-    ],
-    "from": 900,
-    "to": 1114
-   },
-   {
-    "id": "case",
-    "cue": null,
-    "start": 37.142857142857146,
-    "end": 42.85714285714286,
-    "cards": [
-     {
-      "text": "Cases follow written procedures with sources. They close when the result is verified.",
-      "start": 37.142857142857146,
-      "end": 42.85714285714286,
-      "from": 1114,
-      "to": 1286
-     }
-    ],
-    "from": 1114,
-    "to": 1286
-   },
-   {
-    "id": "balance",
+    "id": "t-work",
     "cue": "build",
-    "start": 42.85714285714286,
-    "end": 48.57142857142858,
+    "outcome": "FM workflows",
+    "start": 48.75,
+    "end": 57.5,
     "cards": [
      {
-      "text": "Enter a document’s figures and Vantage shows you what’s still open.",
-      "start": 42.85714285714286,
-      "end": 48.57142857142858,
-      "from": 1286,
-      "to": 1457
+      "text": "Financial work comes to one queue. Claim a case and it’s yours.",
+      "start": 48.75,
+      "end": 53.75,
+      "from": 1463,
+      "to": 1613
+     },
+     {
+      "text": "Its written procedure shows the next step.",
+      "start": 53.75,
+      "end": 57.5,
+      "from": 1613,
+      "to": 1725
      }
     ],
-    "from": 1286,
-    "to": 1457
+    "from": 1463,
+    "to": 1725
    },
    {
-    "id": "sealed",
+    "id": "t-errors",
     "cue": null,
-    "start": 48.57142857142858,
-    "end": 54.28571428571429,
+    "outcome": "Error analysis",
+    "start": 57.5,
+    "end": 65,
     "cards": [
      {
-      "text": "Every action on a case is saved to its history with a name and date.",
-      "start": 48.57142857142858,
-      "end": 54.28571428571429,
-      "from": 1457,
-      "to": 1629
+      "text": "File each error report as it stood. Vantage shows what’s new, still open, reopened and resolved.",
+      "start": 57.5,
+      "end": 65,
+      "from": 1725,
+      "to": 1950
      }
     ],
-    "from": 1457,
-    "to": 1629
+    "from": 1725,
+    "to": 1950
    },
    {
-    "id": "credit",
+    "id": "t-diagnosis",
+    "cue": null,
+    "outcome": "Case guidance",
+    "start": 65,
+    "end": 72.5,
+    "cards": [
+     {
+      "text": "Every case is diagnosed by written rules, not AI, and every recommendation names its source.",
+      "start": 65,
+      "end": 72.5,
+      "from": 1950,
+      "to": 2175
+     }
+    ],
+    "from": 1950,
+    "to": 2175
+   },
+   {
+    "id": "t-reports",
     "cue": "lift",
-    "start": 54.28571428571429,
-    "end": 60.00000000000001,
+    "outcome": "Reports",
+    "start": 72.5,
+    "end": 80,
     "cards": [
      {
-      "text": "Credit goes to whoever did the work, not whoever held the case.",
-      "start": 54.28571428571429,
-      "end": 60.00000000000001,
-      "from": 1629,
-      "to": 1800
+      "text": "Every report prints or files as a PDF: a Marine’s record, the unit’s output, its training and its duty.",
+      "start": 72.5,
+      "end": 80,
+      "from": 2175,
+      "to": 2400
      }
     ],
-    "from": 1629,
-    "to": 1800
+    "from": 2175,
+    "to": 2400
    },
    {
-    "id": "report",
+    "id": "t-analytics",
     "cue": null,
-    "start": 60.00000000000001,
-    "end": 67.14285714285715,
+    "outcome": "Analytics",
+    "start": 80,
+    "end": 87.5,
     "cards": [
      {
-      "text": "What you logged is ready to put into your JEPES or FITREP, with a link back to each entry.",
-      "start": 60.00000000000001,
-      "end": 67.14285714285715,
-      "from": 1800,
-      "to": 2014
+      "text": "The unit dashboard counts shared records only, and every figure opens the records behind it.",
+      "start": 80,
+      "end": 87.5,
+      "from": 2400,
+      "to": 2625
      }
     ],
-    "from": 1800,
-    "to": 2014
+    "from": 2400,
+    "to": 2625
    },
    {
-    "id": "lead",
-    "cue": null,
-    "start": 67.14285714285715,
-    "end": 71.42857142857144,
-    "cards": [
-     {
-      "text": "Leaders get a view of the whole section.",
-      "start": 67.14285714285715,
-      "end": 71.42857142857144,
-      "from": 2014,
-      "to": 2143
-     }
-    ],
-    "from": 2014,
-    "to": 2143
-   },
-   {
-    "id": "trust",
+    "id": "t-close",
     "cue": "drop",
-    "start": 71.42857142857144,
-    "end": 75.71428571428574,
+    "outcome": null,
+    "start": 87.5,
+    "end": 96.25,
     "cards": [
      {
-      "text": "Private by default. Can run on your own network.",
-      "start": 71.42857142857144,
-      "end": 75.71428571428574,
-      "from": 2143,
-      "to": 2271
+      "text": "Each command runs its own Unit Instance, kept apart from every other.",
+      "start": 87.5,
+      "end": 92.5,
+      "from": 2625,
+      "to": 2775
+     },
+     {
+      "text": "Unit Managers govern it. Vantage Administrators run the service.",
+      "start": 92.5,
+      "end": 96.25,
+      "from": 2775,
+      "to": 2888
      }
     ],
-    "from": 2143,
-    "to": 2271
+    "from": 2625,
+    "to": 2888
    },
    {
-    "id": "end",
+    "id": "t-end",
     "cue": "resolve",
-    "start": 75.71428571428574,
-    "end": 81.42857142857144,
+    "outcome": null,
+    "start": 96.25,
+    "end": 101.25,
     "cards": [
      {
       "text": "",
-      "start": 75.71428571428574,
-      "end": 81.42857142857144,
-      "from": 2271,
-      "to": 2443
+      "start": 96.25,
+      "end": 101.25,
+      "from": 2888,
+      "to": 3038
      }
     ],
-    "from": 2271,
-    "to": 2443
+    "from": 2888,
+    "to": 3038
    }
   ]
  },
@@ -533,6 +336,7 @@
    {
     "id": "quick-log-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.615384615384615,
     "cards": [
@@ -550,6 +354,7 @@
    {
     "id": "ql-open",
     "cue": null,
+    "outcome": null,
     "start": 4.615384615384615,
     "end": 8.076923076923077,
     "cards": [
@@ -567,6 +372,7 @@
    {
     "id": "ql-type",
     "cue": null,
+    "outcome": null,
     "start": 8.076923076923077,
     "end": 13.846153846153845,
     "cards": [
@@ -584,6 +390,7 @@
    {
     "id": "ql-read",
     "cue": null,
+    "outcome": null,
     "start": 13.846153846153845,
     "end": 20.769230769230766,
     "cards": [
@@ -601,6 +408,7 @@
    {
     "id": "ql-save",
     "cue": null,
+    "outcome": null,
     "start": 20.769230769230766,
     "end": 28.846153846153843,
     "cards": [
@@ -618,6 +426,7 @@
    {
     "id": "ql-offline",
     "cue": "drop",
+    "outcome": null,
     "start": 28.846153846153843,
     "end": 36.92307692307692,
     "cards": [
@@ -635,6 +444,7 @@
    {
     "id": "quick-log-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 36.92307692307692,
     "end": 41.53846153846153,
     "cards": [
@@ -680,6 +490,7 @@
    {
     "id": "queue-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 3.9130434782608696,
     "cards": [
@@ -697,6 +508,7 @@
    {
     "id": "q-queue",
     "cue": null,
+    "outcome": null,
     "start": 3.9130434782608696,
     "end": 7.826086956521739,
     "cards": [
@@ -714,6 +526,7 @@
    {
     "id": "q-claim",
     "cue": null,
+    "outcome": null,
     "start": 7.826086956521739,
     "end": 18.26086956521739,
     "cards": [
@@ -738,6 +551,7 @@
    {
     "id": "q-step",
     "cue": null,
+    "outcome": null,
     "start": 18.26086956521739,
     "end": 26.08695652173913,
     "cards": [
@@ -755,6 +569,7 @@
    {
     "id": "q-calc",
     "cue": null,
+    "outcome": null,
     "start": 26.08695652173913,
     "end": 33.91304347826087,
     "cards": [
@@ -772,6 +587,7 @@
    {
     "id": "q-decide",
     "cue": null,
+    "outcome": null,
     "start": 33.91304347826087,
     "end": 43.04347826086956,
     "cards": [
@@ -789,6 +605,7 @@
    {
     "id": "q-history",
     "cue": "lift",
+    "outcome": null,
     "start": 43.04347826086956,
     "end": 54.78260869565217,
     "cards": [
@@ -813,6 +630,7 @@
    {
     "id": "queue-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 54.78260869565217,
     "end": 60,
     "cards": [
@@ -858,6 +676,7 @@
    {
     "id": "reading-a-balance-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.090909090909091,
     "cards": [
@@ -875,6 +694,7 @@
    {
     "id": "b-ref",
     "cue": null,
+    "outcome": null,
     "start": 4.090909090909091,
     "end": 9.545454545454545,
     "cards": [
@@ -892,6 +712,7 @@
    {
     "id": "b-enter",
     "cue": null,
+    "outcome": null,
     "start": 9.545454545454545,
     "end": 15,
     "cards": [
@@ -909,6 +730,7 @@
    {
     "id": "b-read",
     "cue": null,
+    "outcome": null,
     "start": 15,
     "end": 23.18181818181818,
     "cards": [
@@ -926,6 +748,7 @@
    {
     "id": "b-dash",
     "cue": null,
+    "outcome": null,
     "start": 23.18181818181818,
     "end": 28.636363636363633,
     "cards": [
@@ -943,6 +766,7 @@
    {
     "id": "b-case",
     "cue": null,
+    "outcome": null,
     "start": 28.636363636363633,
     "end": 36.81818181818181,
     "cards": [
@@ -960,6 +784,7 @@
    {
     "id": "reading-a-balance-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 36.81818181818181,
     "end": 42.272727272727266,
     "cards": [
@@ -1005,6 +830,7 @@
    {
     "id": "record-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 3.75,
     "cards": [
@@ -1022,6 +848,7 @@
    {
     "id": "r-three",
     "cue": null,
+    "outcome": null,
     "start": 3.75,
     "end": 18.75,
     "cards": [
@@ -1060,6 +887,7 @@
    {
     "id": "r-count",
     "cue": null,
+    "outcome": null,
     "start": 18.75,
     "end": 23.75,
     "cards": [
@@ -1077,6 +905,7 @@
    {
     "id": "r-draft",
     "cue": null,
+    "outcome": null,
     "start": 23.75,
     "end": 30,
     "cards": [
@@ -1094,6 +923,7 @@
    {
     "id": "r-keep",
     "cue": null,
+    "outcome": null,
     "start": 30,
     "end": 36.25,
     "cards": [
@@ -1111,6 +941,7 @@
    {
     "id": "record-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 36.25,
     "end": 41.25,
     "cards": [
@@ -1156,6 +987,7 @@
    {
     "id": "report-studio-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4,
     "cards": [
@@ -1173,6 +1005,7 @@
    {
     "id": "s-intro",
     "cue": null,
+    "outcome": null,
     "start": 4,
     "end": 9.333333333333332,
     "cards": [
@@ -1190,6 +1023,7 @@
    {
     "id": "s-period",
     "cue": null,
+    "outcome": null,
     "start": 9.333333333333332,
     "end": 15.999999999999998,
     "cards": [
@@ -1207,6 +1041,7 @@
    {
     "id": "s-facts",
     "cue": null,
+    "outcome": null,
     "start": 15.999999999999998,
     "end": 28,
     "cards": [
@@ -1231,6 +1066,7 @@
    {
     "id": "s-save",
     "cue": null,
+    "outcome": null,
     "start": 28,
     "end": 33.333333333333336,
     "cards": [
@@ -1248,6 +1084,7 @@
    {
     "id": "report-studio-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 33.333333333333336,
     "end": 38.66666666666667,
     "cards": [
@@ -1293,6 +1130,7 @@
    {
     "id": "unit-dashboard-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 3.5999999999999996,
     "cards": [
@@ -1310,6 +1148,7 @@
    {
     "id": "l-today",
     "cue": null,
+    "outcome": null,
     "start": 3.5999999999999996,
     "end": 13.2,
     "cards": [
@@ -1334,6 +1173,7 @@
    {
     "id": "l-proc",
     "cue": null,
+    "outcome": null,
     "start": 13.2,
     "end": 18,
     "cards": [
@@ -1351,6 +1191,7 @@
    {
     "id": "l-work",
     "cue": null,
+    "outcome": null,
     "start": 18,
     "end": 24,
     "cards": [
@@ -1368,6 +1209,7 @@
    {
     "id": "l-limits",
     "cue": null,
+    "outcome": null,
     "start": 24,
     "end": 30,
     "cards": [
@@ -1385,6 +1227,7 @@
    {
     "id": "unit-dashboard-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 30,
     "end": 34.8,
     "cards": [
@@ -1430,6 +1273,7 @@
    {
     "id": "first-week-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.444444444444445,
     "cards": [
@@ -1447,6 +1291,7 @@
    {
     "id": "fw-invite",
     "cue": null,
+    "outcome": null,
     "start": 4.444444444444445,
     "end": 14.444444444444445,
     "cards": [
@@ -1464,6 +1309,7 @@
    {
     "id": "fw-list",
     "cue": null,
+    "outcome": null,
     "start": 14.444444444444445,
     "end": 21.11111111111111,
     "cards": [
@@ -1481,6 +1327,7 @@
    {
     "id": "fw-secure",
     "cue": null,
+    "outcome": null,
     "start": 21.11111111111111,
     "end": 26.666666666666664,
     "cards": [
@@ -1498,6 +1345,7 @@
    {
     "id": "fw-profile",
     "cue": null,
+    "outcome": null,
     "start": 26.666666666666664,
     "end": 32.22222222222222,
     "cards": [
@@ -1515,6 +1363,7 @@
    {
     "id": "fw-first",
     "cue": null,
+    "outcome": null,
     "start": 32.22222222222222,
     "end": 38.888888888888886,
     "cards": [
@@ -1532,6 +1381,7 @@
    {
     "id": "fw-team",
     "cue": null,
+    "outcome": null,
     "start": 38.888888888888886,
     "end": 46.666666666666664,
     "cards": [
@@ -1549,6 +1399,7 @@
    {
     "id": "first-week-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 46.666666666666664,
     "end": 52.22222222222222,
     "cards": [
@@ -1594,6 +1445,7 @@
    {
     "id": "visibility-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.285714285714286,
     "cards": [
@@ -1611,6 +1463,7 @@
    {
     "id": "v-choose",
     "cue": null,
+    "outcome": null,
     "start": 4.285714285714286,
     "end": 11.428571428571429,
     "cards": [
@@ -1628,6 +1481,7 @@
    {
     "id": "v-private",
     "cue": null,
+    "outcome": null,
     "start": 11.428571428571429,
     "end": 17.142857142857142,
     "cards": [
@@ -1645,6 +1499,7 @@
    {
     "id": "v-unit",
     "cue": null,
+    "outcome": null,
     "start": 17.142857142857142,
     "end": 22.857142857142858,
     "cards": [
@@ -1662,6 +1517,7 @@
    {
     "id": "v-says",
     "cue": null,
+    "outcome": null,
     "start": 22.857142857142858,
     "end": 30,
     "cards": [
@@ -1679,6 +1535,7 @@
    {
     "id": "v-never",
     "cue": null,
+    "outcome": null,
     "start": 30,
     "end": 38.57142857142857,
     "cards": [
@@ -1703,6 +1560,7 @@
    {
     "id": "visibility-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 38.57142857142857,
     "end": 44.285714285714285,
     "cards": [
@@ -1748,6 +1606,7 @@
    {
     "id": "import-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.363636363636363,
     "cards": [
@@ -1765,6 +1624,7 @@
    {
     "id": "i-bring",
     "cue": null,
+    "outcome": null,
     "start": 4.363636363636363,
     "end": 10.909090909090908,
     "cards": [
@@ -1782,6 +1642,7 @@
    {
     "id": "i-map",
     "cue": null,
+    "outcome": null,
     "start": 10.909090909090908,
     "end": 17.454545454545453,
     "cards": [
@@ -1799,6 +1660,7 @@
    {
     "id": "i-preview",
     "cue": null,
+    "outcome": null,
     "start": 17.454545454545453,
     "end": 22.909090909090907,
     "cards": [
@@ -1816,6 +1678,7 @@
    {
     "id": "i-run",
     "cue": null,
+    "outcome": null,
     "start": 22.909090909090907,
     "end": 32.72727272727272,
     "cards": [
@@ -1833,6 +1696,7 @@
    {
     "id": "i-again",
     "cue": null,
+    "outcome": null,
     "start": 32.72727272727272,
     "end": 39.272727272727266,
     "cards": [
@@ -1850,6 +1714,7 @@
    {
     "id": "import-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 39.272727272727266,
     "end": 44.72727272727272,
     "cards": [
@@ -1895,6 +1760,7 @@
    {
     "id": "analysis-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4,
     "cards": [
@@ -1912,6 +1778,7 @@
    {
     "id": "a-open",
     "cue": null,
+    "outcome": null,
     "start": 4,
     "end": 9.333333333333332,
     "cards": [
@@ -1929,6 +1796,7 @@
    {
     "id": "a-units",
     "cue": null,
+    "outcome": null,
     "start": 9.333333333333332,
     "end": 14.666666666666664,
     "cards": [
@@ -1946,6 +1814,7 @@
    {
     "id": "a-summary",
     "cue": null,
+    "outcome": null,
     "start": 14.666666666666664,
     "end": 21.33333333333333,
     "cards": [
@@ -1963,6 +1832,7 @@
    {
     "id": "a-coverage",
     "cue": null,
+    "outcome": null,
     "start": 21.33333333333333,
     "end": 27.999999999999993,
     "cards": [
@@ -1980,6 +1850,7 @@
    {
     "id": "a-behind",
     "cue": null,
+    "outcome": null,
     "start": 27.999999999999993,
     "end": 33.33333333333333,
     "cards": [
@@ -1997,6 +1868,7 @@
    {
     "id": "analysis-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 33.33333333333333,
     "end": 38.666666666666664,
     "cards": [
@@ -2042,6 +1914,7 @@
    {
     "id": "counseling-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.5,
     "cards": [
@@ -2059,6 +1932,7 @@
    {
     "id": "c-record",
     "cue": null,
+    "outcome": null,
     "start": 4.5,
     "end": 15,
     "cards": [
@@ -2076,6 +1950,7 @@
    {
     "id": "c-save",
     "cue": null,
+    "outcome": null,
     "start": 15,
     "end": 21,
     "cards": [
@@ -2093,6 +1968,7 @@
    {
     "id": "c-ack",
     "cue": null,
+    "outcome": null,
     "start": 21,
     "end": 30,
     "cards": [
@@ -2117,6 +1993,7 @@
    {
     "id": "c-both",
     "cue": null,
+    "outcome": null,
     "start": 30,
     "end": 34.5,
     "cards": [
@@ -2134,6 +2011,7 @@
    {
     "id": "counseling-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 34.5,
     "end": 40.5,
     "cards": [
@@ -2179,6 +2057,7 @@
    {
     "id": "setup-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 3.75,
     "cards": [
@@ -2196,6 +2075,7 @@
    {
     "id": "su-first",
     "cue": null,
+    "outcome": null,
     "start": 3.75,
     "end": 15,
     "cards": [
@@ -2213,6 +2093,7 @@
    {
     "id": "su-console",
     "cue": null,
+    "outcome": null,
     "start": 15,
     "end": 21.25,
     "cards": [
@@ -2230,6 +2111,7 @@
    {
     "id": "su-settings",
     "cue": null,
+    "outcome": null,
     "start": 21.25,
     "end": 28.75,
     "cards": [
@@ -2247,6 +2129,7 @@
    {
     "id": "su-units",
     "cue": null,
+    "outcome": null,
     "start": 28.75,
     "end": 38.75,
     "cards": [
@@ -2264,6 +2147,7 @@
    {
     "id": "su-people",
     "cue": null,
+    "outcome": null,
     "start": 38.75,
     "end": 48.75,
     "cards": [
@@ -2281,6 +2165,7 @@
    {
     "id": "setup-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 48.75,
     "end": 53.75,
     "cards": [
@@ -2326,6 +2211,7 @@
    {
     "id": "governance-title",
     "cue": "hit",
+    "outcome": null,
     "start": 0,
     "end": 4.186046511627907,
     "cards": [
@@ -2343,6 +2229,7 @@
    {
     "id": "g-sched",
     "cue": null,
+    "outcome": null,
     "start": 4.186046511627907,
     "end": 13.953488372093023,
     "cards": [
@@ -2360,6 +2247,7 @@
    {
     "id": "g-preview",
     "cue": null,
+    "outcome": null,
     "start": 13.953488372093023,
     "end": 19.53488372093023,
     "cards": [
@@ -2377,6 +2265,7 @@
    {
     "id": "g-hold",
     "cue": null,
+    "outcome": null,
     "start": 19.53488372093023,
     "end": 27.906976744186046,
     "cards": [
@@ -2394,6 +2283,7 @@
    {
     "id": "g-inventory",
     "cue": null,
+    "outcome": null,
     "start": 27.906976744186046,
     "end": 34.883720930232556,
     "cards": [
@@ -2411,6 +2301,7 @@
    {
     "id": "g-export",
     "cue": null,
+    "outcome": null,
     "start": 34.883720930232556,
     "end": 40.46511627906977,
     "cards": [
@@ -2428,6 +2319,7 @@
    {
     "id": "governance-end",
     "cue": "resolve",
+    "outcome": null,
     "start": 40.46511627906977,
     "end": 46.04651162790698,
     "cards": [

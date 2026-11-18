@@ -8,6 +8,8 @@ import { HttpError } from '../lib/errors.ts';
 import { formatCents } from '../../shared/money.ts';
 import { UMT_2WAY, UMT_FORMULA, PROCEDURES } from '../../shared/procedures.ts';
 import { sealBacklog } from './caseSeal.ts';
+import { addStandardDutyTypes } from './unitConfig.ts';
+import { scoringPolicyProblems, type ScoringPolicyContent, type ScoringRule } from '../../shared/dutyScoring.ts';
 
 export const DEMO_UNIT_NAME = 'G-8 Budget Execution (synthetic)';
 export const DEMO_UNIT_SHORT = 'G-8 BE';
@@ -137,6 +139,7 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     seedPersonalRecord(ctx, unitId, ids);
     seedLeaderRecord(ctx, unitId, ids);
     seedSharedRecord(ctx, unitId, ids);
+    seedDuty(ctx, unitId, ids);
     sealBacklog(ctx, [...workIds, ...balanceIds]);
   })();
   return ctx.db.prepare('SELECT * FROM demo_workspaces WHERE id = ?').get(wsId) as WorkspaceRow;
@@ -533,6 +536,52 @@ function seedSharedRecord(ctx: AppContext, unitId: string, ids: Record<string, s
     `INSERT INTO report_drafts (id, user_id, subject_id, unit_id, visibility, title, period_start, period_end, track, latest_revision, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'private', ?, ?, ?, 'jepes', 0, 1, ?, ?)`
   ).run(newId(), ids.marine, ids.marine, unitId, 'Q4 JEPES input', dayOffset(-89), dayOffset(0), at, at);
+}
+
+/** When the section's scoring took effect: before anything the workspace's invented history holds. */
+export const DEMO_SCORING_SINCE_DAYS = 120;
+
+/**
+ * The section's duty set-up (ADR-0023, ADR-0024): the standard duty types and one scoring version in force from the
+ * workspace's invented past. A real Unit Instance's Unit Managers add both in the console, and a version they publish
+ * takes effect tomorrow at the soonest; the demo has no console, so without this a visitor could record duty but never
+ * see it scored. The points are the specification's own worked examples (§13), and the content is held to the console's
+ * rules before it is written.
+ */
+function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) {
+  addStandardDutyTypes(ctx, { id: ids.leader }, unitId);
+  const types = ctx.db.prepare('SELECT id, code, name FROM duty_types WHERE org_id = ? AND active = 1').all(unitId) as Array<{ id: string; code: string; name: string }>;
+  const id = (code: string) => {
+    const t = types.find((x) => x.code === code);
+    if (!t) throw new Error(`The demo's duty types have no ${code}.`);
+    return t.id;
+  };
+  const rule = (code: string, method: ScoringRule['method'], points: number | null, bands: ScoringRule['bands'] = null): ScoringRule => ({ duty_type_id: id(code), method, points, bands });
+  const content: ScoringPolicyContent = {
+    rules: [
+      rule('DNCO', 'fixed', 5),
+      rule('ADNCO', 'fixed', 3),
+      rule('BARRACKS', 'bands', null, [{ from_hours: 0, points: 1 }, { from_hours: 4, points: 2 }, { from_hours: 8, points: 3 }, { from_hours: 12, points: 4 }]),
+      rule('SAF', 'per_day', 3),
+      rule('COLOR-GUARD', 'fixed', 2),
+      rule('FUNERAL', 'fixed', 2),
+      rule('RANGE', 'per_day', 2),
+      rule('WORKING-PARTY', 'per_hour', 0.25),
+      rule('EVENT', 'per_hour', 0.25),
+      rule('COMMAND-DUTY', 'fixed', 5),
+    ],
+    multipliers: [{ condition: 'holiday', factor: 1.5 }, { condition: 'weekend', factor: 1.25 }],
+    combine: 'highest',
+  };
+  const problems = scoringPolicyProblems(content, new Map(types.map((t) => [t.id, t.name])));
+  if (problems.length) throw new Error(`The demo's duty scoring is not valid: ${problems.join(' ')}`);
+  // The version is the workspace's invented past, like the rest of its history: its row says who published it and when,
+  // and no audit entry stamped today claims it was published today, 120 days after it took effect.
+  const policyId = newId();
+  const since = dayOffset(-DEMO_SCORING_SINCE_DAYS);
+  const note = 'The section’s scoring (synthetic): the specification’s worked examples.';
+  ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)')
+    .run(policyId, unitId, since, JSON.stringify(content), note, ids.leader, isoAt(DEMO_SCORING_SINCE_DAYS + 1, 15));
 }
 
 export function purgeWorkspace(ctx: AppContext, wsId: string) {

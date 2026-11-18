@@ -202,3 +202,21 @@ defaults John can change, without a decision card:
 **Judge.** BUILD. The line is one short row that names the task, it can be turned off, and the Field guide and search
 still find every tutorial.
 
+## PD-019 · The trailer: the ten outcomes, in place of the ad and the tour
+
+**Decision.** One trailer of the specification's ten outcomes, recorded on the product as it ships (ADR-0036). These
+are defaults John can change, without a decision card:
+- **It replaces the ad and the tour.** Both showed the earlier look and an earlier product, and the tour closed on a
+  pitch for running Vantage "on your own network". Bringing either back is a revert.
+- **Ten outcomes, in the specification's order,** each one take from the synthetic demo, then a close on who governs a
+  Unit Instance. About 100 seconds, no narration; what it says is listed under the player.
+- **No address, price or sign-up.** "Demo data" stays on screen while the application is, and the end card says
+  synthetic demo data, not an official DoD or USMC system of record.
+- **The thirteen chapters stay** as they are, marked as recorded before the current look.
+- **The demo scores duty,** under one scoring version the section lead published 120 days back, so Duty can be shown.
+
+**Why.** The specification asks for a trailer of the actual final product, focused on outcomes, that does not portray
+Vantage as a public SaaS site.
+**Skeptic.** The public page loses one of its two films, and a trailer ages as the product changes.
+**Judge.** BUILD. The trailer shows everything the two films did and the outcomes they never reached, one command
+rebuilds it from the demo, and a test holds it to the ten outcomes and to that wording.

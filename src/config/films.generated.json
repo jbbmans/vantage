@@ -1,107 +1,216 @@
 {
-  "tour": {
-    "src": "/videos/films/tour.mp4?v=52b7cba74a",
-    "poster": "/videos/films/tour.jpg?v=b35db5b432",
-    "seconds": 81,
-    "published": "2026-09-28",
-    "textOnly": true
+  "trailer": {
+    "src": "/videos/films/trailer.mp4?v=f96031f6c5",
+    "poster": "/videos/films/trailer.jpg?v=702919c926",
+    "seconds": 101,
+    "published": "2026-11-18",
+    "textOnly": true,
+    "transcript": [
+      "The work gets done every day. Vantage keeps it on the record.",
+      "Today starts with what needs you: the work you hold, what’s due and what’s overdue.",
+      "Personnel lists every Marine’s billet, supervisor and roles.",
+      "A Marine’s page shows only what they shared, and opening it is logged.",
+      "Log what you did in one line.",
+      "Vantage reads the numbers. You check them and save.",
+      "Duty is scored by your Unit Instance’s published policy, and counts once a reviewer approves it.",
+      "Attach the certificate to the training it proves. Vantage checks the file is what it says it is.",
+      "Financial work comes to one queue. Claim a case and it’s yours.",
+      "Its written procedure shows the next step.",
+      "File each error report as it stood. Vantage shows what’s new, still open, reopened and resolved.",
+      "Every case is diagnosed by written rules, not AI, and every recommendation names its source.",
+      "Every report prints or files as a PDF: a Marine’s record, the unit’s output, its training and its duty.",
+      "The unit dashboard counts shared records only, and every figure opens the records behind it.",
+      "Each command runs its own Unit Instance, kept apart from every other.",
+      "Unit Managers govern it. Vantage Administrators run the service."
+    ]
   },
   "quick-log": {
     "src": "/videos/films/quick-log.mp4?v=0985f64601",
     "poster": "/videos/films/quick-log.jpg?v=722d78603f",
     "seconds": 42,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Press N from any page.",
+      "Type it the way you’d say it.",
+      "Vantage fills in the count, the dollar amount, the system and the date.",
+      "Look it over, fix anything that’s off, and save.",
+      "No connection? It saves on your device and syncs later."
+    ]
   },
   "queue": {
     "src": "/videos/films/queue.mp4?v=53c4ff9614",
     "poster": "/videos/films/queue.jpg?v=617cc16731",
     "seconds": 60,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Your section’s open work is all in one queue.",
+      "Claim a case and it moves to your list.",
+      "Claiming a case doesn’t give you credit. The work you log on it does.",
+      "The procedure shows the next step and only asks for what that step needs.",
+      "Enter what you found and Vantage does the math, showing every number it used.",
+      "If a step needs evidence first, it tells you up front.",
+      "Everything you do goes into the case history under your name.",
+      "If you hand the case off, you each keep credit for your own part."
+    ]
   },
   "reading-a-balance": {
     "src": "/videos/films/reading-a-balance.mp4?v=9a361a89f5",
     "poster": "/videos/films/reading-a-balance.jpg?v=1437b93584",
     "seconds": 42,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "The FMRA desk reference is built in, with a source for everything in it.",
+      "Enter the commitment, obligation, delivered and paid amounts.",
+      "Vantage shows what’s still open, what could be causing it, who can fix it, and what proves it’s fixed.",
+      "A dash on a report doesn’t mean zero. Mark it as “not shown.”",
+      "Open a case from here and the numbers carry over, along with where they came from."
+    ]
   },
   "record": {
     "src": "/videos/films/record.mp4?v=2fe4f66220",
     "poster": "/videos/films/record.jpg?v=b594e01584",
     "seconds": 41,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Your record keeps three things separate.",
+      "Work you’re holding. That isn’t credit yet.",
+      "Work you contributed to, counted from the case itself.",
+      "Things you logged yourself.",
+      "A document only counts once, no matter how many entries it took.",
+      "From any case you worked, you can start a private draft using only your own facts.",
+      "Save it and it’s added to your record with a link to the case."
+    ]
   },
   "report-studio": {
     "src": "/videos/films/report-studio.mp4?v=f87074373a",
     "poster": "/videos/films/report-studio.jpg?v=4a87151cf7",
     "seconds": 39,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Report Studio helps you put what you’ve logged into your JEPES or FITREP.",
+      "Pick the period and the entries you want to cite.",
+      "Click any cited entry to check it while you write.",
+      "If one of those entries changes while you’re writing, it won’t save until you look at it again.",
+      "Each saved version is locked to exactly what it cited."
+    ]
   },
   "unit-dashboard": {
     "src": "/videos/films/unit-dashboard.mp4?v=5af272d1cd",
     "poster": "/videos/films/unit-dashboard.jpg?v=e7f8706e89",
     "seconds": 35,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "If you lead a section, Today shows your section first.",
+      "What’s unassigned, overdue, blocked, or waiting on someone else.",
+      "How many open commitments, undelivered orders and UMTs you have.",
+      "Workload shows who’s holding what, and explains what each number means.",
+      "These counts don’t measure effort. Zero logged doesn’t mean zero done."
+    ]
   },
   "first-week": {
     "src": "/videos/films/first-week.mp4?v=2997d5f72f",
     "poster": "/videos/films/first-week.jpg?v=5a46bb0b87",
     "seconds": 52,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Day one, you’ll get an email with your username and a link to set your password.",
+      "Today has a short checklist for your first week. Items check off as you do them.",
+      "Start by adding a passkey or an authenticator app to your account.",
+      "Check your profile and make sure your rank is right.",
+      "Log one thing you did. One line is enough.",
+      "By Friday, open Team to see your people, your chain of command, and shared goals."
+    ]
   },
   "visibility": {
     "src": "/videos/films/visibility.mp4?v=6b04541e86",
     "poster": "/videos/films/visibility.jpg?v=924a66c02f",
     "seconds": 44,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "When you save an entry, you pick who can see it.",
+      "Only me: nobody else can open it. Not your leaders, not the site owner.",
+      "My unit: it counts on the unit dashboard for leaders over that unit.",
+      "Every entry shows who can see it, right at the top.",
+      "Drafts and career plans are always private.",
+      "When a leader opens your record, that gets logged."
+    ]
   },
   "import": {
     "src": "/videos/films/import.mp4?v=7a18dcd3fc",
     "poster": "/videos/films/import.jpg?v=4caa063272",
     "seconds": 45,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Bring in the spreadsheet your section already uses. Your original file isn’t changed.",
+      "Vantage reads the column headers and guesses what each one is. Fix any it got wrong.",
+      "You see a preview of every row before anything is saved.",
+      "Each row becomes an item in the queue, linked back to its row in the file.",
+      "Import the same file again and nothing gets duplicated."
+    ]
   },
   "analysis": {
     "src": "/videos/films/analysis.mp4?v=3d60780712",
     "poster": "/videos/films/analysis.jpg?v=47f182a47e",
     "seconds": 39,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "The Analysis tab shows what your record actually says before you use it.",
+      "Hours, kilometers and dollars are kept separate and never added together.",
+      "The summary shows how often you log, your longest gap, and where your pace puts you.",
+      "Coverage points out entries missing details, so you can fix them before a report uses them.",
+      "Click any number on Today to see the entries behind it."
+    ]
   },
   "counseling": {
     "src": "/videos/films/counseling.mp4?v=338d0d745b",
     "poster": "/videos/films/counseling.jpg?v=8d84f5e8c6",
     "seconds": 41,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Record a counseling from the Marine’s page: what went well, what to work on, and goals.",
+      "Once it’s saved, it’s on their record with the date and your name.",
+      "They open it under Career and acknowledge it.",
+      "Acknowledging means they read it. It doesn’t mean they agree.",
+      "You both see the same record, marked acknowledged."
+    ]
   },
   "setup": {
     "src": "/videos/films/setup.mp4?v=1551df45ba",
     "poster": "/videos/films/setup.jpg?v=56717951f2",
     "seconds": 54,
     "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "On first launch, create the owner account and your first unit.",
+      "The Owner console is where you manage settings, accounts, units, email, retention and backups.",
+      "Get settings right before anyone else signs in, starting with whether people can sign themselves up.",
+      "Build your chain of command. Teams go under their command, and permissions flow down, not up.",
+      "Add people by invite, by importing a roster, or by emailing everyone their sign-in details."
+    ]
   },
   "governance": {
     "src": "/videos/films/governance.mp4?v=235864f9e5",
     "poster": "/videos/films/governance.jpg?v=e6a1b3c3bf",
     "seconds": 46,
     "published": "2026-09-28",
-    "textOnly": true
-  },
-  "ad": {
-    "src": "/videos/films/ad.mp4?v=26d243dee6",
-    "poster": "/videos/films/ad.jpg?v=80da7b8d8f",
-    "seconds": 62,
-    "published": "2026-09-28",
-    "textOnly": true
+    "textOnly": true,
+    "transcript": [
+      "Retention is off until you turn it on, one record type at a time. Each schedule lists its authority.",
+      "Preview what would be deleted before anything runs.",
+      "A legal hold blocks any deletion it covers, even if a schedule says otherwise.",
+      "The privacy inventory is built from the live database, so it stays current.",
+      "Export it for your privacy impact assessment."
+    ]
   }
 }

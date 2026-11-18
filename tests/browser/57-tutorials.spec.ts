@@ -90,10 +90,12 @@ test('a page offers its tutorial under the title, and the tutorial leads through
   // ——— Other tutorials takes focus to the list in Help ———
   await panelOf(page, 'Logging work').getByRole('link', { name: 'Other tutorials' }).click();
   await expect(panelOf(page, 'Logging work')).toHaveCount(0);
-  // Help writes its search back into the address a moment later, which drops the #tutorials.
-  await expect(page).toHaveURL(/\/help(#tutorials)?$/);
+  await expect(page).toHaveURL(/\/help#tutorials$/);
   await expect(page.locator('#tutorials').getByRole('heading', { name: 'Tutorials' })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Take again: Logging work' })).toBeVisible();
+  // Help writes its search into the address only when the address does not already say it, so #tutorials stays.
+  await page.waitForTimeout(400);
+  await expect(page).toHaveURL(/\/help#tutorials$/);
   await page.goto('/record/activities');
   await settle(page);
   await expect(prompt(page).getByRole('button', { name: /^Logging work, \d+ steps, finished$/ })).toBeVisible();
@@ -180,6 +182,44 @@ test('Help, search and the command palette offer every tutorial; the line under 
   await expect(page.getByRole('switch', { name: /Offer a page’s tutorial under its title/ })).toHaveAttribute('aria-checked', 'true');
   await page.goto('/record/activities');
   await expect(prompt(page)).toBeVisible();
+});
+
+test('Other tutorials clears a search typed a moment before, even as Help writes that search into the address', async ({ page }) => {
+  // Help puts its search in the address 250 ms after typing stops, by replacing the history entry. The router lands a
+  // navigation in a transition, so a write falling due just after Other tutorials was pressed used to replace the entry
+  // Other tutorials had pushed, and the search stayed. Each round catches that write and makes it fall due at one exact
+  // moment: just after the press (from /help, and from /help#tutorials, where the press pushes the same address again),
+  // and just before it.
+  await loginAs(page, OPERATOR.username);
+  await page.goto('/help');
+  for (const round of ['in flight, from /help', 'in flight, from /help#tutorials', 'written first'] as const) {
+    await settle(page);
+    await page.getByRole('button', { name: /^(Start|Take again): Counselings$/ }).click();
+    const lesson = panelOf(page, 'Counselings');
+    await lesson.locator('ol > li').last().getByRole('button').first().click();
+    await lesson.getByRole('button', { name: 'Finish', exact: true }).click();
+    await expect(lesson.getByRole('link', { name: 'Other tutorials' })).toBeVisible();
+    await page.evaluate(async (order) => {
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="Search the field guide"]')!;
+      const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'Other tutorials')!;
+      const arm = window.setTimeout;
+      let write: { id: number; fn: () => void } | undefined;
+      window.setTimeout = ((fn: () => void, ms?: number) => { const id = arm(fn, ms); if (ms === 250) write = { id, fn }; return id; }) as typeof window.setTimeout;
+      try {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'acknowledge');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise((r) => arm(r, 0));
+      } finally { window.setTimeout = arm; }
+      if (!write) throw new Error('Help armed no write for its search');
+      window.clearTimeout(write.id);
+      if (order === 'written first') { write.fn(); link.click(); } else { link.click(); write.fn(); }
+    }, round);
+    await expect(page.locator('#tutorials').getByRole('heading', { name: 'Tutorials' }), round).toBeFocused();
+    await expect(page.getByLabel('Search the field guide'), round).toHaveValue('');
+    await page.waitForTimeout(400);
+    await expect(page, round).toHaveURL(/\/help#tutorials$/);
+    await expect(page.getByLabel('Search the field guide'), round).toHaveValue('');
+  }
 });
 
 test('a Marine with no unit is offered only what they can do, and a leader’s steps are not theirs', async ({ page }) => {

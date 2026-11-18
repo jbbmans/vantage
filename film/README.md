@@ -1,12 +1,12 @@
 # Vantage films
 
-A one-minute ad, an 80-second tour for the public page, and thirteen field-guide chapters. There is no
-narration: each film says what it has to say in plain text on screen, over its own music. They are made in
+The trailer (about 100 seconds: the specification's ten outcomes, Task 27, ADR-0036) and thirteen field-guide
+chapters. There is no narration: each film says what it has to say in plain text on screen, over its own music. They are made in
 code, from the real application, and published with one command:
 
 ```sh
 npm run film                     # from the repository root: every film, end to end
-npm run film -- ad quick-log     # just these
+npm run film -- trailer quick-log  # just these
 npm run film -- --draft          # render to film/out only; publish nothing
 npm run film -- --reuse-shots    # keep the captured footage; skip the browser
 npm run film -- --capture-only   # capture footage and stills, then stop
@@ -23,15 +23,17 @@ With root and film dependencies installed, `npm run typecheck:film` checks the c
 | 1. Script | `src/script.ts` | Every film's on-screen text, one card at a time, and its music: key, tempo, chord progression, groove and lead instrument. The one place to change the words. |
 | 2. Timeline | `tools/timeline.mjs` | Each card gets the time it takes to read, rounded up to the next half bar of its film's tempo, so every change of card lands on the beat. A scene's `min` gives slow actions room. |
 | 3. Capture | `tools/shots.mjs`, `tools/capture.mjs` | The real application in the synthetic demo, driven by Playwright at 2× (2880×1620 frames). Not a screen recording: the recorder acts, lets the page settle, and stamps each frame with the second it belongs to, so the action plays at exactly the written pace. Moves are timed from the cards. The pointer, the camera and the dissolves are drawn from the event log, so they are perfectly smooth. |
-| 4. Picture | `src/` (Remotion) | Chapters: a title card, then each card above a large application window with the camera pushing in on what the card is about. The ad and the tour (`src/story/`): designed scenes built from the product's own figures, and the application in a tilted window. |
-| 5. Score | `tools/score.mjs` | An original track per film, synthesised: pads, bass, drums, and a piano, bell, electric piano or plucked lead, arranged on the same timeline, with the hits and sound effects on the moments in `src/moments.ts` and the interface's own clicks and keystrokes. Normalised to −14 LUFS (ad and tour) or −16 LUFS (chapters), −1.5 dBTP. |
-| 6. Render and publish | `tools/render.mjs` | H.264 1080p30 with AAC, bitrate-capped, fast-start, and a poster frame. Published to `public/videos/films/` and listed in `src/config/films.generated.json`, which `src/config/videos.ts` reads. |
+| 4. Picture | `src/` (Remotion) | Chapters: a title card, then each card above a large application window with the camera pushing in on what the card is about. The trailer (`src/trailer/`): in the current look (dress blues), a cold open, the mark, then one take per outcome in one window with no browser chrome, under a masthead that names the outcome, counts the ten, and says "Demo data" throughout; the end card says what the demo banner and the application's footer say. |
+| 5. Score | `tools/score.mjs` | An original track per film, synthesised: pads, bass, drums, and a piano, bell, electric piano or plucked lead, arranged on the same timeline, with the interface's own clicks and keystrokes and, in the trailer, a chime rising one step at each outcome. Normalised to −14 LUFS (the trailer) or −16 LUFS (chapters), −1.5 dBTP. |
+| 6. Render and publish | `tools/render.mjs` | H.264 1080p30 with AAC, bitrate-capped, fast-start, and a poster frame (the trailer's from its first outcome). Published to `public/videos/films/` and listed in `src/config/films.generated.json`, which `src/config/videos.ts` reads, with each film's `transcript`: every card it writes, in order, shown under the player as "What the film says" (its text alternative). |
 
 ## Requirements
 
 - **Chromium's headless shell** for Remotion (`REMOTION_BROWSER`, default
   `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`), and Playwright's
-  Chromium for the capture.
+  Chromium for the capture (`PLAYWRIGHT_CHROMIUM_EXECUTABLE`). Point both at the builds your Playwright installed
+  when they differ, as `chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell` and
+  `chromium` did for the trailer.
 - **The synthetic demo** on `VANTAGE_DEMO_URL` (default `http://localhost:8798`). `render.mjs` starts
   it, and builds the application first if `dist/` is missing.
 - **A fresh accounts-mode instance** on `VANTAGE_FILM_INSTANCE_URL` (default `http://localhost:8799`), for
@@ -46,13 +48,18 @@ With root and film dependencies installed, `npm run typecheck:film` checks the c
 - **What happens on screen:** `tools/shots.mjs`. `c.card(i)` is when card `i` of a scene appears, and
   `c.dur` is how long the scene lasts.
 - **Music:** the `music` entry of each film in `src/script.ts`.
-- **Look:** `src/chapters/` and `src/story/`. `npm --prefix film run studio` opens Remotion Studio.
+- **Look:** `src/chapters/` and `src/trailer/`. `npm --prefix film run studio` opens Remotion Studio.
 
 ## Honesty rules
 
 Every claim on screen is true of the product as it ships, and every figure on screen is invented: the
 synthetic demo, or names and units marked synthetic on the fresh instance. Each film says so on screen.
 Nothing is edited into the footage that the application did not do.
+
+The trailer takes every outcome from one synthetic workspace. What the demo does not seed, two duties to review and
+two weekly ULO reports, the capture makes first through the product's own API, as the Marine and the section lead
+would. It never shows an address, a price or a sign-up: Vantage is an application a command runs on MCEN, not a public
+site (ADR-0007). `tests/server/trailer.test.ts` holds it to the ten outcomes, in order, and to that wording.
 
 ## Licences
 

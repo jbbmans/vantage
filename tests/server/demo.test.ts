@@ -115,6 +115,35 @@ test('the synthetic section tells the intended story, and counts shared document
   } finally { await app.close(); }
 });
 
+test('the synthetic section scores duty by its own published policy, and a reviewer approves it at those points', async () => {
+  const app = await startApp(DEMO);
+  try {
+    const { token, me } = await start(app);
+    const unit = me.memberships[0].unit_id as string;
+    const policies = app.ctx.db.prepare('SELECT version, effective_from, withdrawn_at FROM duty_scoring_policies WHERE org_id = ?').all(unit) as Array<{ version: number; effective_from: string; withdrawn_at: string | null }>;
+    assert.equal(policies.length, 1, 'one version, published with the workspace');
+    const options = (await app.call('GET', '/api/record/duty/options', { token })).body;
+    assert.ok(policies[0].effective_from < options.today && policies[0].withdrawn_at === null, 'in force before any duty the demo could show');
+    const codes = options.types.map((t: { code: string }) => t.code);
+    for (const code of ['DNCO', 'WORKING-PARTY', 'COMMAND-DUTY']) assert.ok(codes.includes(code), `the standard ${code}`);
+
+    // A weekday a week or more back: a DNCO there scores its fixed 5, with no weekend multiplier.
+    const day = new Date(`${options.today}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() - 7);
+    while ([0, 6].includes(day.getUTCDay())) day.setUTCDate(day.getUTCDate() - 1);
+    const date = day.toISOString().slice(0, 10);
+    const dnco = options.types.find((t: { code: string }) => t.code === 'DNCO').id;
+    const made = await app.call('POST', '/api/records/duties', { token, headers: H, body: { duty_type_id: dnco, unit_id: unit, title: 'DNCO', date, start_time: '0800', end_date: date, end_time: '1600', visibility: 'unit' } });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    assert.deepEqual([made.body.approval_status, made.body.calculated_points, made.body.scoring_version], ['pending', 5, 1]);
+
+    const lead = (await app.call('POST', '/api/demo/persona', { token, headers: H, body: { persona: 'leader' } })).body.token as string;
+    const approved = await app.call('POST', `/api/records/duties/${made.body.id}/review`, { token: lead, headers: H, body: { action: 'approve', version: made.body.version } });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.deepEqual([approved.body.approval_status, approved.body.approved_points], ['approved', 5]);
+  } finally { await app.close(); }
+});
+
 test('the flagship 2-Way UMT walks through to the reference arithmetic', async () => {
   const app = await startApp(DEMO);
   try {
@@ -192,6 +221,7 @@ test('reset and expiry remove a workspace whole and leave the audit chain intact
     assert.equal((await app.call('GET', '/api/me', { token: reset.body.token })).status, 401);
     assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n, 0);
     assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM organizations').get() as { n: number }).n, 0, 'each workspace’s organization goes with it');
+    for (const table of ['duty_types', 'duty_scoring_policies']) assert.equal((app.ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, 0, `its ${table} go with it`);
   } finally { await app.close(); }
 });
 

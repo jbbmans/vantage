@@ -1,9 +1,9 @@
 import data from './generated/timelines.json';
 
 export interface TCard { text: string; start: number; end: number; from: number; to: number }
-export interface TScene { id: string; cue: string | null; start: number; end: number; from: number; to: number; cards: TCard[] }
+export interface TScene { id: string; cue: string | null; outcome: string | null; start: number; end: number; from: number; to: number; cards: TCard[] }
 export interface TFilm {
-  id: string; title: string; slot: string; kind: 'ad' | 'hero' | 'chapter'; n: number | null; accent: string;
+  id: string; title: string; slot: string; kind: 'trailer' | 'chapter'; n: number | null; accent: string;
   music: { bpm: number }; fps: number; beat: number; seconds: number; frames: number; scenes: TScene[];
 }
 

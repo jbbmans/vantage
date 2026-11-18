@@ -29,7 +29,7 @@ export function buildTimelines() {
       cards[cards.length - 1].seconds += total - natural;
       let c0 = start;
       const out = cards.map((c) => { const card = { text: c.text, start: c0, end: c0 + c.seconds }; c0 += c.seconds; return card; });
-      scenes.push({ id: scene.id, cue: scene.cue ?? null, start, end: start + total, cards: out });
+      scenes.push({ id: scene.id, cue: scene.cue ?? null, outcome: scene.outcome ?? null, start, end: start + total, cards: out });
       t = start + total;
     }
     const f = (s) => Math.round(s * FPS);
