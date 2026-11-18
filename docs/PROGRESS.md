@@ -28,6 +28,11 @@ migration.
   composition; the published file's hash, poster, length and transcript; the ad and tour gone), a demo test that a
   Marine's duty is scored at 5 and approved at 5, purge covering duty types and scoring, and the Field guide and public
   page specs (`24-views`, `20-public-site`).
+- **Help's search no longer overtakes Other tutorials.** The full browser suite caught a race from Task 26. Help writes
+  its search into the address 250 ms after typing, and React Router lands a navigation in a transition. So a write
+  falling due just after Other tutorials replaced the `/help#tutorials` entry, and the search stayed. The write now
+  waits until the history entry in the address is the one Help holds, checked by its key, and it is skipped when the
+  address already says it, so `#tutorials` stays. Spec 57 makes the write fall due at exact moments around the press.
 
 ## What changed (2026-11-18: the security review's six findings, F01 to F06)
 
