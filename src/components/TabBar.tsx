@@ -46,7 +46,7 @@ export default function TabBar({ hidden, leads, onLog, onMore }: { hidden: boole
     <nav className="tabbar on-navy no-print lg:hidden" aria-label="Quick navigation">
       {link('/', 'Today', Gauge, pathname === '/')}
       {link('/work/queue', 'Work', Briefcase, group === 'work')}
-      <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log activity">
+      <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log activity" data-tutorial="log-activity">
         <span><Plus aria-hidden /></span>
       </button>
       {/* Somebody who leads a team checks it more than their own record; theirs is a tap away under More. */}

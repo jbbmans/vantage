@@ -239,7 +239,7 @@ export default function ReportLibrary() {
             {!subjects.length ? <p className="mt-3 text-sm text-ink-2" role="note">This report is about a unit, and you have none whose shared records you may view. Your own reports are under Your record.</p> : null}
             <p className="mt-3 text-xs text-ink-3">{spec.needs}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="primary" onClick={() => go(params)} loading={run.isFetching} disabled={!subjects.length || (f.subject === 'member' && !f.user_id) || (f.subject === 'unit' && !f.unit_id)}><Play className="h-4 w-4" aria-hidden />Run report</Button>
+              <Button variant="primary" onClick={() => go(params)} loading={run.isFetching} data-tutorial="run-report" disabled={!subjects.length || (f.subject === 'member' && !f.user_id) || (f.subject === 'unit' && !f.unit_id)}><Play className="h-4 w-4" aria-hidden />Run report</Button>
               <Button onClick={() => setSaving(true)} disabled={!saveParams}><BookmarkPlus className="h-4 w-4" aria-hidden />Save these choices</Button>
             </div>
             {!saveParams ? <p className="mt-2 text-xs text-ink-3" role="note">To save these choices, choose a period: a saved report keeps a period, not the dates in the link.</p> : null}
@@ -252,7 +252,7 @@ export default function ReportLibrary() {
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {doc.files.length < 4 ? <p className="mr-auto text-xs text-ink-3">{doc.files.length ? 'A PDF only: a spreadsheet or data file of someone else’s records needs the export permission in their unit.' : 'No file: taking a unit’s report away needs the export permission in that unit. It prints from here.'}</p> : null}
-                    <Button onClick={print}><Printer className="h-4 w-4" aria-hidden />Print</Button>
+                    <Button onClick={print} data-tutorial="report-print"><Printer className="h-4 w-4" aria-hidden />Print</Button>
                     {files.length ? <DownloadMenu choices={files} /> : null}
                   </div>
                   <ReportDocumentView doc={doc} />

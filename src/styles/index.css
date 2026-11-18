@@ -432,6 +432,33 @@ html.has-tabbar { scroll-padding-bottom: calc(var(--tabbar, 0px) + 12px); }
   .activity-bar { display: none; }
   .tabbar { animation: none; }
 }
+/* ——— Tutorials (ADR-0034) ———
+   The panel sits at the foot of the screen, over the page's lower right, above the tab bar on a phone. It is not a
+   dialog: the page stays usable while it is open. Folded, only its heading shows. --tutorial is its height while open,
+   so the page can scroll out from under it and toasts rise above it. */
+.tutorial-panel {
+  position: fixed; z-index: 45; right: 1rem; bottom: calc(var(--tabbar, 0px) + 1rem);
+  display: flex; width: min(23rem, calc(100vw - 2rem)); max-height: calc(100dvh - 60px - var(--tabbar, 0px) - 2rem); flex-direction: column;
+  box-shadow: var(--shadow-pop); animation: rise-in 260ms var(--ease-spring) both;
+}
+.tutorial-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 639px) {
+  .tutorial-panel { left: .5rem; right: .5rem; bottom: calc(var(--tabbar, 0px) + .5rem); width: auto; max-height: 55dvh; }
+}
+/* A short screen (a phone on its side, a zoomed window): it opens folded, takes at most 45% of the screen unfolded, and
+   folds when keyboard focus moves to a control it covers (TutorialPanel). */
+@media (max-height: 480px) { .tutorial-panel { max-height: 45dvh; } }
+html.has-tutorial { --tutorial-lift: calc(var(--tutorial, 0px) + 1rem); scroll-padding-bottom: calc(var(--tabbar, 0px) + var(--tutorial, 0px) + 12px); }
+/* "Show me": the control a step is about, outlined for a few seconds. Thicker than the focus ring and haloed, so it reads
+   as pointed at rather than focused; (0,2,0) and more, so a focused control keeps it. */
+:root .tutorial-spot, :root .tutorial-spot:focus-visible {
+  outline: 3px solid rgb(var(--accent)); outline-offset: 4px;
+  box-shadow: 0 0 0 9px rgb(var(--accent) / .16);
+  animation: tutorial-spot 1.1s ease-in-out 3;
+}
+@keyframes tutorial-spot { 50% { outline-offset: 7px; box-shadow: 0 0 0 13px rgb(var(--accent) / .1); } }
+@media print { .tutorial-panel { display: none !important; } }
+
 /* ——— Reports (ADR-0020): one document on screen and on paper ——— */
 .report-doc { color: rgb(var(--ink)); }
 .report-screen { border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--surface)); padding: 1.25rem; }

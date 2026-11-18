@@ -66,12 +66,12 @@ test('the reader of the startup graph follows value imports and skips the erased
   ].join('\n')).sort(), ['./a', './c', './d', './f.css', 'pkg']);
 });
 
-test('the app and the Unit Manager console draw without the schema library or the list of changes', () => {
+test('the app and the Unit Manager console draw without the schema library, the list of changes or the tutorials', () => {
   for (const entry of ['src/main.tsx', 'src/console-main.tsx']) {
     const graph = startupGraph(entry);
     assert.ok(graph.has('src/App.tsx') || graph.has('src/console/ConsoleApp.tsx'), `${entry} reaches its app`);
     assert.ok(graph.has('react'), `${entry} reaches react, so the walk followed its imports`);
-    for (const late of ['zod', 'src/config/changes.ts']) {
+    for (const late of ['zod', 'src/config/changes.ts', 'src/config/tutorials.ts']) {
       assert.ok(!graph.has(late), `${entry} loads ${late} at startup: ${graph.get(late)?.join(' -> ')}`);
     }
   }

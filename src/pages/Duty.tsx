@@ -179,13 +179,13 @@ export default function Duty() {
   return (
     <div className="page">
       <PageHeader eyebrow={place.group} title="Duty" lede="The duty you stood: its type, its times and the points your Unit Instance's scoring gives it. Duty is submitted for review and counts, at its approved points, once a reviewer approves it.">
-        <Button variant="primary" onClick={() => setForm({ kind: 'new' })}><Plus className="h-4 w-4" />Record duty</Button>
+        <Button variant="primary" onClick={() => setForm({ kind: 'new' })} data-tutorial="duty-record"><Plus className="h-4 w-4" />Record duty</Button>
         <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import</Button>
-        <DownloadMenu label="Export" choices={categoryDownloads('duty')} />
+        <DownloadMenu label="Export" choices={categoryDownloads('duty')} data-tutorial="export-category" />
       </PageHeader>
 
       {summary.isError && !summary.data ? <QueryFailure className="card mb-4" error={summary.error} what="Your duty totals" onRetry={() => summary.refetch()} /> : (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tutorial="duty-totals">
           <Stat label="Duty stood" value={own ? formatNumber(own.duties) : pendingValue} hint={own ? (own.duties === 1 ? 'one entry' : `${formatNumber(own.duties)} entries`) : undefined} />
           <Stat label="Hours" value={own ? rounded(own.hours) : pendingValue} />
           <Stat label="Approved points" value={own ? rounded(own.approved_points) : pendingValue} hint={own ? `${rounded(own.calculated_points)} calculated` : undefined} />
@@ -219,7 +219,7 @@ export default function Duty() {
               { value: 'mine' as Who, label: `Yours (${counted(tabs?.mine ?? 0)})`, id: tabId('mine'), controls: PANEL },
               ...(tabs && tabs.recorded > 0 ? [{ value: 'recorded' as Who, label: `Recorded by you (${counted(tabs.recorded)})`, id: tabId('recorded'), controls: PANEL }] : []),
               ...(tabs && tabs.units > 0 ? [{ value: 'units' as Who, label: `Your units (${counted(tabs.units, tabs.units_more)})`, id: tabId('units'), controls: PANEL }] : []),
-              ...(reviewer || whoShown === 'review' ? [{ value: 'review' as Who, label: `To review (${formatNumber(queueTotal)})`, id: tabId('review'), controls: PANEL }] : []),
+              ...(reviewer || whoShown === 'review' ? [{ value: 'review' as Who, label: `To review (${formatNumber(queueTotal)})`, id: tabId('review'), controls: PANEL, 'data-tutorial': 'duty-review-tab' }] : []),
             ]} />
         </div>
       )}
@@ -350,7 +350,7 @@ const DutyTableRow = memo(function DutyTableRow({ row: r, me, identity, onView, 
       <td className="fig text-right text-xs"><ApprovedPoints row={r} /></td>
       <td><Badge tone={DUTY_TONE[r.approval_status]}>{DUTY_STATUS_LABELS[r.approval_status]}</Badge></td>
       <td className="whitespace-nowrap text-right">
-        <Button size="xs" variant="ghost" onClick={() => onView(r)} aria-describedby={titled}>View</Button>
+        <Button size="xs" variant="ghost" onClick={() => onView(r)} aria-describedby={titled} data-tutorial="duty-view">View</Button>
         {editable && <><Button size="xs" variant="ghost" onClick={() => onEdit(r)} aria-describedby={titled}>{r.approval_status === 'returned' ? 'Correct' : 'Edit'}</Button><Button size="xs" variant="ghost" onClick={() => onDelete(r)} aria-describedby={titled}>Delete</Button></>}
       </td>
     </tr>
@@ -391,7 +391,7 @@ function DutySuggestions({ onRecord }: { onRecord: (a: DutyCandidate) => void })
                 <span className="block text-xs text-ink-3"><TimeframeText table="activities" row={c} /></span>
               </span>
               <span className="flex shrink-0 gap-1">
-                <Button size="xs" variant="soft" onClick={() => onRecord(c)} aria-describedby={`duty-suggestion-${c.id}`}><ArrowRightLeft className="h-3.5 w-3.5" />Record as duty</Button>
+                <Button size="xs" variant="soft" onClick={() => onRecord(c)} aria-describedby={`duty-suggestion-${c.id}`} data-tutorial="duty-suggestion-record"><ArrowRightLeft className="h-3.5 w-3.5" />Record as duty</Button>
                 <Button size="xs" variant="ghost" onClick={() => keepIt(c)} loading={keep.isPending && keep.variables === c.id} aria-describedby={`duty-suggestion-${c.id}`}>Keep as activity</Button>
               </span>
             </li>

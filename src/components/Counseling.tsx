@@ -157,11 +157,11 @@ export function CounselingActions({ row, onEdit, onAmend, size = 'md', onMoved, 
   return (
     <>
       {w.edit && onEdit && <Button size={size} variant={size === 'xs' ? 'ghost' : 'default'} onClick={onEdit} disabled={busy}><PenLine className="h-4 w-4" aria-hidden />Edit</Button>}
-      {w.share && <Button size={size} variant={size === 'xs' ? 'ghost' : 'default'} onClick={() => run('share', 'Shared with the Marine for review.')} disabled={busy}><Send className="h-4 w-4" aria-hidden />Share with Marine</Button>}
+      {w.share && <Button size={size} variant={size === 'xs' ? 'ghost' : 'default'} onClick={() => run('share', 'Shared with the Marine for review.')} disabled={busy} data-tutorial="counseling-share"><Send className="h-4 w-4" aria-hidden />Share with Marine</Button>}
       {w.withdraw && <Button size={size} variant={size === 'xs' ? 'ghost' : 'default'} onClick={() => run('withdraw', 'Taken back. It is a draft only you can see.')} disabled={busy}><Undo2 className="h-4 w-4" aria-hidden />Take back</Button>}
       {w.amend && onAmend && <Button size={size} variant={size === 'xs' ? 'ghost' : 'default'} onClick={onAmend} disabled={busy}><PenLine className="h-4 w-4" aria-hidden />Amend…</Button>}
       {w.finalize && <Button size={size} variant={size === 'xs' ? 'soft' : 'primary'} onClick={() => (row.date ? setAsking(true) : toast.error('Give the date of the counseling session before finalizing it. Edit the draft to add it.'))} disabled={busy}><Stamp className="h-4 w-4" aria-hidden />Finalize</Button>}
-      {w.acknowledge && <Button size={size} variant={size === 'xs' ? 'soft' : 'primary'} onClick={() => run('acknowledge', 'Acknowledged.')} loading={busy}><CheckCircle2 className="h-4 w-4" aria-hidden />Acknowledge</Button>}
+      {w.acknowledge && <Button size={size} variant={size === 'xs' ? 'soft' : 'primary'} onClick={() => run('acknowledge', 'Acknowledged.')} loading={busy} data-tutorial="counseling-acknowledge"><CheckCircle2 className="h-4 w-4" aria-hidden />Acknowledge</Button>}
       <ConfirmDialog open={asking} onOpenChange={setAsking} title="Finalize this counseling?" danger={false} confirmLabel="Finalize" loading={busy}
         body={<p className="text-sm leading-relaxed text-ink-2">The Marine is asked to acknowledge it. Once final its words change only by amendment, which keeps what it said before, and it is shared as you placed it.</p>}
         onConfirm={async () => { await run('finalize', 'Finalized. The Marine is asked to acknowledge it.'); setAsking(false); }} />

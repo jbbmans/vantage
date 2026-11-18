@@ -77,7 +77,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
       eyebrow={place.group}
       title="Packages"
       lede="Each saved version records which facts it was built from. Exporting hands over exactly what was reviewed."
-      actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>}
+      actions={<Button variant="primary" onClick={() => setCreating(true)} data-tutorial="package-new"><Plus className="h-4 w-4" />New report</Button>}
     >
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -120,7 +120,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
               ['Choose the period', 'and the records the package should cite.'],
               ['Write against them', 'with each line beside the entries it came from.'],
               ['Save a revision', 'Vantage re-reads every cited record as it saves, and asks you to read any that changed first.'],
-              ['Export it', 'as a PDF: exactly the revision that was reviewed, for the reporting senior.'],
+              ['Export it', 'as a text file: exactly the revision that was reviewed, with the records it cites.'],
             ].map(([lead, rest], i) => (
               <li key={lead} className="flex gap-3">
                 <span className="fig flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold text-ink-2 ring-1 ring-line">{i + 1}</span>
@@ -134,7 +134,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
 
       <Dialog
         open={creating} onOpenChange={setCreating} title="New report" size="sm"
-        description="Name it and pick the period it covers. Both can change before you save a revision."
+        description="Name it and pick the period it covers. The title can change later; the period stays as you set it here, and only records dated inside it can be cited."
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={create}>Start</Button></>}
       >
         <Field label="Title"><Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${range.label} input`} /></Field>
@@ -213,14 +213,30 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
 
   const acceptNewFacts = async () => {
     const fresh = await query.refetch();
+    // The new facts did not arrive: nothing is read, so the refusal and its button stay.
+    if (fresh.isError) { toast.error(api.errorText(fresh.error)); return; }
     const current: any[] = fresh.data?.sources || sources;
+    // The refusal says what each record it names is now. One deleted (or moved to another kind) stops being cited: kept,
+    // every save would be refused for it again. The rest are read at the version they are now.
+    const listed = stale ?? [];
+    const gone = new Set<string>(listed.filter((s) => s.actual_version == null).map((s) => String(s.id)));
+    if (gone.size) {
+      setSelected((prev) => new Set([...prev].filter((sid) => !gone.has(sid))));
+      setSections((prev) => prev.map((s) => ({ ...s, source_ids: s.source_ids.filter((sid) => !gone.has(sid)) })));
+    }
     setVersions((v) => {
       const next = { ...v };
+      // The refusal's version first, then the list just fetched, which is newer where it holds the record (it may have
+      // changed again since the refusal); the refusal's stands for a record the list does not reach.
+      for (const s of listed) if (s.actual_version != null) next[s.id] = s.actual_version;
       for (const s of current) if (next[s.id] != null) next[s.id] = s.version;
+      for (const sid of gone) delete next[sid];
       return next;
     });
     setStale(null);
-    toast.success('Reading against the current facts.');
+    toast.success(gone.size
+      ? `Reading against the current facts. ${gone.size === 1 ? 'One record you cited was deleted or moved, so it is' : `${gone.size} records you cited were deleted or moved, so they are`} no longer cited.`
+      : 'Reading against the current facts.');
   };
 
   const save = async () => {
@@ -276,7 +292,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
       >
         <Button onClick={() => setHistory(true)}><History className="h-4 w-4" />History</Button>
         {draft.latest_revision > 0 && <Button onClick={() => exportRevision(draft.latest_revision)}><Download className="h-4 w-4" />Export revision {draft.latest_revision}</Button>}
-        <Button variant="primary" loading={busy} disabled={!mine || selected.size === 0} onClick={save}><Check className="h-4 w-4" />Save revision</Button>
+        <Button variant="primary" loading={busy} disabled={!mine || selected.size === 0} onClick={save} data-tutorial="package-save"><Check className="h-4 w-4" />Save revision</Button>
       </PageHeader>
 
       {stale && stale.length > 0 && (
@@ -334,7 +350,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
               }
             >
               <Textarea
-                aria-label={`${section.heading} text`}
+                aria-label={`${section.heading} text`} data-tutorial="package-section"
                 className="doc-body border-0 bg-transparent px-0 py-0 focus:shadow-none"
                 rows={Math.max(4, Math.ceil(section.body.length / 90))}
                 value={section.body}
@@ -358,7 +374,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
           <Button onClick={() => setSections((prev) => [...prev, { heading: 'New section', body: '', source_ids: [] }])}><Plus className="h-4 w-4" />Add a section</Button>
         </div>
 
-        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="Every claim traces to one of these. Click one to check it." action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)}>Choose</Button>}>
+        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="Every claim traces to one of these. Click one to check it." action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)} data-tutorial="package-cite">Choose</Button>}>
           {chosen.length === 0 ? (
             <EmptyState title="Nothing cited yet" description="Pick the records this report is built from. A report cannot be saved without them." action={<Button onClick={() => setPicker(true)}>Choose records</Button>} />
           ) : (
@@ -396,7 +412,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
         footer={<Button variant="primary" onClick={() => setPicker(false)}>Use {selected.size} selected</Button>}
       >
         {sources.length === 0 ? (
-          <EmptyState title="Nothing in this period" description="Widen the report's period, or log the work first." />
+          <EmptyState title="Nothing in this period" description="Nothing you logged is dated inside this report’s period. Log the work first, or start a new report for a wider period." />
         ) : (
           <ul className="divide-y divide-line">
             {sources.map((s) => (

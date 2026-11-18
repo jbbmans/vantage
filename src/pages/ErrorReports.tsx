@@ -104,7 +104,7 @@ export default function ErrorReports() {
   return (
     <PageShell
       eyebrow={place.group} title="Error reports" lede={lede}
-      actions={canFile && overview.data ? <Button variant="primary" onClick={() => startFiling()}><Upload className="h-4 w-4" aria-hidden />File a report</Button> : null}
+      actions={canFile && overview.data ? <Button variant="primary" onClick={() => startFiling()} data-tutorial="error-reports-file"><Upload className="h-4 w-4" aria-hidden />File a report</Button> : null}
     >
       {overview.isPending ? <Skeleton className="h-64" />
         : overview.isError || !overview.data ? (
@@ -158,7 +158,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
               <td className={cn('fig text-right', change != null && change > 0 && 'text-bad', change != null && change < 0 && 'text-good')}>
                 {change == null ? <span className="text-ink-3">First report</span> : change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${formatNumber(change)}`}
               </td>
-              <td className="text-right"><Button size="sm" onClick={() => onOpen(s.unit_id, s.type_id)} aria-label={`Open the ${s.code} reports of ${s.unit_name}`}>Open<ArrowRight className="h-3.5 w-3.5" aria-hidden /></Button></td>
+              <td className="text-right"><Button size="sm" onClick={() => onOpen(s.unit_id, s.type_id)} data-tutorial="error-reports-series" aria-label={`Open the ${s.code} reports of ${s.unit_name}`}>Open<ArrowRight className="h-3.5 w-3.5" aria-hidden /></Button></td>
             </tr>
           );
         })}
@@ -238,7 +238,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
             <Select value={r.after.id} onValueChange={(v) => setQuery({ report: v, against: '' })} options={live.map((s) => ({ value: s.id, label: `${day(s.as_of)} · ${s.filename}` }))} />
           </Field>
           <Field label="Compared with" hint={r.before ? `${r.before.filename} · ${plural(r.before.open_count, 'open error')}` : 'No earlier report stands in this series.'}>
-            <Select value={r.before?.id ?? ''} disabled={!earlier.length} onValueChange={(v) => setQuery({ against: v })} placeholder="No earlier report"
+            <Select value={r.before?.id ?? ''} disabled={!earlier.length} onValueChange={(v) => setQuery({ against: v })} placeholder="No earlier report" data-tutorial="error-reports-compare"
               options={earlier.map((s, i) => ({ value: s.id, label: `${day(s.as_of)}${i === 0 ? ' (the one before)' : ''}` }))} />
           </Field>
         </div>
@@ -383,7 +383,7 @@ function FigureCard({ figure: f, disabled, onOpen }: { figure: ErrorFigure; disa
   const text = figureText(f);
   const sub = f.cents != null ? formatCents(f.cents, { signed: f.id === 'amount_changed' }) : null;
   return (
-    <button type="button" disabled={disabled} onClick={onOpen} aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
+    <button type="button" disabled={disabled} onClick={onOpen} data-tutorial="error-reports-figure" aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
       className={cn('card flex h-full min-w-0 flex-col justify-between p-4 text-left', f.kind === 'money' && 'col-span-2 md:col-span-1', !disabled && 'card-hover', disabled && 'cursor-default')}>
       <span className="line-clamp-2 text-sm font-medium leading-snug text-ink-2">{f.label}</span>
       <span className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2">

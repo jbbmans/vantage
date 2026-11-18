@@ -183,3 +183,22 @@ one per record, and nothing anyone is asked to do can be turned off.
 and for WCAG 2.2 AA tested with Playwright and axe. **Skeptic.** "Show more" adds a click, and a 60-second-old chain
 status could miss a break for a minute. **Judge.** BUILD. Nothing is hidden without saying so, and a break is still
 found by every explicit check and by the next first page.
+
+## PD-018 · Tutorials: offered where the task is, never opened by themselves
+
+**Decision.** Twelve short tutorials, one task each, with the names the specification gives (ADR-0034). These are
+defaults John can change, without a decision card:
+- **Nothing opens by itself.** A page offers its tutorial in one line under its title; Help → Field guide, its search
+  and ⌘K list them all; Today's Getting started card links to the first.
+- **The line under titles is on by default,** and anyone can turn it off in Settings → Appearance → Tutorials.
+- **A finished tutorial is marked** wherever it is offered, on every device (it is kept with the person's settings), and
+  can be taken again.
+- **The films stay,** each saying it was recorded before the current look; the tutorials follow the build.
+- **A step is offered only to those it is for:** a counselor's steps to counselors, a reviewer's to reviewers. The server
+  still decides every action.
+
+**Why.** The specification asks for short task-based tutorials and contextual guidance over one giant walkthrough.
+**Skeptic.** A line under every title is one more thing on the page, and a tutorial that never opens may never be found.
+**Judge.** BUILD. The line is one short row that names the task, it can be turned off, and the Field guide and search
+still find every tutorial.
+

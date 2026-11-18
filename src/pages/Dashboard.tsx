@@ -74,7 +74,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
-          <Panel title="Your work" subtitle="What you are asked, what you hold, and the next useful step on each" padded={false}
+          <Panel title="Your work" subtitle="What you are asked, what you hold, and the next useful step on each" padded={false} data-tutorial="today-your-work"
             action={<Link to="/record" className="text-xs text-accent hover:underline">Your record</Link>}>
             {askedOfYou.length > 0 && <RequestGroup title="Asked of you" side="asked_of_you" rows={askedOfYou} />}
             {requests.isError && !requests.data && <RequestsFailed onRetry={() => requests.refetch()} />}

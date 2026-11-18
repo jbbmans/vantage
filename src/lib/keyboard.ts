@@ -40,7 +40,8 @@ export function centerInStrip(item: Element | null | undefined, strip: Element |
 }
 
 /**
- * Keeps the control that keyboard focus lands on clear of the sticky header and the phone's tab bar (WCAG 2.4.11).
+ * Keeps the control that keyboard focus lands on clear of the sticky header, the phone's tab bar and an open tutorial
+ * (WCAG 2.4.11).
  * Chromium scrolls a focused control just into view and does not apply scroll-padding to it, so a control at the edge
  * of the screen landed under the bar. A frame after focus moves, the page scrolls by what is still covered. Focus from
  * a pointer is left alone (nobody can tap through the bar), and so are controls that sit in the chrome themselves, in
@@ -59,7 +60,10 @@ export function keepFocusClear(): () => void {
     const header = document.querySelector<HTMLElement>('header.sticky');
     const bar = document.querySelector<HTMLElement>('nav.tabbar');
     const top = header ? header.getBoundingClientRect().bottom + GAP : 0;
-    const bottom = bar && getComputedStyle(bar).display !== 'none' ? bar.getBoundingClientRect().top - GAP : window.innerHeight;
+    let bottom = bar && getComputedStyle(bar).display !== 'none' ? bar.getBoundingClientRect().top - GAP : window.innerHeight;
+    // An open tutorial sits at the foot of the screen (ADR-0034): a control in the columns it covers is kept above it.
+    const tutorial = document.querySelector<HTMLElement>('[data-tutorial-panel]')?.getBoundingClientRect();
+    if (tutorial?.height && tutorial.left < rect.right && tutorial.right > rect.left) bottom = Math.min(bottom, tutorial.top - GAP);
     // A control taller than the room between them shows its top.
     if (rect.top < top) window.scrollBy({ top: rect.top - top, behavior: 'instant' });
     else if (rect.bottom > bottom) window.scrollBy({ top: Math.min(rect.bottom - bottom, rect.top - top), behavior: 'instant' });

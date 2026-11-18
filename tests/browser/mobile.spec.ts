@@ -36,6 +36,9 @@ test('phone layout: drawer navigation, card records, and the tab bar log button'
 });
 
 test('F1/KB-04: the phone menu is a dialog named Menu that holds focus while open and hands it back when it closes', async ({ page, request }) => {
+  // Still: axe reads the page behind the menu too, and Today's cards fade in one after another for a second or so; read
+  // mid-fade, their text is paler than it is (this failed on main as well, d8471cb).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
   const opener = page.getByRole('button', { name: 'Open menu' });

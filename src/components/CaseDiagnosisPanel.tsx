@@ -78,7 +78,7 @@ function SectionBlock({ section }: { section: DiagnosisSection }) {
 function Sources({ d }: { d: CaseDiagnosis }) {
   return (
     <details className="rounded-xl ring-1 ring-inset ring-line">
-      <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-ink">Sources weighed, in order</summary>
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-ink" data-tutorial="case-diagnosis-sources">Sources weighed, in order</summary>
       <ol aria-label="Sources weighed, in order" className="divide-y divide-line px-3 pb-2">
         {d.sources.map((p) => (
           <li key={p.authority} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-1.5 text-xs">
@@ -119,7 +119,7 @@ function ExampleBlock({ itemId, example, onChanged }: { itemId: string; example:
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl bg-surface-2/70 px-3.5 py-2.5 text-sm ring-1 ring-inset ring-line">
       <span className="min-w-0 flex-1 text-ink-2">This case was resolved and verified. A leader of its unit who did not resolve it may hold it up as an example for the next one like it.</span>
-      <Button size="sm" onClick={() => setOpen(true)}><BadgeCheck className="h-4 w-4" />Validate as an example</Button>
+      <Button size="sm" onClick={() => setOpen(true)} data-tutorial="case-diagnosis-example"><BadgeCheck className="h-4 w-4" />Validate as an example</Button>
       <Dialog open={open} onOpenChange={setOpen} size="md" title="Validate as an example"
         description="Diagnoses of cases of the same issue type in this Unit Instance will offer it, ranked below official guidance, the command’s SOPs and the training reference, and only to readers who may open this case."
         footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" disabled={!text.trim()} onClick={async () => { if (await run(() => api.validateCaseExample(itemId, { text: text.trim(), section }), 'Validated. Cases like it will offer it.')) { setOpen(false); setText(''); } }}>Validate</Button></>}>
@@ -138,11 +138,11 @@ function ExampleBlock({ itemId, example, onChanged }: { itemId: string; example:
 
 export default function CaseDiagnosisPanel({ itemId, diagnosis: d, example, onChanged }: { itemId: string; diagnosis: CaseDiagnosis; example: ExampleState; onChanged: () => void }) {
   return (
-    <Panel id="diagnosis" title="Diagnosis" subtitle="Worked out by rules from what is on this case and on file. No AI wrote it. Every statement says how it is known, and every recommendation names its source."
+    <Panel id="diagnosis" data-tutorial="case-diagnosis" title="Diagnosis" subtitle="Worked out by rules from what is on this case and on file. No AI wrote it. Every statement says how it is known, and every recommendation names its source."
       action={<Badge title={`${d.engine.key} ${d.engine.version}, as of ${d.as_of}`}><ListChecks className="h-3.5 w-3.5" aria-hidden />Rules v{d.engine.version}</Badge>}>
       <div className="space-y-4">
         <p className="text-base font-medium leading-relaxed text-ink">{d.headline}</p>
-        <ul aria-label="How each statement is known" className="flex flex-wrap gap-1.5">
+        <ul aria-label="How each statement is known" data-tutorial="case-diagnosis-labels" className="flex flex-wrap gap-1.5">
           {STATEMENT_LABELS.map((l) => (
             <li key={l} className="flex items-center gap-1 text-xs text-ink-2"><LabelChip label={l} /><span className="fig">{d.counts[l]}</span></li>
           ))}

@@ -36,10 +36,21 @@ export const HELP: HelpSection[] = [
         q: 'What should I do in my first week?',
         a: [
           'Log one thing a day, at the end of the day, for five days. Press N from anywhere and write a sentence.',
-          'At the end of the week open Reports and look at what it produced. That tells you whether your entries carry numbers and outcomes, which is the only thing that matters about them.',
+          'At the end of the week open Reports & Analytics → Analysis and look at what it produced. That tells you whether your entries carry numbers and outcomes, which is the only thing that matters about them.',
+          'To learn one part of Vantage at a time, take its tutorial: Help → Field guide lists them under Tutorials, starting with Getting started.',
           'Do not try to backfill six months of history first. It is the fastest way to give up, and reconstructed entries are the weakest ones you will have.',
         ],
         also: ['getting started', 'onboarding', 'begin'],
+      },
+      {
+        id: 'tutorials',
+        q: 'Is there a tutorial?',
+        a: [
+          'One for each task, and each takes a few minutes: getting started, logging work, personnel, import and export, error reports, case diagnosis, duty, training, certificates, counselings, reports and analytics. You see only the ones for what you may do.',
+          'A page that has one names it under its title, and Tutorials, near the top of this guide, lists them all. A tutorial opens beside the page rather than over it and takes you to the screens it is about, so you do the task as you read it; Show me points at each control.',
+          'Turn the line under page titles off in Settings → Appearance. Search (⌘K) still finds every tutorial by name.',
+        ],
+        also: ['tutorial', 'walkthrough', 'how to', 'learn', 'guide', 'tour', 'training on vantage'],
       },
       {
         id: 'strong-entry',
@@ -55,8 +66,8 @@ export const HELP: HelpSection[] = [
         id: 'record-count',
         q: 'Does logging more make me look better?',
         a: [
-          'No, and Vantage will not tell you it does. Record count is never reported as productivity anywhere in the product, and there are no streaks.',
-          'Twelve entries with numbers and outcomes beat ninety without. The dashboard reports what the work produced, not how many rows you typed.',
+          'No. Analysis shows how many entries you logged so you can see how complete your record is, but its headline figures are what the work produced, and there are no streaks.',
+          'Twelve entries with numbers and outcomes beat ninety without. Today and Analysis lead with what the work produced; a count of your entries is a tally, not a rating.',
         ],
         also: ['how many', 'gamification'],
       },
@@ -81,9 +92,9 @@ export const HELP: HelpSection[] = [
         id: 'who-can-see',
         q: 'Who can see my records?',
         a: [
-          'Every record is private by default. Only you can see it. Leaders, Unit Managers and Vantage staff cannot read a private entry through the application.',
-          'Marking a record "shared with unit" makes it visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard.',
-          'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security. You do not have to ask anyone what they looked at.',
+          'A new entry starts private, so only you can see it, unless you set New entries are to shared in Settings → Appearance; you choose for each entry under Who can see this. Leaders, Unit Managers and Vantage staff cannot read a private entry through the application.',
+          'Choosing Share with unit under Who can see this makes a record visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard. Files on it, such as a training’s certificate, are open to exactly the same people. Some records are shared from the start: duty, with the unit it was stood for, and a counseling or award recommendation a leader writes for you, with the unit it was written in.',
+          'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security, in Who has looked at your record. You do not have to ask anyone what they looked at.',
         ],
         also: ['privacy', 'visibility', 'private', 'share', 'leader see'],
       },
@@ -91,7 +102,7 @@ export const HELP: HelpSection[] = [
         id: 'leaving-unit',
         q: 'What happens to my records if I leave the unit?',
         a: [
-          'Entries you shared with that unit are frozen. They stay on your record permanently; they stop appearing to the unit you left.',
+          'Entries you shared with that unit are frozen: they stay on your record, and they stay with that unit, read-only, as the record of work done for it, where its leaders who hold View shared records can still read them. Nobody can edit them any more.',
           'Nothing you wrote is deleted by a transfer, and nothing private was ever visible to them in the first place.',
         ],
         also: ['transfer', 'pcs', 'move unit'],
@@ -100,7 +111,7 @@ export const HELP: HelpSection[] = [
         id: 'offline',
         q: 'Can I log something with no signal?',
         a: [
-          'Yes. Entries queue on the device and sync when the network returns. The header shows a count of anything still waiting.',
+          'Yes, from Log activity. With no connection its button reads Queue offline: the activity waits on this device and is sent when the connection returns. The header says Offline meanwhile, and once you are back online anything still waiting shows as a count you can open.',
           'The queue is per account on that device, so signing out does not hand your unsent entries to the next person who signs in.',
         ],
         also: ['no internet', 'airplane', 'sync', 'outbox'],
@@ -109,8 +120,8 @@ export const HELP: HelpSection[] = [
         id: 'delete',
         q: 'I deleted something by mistake.',
         a: [
-          'Deleted records go to a recycle bin rather than disappearing. Open Records → Activities, press Filters, and set the quality filter to Recycle bin (30 days) to find and restore it.',
-          'The bin is purged on a schedule set by the deployment owner, so recover it sooner rather than later.',
+          'Deleted records go to a recycle bin for 30 days rather than disappearing. For an activity, open Records → Activities, press Filters, and set the quality filter to Recycle bin (30 days) to find and restore it; for a training, an award or a counseling, use Undo on the message that confirms the delete.',
+          'After 30 days a deleted entry is removed for good, unless a legal hold keeps it, so recover it sooner rather than later.',
         ],
         also: ['undo', 'recycle bin', 'restore', 'recover'],
       },
@@ -118,8 +129,8 @@ export const HELP: HelpSection[] = [
         id: 'csv',
         q: 'Can I import or export a spreadsheet of records?',
         a: [
-          'Yes, both. Records → Activities → Import activities brings rows in, and the CSV export round-trips: a file exported from Vantage can be edited and imported back without creating duplicates, because rows carry a Vantage ID.',
-          'A row with no Vantage ID is treated as new. A row with one updates the record it names.',
+          'Yes, both. Records → Activities has Import activities and Export activities, and that CSV round-trips: a file exported from Vantage can be edited and imported back without creating duplicates, because rows carry a Vantage ID. Awards, training, counselings and duty each have Import and Export on their own page, and Import records in Settings → Your data reads every kind at once.',
+          'A row with a Vantage ID updates your own entry. A row without one is added as new, unless it looks like an entry you already logged: those are skipped while Skip rows that look like entries already logged is ticked, as it is at first.',
         ],
         also: ['excel', 'upload', 'download', 'bulk'],
       },
@@ -135,7 +146,7 @@ export const HELP: HelpSection[] = [
         id: 'workbook',
         q: 'How do I bring a workbook in?',
         a: [
-          'Work → Queue → Import work walks you through it. The file is quarantined and read, never executed: no macros, no external links, cached values only. Your original file is never modified.',
+          'Work → Queue → Import work brings taskers and cases into the queue and walks you through it. The file is quarantined and read, never executed: no macros, no external links, cached values only. Your original file is never modified. A workbook of your own records, such as awards, training or duty, goes through Import records in Settings → Your data instead.',
           'You see exactly what would be written before anything is written. Nothing lands until you say so.',
         ],
         also: ['excel', 'xlsx', 'spreadsheet', 'import'],
@@ -144,7 +155,7 @@ export const HELP: HelpSection[] = [
         id: 'reimport',
         q: 'What happens if I import the same file twice?',
         a: [
-          'Nothing. An identical reimport creates no duplicate work. This is deliberate — it means you can re-run an import you were unsure about without cleaning up afterwards.',
+          'Nothing, as long as you import it for the same unit, or for Just me, as before. Each row is matched by the column you chose to identify it, so an identical reimport creates no duplicate work, and you can re-run an import you were unsure about without cleaning up afterwards.',
         ],
         also: ['duplicate', 'twice', 'again'],
       },
@@ -152,17 +163,35 @@ export const HELP: HelpSection[] = [
         id: 'mangled-id',
         q: 'The spreadsheet wrecked my document numbers.',
         a: [
-          'Vantage refuses those rows and tells you which ones and why, rather than guessing at a repair. An identifier a spreadsheet has turned into a date or trimmed the leading zeros off is not recoverable by inference, and a silently "fixed" identifier is worse than a rejected one.',
-          'Fix the column formatting in the source file and reimport.',
+          'Vantage refuses a row whose identifier the spreadsheet stored in scientific notation, made too long to hold exactly, or replaced with an error such as #REF!, and tells you which rows and why, rather than guessing at a repair. A silently "fixed" identifier is worse than a rejected one.',
+          'It cannot tell when a spreadsheet turned an identifier into a date or trimmed its leading zeros, so check those columns. Format the column as Text in the source system, export the file again, and reimport it.',
         ],
         also: ['scientific notation', 'leading zeros', 'mangled', 'rejected'],
+      },
+      {
+        id: 'error-reports',
+        q: 'How do I compare this week’s ULO report with last week’s?',
+        a: [
+          'Work → Error reports, if you read the unit’s shared records. File a report files the ULO, OCMT, UMT or another kind of report as it stood on its day, and the next one of its kind is compared with it: what is new, still open, reopened or resolved.',
+          'Every figure opens the rows it counts, each with the file and row it came from. Filing a report never creates or changes a case; where the unit imported the same report into its queue, a row leads to its case.',
+        ],
+        also: ['ulo', 'ocmt', 'umt', 'error report', 'compare', 'unliquidated'],
+      },
+      {
+        id: 'case-diagnosis',
+        q: 'How does Vantage diagnose a case, and can I trust it?',
+        a: [
+          'By rules, from what is on the case and on file; no AI writes it. Each statement says how it is known: a known fact, a derived value, a recommendation, an unknown, or a decision a person must make.',
+          'A recommendation names its source, and sources are weighed in order: official policy first, then official system guidance, an approved command SOP (which binds its own command only), a validated SME workflow, the FMRAC training reference, a validated historical case, an SME walkthrough not yet validated, and inference last. Work → Reference reads a balance and opens it as a case under the procedure that fits.',
+        ],
+        also: ['diagnosis', 'diagnoser', 'provenance', 'sop', 'policy', 'recommendation', 'fmra', 'balance'],
       },
       {
         id: 'claim',
         q: 'What does claiming a row do?',
         a: [
-          'It marks the row as yours so two people do not work it at once, and it is what lets the action you take write into your own record when you finish.',
-          'That is the point of the queue: the work and the evidence of the work are the same keystroke.',
+          'It marks the case as yours, so two people do not work it at once, and whoever holds a case records on it. Claiming alone is not credit for anything.',
+          'Each step you record is credited to you in Records → Contributions as you record it, so the work and the evidence of the work are the same keystroke. On a case you worked, Prepare a private draft from my work puts a draft in Records → Drafts to keep in your record.',
         ],
         also: ['assign', 'take', 'own'],
       },
@@ -199,7 +228,7 @@ export const HELP: HelpSection[] = [
         id: 'report-kinds',
         q: 'What can Vantage produce?',
         a: [
-          'A narrative written to the character limit, a bullet package, a period-over-period comparison, and a full analysis with a working-paper PDF. All four are built from the same entries.',
+          'On Analysis, a narrative written to the character limit, a bullet package, a period-over-period comparison and a full analysis, all built from the same entries, with an analysis PDF. On Packages, an evaluation package written against the records it cites, saved as revisions. In the Report library, reports about you, a Marine or a unit, to print or take as a file.',
           'The CSV export round-trips back into import, so a report is never a dead end.',
         ],
         also: ['jepes', 'fitrep', 'pdf', 'narrative', 'bullets'],
@@ -218,7 +247,7 @@ export const HELP: HelpSection[] = [
         id: 'provenance',
         q: 'What happens if a record changes after I cited it?',
         a: [
-          'The save is refused, and you are shown what changed. Once you have read it, the save goes through.',
+          'The save is refused, and the records that changed are listed; select one under the cited records to see it as it stands now. Once you select I have read the updated facts, save again: a record that was deleted or moved is no longer cited, and the rest are read as they stand now. If none is left, choose another before you save.',
           'This is enforced on the server inside the same transaction as the save, so an exported revision is provably the thing that was reviewed rather than a snapshot that drifted.',
         ],
         also: ['provenance', 'changed', 'stale', 'revision'],
@@ -252,7 +281,8 @@ export const HELP: HelpSection[] = [
         id: 'unit-dashboard',
         q: 'What does the unit dashboard show?',
         a: [
-          'Only entries people shared with the unit. It is built from shared records and nothing else, so a quiet dashboard may mean a quiet week or may mean nobody shared anything — and those are different problems.',
+          'Its Output tab counts only entries people shared with the unit, and Casework, Duty and Training count only the cases, duty and training shared with it. Personnel is the roster as it stands today.',
+          'A quiet figure may mean a quiet window or may mean nobody shared anything, and those are different problems. A figure that is a button, such as a total, a bar or a column, opens the records it counts, where you may read them. Some, such as Members and Needs attention on the Output tab, are counts only and open nothing.',
         ],
         also: ['team view', 'roster', 'workload'],
       },
@@ -260,7 +290,7 @@ export const HELP: HelpSection[] = [
         id: 'roles',
         q: 'How do roles work?',
         a: [
-          'Roles are per unit. A role you hold in one unit confers nothing in another, including sub-units. The unit leader holds every permission inside that unit.',
+          'A role is granted in one unit. A role above the default Marine role also applies in every unit beneath that one, never above it; the Marine role stays in its own unit. The unit leader holds every permission in that unit and the units beneath it, except approving their own duty, which only a role that names it gives.',
           'Authorization is decided on the server from your session. A hidden button is not a permission, and nothing is granted by the interface.',
         ],
         also: ['permission', 'admin', 'access'],
@@ -272,7 +302,7 @@ export const HELP: HelpSection[] = [
           'Write a counseling from the Marine’s page. Save it as a draft only you see, share it with the Marine for review, or finalize it. A Marine reads a draft you shared and answers in its comments; they acknowledge it once it is final. What the two of you say in its comments before it is final stays between you.',
           'Once final, a counseling changes only by amendment: say what changed and why. What it said before is kept in its amendment history, and the Marine is asked to acknowledge the amended text. Acknowledging means they read it, not that they agree.',
           'Print a counseling, or download it as a PDF, on the COUNSELING WORKSHEET: sections A to G, each Vantage field in its box. Boxes Vantage does not hold, such as date of rank, billet MOS and the signatures, stay blank, and the PDF lets you type into them. The record stays the source; the PDF is one way to read it.',
-          'Each EDIPI box prints that person’s EDIPI from their own Vantage profile: the one on their account (from their CAC or their unit’s roster), or one they typed in Settings → Profile. If yours is not there, Vantage asks for it before you print or download, and saves it to your profile. Nobody else can set yours, it is never used to sign in, and the screen only ever shows its last four digits. It prints only on the copy for the Marine and the counselor.',
+          'Each EDIPI box prints that person’s EDIPI from their own Vantage profile: the one on their account (from their CAC or their unit’s roster), or one they typed in Settings → Profile. If yours is not there, Vantage asks for it before you print or download, and saves it to your profile. Nobody else can set yours, and it is never used to sign in. Vantage shows only its last four digits, except on the print page and in the PDF, which print it whole, and only on the copy for the Marine and the counselor.',
           'Your own notes of a counseling you received are always final and yours to edit.',
         ],
         also: ['acknowledge', 'counsel', '6105', 'navmc 2795', 'worksheet', 'counseling worksheet', 'edipi', 'amend', 'draft'],
@@ -281,8 +311,8 @@ export const HELP: HelpSection[] = [
         id: 'invite',
         q: 'How do I add somebody?',
         a: [
-          'Invitations are links valid for seven days. If email is configured on the deployment they are sent for you; otherwise copy the link and hand it over.',
-          'You can also enrol an account that already exists on the deployment into your unit.',
+          'Invitations are links that work once, for seven days. Enter an email address and, where email is set up, Send invitation emails it; otherwise Create link gives you a link to copy and hand over.',
+          'A join code, made on Administration → Invitations, lets a whole formation join at once: each Marine enters it in Settings, under Join with a code. Enroll an existing account, on Personnel → Roster, adds a Marine you already lead in another unit you manage.',
         ],
         also: ['add marine', 'invitation', 'join'],
       },
@@ -322,7 +352,7 @@ export const HELP: HelpSection[] = [
         id: 'audit',
         q: 'How do I see who looked at my record?',
         a: [
-          'Settings → Security carries the access log. Every read of your record by somebody else is in it.',
+          'Settings → Security lists it under Who has looked at your record. Every open of your record by somebody else is in it, a download of a file on one of your records included.',
         ],
         also: ['access log', 'who viewed', 'audit'],
       },

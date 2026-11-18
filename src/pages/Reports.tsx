@@ -81,7 +81,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
         <Select aria-label="Evaluation system" className="w-auto min-w-[10rem]" value={track || 'auto'} onValueChange={(v) => setTrack(v === 'auto' ? '' : (v as Track))} options={[{ value: 'auto', label: `By rank (${meta.name})` }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} />
         <Select aria-label="Bullet style" className="w-36" value={style} onValueChange={(v) => setStyle(v as never)} options={[{ value: 'jepes', label: 'JEPES style' }, { value: 'fitrep', label: 'FITREP style' }, { value: 'resume', label: 'Résumé style' }]} />
         <Select aria-label="Bullets per area" className="w-40" value={String(limit)} onValueChange={(v) => setLimit(Number(v))} options={[4, 8, 12, 20].map((n) => ({ value: String(n), label: `${n} per area` }))} />
-        <Segmented className="sm:ml-auto" label="View" value={view} onChange={(v) => { setView(v); savePrefs.mutate({ reportView: v }); }} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }, { value: 'analysis', label: 'Full analysis' }]} />
+        <Segmented className="sm:ml-auto" label="View" value={view} onChange={(v) => { setView(v); savePrefs.mutate({ reportView: v }); }} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }, { value: 'analysis', label: 'Full analysis', 'data-tutorial': 'analysis-full' }]} />
       </div>
 
       {isPending ? <Skeleton className="h-72" /> : error || !report ? <div className="card"><EmptyState title="Could not build the report" description={api.errorText(error)} /></div> : (

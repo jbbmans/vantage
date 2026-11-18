@@ -331,7 +331,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       title="Queue"
       lede={list.isPending ? 'Loading the queue.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. ${heldByMe ? `You hold ${formatNumber(heldByMe)}.` : 'You hold none of them.'}` : 'Nothing in this view.'}
       actions={<>
-        <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import work</Button>
+        <Button onClick={() => setImporting(true)} data-tutorial="import-work"><Upload className="h-4 w-4" />Import work</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
       </>}
     >
@@ -411,7 +411,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
             description={query.q || query.state || query.claimed || query.procedure ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
             action={query.q || query.state || query.claimed || query.procedure
               ? <Button onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); }}>Clear the filters</Button>
-              : <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import work</Button>}
+              : <Button variant="primary" onClick={() => setImporting(true)} data-tutorial="import-work"><Upload className="h-4 w-4" />Import work</Button>}
           />
         </div>
       ) : (

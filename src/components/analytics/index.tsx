@@ -56,7 +56,7 @@ export function FigureFrame({ question, summary, note, chart, table, empty, acti
         {(actions || (table && !empty)) ? (
           <span className="no-print flex min-w-0 max-w-full flex-wrap items-center gap-2">
             {actions}
-            {table && !empty ? <Segmented size="sm" label="Show as" value={view} onChange={setView} options={[{ value: 'chart', label: 'Chart', id: `${id}-tab-chart`, controls: `${id}-chart` }, { value: 'table', label: 'Table', id: `${id}-tab-table`, controls: `${id}-table` }]} /> : null}
+            {table && !empty ? <Segmented size="sm" label="Show as" value={view} onChange={setView} options={[{ value: 'chart', label: 'Chart', id: `${id}-tab-chart`, controls: `${id}-chart` }, { value: 'table', label: 'Table', id: `${id}-tab-table`, controls: `${id}-table`, 'data-tutorial': 'figure-table' }]} /> : null}
           </span>
         ) : null}
       </figcaption>
@@ -104,7 +104,7 @@ export function BarChart({ visual, onDrill, limit = 10 }: { visual: Visual; onDr
           return (
             <li key={b.key}>
               {drillable(visual, onDrill, b.count)
-                ? <button type="button" className="chart-bar-row chart-hit" aria-label={`${label}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{row}</button>
+                ? <button type="button" className="chart-bar-row chart-hit" data-tutorial="figure-records" aria-label={`${label}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{row}</button>
                 : <div className="chart-bar-row" role="img" aria-label={label}>{row}</div>}
             </li>
           );
@@ -152,7 +152,7 @@ export function ColumnChart({ visual, onDrill, height = 148 }: { visual: Visual;
               );
               const slot = { minWidth: SLOT_MIN };
               return drillable(visual, onDrill, b.counts[i])
-                ? <button key={s.key} type="button" className="chart-col-slot chart-hit" style={slot} title={label} aria-label={`${label}. ${showRecords(visual, b.counts[i], b)}`} onClick={() => onDrill({ visual, bucket: b, series: multi(visual) ? s : null })}>{bar}</button>
+                ? <button key={s.key} type="button" className="chart-col-slot chart-hit" data-tutorial="figure-records" style={slot} title={label} aria-label={`${label}. ${showRecords(visual, b.counts[i], b)}`} onClick={() => onDrill({ visual, bucket: b, series: multi(visual) ? s : null })}>{bar}</button>
                 : <span key={s.key} className="chart-col-slot" style={slot} role="img" title={label} aria-label={label}>{bar}</span>;
             })}
           </div>
@@ -187,7 +187,7 @@ export function RateMeter({ visual, onDrill }: { visual: Visual; onDrill?: OnDri
           return (
             <li key={b.key}>
               {drillable(visual, onDrill, b.count)
-                ? <button type="button" className="chart-chip chart-hit" aria-label={`${b.label}: ${valueOf(visual, b)}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
+                ? <button type="button" className="chart-chip chart-hit" data-tutorial="figure-records" aria-label={`${b.label}: ${valueOf(visual, b)}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
                 : <span className="chart-chip">{body}</span>}
             </li>
           );
@@ -210,7 +210,7 @@ export function KpiTiles({ visual, onDrill }: { visual: Visual; onDrill?: OnDril
           </>
         );
         return drillable(visual, onDrill, b.count)
-          ? <button key={b.key} type="button" className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2" aria-label={`${b.label}: ${valueOf(visual, b)}${b.hint ? `, ${b.hint}` : ''}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
+          ? <button key={b.key} type="button" data-tutorial="figure-records" className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2" aria-label={`${b.label}: ${valueOf(visual, b)}${b.hint ? `, ${b.hint}` : ''}. ${showRecords(visual, b.count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: null })}>{body}</button>
           : <div key={b.key} className="flex min-w-0 flex-col items-start gap-1 px-4 py-3.5">{body}</div>;
       })}
     </div>
@@ -226,7 +226,7 @@ export function FigureTable({ visual, onDrill, first }: { visual: Visual; onDril
     const text = i == null ? valueOf(visual, b) : valueOf(visual, b, i);
     if (!drillable(visual, onDrill, count)) return text;
     const s = i == null ? null : visual.series[i];
-    return <button type="button" className="link fig" aria-label={`${b.label}${s ? `, ${s.label}` : ''}: ${text}. ${showRecords(visual, count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: s })}>{text}</button>;
+    return <button type="button" className="link fig" data-tutorial="figure-records" aria-label={`${b.label}${s ? `, ${s.label}` : ''}: ${text}. ${showRecords(visual, count, b)}`} onClick={() => onDrill({ visual, bucket: b, series: s })}>{text}</button>;
   };
   return (
     <ScrollRegion label={visual.question}>

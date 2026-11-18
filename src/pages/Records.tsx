@@ -130,8 +130,8 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       lede="Everything you logged yourself, in one place. Filter, fix, and export."
       actions={<>
         <Button onClick={() => setImportOpen('1')}><Upload className="h-4 w-4" />Import activities</Button>
-        <Button onClick={exportCsv}><Download className="h-4 w-4" />Export activities</Button>
-        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New activity</Button>
+        <Button onClick={exportCsv} data-tutorial="export-activities"><Download className="h-4 w-4" />Export activities</Button>
+        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))} data-tutorial="new-activity"><Plus className="h-4 w-4" />New activity</Button>
       </>}
     >
       {identity && <MoveSuggestions userId={identity.user.id} onMove={openMove} />}
@@ -140,7 +140,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
-          <Button onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters">
+          <Button onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters" data-tutorial="activity-filters">
             <SlidersHorizontal className="h-4 w-4" />Filters{activeFilters ? <span className="fig ml-0.5 rounded-full bg-accent px-1.5 text-2xs text-accent-ink">{activeFilters}</span> : null}
           </Button>
           <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
@@ -190,7 +190,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
                   <td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td>
                   <td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td>
                   <td><Tooltip content={a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}><span className="inline-flex text-ink-3">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}</span></Tooltip></td>
-                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label={`Delete ${a.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></>}</span></td>
+                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))} data-tutorial="activity-edit">Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label={`Delete ${a.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></>}</span></td>
                 </tr>
               );
             })}
@@ -209,7 +209,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
                 {mapAreaToTrack(a.eval_area, track) !== 'Unassigned' && <Badge tone="info">{mapAreaToTrack(a.eval_area, track)}</Badge>}
                 {dupIds.has(a.id) && <Badge tone="bad"><AlertTriangle className="h-3 w-3" />Dup?</Badge>}
               </div>
-              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs text-ink-3"><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? unitName(identity, a.unit_id, org) : 'Only you'}</span>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}>Restore</Button> : canEditRow(a) && <span><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(a)}>Delete</Button></span>}</div>
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs text-ink-3"><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? unitName(identity, a.unit_id, org) : 'Only you'}</span>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}>Restore</Button> : canEditRow(a) && <span><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))} data-tutorial="activity-edit">Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(a)}>Delete</Button></span>}</div>
             </article>
           ))}
         </div>

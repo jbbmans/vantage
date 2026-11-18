@@ -13,7 +13,7 @@ export interface DownloadChoice {
 }
 
 /** One Download button with its formats: a record on its own page, or one category of records (ADR-0019). */
-export default function DownloadMenu({ choices, label = 'Download', size = 'md', variant = 'default' }: { choices: DownloadChoice[]; label?: string; size?: 'xs' | 'sm' | 'md'; variant?: 'default' | 'ghost' }) {
+export default function DownloadMenu({ choices, label = 'Download', size = 'md', variant = 'default', 'data-tutorial': tutorial }: { choices: DownloadChoice[]; label?: string; size?: 'xs' | 'sm' | 'md'; variant?: 'default' | 'ghost'; /** The name a tutorial step shows its button by (ADR-0034). */ 'data-tutorial'?: string }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   // The whole of a person's data asks for their password again, as it always has; one record of theirs does not.
@@ -26,7 +26,7 @@ export default function DownloadMenu({ choices, label = 'Download', size = 'md',
   };
   return (
     <Menu>
-      <MenuTrigger asChild><Button size={size} variant={variant} loading={busy}><Download className="h-4 w-4" />{label}</Button></MenuTrigger>
+      <MenuTrigger asChild><Button size={size} variant={variant} loading={busy} data-tutorial={tutorial}><Download className="h-4 w-4" />{label}</Button></MenuTrigger>
       <MenuContent>
         {choices.map((c) => <MenuItem key={c.url} onSelect={() => run(c)}><span className="flex flex-col"><span>{c.label}</span>{c.hint && <span className="text-2xs text-ink-3">{c.hint}</span>}</span></MenuItem>)}
       </MenuContent>

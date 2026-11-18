@@ -4,7 +4,8 @@ import { AlertTriangle, ArrowRight, Check, FileSpreadsheet, ShieldAlert, ShieldC
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Select, Badge, Skeleton, EmptyState, NumberInput } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
-import { useIdentity } from '@/lib/queries';
+import { can, useIdentity } from '@/lib/queries';
+import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { formatNumber } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
@@ -67,7 +68,9 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [job, setJob] = useState<ImportJob | null>(null);
-  const [unitId, setUnitId] = useState(identity?.homeUnitId || '');
+  // Shared work goes only where the person may post it; anyone else starts on Just me rather than on a refusal at preview.
+  const postable = (identity?.memberships || []).filter((m) => can(identity, PERMISSIONS.CREATE_SHARED_WORK, m.unit_id));
+  const [unitId, setUnitId] = useState(postable.some((m) => m.unit_id === identity?.homeUnitId) ? identity!.homeUnitId! : '');
   const [procedure, setProcedure] = useState('none');
   const [runKey] = useState(() => `import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const openedAt = useRef(0);
@@ -198,11 +201,11 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     >
       {step === 'file' && (
         <div className="space-y-4">
-          {identity && identity.memberships.length > 0 && (
-            <Field label="Who is this work for" hint="Shared work needs the authority to post work to that unit. Choose nobody to keep it to yourself.">
+          {postable.length > 0 && (
+            <Field label="Who is this work for" hint="The units listed are those you may post work to. Choose Just me to keep it to yourself.">
               <Select
                 value={unitId} onValueChange={setUnitId}
-                options={[{ value: '', label: 'Just me' }, ...identity.memberships.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))]}
+                options={[{ value: '', label: 'Just me' }, ...postable.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))]}
               />
             </Field>
           )}
