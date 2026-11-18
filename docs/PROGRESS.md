@@ -2,6 +2,43 @@
 
 _Updated 2026-11-18_
 
+## What changed (2026-11-18: the security review's six findings, F01 to F06)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Stage 1 of `Vantage_MCEN_Security_Review_and_Coding_Plan.pdf` (C01 to C05 and C26), before Task 27, on John's choice
+"Security fixes first" ([ADR-0035](engineering/ADR/0035-fresh-authority-across-waits.md)). Migration **041**
+(`041_auth_epoch`, additive: `users.auth_epoch`, `sessions.auth_epoch`, `oidc_states.browser_hash`).
+
+- **Contacts (F01, F02).** One rule for reading a contact and one for changing it. A thread no longer shows a contact
+  its reader may not read; it says "Contact not shared with you". Only a contact's owner makes it private; a manager
+  edits a shared one against the version they read, and moves it only to a unit where they manage records. Every
+  create and change is audited without the contact's words.
+- **Organization sign-in (F03)** completes only in the browser, and on the console, that began it (a host-only binding
+  cookie, its hash stored with the state, checked before anything is spent). A sign-in started under another name for
+  the server first moves, once, to the configured address, so the cookie lands where the provider returns; a late
+  return is told it was late.
+- **Proofs across a reset (F04).** An authentication epoch, advanced with every session wipe: a password, a code
+  challenge or a passkey answer checked across a reset, a sign-out everywhere or a deactivation opens no session and
+  confirms no step-up; a password change is a conditional update.
+- **Exports and drawn PDFs (F05)** decide access again when their turn in the export line comes and before the file
+  leaves; a refusal sends nothing and audits nothing as exported. The FITREP/JEPES input, analysis and counseling
+  worksheet PDFs check at delivery too. An export whose reader has gone is not drawn or audited.
+- **Other waits, found in review.** A full database backup, a course catalog import, an AI assist answer and each page
+  of a mailbox sync also ask again after their wait (a refused backup copy is deleted, and other administrators hear
+  only of a copy handed over; a refused mailbox page is not stored, the mailbox keeps its place, and a mailbox
+  disconnected meanwhile stays disconnected). Adding a passkey commits only on a session still confirmed. A contact
+  edit refused as stale closes its dialog and reloads the list.
+- **Uploads after a scan (F06).** Attachments, saved messages, record imports and intake uploads are kept only if their
+  session is still live by the same idle and absolute deadlines a request meets, asked without renewing it.
+- **Not in this change:** C06 (one sign-in method policy; needs the identity owner's choice) and the review's later
+  stages (C07 onwards).
+- **Tests.** `tests/server/securityStage1.test.ts` (each race held open: a password check, the export line, a drawn
+  PDF, the scanner, a backup copy, a course catalog scan, the AI provider, a passkey's verification), four new
+  organization sign-in tests in `oidc.test.ts`, held mailbox pages in `mailboxAuthorization.test.ts` and
+  `correspondence.test.ts`, the 041 upgrade in `migrations.test.ts`, and a stale contact edit in the
+  `27-finished-features` browser spec; see the handoff (`security-stage1/HANDOFF.md`).
+
 ## What changed (2026-11-18: Task 26, short task-based tutorials)
 
 **Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.

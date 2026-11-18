@@ -285,6 +285,15 @@ function failureReason(error: unknown): string {
   return 'rejected';
 }
 
+/**
+ * After the provider answers (ADR-0035): whether the reader may still reach everything the request was drawn from. The
+ * payload is built again on the account and a scope as they are now, so each workflow's own rule decides; it throws
+ * as building it the first time would have. Nothing is kept.
+ */
+export function assertAiInputStillAllowed(ctx: AppContext, user: SessionUser, workflow: string, input: unknown) {
+  buildPayload(ctx, user, workflow, input, {});
+}
+
 export async function runAiWorkflow(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, requestedModel: unknown, reqKey: object) {
   const startedAt = Date.now();
   try {

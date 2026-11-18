@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, unauthorized } from '../lib/errors.ts';
 import { sessionStands } from '../auth/sessions.ts';
+import { freshAuthority } from '../auth/fresh.ts';
 import { infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -48,20 +49,30 @@ const contactSchema = z.object({
   notes: z.string().max(4000).nullable().optional(),
   visibility: z.enum(['private', 'unit']).optional(),
   unit_id: z.string().max(64).nullable().optional(),
+  // The version the editor read; a change made since is refused rather than overwritten (ADR-0035).
+  version: z.coerce.number().int().min(0).optional(),
 });
 
 correspondenceRouter.get('/contacts', wrap((req, res) => {
   res.json(listContacts(req.ctx, req.user, scopeFor(req.ctx, req.user, req)));
 }));
 
+/** A contact added or changed is audited by what kind of change it was; its name, email, phone and notes stay out of the trail. */
+const auditContact = (req: express.Request, change: ReturnType<typeof saveContact>) =>
+  audit(req.ctx, { actor_id: req.user.id, action: change.action === 'create_contact' ? 'create_contact' : 'edit_contact', entity: 'contacts', entity_id: String(change.contact.id), unit_id: (change.contact.unit_id as string | null) ?? null, detail: change.detail, ip: clientIp(req) });
+
 correspondenceRouter.post('/contacts', wrap((req, res) => {
   const q = parse(contactSchema, req.body);
-  res.status(201).json(saveContact(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q as never));
+  const change = saveContact(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q as never);
+  auditContact(req, change);
+  res.status(201).json(change.contact);
 }));
 
 correspondenceRouter.put('/contacts/:id', wrap((req, res) => {
   const q = parse(contactSchema, req.body);
-  res.json(saveContact(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q as never, String(req.params.id)));
+  const change = saveContact(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q as never, String(req.params.id));
+  auditContact(req, change);
+  res.json(change.contact);
 }));
 
 const listSchema = z.object({
@@ -170,7 +181,7 @@ correspondenceRouter.post('/messages/import', emlBody, wrap(async (req, res) => 
   // The scan awaits. The session that sent the message must still stand, and where the message may go is decided on
   // the sender's memberships and roles as they are now, read afresh, with nothing awaited between that and the write
   // (as an attachment's upload is, ADR-0025).
-  if (!sessionStands(req.ctx, req.sessionId)) throw unauthorized();
+  if (!sessionStands(req.ctx, req.sessionId, req.user.id)) throw unauthorized();
   const scope = scopeFor(req.ctx, req.user);
   const result = importEml(req.ctx, req.user, scope, buffer, {
     threadId: req.get('x-thread-id') || null,
@@ -250,12 +261,14 @@ correspondenceRouter.post('/connectors/:id/sync', wrap(async (req, res) => {
       unitId,
       visibility,
       graphHost: graphHostFor(req.ctx, connector),
+      // After each page from Microsoft, on the session and scope as they are then (ADR-0035).
+      stillAllowed: () => assertPlacement(freshAuthority(req.ctx, req.sessionId, req.user.id).scope, unitId, visibility),
     });
     audit(req.ctx, { actor_id: req.user.id, action: 'sync_mailbox', entity: 'connectors', entity_id: connector.id, detail: `${result.stored} stored, ${result.skipped} already held`, ip: clientIp(req) });
     res.json(result);
   } catch (e) {
     if ((e as { reauthorize?: boolean }).reauthorize) {
-      req.ctx.db.prepare("UPDATE connectors SET status = 'needs_authorization', access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL, last_error = ?, updated_at = ? WHERE id = ?")
+      req.ctx.db.prepare("UPDATE connectors SET status = 'needs_authorization', access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL, last_error = ?, updated_at = ? WHERE id = ? AND status <> 'disconnected'")
         .run('Microsoft Graph stopped accepting this connection’s sign-in. Authorize it again.', new Date().toISOString(), connector.id);
       res.status(409).json({ error: 'Microsoft stopped accepting this mailbox connection. Authorize it again.', code: 'connector_reauthorize' });
       return;

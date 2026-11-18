@@ -1,8 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createServer } from 'node:net';
-import { startApp, enroll, type TestApp } from './helpers.ts';
+import { startApp, enroll, fakeClamd, unanswered, EICAR, type TestApp } from './helpers.ts';
 import { buildZip, readZip } from '../../server/lib/zip.ts';
 import { saveSchedule, runDisposition, placeHold, releaseHold, REDACTED } from '../../server/services/retention.ts';
 import { cleanFilename, filenameFromHeader, inspectAttachment, attachmentDisposition } from '../../server/services/attachments.ts';
@@ -70,58 +69,6 @@ const lineOf = (run: ReturnType<typeof runDisposition>, recordType: string) => r
 const lastRun = (recordType: string) => app.ctx.db.prepare("SELECT * FROM disposition_runs WHERE org_id = 'G8' AND record_type = ? ORDER BY rowid DESC LIMIT 1").get(recordType) as Record<string, any>;
 const titleOf = (table: string, id: string, column = 'title') => (app.ctx.db.prepare(`SELECT ${column} AS t FROM ${table} WHERE id = ?`).get(id) as { t: string }).t;
 
-/**
- * A stand-in for clamd (INSTREAM): finds a file that begins with the EICAR test string, and holds its answer while a
- * gate is shut. It does not look inside archives, which is why an import scans each file a ZIP carries on its own.
- *
- * It keeps its side of the connection open after the scanner client has ended its own (allowHalfOpen), as clamd does:
- * otherwise the connection would close the moment the file had been sent, the client would read that as no verdict,
- * and nothing would be held at all.
- */
-async function fakeClamd() {
-  let hold: Promise<void> = Promise.resolve();
-  let letGo = () => {};
-  let arrived = () => {};
-  const server = createServer({ allowHalfOpen: true }, (socket) => {
-    let data = Buffer.alloc(0);
-    socket.on('error', () => {});
-    socket.on('data', (c) => {
-      data = Buffer.concat([data, c]);
-      if (data.length >= 4 && data.subarray(-4).equals(Buffer.alloc(4))) {
-        // zINSTREAM, a null, the first chunk's four-byte length, then the file.
-        const answer = data.subarray(14).toString('latin1').startsWith(EICAR.toString('latin1')) ? 'stream: Win.Test.EICAR_HDB-1 FOUND\0' : 'stream: OK\0';
-        arrived();
-        void hold.then(() => socket.end(answer));
-      }
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
-  return {
-    address: `tcp://127.0.0.1:${(server.address() as { port: number }).port}`,
-    /** Opens a gate still shut, so a test that fails while a file is held does not wait out the scanner client's timeout. */
-    close: () => { letGo(); server.close(); },
-    /** Shuts the gate: no answer leaves until `release`. `seen` resolves once a file has reached the scanner. */
-    gate() {
-      let release!: () => void;
-      hold = new Promise<void>((r) => { release = r; });
-      letGo = release;
-      const seen = new Promise<void>((r) => { arrived = r; });
-      return { seen, release: () => { hold = Promise.resolve(); release(); } };
-    },
-  };
-}
-const EICAR = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
-
-/**
- * Whether a request is still unanswered after a pause many times longer than a scan nobody held would take. A test that
- * changes something "while the scanner has the file" proves with this that the scanner does have it.
- */
-async function unanswered(request: Promise<unknown>) {
-  let answered = false;
-  void request.then(() => { answered = true; }, () => { answered = true; });
-  await new Promise((r) => setTimeout(r, 150));
-  return !answered;
-}
 
 /** A Vantage whose uploads are scanned by the stand-in: a Marine with a shared training, and an SNCO who may add to it. */
 async function scannedUnit() {

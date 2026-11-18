@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, forbidden, notFound, HttpError } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor, orgOfUnit } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField, formEdipiSchema } from '../../shared/schemas.ts';
@@ -11,7 +11,7 @@ import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
-import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
+import { assertConfirmedProof, assertProofCurrent, credentialsChanged, invalidateUserSessions, listSessions, liveSession, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
@@ -157,15 +157,23 @@ meRouter.post('/password', wrap(async (req, res) => {
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
   // Failures here count toward the same lockout as sign-in.
   assertNotLocked(ctx, req.user.id);
-  const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
+  const stored = ctx.db.prepare('SELECT password_hash, auth_epoch FROM users WHERE id = ?').get(req.user.id) as { password_hash: string; auth_epoch: number };
   if (!(await verifyPassword(current_password, stored.password_hash))) {
     if (recordFailure(ctx, req.user.id, { ip: clientIp(req), where: 'password_change' })) assertNotLocked(ctx, req.user.id);
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
-  clearFailures(ctx, req.user.id);
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
-  ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
-  const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
+  const hash = hashPassword(new_password);
+  // Written only while this session is live under the epoch the current password was checked in (ADR-0035): a reset,
+  // a sign-out everywhere or a deactivation while it hashed leaves the password as that left it.
+  const revoked = ctx.db.transaction(() => {
+    assertProofCurrent(liveSession(ctx, req.sessionId, req.user.id), stored.auth_epoch);
+    const changed = ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ? AND auth_epoch = ? AND active = 1')
+      .run(hash, now(), req.user.id, stored.auth_epoch).changes;
+    if (changed !== 1) throw credentialsChanged();
+    return invalidateUserSessions(ctx, req.user.id, req.sessionId);
+  })();
+  clearFailures(ctx, req.user.id);
   audit(ctx, { actor_id: req.user.id, action: 'password_change', detail: `other sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, otherSessionsRevoked: revoked });
 }));
@@ -216,7 +224,7 @@ const importBody: express.RequestHandler = (req, res, next) =>
 meRouter.post('/imports', importBody, wrap(async (req, res) => {
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   const filename = String(req.get('x-filename') || 'import').slice(0, 255);
-  res.status(201).json(await stageImport(req.ctx, req.user, { buffer, filename }, req, clientIp(req)));
+  res.status(201).json(await stageImport(req.ctx, req.user, { buffer, filename, sessionId: req.sessionId }, req, clientIp(req)));
 }));
 meRouter.get('/imports', wrap((req, res) => res.json({ imports: listImports(req.ctx, req.user) })));
 meRouter.get('/imports/:id', wrap((req, res) => res.json(getImport(req.ctx, req.user, String(req.params.id), req))));
@@ -293,9 +301,12 @@ meRouter.post('/passkeys/options', requireSudo, wrap(async (req, res) => res.jso
 meRouter.post('/passkeys', requireSudo, wrap(async (req, res) => {
   const { response, name } = req.body || {};
   if (!response || typeof response !== 'object') throw badRequest('A passkey response is required.');
+  const epoch = (req.ctx.db.prepare('SELECT auth_epoch FROM users WHERE id = ?').get(req.user.id) as { auth_epoch: number }).auth_epoch;
+  // After the response is checked, the session that asked must still be live, under the same epoch, and still confirmed (ADR-0035).
+  const stillAllowed = () => { assertConfirmedProof(req.ctx, req.sessionId, req.user.id, epoch); };
   let saved;
-  try { saved = await completeRegistration(req.ctx, req.user.id, response, String(name || 'Passkey')); }
-  catch (error) { throw badRequest((error as Error).message); }
+  try { saved = await completeRegistration(req.ctx, req.user.id, response, String(name || 'Passkey'), stillAllowed); }
+  catch (error) { if (error instanceof HttpError) throw error; throw badRequest((error as Error).message); }
   audit(req.ctx, { actor_id: req.user.id, action: 'passkey_added', detail: saved.name, ip: clientIp(req) });
   res.status(201).json({ ok: true, passkey: saved, passkeys: listPasskeys(req.ctx, req.user.id) });
 }));

@@ -328,7 +328,7 @@ export async function syncMailbox(
   user: SessionUser,
   connectorId: string,
   fetcher: GraphFetcher,
-  opts: { unitId?: string | null; visibility?: 'private' | 'unit'; maxPages?: number; graphHost?: string } = {},
+  opts: { unitId?: string | null; visibility?: 'private' | 'unit'; maxPages?: number; graphHost?: string; stillAllowed?: () => void } = {},
 ): Promise<SyncResult> {
   const connector = ownedConnector(ctx, user, connectorId);
   if (connector.status !== 'connected') throw badRequest('This mailbox is not connected yet. Authorize it first.');
@@ -341,10 +341,23 @@ export async function syncMailbox(
   let url = connector.delta_token || (opts.graphHost ? `${opts.graphHost}/v1.0/me/messages/delta` : plan.delta_url);
   let deltaLink: string | null = null;
   let resumeAt: string | null = null;
+  let refused = false;
 
   try {
     for (let page = 0; page < maxPages; page += 1) {
       const body = await fetcher(url);
+      // Each page awaits Microsoft (ADR-0035). Before any of it is stored, the reader must still be signed in and still
+      // allowed to place threads where they asked; otherwise the sync stops here, the mailbox keeps the place it had
+      // and is not marked as failing, and the pages already stored stay (each was stored while that still held).
+      try {
+        opts.stillAllowed?.();
+        // And the mailbox itself must still be theirs, connected and read-only: a disconnect or a removal made while
+        // Microsoft answered ends the sync, rather than storing the page and marking the mailbox connected again.
+        const current = ctx.db.prepare('SELECT user_id, status, access FROM connectors WHERE id = ?').get(connector.id) as Pick<ConnectorRow, 'user_id' | 'status' | 'access'> | undefined;
+        if (!current || current.user_id !== user.id || current.status !== 'connected' || current.access !== 'read_only') {
+          throw conflict('This mailbox was disconnected while it synced. Nothing more was read into Vantage.', 'connector_not_authorized');
+        }
+      } catch (e) { refused = true; throw e; }
       result.pages += 1;
       for (const message of body.value || []) {
         result.fetched += 1;
@@ -362,23 +375,29 @@ export async function syncMailbox(
       resumeAt = page + 1 === maxPages ? url : null;
     }
   } catch (e) {
+    if (refused) {
+      record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: true }, { id: user.id });
+      throw e;
+    }
     const restart = Boolean((e as { restart?: boolean }).restart);
-    ctx.db.prepare(`UPDATE connectors SET status = 'error', last_error = ?,${restart ? ' delta_token = NULL,' : ''} updated_at = ? WHERE id = ?`)
+    ctx.db.prepare(`UPDATE connectors SET status = 'error', last_error = ?,${restart ? ' delta_token = NULL,' : ''} updated_at = ? WHERE id = ? AND status = 'connected'`)
       .run(String((e as Error).message).slice(0, 500), now(), connector.id);
     record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: true }, { id: user.id });
     throw e;
   }
 
   if (deltaLink) {
-    ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ?")
+    // Each write of the place is conditional on the mailbox still being connected, so nothing re-connects one that was
+    // disconnected meanwhile.
+    ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ? AND status = 'connected'")
       .run(deltaLink, now(), now(), connector.id);
     result.deltaStored = true;
   } else if (resumeAt) {
     // A big mailbox takes more than one sync. Keep the place, or every sync would re-read the same first pages.
-    ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ?")
+    ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ? AND status = 'connected'")
       .run(resumeAt, now(), now(), connector.id);
   } else {
-    ctx.db.prepare('UPDATE connectors SET last_sync_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), connector.id);
+    ctx.db.prepare("UPDATE connectors SET last_sync_at = ?, updated_at = ? WHERE id = ? AND status = 'connected'").run(now(), now(), connector.id);
   }
   record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: false }, { id: user.id });
   return result;

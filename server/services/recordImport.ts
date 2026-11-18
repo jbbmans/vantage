@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
-import { HttpError, badRequest, conflict, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, notFound, unauthorized } from '../lib/errors.ts';
+import { sessionStands } from '../auth/sessions.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readZip, ZipError } from '../lib/zip.ts';
 import { readWorkbook, WorkbookError } from '../lib/workbook.ts';
@@ -1002,7 +1003,7 @@ function reviewStaged(ctx: AppContext, user: SessionUser, row: ImportRow, reqKey
  * Upload: the file is checked (not a backup, within the size limit, scanned, and each file a ZIP carries scanned too),
  * held, and reviewed. One import waits at a time: an earlier one not yet imported is cancelled.
  */
-export async function stageImport(ctx: AppContext, user: SessionUser, input: { buffer: Buffer; filename: string }, reqKey: object, ip?: string): Promise<ImportReview> {
+export async function stageImport(ctx: AppContext, user: SessionUser, input: { buffer: Buffer; filename: string; sessionId: string | null }, reqKey: object, ip?: string): Promise<ImportReview> {
   const { buffer } = input;
   if (!buffer.length) throw badRequest('That file is empty.');
   if (buffer.length > ctx.config.recordImports.maxBytes) throw badRequest(`That file is ${Math.ceil(buffer.length / 1_048_576)} MB. Imports here take up to ${Math.floor(ctx.config.recordImports.maxBytes / 1_048_576)} MB.`, { code: 'too_large' });
@@ -1029,6 +1030,8 @@ export async function stageImport(ctx: AppContext, user: SessionUser, input: { b
       }
     }
   }
+  // The scans await (ADR-0035): the session that sent the file must still be live before anything is kept.
+  if (!sessionStands(ctx, input.sessionId, user.id)) throw unauthorized();
   const at = now();
   ctx.db.transaction(() => {
     ctx.db.prepare("UPDATE record_imports SET status = 'cancelled', content = NULL, review = NULL, updated_at = ? WHERE user_id = ? AND status = 'staged'").run(at, user.id);

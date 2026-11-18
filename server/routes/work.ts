@@ -52,7 +52,7 @@ workRouter.post('/sources', uploadBody, wrap(async (req, res) => {
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   const row = await uploadSource(req.ctx, req.user, scope, scannerFor({ clamd: req.ctx.config.intake.clamd, command: req.ctx.config.intake.scannerCommand }), {
     filename, contentType: String(req.get('content-type') || 'application/octet-stream'), buffer, unitId, visibility,
-  });
+  }, req.sessionId);
   audit(req.ctx, { actor_id: req.user.id, action: 'upload_source', entity: 'source_files', entity_id: row.id, unit_id: row.unit_id, detail: `${row.filename} (${row.byte_size} bytes, scan ${row.scan_status})`, ip: clientIp(req) });
   res.status(201).json(row);
 }));

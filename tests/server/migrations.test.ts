@@ -11,6 +11,7 @@ import { hmac } from '../../server/lib/crypto.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
+import { liveSession, resolveSession, sessionDigest } from '../../server/auth/sessions.ts';
 
 function atVersion(version: number, seed: (db: Database.Database) => void) {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-migrate-'));
@@ -1129,5 +1130,50 @@ test('038 clears the words old help desk, Vantage access and sign-in change noti
     }, 'their words used to stay, and the bell and the personal export showed them');
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE entity IS NOT NULL').get() as { n: number }).n, 0, 'none of them is about a record');
     db.close();
+  } finally { cleanup(); }
+});
+
+test('041 gives accounts and sessions an authentication epoch of 0, so every session open before it still stands, and changes no row', () => {
+  const at = '2026-11-17T12:00:00.000Z';
+  const later = new Date(Date.now() + 3_600_000).toISOString();
+  const TOKEN = 'a-session-token-from-before-the-upgrade';
+  const { path, cleanup } = atVersion(40, (db) => {
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare('INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, absolute_expires_at, method) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(sessionDigest(TOKEN), 'u1', at, new Date().toISOString(), later, later, 'password');
+    db.prepare("INSERT INTO oidc_states (state_hash, nonce_hash, verifier_enc, face, created_at, expires_at) VALUES ('s1', 'n1', 'v1', 'app', ?, ?)").run(at, later);
+  });
+  const env = {
+    ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: path, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
+    VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_PUBLIC_URL: 'http://localhost:5173', VANTAGE_OPERATOR: '',
+  } as NodeJS.ProcessEnv;
+  try {
+    const KEPT = ['users', 'sessions', 'oidc_states'];
+    const raw = new Database(path, { readonly: true });
+    const kept = KEPT.map((t) => raw.prepare(`SELECT * FROM ${t} ORDER BY 1`).all());
+    raw.close();
+    const ctx = createContext(loadConfig(env));
+    const { db } = ctx;
+    assert.ok(migrationHistory(db).some((m) => m.id === 41 && m.name === '041_auth_epoch'));
+    // Every row as it was, with the new column beside it.
+    const without = (rows: unknown[], column: string) => rows.map((r) => { const { [column]: _, ...rest } = r as Record<string, unknown>; return rest; });
+    assert.deepEqual(without(db.prepare('SELECT * FROM users ORDER BY 1').all(), 'auth_epoch'), kept[0]);
+    assert.deepEqual(without(db.prepare('SELECT * FROM oidc_states ORDER BY 1').all(), 'browser_hash'), kept[2]);
+    assert.deepEqual((db.prepare('SELECT auth_epoch FROM users').all() as Array<{ auth_epoch: number }>).map((r) => r.auth_epoch), [0]);
+    assert.deepEqual((db.prepare('SELECT auth_epoch FROM sessions').all() as Array<{ auth_epoch: number }>).map((r) => r.auth_epoch), [0]);
+    assert.equal((db.prepare('SELECT browser_hash FROM oidc_states').get() as { browser_hash: string | null }).browser_hash, null, 'a sign-in begun before has no binding');
+    assert.throws(() => db.prepare('UPDATE users SET auth_epoch = -1').run(), /CHECK/);
+    assert.throws(() => db.prepare('UPDATE sessions SET auth_epoch = -1').run(), /CHECK/);
+    // The session open before the upgrade still stands, so nobody is signed out by it.
+    const resolved = resolveSession(ctx, TOKEN, { touch: false });
+    assert.equal(resolved?.user.id, 'u1');
+    assert.ok(liveSession(ctx, sessionDigest(TOKEN), 'u1'));
+    assert.deepEqual(without(db.prepare('SELECT * FROM sessions ORDER BY 1').all(), 'auth_epoch'), kept[1], 'and is not changed by being read');
+    db.close();
+
+    const again = createContext(loadConfig(env));
+    assert.equal(migrationHistory(again.db).filter((m) => m.id === 41).length, 1, 'a second boot runs it once');
+    assert.equal(Number((again.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    again.db.close();
   } finally { cleanup(); }
 });

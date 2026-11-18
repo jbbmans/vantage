@@ -324,6 +324,14 @@ function readableCounseling(ctx: AppContext, user: SessionUser, id: string, reqK
   return { row, scope };
 }
 
+/**
+ * Whether the reader may still open this counseling, decided on a scope read afresh rather than the request's (ADR-0035):
+ * what a worksheet's PDF asks once it is drawn and before it is sent. Throws as reading it would.
+ */
+export function assertCounselingStillReadable(ctx: AppContext, user: SessionUser, id: string) {
+  readableCounseling(ctx, user, id, {});
+}
+
 interface RevisionRow { revision: number; content: string; finalized_at: string | null; acknowledged_at: string | null; amended_by: string; reason: string; changed: string; created_at: string; last_name: string | null; first_name: string | null; abbr: string | null }
 
 function revisionRows(ctx: AppContext, id: string) {

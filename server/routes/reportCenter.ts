@@ -24,7 +24,11 @@ reportCenterRouter.get('/run', wrap((req, res) => {
 
 reportCenterRouter.get('/export', wrap(async (req, res) => {
   const { format, ...q } = parse(exportSchema, req.query);
-  const file = await exportReport(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, format, clientIp(req));
+  // A response closed before it ended is a reader who left: their export is skipped or dropped, never audited as sent.
+  let gone = false;
+  res.on('close', () => { if (!res.writableEnded) gone = true; });
+  const file = await exportReport(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, format, req.sessionId, clientIp(req), () => gone);
+  if (!file) { res.end(); return; }
   res.setHeader('Content-Type', file.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
   // A CSV has nowhere of its own to say it was cut, so the response says how many of the table's rows it holds.

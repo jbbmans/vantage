@@ -1,6 +1,6 @@
 import { constants, createHash, createPublicKey, randomBytes, verify as verifySignature, type JsonWebKey, type KeyObject } from 'node:crypto';
 import type { AppContext } from '../context.ts';
-import { encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
+import { encryptSecret, decryptSecret, safeEqual, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { newId, now } from '../lib/ids.ts';
 import { rosterVouching, seatFromRoster } from '../services/personnel.ts';
@@ -25,7 +25,26 @@ export interface OidcClaims {
 
 interface Discovery { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string }
 
-const STATE_MINUTES = 10;
+export const STATE_MINUTES = 10;
+/** How many organization sign-ins one browser may have begun and not finished at once: its open tabs, not an unbounded pile. */
+export const PENDING_PER_BROWSER = 5;
+
+/**
+ * The cookie that ties an organization sign-in to the browser that began it (ADR-0035). Host-only, HttpOnly and
+ * SameSite=Lax (the provider's return is a top-level GET, which Lax carries); over HTTPS it takes the __Host- prefix, so
+ * no other host under the same domain can set or replace it. Only its digest is stored, with the sign-in's state.
+ */
+export const browserCookieName = (secure: boolean) => (secure ? '__Host-vantage_oidc' : 'vantage_oidc');
+/** A browser binding as the cookie carries it: 32 random bytes, base64url. Anything else is not one. */
+export const isBrowserBinding = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+export const newBrowserBinding = () => randomBytes(32).toString('base64url');
+const browserHash = (binding: string) => sha256(`oidc-browser:${binding}`);
+
+/** Whether this browser still has an organization sign-in begun and not finished, so its cookie is still needed. */
+export function browserHasPending(ctx: AppContext, binding: string | null): boolean {
+  if (!isBrowserBinding(binding)) return false;
+  return Boolean(ctx.db.prepare('SELECT 1 FROM oidc_states WHERE browser_hash = ? AND used_at IS NULL AND expires_at >= ? LIMIT 1').get(browserHash(binding), now()));
+}
 const CACHE_MS = 60 * 60_000;
 /** Clock skew tolerated between this server and the provider. */
 const SKEW_S = 120;
@@ -124,19 +143,28 @@ export type Face = 'app' | 'console';
 /** The callback address registered with the provider, one per face so each face's sign-in lands on its own host. */
 export const redirectUri = (ctx: AppContext, face: Face) => `${new URL(ctx.config.urls[face]).origin}/api/auth/oidc/callback`;
 
-/** Begins a sign-in: records the attempt and returns the provider URL to send the browser to. */
-export async function startSignIn(ctx: AppContext, opts: { face: Face; consented: boolean; returnTo: string | null }): Promise<string> {
+/**
+ * Begins a sign-in: records the attempt, bound to the browser's cookie (`browser`), and returns the provider URL to send
+ * the browser to. A browser keeps at most PENDING_PER_BROWSER sign-ins in progress; beginning another drops its oldest.
+ */
+export async function startSignIn(ctx: AppContext, opts: { face: Face; consented: boolean; returnTo: string | null; browser: string }): Promise<string> {
+  if (!isBrowserBinding(opts.browser)) throw new OidcError('The sign-in could not be started. Start again.', 'oidc_state');
   const doc = await discovery(ctx);
   const state = randomBytes(32).toString('base64url');
   const nonce = randomBytes(32).toString('base64url');
   const verifier = randomBytes(48).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const at = new Date();
-  ctx.db.prepare('DELETE FROM oidc_states WHERE expires_at < ? OR used_at IS NOT NULL').run(at.toISOString());
-  ctx.db.prepare(
-    'INSERT INTO oidc_states (state_hash, nonce_hash, verifier_enc, face, consented, return_to, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(sha256(`oidc-state:${state}`), sha256(`oidc-nonce:${nonce}`), encryptSecret(ctx.config.secret, verifier), opts.face, opts.consented ? 1 : 0, opts.returnTo,
-    at.toISOString(), new Date(at.getTime() + STATE_MINUTES * 60_000).toISOString());
+  const bound = browserHash(opts.browser);
+  ctx.db.transaction(() => {
+    ctx.db.prepare('DELETE FROM oidc_states WHERE expires_at < ? OR used_at IS NOT NULL').run(at.toISOString());
+    ctx.db.prepare(`DELETE FROM oidc_states WHERE browser_hash = ? AND state_hash NOT IN (
+      SELECT state_hash FROM oidc_states WHERE browser_hash = ? ORDER BY created_at DESC LIMIT ?)`).run(bound, bound, PENDING_PER_BROWSER - 1);
+    ctx.db.prepare(
+      'INSERT INTO oidc_states (state_hash, nonce_hash, verifier_enc, face, consented, return_to, created_at, expires_at, browser_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(sha256(`oidc-state:${state}`), sha256(`oidc-nonce:${nonce}`), encryptSecret(ctx.config.secret, verifier), opts.face, opts.consented ? 1 : 0, opts.returnTo,
+      at.toISOString(), new Date(at.getTime() + STATE_MINUTES * 60_000).toISOString(), bound);
+  })();
   const params = new URLSearchParams({
     client_id: ctx.config.oidc.clientId, response_type: 'code', redirect_uri: redirectUri(ctx, opts.face), scope: ctx.config.oidc.scopes,
     state, nonce, code_challenge: challenge, code_challenge_method: 'S256', response_mode: 'query',
@@ -146,15 +174,27 @@ export async function startSignIn(ctx: AppContext, opts: { face: Face; consented
 
 export interface Completed { claims: OidcClaims; face: Face; consented: boolean; returnTo: string | null }
 
-/** Finishes a sign-in the provider sent back: the state is used once, the code is exchanged, the token is checked. */
-export async function completeSignIn(ctx: AppContext, query: { code?: string; state?: string; error?: string; error_description?: string }): Promise<Completed> {
+/**
+ * Finishes a sign-in the provider sent back. Before anything is spent, exchanged, linked or opened (ADR-0035), the
+ * return must come to the browser that began it (its cookie, `browser`), on the face it began on (`face`), within its
+ * ten minutes; a return that fails any of these leaves the attempt as it was, for the browser it belongs to. Then the
+ * state is used once, the code is exchanged, and the token is checked.
+ */
+export async function completeSignIn(ctx: AppContext, query: { code?: string; state?: string; error?: string; error_description?: string }, from: { browser: string | null; face: Face }): Promise<Completed> {
   if (!query.state) throw new OidcError('The sign-in came back without its state. Start again.', 'oidc_state');
   const row = ctx.db.prepare('SELECT * FROM oidc_states WHERE state_hash = ?').get(sha256(`oidc-state:${query.state}`)) as
-    { state_hash: string; nonce_hash: string; verifier_enc: string; face: Face; consented: number; return_to: string | null; expires_at: string; used_at: string | null } | undefined;
-  // Spent before anything else, so a replayed callback finds it gone whatever happens next.
-  const claimed = row && !row.used_at ? ctx.db.prepare('UPDATE oidc_states SET used_at = ? WHERE state_hash = ? AND used_at IS NULL').run(now(), row.state_hash).changes : 0;
-  if (!row || !claimed) throw new OidcError('That sign-in has already been used or was never started here. Start again.', 'oidc_state');
+    { state_hash: string; nonce_hash: string; verifier_enc: string; face: Face; consented: number; return_to: string | null; expires_at: string; used_at: string | null; browser_hash: string | null } | undefined;
+  if (!row || row.used_at) throw new OidcError('That sign-in has already been used or was never started here. Start again.', 'oidc_state');
+  // Expiry before the binding: the binding cookie lasts as long as the sign-in, so a late return carries none and is told it was late.
   if (Date.parse(row.expires_at) < Date.now()) throw new OidcError('The sign-in took too long. Start again.', 'oidc_state');
+  // An attempt begun before browsers were bound has no cookie to match, and is refused like one from another browser.
+  if (!row.browser_hash || !isBrowserBinding(from.browser) || !safeEqual(browserHash(from.browser), row.browser_hash)) {
+    throw new OidcError('That sign-in was started in a different browser. Start again from this one.', 'oidc_browser');
+  }
+  if (row.face !== from.face) throw new OidcError('That sign-in was started on another Vantage address. Start again here.', 'oidc_browser');
+  // Spent before anything else that follows, so a replayed callback finds it gone whatever happens next.
+  const claimed = ctx.db.prepare('UPDATE oidc_states SET used_at = ? WHERE state_hash = ? AND used_at IS NULL').run(now(), row.state_hash).changes;
+  if (!claimed) throw new OidcError('That sign-in has already been used or was never started here. Start again.', 'oidc_state');
   if (query.error) throw new OidcError(`The identity provider did not sign you in: ${String(query.error_description || query.error).slice(0, 200)}`, 'oidc_denied');
   if (!query.code) throw new OidcError('The identity provider sent no code. Start again.', 'oidc_state');
   const verifier = decryptSecret(secretsOf(ctx.config), row.verifier_enc);

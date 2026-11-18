@@ -77,6 +77,8 @@ const USER = [
   'error_snapshot_filed', 'error_snapshot_withdrawn', 'view_error_report',
   'create_connector', 'start_connector_authorization', 'authorize_connector', 'disconnect_connector', 'sync_mailbox',
   'create_thread', 'thread_state', 'link_thread', 'import_email',
+  // A contact added or changed (ADR-0035): what kind of change, never the contact's words.
+  'create_contact', 'edit_contact',
   // Asking for help, and answering one's own request.
   'support_ticket_raised', 'support_reply_added',
 ] as const;

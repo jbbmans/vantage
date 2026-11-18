@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { assertSameInstance, can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { assertSameInstance, can, isMember, PERMISSIONS, scopeFor } from '../authz/scope.ts';
+import { sessionStands } from '../auth/sessions.ts';
 import { record } from './telemetry.ts';
-import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
 import { ZipError } from '../lib/zip.ts';
@@ -116,6 +117,8 @@ export async function uploadSource(
   scope: Scope,
   scanner: Scanner,
   input: { filename: string; contentType: string; buffer: Buffer; unitId: string | null; visibility: 'private' | 'unit' },
+  /** The session that sent the file: it must still be live when the scan answers (ADR-0035). */
+  sessionId: string | null,
 ): Promise<SourceFileRow> {
   if (!ctx.config.intake.enabled) throw badRequest('Importing work is switched off on this instance.');
   if (!input.buffer.length) throw badRequest('That file is empty.');
@@ -141,6 +144,16 @@ export async function uploadSource(
   ).run(id, user.id, input.unitId, input.visibility, input.filename.slice(0, 255), input.contentType.slice(0, 120), kind, input.buffer.length, sha256, input.buffer, at);
 
   const verdict = await scanner.scan(input.buffer, input.filename);
+  // The scan awaits (ADR-0035). The session that sent the file must still be live, and its sender still able to place
+  // work where they asked and still let to import there, read afresh; otherwise the quarantined copy goes too.
+  try {
+    if (!sessionStands(ctx, sessionId, user.id)) throw unauthorized();
+    assertCanPlace(scopeFor(ctx, user), input.unitId, input.visibility);
+    assertIntakeOn(ctx, input.unitId, user.id);
+  } catch (error) {
+    ctx.db.prepare('DELETE FROM source_files WHERE id = ?').run(id);
+    throw error;
+  }
   if (verdict.verdict === 'skipped' && ctx.config.intake.scanRequired) {
     ctx.db.prepare('DELETE FROM source_files WHERE id = ?').run(id);
     throw new HttpError(503, `${verdict.detail} This instance accepts only scanned files; try again shortly or ask your administrator.`, 'scan_unavailable');
