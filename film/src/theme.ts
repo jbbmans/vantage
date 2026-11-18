@@ -20,3 +20,20 @@ export const MONO = "'JetBrains Mono', ui-monospace, monospace";
 export const W = 1920;
 export const H = 1080;
 export const FPS = 30;
+
+/**
+ * Dress blues (docs/design/DESIGN_SYSTEM.md, since 2026-11-17): the application's own frame, for the trailer. The coat's
+ * navy, gold for the marker and the eyebrow, scarlet kept to the piping, and the book serif of every page title.
+ */
+export const DB = {
+  navy: '#0c1930',
+  deep: '#060e1e',
+  navy2: '#13254a',
+  gold: '#deb248',
+  scarlet: '#ba0c2f',
+  paper: '#f5f4f0',
+  soft: '#c9d2e3',
+  mute: '#8c9ab4',
+} as const;
+
+export const SERIF = "'Iowan Old Style', 'Charter', 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, 'Times New Roman', serif";

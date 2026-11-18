@@ -4,6 +4,10 @@
 
 Production storyboards; replacement footage, final voice and music not yet produced or approved.
 
+> **18 November 2026.** The films were made without narration (`film/README.md`), and the `tour` below is retired with
+> the one-minute ad. The product's film is now the trailer of the ten outcomes in Task 27 (ADR-0036, `TRAILER` in
+> `film/src/script.ts`). This document stays as the record of the September plan.
+
 ## Creative and production standard
 
 Every film opens with an outcome, demonstrates a complete task, and closes with a useful next step. Use current real UI and fictional accounts in a disposable environment. Existing clips are reference material, not approved masters.

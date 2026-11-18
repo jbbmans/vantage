@@ -40,7 +40,7 @@ with the reason.
 | GenAI.mil assistance | Contextual buttons | KEEP | Off by default; refused in the synthetic demo. | `07-ai`, `ai.test.ts` |
 | Offline Quick Log outbox | Service worker + IndexedDB | KEEP | Unchanged. | `05-offline` |
 | Public site, `/display`, `/about`, prerender | Signed-out accounts instance | KEEP | A demonstration adapter, not part of the enterprise core. Four of its tests were already failing on `main` (see PROGRESS). | `20-public-site` |
-| Walkthrough videos | `public/videos` | DEFER | Unpublished by the owner on `main`; left as is. | — |
+| Walkthrough videos | `public/videos/films`, Help → Field guide | KEEP | The trailer of the ten outcomes (Task 27, ADR-0036) replaces the ad and the tour; the thirteen chapters stay, marked as recorded before the current look. A text-only film lists what it says under the player. | `trailer.test.ts`, `20-public-site` |
 | Google Tag Manager | — | REMOVE | Third-party tracking is prohibited, and the page must not reach a public host. The SEO test now asserts it is absent. | `publicSeo.test.ts` |
 | Keystroke-derived "active editing" time | — | REMOVE | Timing between keystrokes, tied to a person, is monitoring. Form-open time and the duration a person states are kept. The column stays so old rows still read. | `telemetry.test.ts` |
 | SQLite data layer | `server/db` | DEFER → REIMPLEMENT | PostgreSQL is the production target; see `docs/engineering/MIGRATION_PLAN.md`. Not done in this slice. | — |

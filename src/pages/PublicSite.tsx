@@ -301,8 +301,8 @@ function TrustSite({ page }: { page: TrustPage }) {
 
 function Landing() {
   const root = useRef<HTMLDivElement | null>(null);
-  const film = videos.find((item) => item.id === 'ad') || videos.find((item) => item.id === 'tour');
-  const [activeVideo, setActiveVideo] = useState(film?.id || 'tour');
+  const film = videos.find((item) => item.id === 'trailer');
+  const [activeVideo, setActiveVideo] = useState(film?.id || videos[0]?.id);
   const video = videos.find((item) => item.id === activeVideo) || videos[0];
   const player = useRef<HTMLVideoElement | null>(null);
   const chosen = useRef(false);
@@ -347,7 +347,7 @@ function Landing() {
       {video && (
         <section className="ps-section ps-container ps-watch" id="watch" aria-labelledby="ps-watch-title">
           <div className="ps-section-head" data-reveal>
-            <p className="ps-eyebrow">{video.id === 'ad' || video.id === 'tour' ? 'The film' : 'Field guide'}</p>
+            <p className="ps-eyebrow">{video.id === 'trailer' ? 'The film' : 'Field guide'}</p>
             <h2 id="ps-watch-title">{video.title}</h2>
             <p className="ps-section-lede">Recorded on the real application with demo data. Every name and number on screen is made up.</p>
           </div>
@@ -367,6 +367,12 @@ function Landing() {
               ))}
             </div>
           </div>
+          {video.transcript?.length ? (
+            <details className="ps-transcript" data-reveal>
+              <summary>What the film says</summary>
+              <ol>{video.transcript.map((line, i) => <li key={i}>{line}</li>)}</ol>
+            </details>
+          ) : null}
         </section>
       )}
 

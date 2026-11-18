@@ -1,10 +1,28 @@
 {
-  "tour": {
-    "src": "/videos/films/tour.mp4?v=52b7cba74a",
-    "poster": "/videos/films/tour.jpg?v=b35db5b432",
-    "seconds": 81,
-    "published": "2026-09-28",
-    "textOnly": true
+  "trailer": {
+    "src": "/videos/films/trailer.mp4?v=f96031f6c5",
+    "poster": "/videos/films/trailer.jpg?v=702919c926",
+    "seconds": 101,
+    "published": "2026-11-18",
+    "textOnly": true,
+    "transcript": [
+      "The work gets done every day. Vantage keeps it on the record.",
+      "Today starts with what needs you: the work you hold, what’s due and what’s overdue.",
+      "Personnel lists every Marine’s billet, supervisor and roles.",
+      "A Marine’s page shows only what they shared, and opening it is logged.",
+      "Log what you did in one line.",
+      "Vantage reads the numbers. You check them and save.",
+      "Duty is scored by your Unit Instance’s published policy, and counts once a reviewer approves it.",
+      "Attach the certificate to the training it proves. Vantage checks the file is what it says it is.",
+      "Financial work comes to one queue. Claim a case and it’s yours.",
+      "Its written procedure shows the next step.",
+      "File each error report as it stood. Vantage shows what’s new, still open, reopened and resolved.",
+      "Every case is diagnosed by written rules, not AI, and every recommendation names its source.",
+      "Every report prints or files as a PDF: a Marine’s record, the unit’s output, its training and its duty.",
+      "The unit dashboard counts shared records only, and every figure opens the records behind it.",
+      "Each command runs its own Unit Instance, kept apart from every other.",
+      "Unit Managers govern it. Vantage Administrators run the service."
+    ]
   },
   "quick-log": {
     "src": "/videos/films/quick-log.mp4?v=0985f64601",
@@ -94,13 +112,6 @@
     "src": "/videos/films/governance.mp4?v=235864f9e5",
     "poster": "/videos/films/governance.jpg?v=e6a1b3c3bf",
     "seconds": 46,
-    "published": "2026-09-28",
-    "textOnly": true
-  },
-  "ad": {
-    "src": "/videos/films/ad.mp4?v=26d243dee6",
-    "poster": "/videos/films/ad.jpg?v=80da7b8d8f",
-    "seconds": 62,
     "published": "2026-09-28",
     "textOnly": true
   }

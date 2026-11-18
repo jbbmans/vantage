@@ -11,6 +11,8 @@ export interface Scene {
   min?: number;
   /** What the score does at the start of this scene. */
   cue?: 'hit' | 'lift' | 'drop' | 'build' | 'resolve';
+  /** The trailer: which of the specification's ten outcomes the scene shows, as its label reads on screen. */
+  outcome?: string;
 }
 
 export type Mode = 'major' | 'minor';
@@ -32,7 +34,7 @@ export interface Film {
   title: string;
   /** Published slot in src/config/videos.ts. */
   slot: string;
-  kind: 'ad' | 'hero' | 'chapter';
+  kind: 'trailer' | 'chapter';
   /** Field guide number, for chapters. */
   n?: number;
   accent: string;
@@ -40,43 +42,29 @@ export interface Film {
   scenes: Scene[];
 }
 
-export const AD: Film = {
-  id: 'ad', title: 'Vantage', slot: 'ad', kind: 'ad', accent: '#3fd0bd',
-  music: { tonic: 57, mode: 'minor', bpm: 100, progression: [1, 6, 3, 7], groove: 'drive', lead: 'piano', seed: 11 },
+/**
+ * The trailer (Task 27): the product as it ships, outcome by outcome, in the order the specification names them. Every
+ * scene after the title is the real application in the synthetic demo; `outcome` is the label above its words, and the
+ * scene's id says which of the ten it is. It says nothing a public site would: no address, no sign-up, no hosting claim.
+ */
+export const TRAILER: Film = {
+  id: 'trailer', title: 'Vantage, the trailer', slot: 'trailer', kind: 'trailer', accent: '#deb248',
+  music: { tonic: 57, mode: 'minor', bpm: 96, progression: [1, 6, 3, 7], groove: 'drive', lead: 'piano', seed: 41 },
   scenes: [
-    { id: 'ad-work', cue: 'build', cards: ['You reconciled 30 ULOs this week.'] },
-    { id: 'ad-gap', cards: ['And caught a $1,275 funding gap before it turned into a problem.'] },
-    { id: 'ad-later', cue: 'drop', cards: ['Six months later you need it for your JEPES or FITREP, and you can’t find half of it.'] },
-    { id: 'ad-scatter', cards: ['It’s in a spreadsheet, an old email, and a sticky note somewhere.'], min: 5 },
-    { id: 'ad-logo', cue: 'hit', cards: [''], min: 3.4 },
-    { id: 'ad-capture', cue: 'lift', cards: ['Type what you did in plain English.', 'It pulls out the numbers. You check them and save.'], min: 9 },
-    { id: 'ad-queue', cards: ['Your section’s work is in one list. Claim something and it’s yours.'], min: 5 },
-    { id: 'ad-history', cards: ['Everything you do on it is logged with your name and the date.'] },
-    { id: 'ad-report', cue: 'lift', cards: ['When it goes into your JEPES or FITREP, it’s already logged.'] },
-    { id: 'ad-lead', cards: ['Leaders can see what’s overdue or stuck without asking around.'] },
-    { id: 'ad-private', cards: ['Your entries stay private unless you share them.'] },
-    { id: 'ad-end', cue: 'resolve', cards: [''], min: 5 },
-  ],
-};
-
-export const HERO: Film = {
-  id: 'hero', title: 'Vantage, the tour', slot: 'tour', kind: 'hero', accent: '#3fd0bd',
-  music: { tonic: 62, mode: 'minor', bpm: 84, progression: [1, 6, 3, 7], groove: 'pulse', lead: 'piano', seed: 3 },
-  scenes: [
-    { id: 'open', cards: ['Most of the work a Marine does never gets written down anywhere.'], min: 5 },
-    { id: 'detail', cards: ['30 reconciliations. A funding gap caught in time.'], min: 5 },
-    { id: 'scatter', cards: ['By the next morning it’s in a spreadsheet, an inbox, or someone’s head.'], min: 5.5 },
-    { id: 'title', cue: 'hit', cards: [''], min: 3.6 },
-    { id: 'capture', cue: 'lift', cards: ['Log what you did in one line. Vantage reads the numbers and shows you before saving.'], min: 7.5 },
-    { id: 'queue', cards: ['All of your section’s work in one queue. Claim a case and it’s on your list.'], min: 5.5 },
-    { id: 'case', cards: ['Cases follow written procedures with sources. They close when the result is verified.'] },
-    { id: 'balance', cue: 'build', cards: ['Enter a document’s figures and Vantage shows you what’s still open.'], min: 5.5 },
-    { id: 'sealed', cards: ['Every action on a case is saved to its history with a name and date.'] },
-    { id: 'credit', cue: 'lift', cards: ['Credit goes to whoever did the work, not whoever held the case.'] },
-    { id: 'report', cards: ['What you logged is ready to put into your JEPES or FITREP, with a link back to each entry.'] },
-    { id: 'lead', cards: ['Leaders get a view of the whole section.'] },
-    { id: 'trust', cue: 'drop', cards: ['Private by default. Can run on your own network.'] },
-    { id: 'end', cue: 'resolve', cards: [''], min: 5 },
+    { id: 't-open', cards: ['The work gets done every day. Vantage keeps it on the record.'], min: 5 },
+    { id: 't-title', cue: 'hit', cards: [''], min: 3.6 },
+    { id: 't-dashboard', outcome: 'Marine dashboard', cue: 'lift', cards: ['Today starts with what needs you: the work you hold, what’s due and what’s overdue.'], min: 6.5 },
+    { id: 't-personnel', outcome: 'Personnel', cards: ['Personnel lists every Marine’s billet, supervisor and roles.', 'A Marine’s page shows only what they shared, and opening it is logged.'], min: 8 },
+    { id: 't-records', outcome: 'Records', cards: ['Log what you did in one line.', 'Vantage reads the numbers. You check them and save.'], min: 8.5 },
+    { id: 't-duty', outcome: 'Duty', cards: ['Duty is scored by your Unit Instance’s published policy, and counts once a reviewer approves it.'], min: 7 },
+    { id: 't-training', outcome: 'Training', cards: ['Attach the certificate to the training it proves. Vantage checks the file is what it says it is.'], min: 7 },
+    { id: 't-work', outcome: 'FM workflows', cue: 'build', cards: ['Financial work comes to one queue. Claim a case and it’s yours.', 'Its written procedure shows the next step.'], min: 8.5 },
+    { id: 't-errors', outcome: 'Error analysis', cards: ['File each error report as it stood. Vantage shows what’s new, still open, reopened and resolved.'], min: 7 },
+    { id: 't-diagnosis', outcome: 'Case guidance', cards: ['Every case is diagnosed by written rules, not AI, and every recommendation names its source.'], min: 7 },
+    { id: 't-reports', outcome: 'Reports', cue: 'lift', cards: ['Every report prints or files as a PDF: a Marine’s record, the unit’s output, its training and its duty.'], min: 7 },
+    { id: 't-analytics', outcome: 'Analytics', cards: ['The unit dashboard counts shared records only, and every figure opens the records behind it.'], min: 7 },
+    { id: 't-close', cue: 'drop', cards: ['Each command runs its own Unit Instance, kept apart from every other.', 'Unit Managers govern it. Vantage Administrators run the service.'], min: 8 },
+    { id: 't-end', cue: 'resolve', cards: [''], min: 5 },
   ],
 };
 
@@ -190,11 +178,11 @@ export const CHAPTERS: Film[] = [
     ]),
 ];
 
-export const FILMS: Film[] = [AD, HERO, ...CHAPTERS];
+export const FILMS: Film[] = [TRAILER, ...CHAPTERS];
 
 /** How long a card needs on screen to be read comfortably, before the music's rounding. */
 export const readingSeconds = (text: string, kind: Film['kind']) => {
   if (!text.trim()) return 0;
   const words = text.trim().split(/\s+/).length;
-  return (kind === 'ad' ? 0.9 : 1.1) + words * (kind === 'ad' ? 0.27 : 0.3);
+  return (kind === 'trailer' ? 1 : 1.1) + words * (kind === 'trailer' ? 0.28 : 0.3);
 };

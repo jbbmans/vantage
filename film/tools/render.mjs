@@ -20,14 +20,10 @@ const flag = (f) => args.includes(f);
 const wanted = args.filter((a) => !a.startsWith('--'));
 const log = (...m) => console.log('film:', ...m);
 
+/** The trailer has no grain over the application, so its words and figures stay crisp at a modest rate. */
 const ENCODE = {
-  hero: { crf: 17, encodingMaxRate: '8M', encodingBufferSize: '16M' },
+  trailer: { crf: 20, encodingMaxRate: '5M', encodingBufferSize: '10M' },
   chapter: { crf: 21, encodingMaxRate: '3500k', encodingBufferSize: '7000k' },
-};
-
-const keepGrain = ({ args }) => {
-  const i = args.indexOf('libx264');
-  return i < 0 ? args : [...args.slice(0, i + 1), '-tune', 'grain', ...args.slice(i + 1)];
 };
 
 async function demoServer() {
@@ -56,11 +52,14 @@ async function instanceServer() {
   throw new Error('the film instance did not start');
 }
 
-/** The poster: the logo for the ad and the tour, the title card for a chapter. */
+/** The poster: the trailer's first outcome with its words on screen (the product, not a logo), a chapter's title card. */
 function posterFrame(tl) {
-  const s = tl.id === 'hero' ? tl.scenes.find((x) => x.id === 'title') : tl.id === 'ad' ? tl.scenes.find((x) => x.id === 'ad-logo') : tl.scenes[0];
-  return Math.round(s.from + (s.to - s.from) * 0.85);
+  const s = tl.kind === 'trailer' ? tl.scenes.find((x) => x.outcome) : tl.scenes[0];
+  return Math.round(s.from + (s.to - s.from) * (tl.kind === 'trailer' ? 0.7 : 0.85));
 }
+
+/** What a text-only film says, card by card, for someone who cannot see it (WCAG 2.2, 1.2.1). */
+const transcriptOf = (tl) => tl.scenes.flatMap((s) => s.cards.map((c) => c.text.trim())).filter(Boolean);
 
 /** Fonts and brand art come from the application, so the films always match it. */
 function stagePublic() {
@@ -129,7 +128,7 @@ async function main() {
     await renderMedia({
       serveUrl, composition, codec: 'h264', outputLocation: output, browserExecutable: BROWSER,
       audioCodec: 'aac', audioBitrate: '192k', x264Preset: 'slow', pixelFormat: 'yuv420p', colorSpace: 'bt709',
-      ...(id === 'hero' || id === 'ad' ? { ...ENCODE.hero, ffmpegOverride: keepGrain } : ENCODE.chapter),
+      ...(timelines[id].kind === 'trailer' ? ENCODE.trailer : ENCODE.chapter),
       concurrency: Number(process.env.FILM_CONCURRENCY || 3),
       onProgress: ({ progress }) => { const p = Math.floor(progress * 10); if (p !== last) { last = p; process.stdout.write(`\rfilm: rendering ${id} ${p * 10}%   `); } },
     });
@@ -156,7 +155,7 @@ async function main() {
     copyFileSync(join(OUT, `${id}.jpg`), join(dest, `${slot}.jpg`));
     // No narration: the words are on screen, so there is nothing for a caption track to add.
     rmSync(join(dest, `${slot}.vtt`), { force: true });
-    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), seconds: Math.round(tl.seconds), published: today, textOnly: true };
+    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), seconds: Math.round(tl.seconds), published: today, textOnly: true, transcript: transcriptOf(tl) };
     log(`published ${slot}`);
   }
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);

@@ -2,6 +2,32 @@
 
 _Updated 2026-11-18_
 
+## What changed (2026-11-18: Task 27, the trailer)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+Task 27 of the specification, from `634598a` ([ADR-0036](engineering/ADR/0036-trailer-ten-outcomes.md), PD-019). No
+migration.
+
+- **The trailer** (`trailer`, 101 s, 1080p, no narration): a cold open, the mark, then one take per outcome in the
+  specification's order (Marine dashboard, Personnel, Records, Duty, Training, FM workflows, Error analysis, Case
+  guidance, Reports, Analytics) and a close on who governs a Unit Instance. Every take is the application in the
+  synthetic demo, in dress blues; "Demo data" stays on screen while the application is, and the end card says
+  "Synthetic demo data. Not an official DoD or USMC system of record." No address, price or sign-up.
+- **The ad and the tour are retired** (code, captures and files, about 74 MB): earlier look, earlier product, and a
+  public-site pitch. The trailer leads Help → Field guide → Starting out and is the legacy public page's film. The
+  thirteen chapters are unchanged.
+- **A text alternative beside the player.** Publishing writes each text-only film's cards as `transcript`; the Field
+  guide card and the public page list them under "What the film says".
+- **The demo scores duty:** each workspace gets the standard duty types and one scoring version (the specification's
+  worked examples) from 120 days back, published by the section lead and audited.
+- **Capture** (`film/tools/shots.mjs` `trailer`) makes what the demo does not seed through the product's API first:
+  two duties as the Marine, last week's and this week's ULO reports as the section lead.
+- **Tests.** `tests/server/trailer.test.ts` (the ten outcomes in order; no public-SaaS wording in the script or the
+  composition; the published file's hash, poster, length and transcript; the ad and tour gone), a demo test that a
+  Marine's duty is scored at 5 and approved at 5, purge covering duty types and scoring, and the Field guide and public
+  page specs (`24-views`, `20-public-site`).
+
 ## What changed (2026-11-18: the security review's six findings, F01 to F06)
 
 **Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
