@@ -43,6 +43,9 @@ const STATE_MEANING: Record<State, string> = {
   resolved: 'The matter is closed.',
 };
 
+/** A thread's contact the reader may not see: it is private or removed, and the thread does not say which (ADR-0035). */
+const CONTACT_HIDDEN = 'Contact not shared with you';
+
 const emptyThread = { subject: '', unit_id: '', visibility: 'unit' as 'unit' | 'private', contact_id: '', follow_up_at: '' };
 const emptyContact = { name: '', email: '', organization: '', role: '', phone: '', notes: '', visibility: 'unit' as 'unit' | 'private', unit_id: '' };
 
@@ -172,6 +175,7 @@ function ThreadRow({ thread, onOpen }: { thread: ThreadSummary; onOpen: () => vo
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
             {thread.contact_name && <span>{thread.contact_name}{thread.contact_organization ? ` · ${thread.contact_organization}` : ''}</span>}
+            {thread.contact_hidden && <span>{CONTACT_HIDDEN}</span>}
             <span>{thread.message_count} message{thread.message_count === 1 ? '' : 's'}</span>
             {thread.linked_items > 0 && <span className="flex items-center gap-1"><Link2 className="h-3 w-3" />{thread.linked_items} linked</span>}
             {thread.follow_up_at && (
@@ -248,22 +252,34 @@ function ContactDialog({ open, onOpenChange, contact, units, defaultUnit, onSave
   open: boolean; onOpenChange: (o: boolean) => void; contact?: Record<string, any> | null; units: string[]; defaultUnit: string; onSaved: () => void;
 }) {
   const toast = useToast();
+  const qc = useQueryClient();
+  const { data: identity } = useIdentity();
   const [d, setD] = useState(() => (contact
     ? Object.fromEntries(Object.keys(emptyContact).map((k) => [k, contact[k] ?? ''])) as typeof emptyContact
     : { ...emptyContact, unit_id: defaultUnit }));
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof emptyContact, v: string) => setD((prev) => ({ ...prev, [k]: v }));
+  // Someone else's shared contact stays shared, and moves only to a unit where this leader manages records too (ADR-0035).
+  const delegated = Boolean(contact) && contact!.owner_id !== identity?.user.id;
+  const unitChoices = delegated ? units.filter((u) => u === contact!.unit_id || can(identity, PERMISSIONS.MANAGE_RECORDS, u)) : units;
 
   const save = async () => {
     if (!d.name.trim()) { toast.error('A contact needs a name.'); return; }
     setBusy(true);
     try {
       const body = { ...d, unit_id: d.visibility === 'unit' ? (d.unit_id || defaultUnit) : null };
-      if (contact) await api.updateContact(String(contact.id), body); else await api.createContact(body);
+      if (contact) await api.updateContact(String(contact.id), { ...body, version: contact.version }); else await api.createContact(body);
       setD({ ...emptyContact, unit_id: defaultUnit });
       onSaved();
-    } catch (err) { toast.error(api.errorText(err)); }
-    finally { setBusy(false); }
+    } catch (err) {
+      toast.error(api.errorText(err));
+      // Changed or withdrawn meanwhile: the dialog closes and the list reloads, so opening it again starts from the
+      // contact as it now stands, as the message says, rather than refusing the same stale version again.
+      if (err instanceof api.ApiError && (err.status === 409 || err.status === 404)) {
+        qc.invalidateQueries({ queryKey: correspondenceKeys.contacts });
+        onOpenChange(false);
+      }
+    } finally { setBusy(false); }
   };
 
   return (
@@ -282,10 +298,10 @@ function ContactDialog({ open, onOpenChange, contact, units, defaultUnit, onSave
           <Field label="Role"><Input value={d.role} onChange={(e) => set('role', e.target.value)} placeholder="Budget analyst" /></Field>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Who can see it">
-            <Select value={d.visibility} onValueChange={(v) => set('visibility', v)} options={[{ value: 'unit', label: 'My unit' }, { value: 'private', label: 'Only me' }]} />
+          <Field label="Who can see it" hint={delegated ? 'only the person who added it can make it private' : undefined}>
+            <Select value={d.visibility} onValueChange={(v) => set('visibility', v)} disabled={delegated} options={[{ value: 'unit', label: 'My unit' }, { value: 'private', label: 'Only me' }]} />
           </Field>
-          {d.visibility === 'unit' && <Field label="Unit"><Select value={d.unit_id} onValueChange={(v) => set('unit_id', v)} options={units.map((u) => ({ value: u, label: u }))} /></Field>}
+          {d.visibility === 'unit' && <Field label="Unit"><Select value={d.unit_id} onValueChange={(v) => set('unit_id', v)} options={unitChoices.map((u) => ({ value: u, label: u }))} /></Field>}
         </div>
         <Field label="Notes"><Textarea rows={2} value={d.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
       </div>
@@ -296,8 +312,8 @@ function ContactDialog({ open, onOpenChange, contact, units, defaultUnit, onSave
 function Contacts({ onNew, onEdit }: { onNew: () => void; onEdit: (contact: Record<string, any>) => void }) {
   const contacts = useContacts();
   const { data: identity } = useIdentity();
-  // The same rule the server applies: the person who added it, or whoever manages records in its unit.
-  const editable = (c: Record<string, any>) => c.owner_id === identity?.user.id || (Boolean(c.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, c.unit_id));
+  // The same rule the server applies: the person who added it, or, for a shared contact, whoever manages records in its unit.
+  const editable = (c: Record<string, any>) => c.owner_id === identity?.user.id || (c.visibility === 'unit' && Boolean(c.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, c.unit_id));
   if (contacts.isPending) return <div className="space-y-2">{[0, 1].map((i) => <Skeleton key={i} className="h-14" />)}</div>;
   if (!contacts.data?.length) {
     return <div className="card"><EmptyState icon={UserRound} title="No contacts yet" description="The people you correspond with, so a thread has somebody on the other end." action={<Button variant="primary" onClick={onNew}><UserRound className="h-4 w-4" />New contact</Button>} /></div>;
@@ -385,6 +401,7 @@ function ThreadDetail({ id, onClose }: { id: string | null; onClose: () => void 
             <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
             {thread.visibility === 'private' && <Badge>Private</Badge>}
             {detail.data?.contact && <Badge>{String(detail.data.contact.name)}</Badge>}
+            {detail.data?.contact_hidden && <Badge>{CONTACT_HIDDEN}</Badge>}
           </div>
 
           <Panel title="Where it stands" subtitle="A reply, the knowledge you asked for, and a closed matter are three separate facts">

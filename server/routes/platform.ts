@@ -13,6 +13,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { limitConsoleReads, requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
+import { freshPlatformAuthority } from '../auth/fresh.ts';
 import { anchorAuditChain, audit, auditHead, lastAuditAnchor, recentChainCheck, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
 import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditCount, auditFilterLabel, auditQuery, auditRows, unfilteredFirstPage, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
@@ -198,7 +199,7 @@ platformRouter.post('/course-sources/:id/import', requirePlatform('platform.sett
   const { as_of } = parse(stageCatalogQuery, req.query);
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   const filename = String(req.get('x-filename') || 'catalog').slice(0, 255);
-  res.status(201).json(await stageCatalog(req.ctx, req.user, String(req.params.id), { buffer, filename, contentType: String(req.get('content-type') || ''), as_of }, ip(req)));
+  res.status(201).json(await stageCatalog(req.ctx, req.user, String(req.params.id), { buffer, filename, contentType: String(req.get('content-type') || ''), as_of, sessionId: req.sessionId }, ip(req)));
 }));
 platformRouter.post('/course-sources/:id/loads/:loadId/apply', requirePlatform('platform.settings'), wrap((req, res) => {
   res.json(applyCatalog(req.ctx, req.user, String(req.params.id), String(req.params.loadId), parse(applyCatalogSchema, req.body).file_sha256, ip(req)));
@@ -792,8 +793,11 @@ platformRouter.delete('/holds/:id', requirePlatform('platform.data'), wrap((req,
  */
 function browserCopy(req: Request, what: string) {
   if (!req.ctx.config.security.browserBackups) throw forbidden(`Downloading ${what} through the browser is turned off. Take it on the server; see Operations in the documentation.`, 'browser_backups_off');
-  const name = `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username;
-  notifyStaff(req.ctx, 'platform.data', { kind: 'system', title: `${name} downloaded ${what}`, message: `From ${clientIp(req) || 'an unknown address'}. If that was not expected, review the platform audit trail.`, actionUrl: '/admin/audit' }, req.user.id);
+  // The others are told once the copy is going out, not before: a copy refused on the way (ADR-0035) was not downloaded.
+  return () => {
+    const name = `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username;
+    notifyStaff(req.ctx, 'platform.data', { kind: 'system', title: `${name} downloaded ${what}`, message: `From ${clientIp(req) || 'an unknown address'}. If that was not expected, review the platform audit trail.`, actionUrl: '/admin/audit' }, req.user.id);
+  };
 }
 
 /**
@@ -808,11 +812,14 @@ platformRouter.get('/recovery', requirePlatform('platform.data'), wrap((req, res
 platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req, res) => {
   const ctx = req.ctx;
   if (ctx.db.name === ':memory:') throw badRequest('In-memory databases cannot be backed up.');
-  browserCopy(req, 'a full database backup');
+  const announce = browserCopy(req, 'a full database backup');
   const stamp = now().replace(/[-:]/g, '').slice(0, 13);
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   await ctx.db.backup(dest);
   chmodSync(dest, 0o600);
+  // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
+  try { freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data'); }
+  catch (e) { try { unlinkSync(dest); } catch {} throw e; }
   // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
   const copy = new Database(dest, { fileMustExist: true });
   copy.pragma('journal_mode = DELETE');
@@ -823,12 +830,14 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
     audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
   })();
+  announce();
   res.download(dest, `vantage-backup-${stamp}.db`, () => { try { unlinkSync(dest); } catch {} });
 }));
 
 platformRouter.get('/export', requirePlatform('platform.data'), wrap((req, res) => {
-  browserCopy(req, 'the service archive');
+  const announce = browserCopy(req, 'the service archive');
   const archive = exportInstance(req.ctx);
+  announce();
   audit(req.ctx, { actor_id: req.user.id, action: 'instance_export', entity: 'platform', ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-instance-${now().slice(0, 10)}.json"`);
   res.json(archive);

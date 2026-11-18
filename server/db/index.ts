@@ -567,6 +567,23 @@ const MIGRATIONS: Migration[] = [
       if (!users.has('form_edipi_at')) db.exec('ALTER TABLE users ADD COLUMN form_edipi_at TEXT CHECK ((form_edipi_at IS NULL) = (form_edipi IS NULL))');
     },
   },
+  {
+    id: 41,
+    name: '041_auth_epoch',
+    // Fresh authority across waits (ADR-0035). `users.auth_epoch` counts the security transitions an account has been
+    // through (invalidateUserSessions advances it); `sessions.auth_epoch` is the epoch a session was opened under, and a
+    // session stands only while the two match, so a proof checked across a reset cannot open one. `oidc_states.browser_hash`
+    // is the digest of the cookie set in the browser that began an organization sign-in, which its return must present.
+    // Three columns, added with defaults; no row is changed. Every account and session starts at 0, so they still match
+    // and nobody is signed out by the upgrade. A sign-in begun at the provider before it has no browser hash and is
+    // refused (ten minutes at most); a code challenge issued before it carries no epoch and is refused the same way
+    // (five minutes). Rolled back by restoring the pre-upgrade backup with the previous build.
+    run: (db) => {
+      if (!columnsOf(db, 'users').has('auth_epoch')) db.exec('ALTER TABLE users ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 0 CHECK (auth_epoch >= 0)');
+      if (!columnsOf(db, 'sessions').has('auth_epoch')) db.exec('ALTER TABLE sessions ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 0 CHECK (auth_epoch >= 0)');
+      if (!columnsOf(db, 'oidc_states').has('browser_hash')) db.exec('ALTER TABLE oidc_states ADD COLUMN browser_hash TEXT');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

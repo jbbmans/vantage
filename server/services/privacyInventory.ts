@@ -36,6 +36,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       edipi_verified_at: 'authentication',
       // Typed by the person for their counseling worksheets (ADR-0033); never a sign-in credential.
       form_edipi: 'identifier', form_edipi_at: 'technical',
+      // How many security transitions the account has been through, so a proof checked across one opens nothing (ADR-0035).
+      auth_epoch: 'authentication',
       created_at: 'technical', updated_at: 'technical',
     },
   },
@@ -166,6 +168,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'authentication', user_id: 'identifier', ip: 'technical', user_agent: 'technical',
       method: 'technical', sudo_until: 'technical', created_at: 'technical', last_used_at: 'technical',
       expires_at: 'technical', absolute_expires_at: 'technical',
+      // The account's authentication epoch the session was opened under (ADR-0035).
+      auth_epoch: 'authentication',
     },
   },
   retention_schedules: {
@@ -739,10 +743,10 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   oidc_states: {
-    purpose: 'An organization sign-in in progress: hashes of its state and nonce and its sealed PKCE verifier, for ten minutes, once.',
+    purpose: 'An organization sign-in in progress: hashes of its state, its nonce and the cookie of the browser that began it, and its sealed PKCE verifier, for ten minutes, once.',
     authority: 'Necessary to complete a sign-in safely.',
     access: 'Nobody reads it; a returning sign-in is matched against the hash.',
-    columns: { state_hash: 'authentication', nonce_hash: 'authentication', verifier_enc: 'authentication', face: 'technical', consented: 'technical', return_to: 'technical', created_at: 'technical', expires_at: 'technical', used_at: 'technical' },
+    columns: { state_hash: 'authentication', nonce_hash: 'authentication', verifier_enc: 'authentication', browser_hash: 'authentication', face: 'technical', consented: 'technical', return_to: 'technical', created_at: 'technical', expires_at: 'technical', used_at: 'technical' },
   },
   connector_auth_states: {
     purpose: 'A mailbox sign-in in progress: the hash of its state value and its encrypted PKCE verifier, for ten minutes, once.',

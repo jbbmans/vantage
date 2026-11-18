@@ -4,6 +4,7 @@ import { wrap, clientIp, parse } from '../lib/http.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound, unauthorized } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { sessionStands } from '../auth/sessions.ts';
+import { freshAuthority } from '../auth/fresh.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead, unfinalized } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
@@ -26,7 +27,7 @@ import { importedFrom } from '../services/recordImport.ts';
 import { withDutyNames, isAnonymizedDuty } from '../services/duties.ts';
 import { dutyReviewHistory, reviewDuty } from '../services/dutyReview.ts';
 import {
-  acknowledgeCounseling, amendCounseling, counselingRevisions, counselingWorksheet, finalizeCounseling, mayManageCounselingFiles,
+  acknowledgeCounseling, amendCounseling, assertCounselingStillReadable, counselingRevisions, counselingWorksheet, finalizeCounseling, mayManageCounselingFiles,
   shareCounseling, withCounselingDetail, withdrawCounseling, worksheetFileName,
 } from '../services/counselings.ts';
 import { renderCounselingPdf } from '../lib/pdfCounseling.ts';
@@ -99,6 +100,8 @@ recordsRouter.get('/:table/:id/export', wrap(async (req, res) => {
     const revision = req.query.revision === undefined ? null : Number(req.query.revision);
     const doc = counselingWorksheet(req.ctx, req.user, String(req.params.id), { revision, purpose: 'pdf' }, req, clientIp(req));
     const pdf = await renderCounselingPdf(doc);
+    // Drawing the worksheet awaits; before it is sent, its reader must still be signed in and still able to open it (ADR-0035).
+    assertCounselingStillReadable(req.ctx, freshAuthority(req.ctx, req.sessionId, req.user.id).user, doc.id);
     const subject = getRecord(req.ctx, 'counselings', doc.id, { includeDeleted: true });
     audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: doc.id, subject_id: subject && subject.user_id !== req.user.id ? subject.user_id : null, unit_id: subject?.unit_id ?? null, detail: `pdf; revision ${doc.revision}${doc.stage === 'final' ? '' : `; ${doc.stage}`}${edipiPrinted(doc)}`, ip: clientIp(req) });
     res.setHeader('Content-Type', 'application/pdf');
@@ -271,7 +274,7 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
   // the membership that let them add to it. Everything is decided again here, with nothing awaited between it and
   // the insert, so the file never lands on an entry that is gone or that the caller may no longer add to.
   // First, the session that sent the file must still stand, as it must for any request.
-  if (!sessionStands(ctx, req.sessionId)) throw unauthorized();
+  if (!sessionStands(ctx, req.sessionId, req.user.id)) throw unauthorized();
   if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
     throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
   }

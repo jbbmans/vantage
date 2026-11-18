@@ -289,10 +289,16 @@ test('correspondence and work cannot be linked across Unit Instances', async () 
   assert.equal(named.body.code, 'cross_instance');
   assert.match(named.body.error, /That contact belongs to another Unit Instance/);
   // And a leader in both instances cannot move a G8 Marine's shared contact into G1, where only its author could take it.
-  const moved = await put(reyes.token, `/api/correspondence/contacts/${g8.contact}`, { name: 'G8 vendor', visibility: 'unit', unit_id: 'G1' });
+  // One shared with Fiscal, where Reyes holds no seat, is not theirs to read at all, so it is answered as missing (ADR-0035).
+  const unseen = await put(reyes.token, `/api/correspondence/contacts/${g8.contact}`, { name: 'G8 vendor', visibility: 'unit', unit_id: 'G1' });
+  assert.equal(unseen.status, 404, JSON.stringify(unseen.body));
+  assert.equal((app.ctx.db.prepare('SELECT unit_id FROM contacts WHERE id = ?').get(g8.contact) as { unit_id: string }).unit_id, 'FISCAL');
+  // One shared with G8, which Reyes reads and manages, stops at the instance boundary.
+  const g8contact = (await post(op.token, '/api/correspondence/contacts', { name: 'G8 office vendor', visibility: 'unit', unit_id: 'G8' })).body.id as string;
+  const moved = await put(reyes.token, `/api/correspondence/contacts/${g8contact}`, { name: 'G8 office vendor', visibility: 'unit', unit_id: 'G1' });
   assert.equal(moved.status, 403, JSON.stringify(moved.body));
   assert.equal(moved.body.code, 'cross_instance');
-  assert.equal((app.ctx.db.prepare('SELECT unit_id FROM contacts WHERE id = ?').get(g8.contact) as { unit_id: string }).unit_id, 'FISCAL');
+  assert.equal((app.ctx.db.prepare('SELECT unit_id FROM contacts WHERE id = ?').get(g8contact) as { unit_id: string }).unit_id, 'G8');
 
   // A link written straight into the database is refused by the engine itself.
   assert.throws(

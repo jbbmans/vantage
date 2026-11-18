@@ -56,6 +56,8 @@ const SSO_ERRORS: Record<string, string> = {
   oidc_denied: 'Your organization did not sign you in. Try again, or ask your help desk.',
   oidc_expired: 'The sign-in took too long. Try again.',
   oidc_state: 'That sign-in was already used or has expired. Start again.',
+  oidc_browser: 'That sign-in was started in a different browser, or on another Vantage address. Start again from here.',
+  credentials_changed: 'Your account changed while you were signing in. Sign in again.',
   oidc_bad_token: 'Your organization’s answer could not be verified, so you were not signed in. If this keeps happening, tell Vantage support.',
   oidc_unreachable: 'Your organization’s sign-in service could not be reached. Try again in a minute.',
   oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell Vantage support.',

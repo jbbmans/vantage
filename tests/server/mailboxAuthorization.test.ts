@@ -5,10 +5,13 @@ import { createHash } from 'node:crypto';
 import { startApp, type TestApp } from './helpers.ts';
 import { loadConfig } from '../../server/config.ts';
 import { encryptSecret } from '../../server/lib/crypto.ts';
+import { sessionDigest } from '../../server/auth/sessions.ts';
 
 const CLIENT_ID = '00000000-1111-2222-3333-444444444444';
 let ms: { url: string; close: () => void; seen: Array<{ method: string; path: string; auth?: string; form?: URLSearchParams }> };
 let challenge = '';
+/** When set, the next delta page waits for it: Microsoft answering slowly while access changes in Vantage. */
+let holdDelta: { reached: () => void; release: Promise<void> } | null = null;
 let app: TestApp;
 let op: { token: string; id: string };
 let peer: { token: string; id: string };
@@ -47,10 +50,15 @@ function microsoft(): Promise<typeof ms> {
       }
       if (path.startsWith('/v1.0/me/messages/delta')) {
         if (!['Bearer at-1', 'Bearer at-2'].includes(String(req.headers.authorization))) return json(401, {});
-        return json(200, {
+        const hold = holdDelta;
+        holdDelta = null;
+        const answer = () => json(200, {
           value: [{ id: `m-${seen.length}`, conversationId: 'conv-1', subject: 'MIPR acceptance', receivedDateTime: '2026-09-20T12:00:00Z', from: { emailAddress: { address: 'rco@example.mil' } }, body: { contentType: 'text', content: 'Signed 448-2 attached.' } }],
           '@odata.deltaLink': `${ms.url}/v1.0/me/messages/delta?token=next`,
         });
+        if (!hold) return answer();
+        hold.reached();
+        return void hold.release.then(answer);
       }
       json(404, {});
     });
@@ -182,6 +190,72 @@ test('sync uses the stored sign-in, renews it when it runs out, and asks again w
   assert.match(row.last_error, /revoked/);
   assert.equal(row.access_token_enc, null);
   assert.equal(row.refresh_token_enc, null);
+});
+
+test('a sync stores nothing from a page Microsoft answers after the session ended or the reader left the unit, and the mailbox keeps its place', async () => {
+  const { connector, state } = await begin('analyst@example.mil');
+  await callback(op.token, { code: 'good', state });
+  const threads = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM threads WHERE connector_id = ?').get(connector.id) as { n: number }).n;
+  const place = () => ({ ...(app.ctx.db.prepare('SELECT status, delta_token, last_error FROM connectors WHERE id = ?').get(connector.id) as object) });
+  const syncedAudits = () => (app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'sync_mailbox' AND entity_id = ?").get(connector.id) as { n: number }).n;
+  /** A sync on `token` held at Microsoft's first page while `meanwhile` runs. */
+  const heldSync = async (token: string, body: Record<string, unknown>, meanwhile: () => unknown, id: string = connector.id) => {
+    let reached!: () => void;
+    const there = new Promise<void>((r) => { reached = r; });
+    let release!: () => void;
+    holdDelta = { reached, release: new Promise<void>((r) => { release = r; }) };
+    const pending = post(token, `/api/correspondence/connectors/${id}/sync`, body);
+    await Promise.race([there, pending.then((r) => { throw new Error(`the sync answered ${r.status} before reaching Microsoft: ${JSON.stringify(r.body)}`); })]);
+    await meanwhile();
+    release();
+    return pending;
+  };
+  const before = { threads: threads(), place: place(), audits: syncedAudits() };
+
+  // The session that asked is ended while Microsoft answers.
+  const second = await app.login('boletz');
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  const ended = await heldSync(second.body.token, { visibility: 'private' }, () => {
+    app.ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionDigest(second.body.token));
+  });
+  assert.equal(ended.status, 401, JSON.stringify(ended.body));
+
+  // The reader leaves the unit the threads were to be shared with, still signed in.
+  const seat = app.ctx.db.prepare('SELECT * FROM unit_members WHERE user_id = ? AND unit_id = ?').get(op.id, 'G8') as Record<string, unknown>;
+  const left = await heldSync(op.token, { visibility: 'unit', unit_id: 'G8' }, () => {
+    app.ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(op.id, 'G8');
+  });
+  const cols = Object.keys(seat);
+  app.ctx.db.prepare(`INSERT INTO unit_members (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => seat[c] as never));
+  assert.equal(left.status, 403, JSON.stringify(left.body));
+
+  assert.equal(threads(), before.threads, 'nothing from the held page is stored');
+  assert.deepEqual(place(), before.place, 'the mailbox is not marked failing and keeps its place');
+  assert.equal(syncedAudits(), before.audits, 'no sync is audited');
+
+  // Controls: the same syncs with nothing changed store the page.
+  const fine = await heldSync(op.token, { visibility: 'unit', unit_id: 'G8' }, () => {});
+  assert.equal(fine.status, 200, JSON.stringify(fine.body));
+  assert.equal(threads(), before.threads + 1);
+
+  // The person disconnects the mailbox, or removes it, while Microsoft answers: the page is not stored, and the
+  // mailbox stays disconnected (or gone) rather than being marked connected again by the sync that was running.
+  for (const end of ['disconnect', 'remove'] as const) {
+    const other = await begin('analyst@example.mil');
+    await callback(op.token, { code: 'good', state: other.state });
+    const storedFor = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM threads WHERE connector_id = ?').get(other.connector.id) as { n: number }).n;
+    const audits = (app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'sync_mailbox' AND entity_id = ?").get(other.connector.id) as { n: number }).n;
+    const ended = await heldSync(op.token, { visibility: 'private' }, () => (end === 'disconnect'
+      ? post(op.token, `/api/correspondence/connectors/${other.connector.id}/disconnect`)
+      : app.call('DELETE', `/api/correspondence/connectors/${other.connector.id}`, { token: op.token })), other.connector.id);
+    assert.equal(ended.status, 409, `${end}: ${JSON.stringify(ended.body)}`);
+    assert.equal(ended.body.code, 'connector_not_authorized');
+    assert.equal(storedFor(), 0, `${end}: nothing from the page is stored`);
+    const row = app.ctx.db.prepare('SELECT status, delta_token, access_token_enc FROM connectors WHERE id = ?').get(other.connector.id) as Record<string, unknown> | undefined;
+    if (end === 'disconnect') assert.deepEqual({ ...row }, { status: 'disconnected', delta_token: null, access_token_enc: null });
+    else assert.equal(row, undefined);
+    assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'sync_mailbox' AND entity_id = ?").get(other.connector.id) as { n: number }).n, audits);
+  }
 });
 
 test('disconnecting destroys the tokens at once and says where to withdraw consent', async () => {

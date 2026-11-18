@@ -15,6 +15,7 @@ import { audit } from './audit.ts';
 import { notifyStaff } from './notifications.ts';
 import { classifyUpload } from './intake.ts';
 import { MalwareRejected, scanUpload } from './scanner.ts';
+import { freshPlatformAuthority } from '../auth/fresh.ts';
 import { namesOf } from './reportCenter.ts';
 import { ENTRY_SELECT, entryOf } from './courses.ts';
 import { readWorkbook, WorkbookError, ZipError } from '../lib/workbook.ts';
@@ -306,7 +307,7 @@ export function readCatalog(buffer: Buffer, filename: string, contentType: strin
  * Read a catalog file for a source, scan it, and hold what it lists until a Vantage Administrator applies it. A file waiting
  * before for the same source is discarded. Nothing is answered from it yet.
  */
-export async function stageCatalog(ctx: AppContext, actor: SessionUser, sourceId: string, input: { buffer: Buffer; filename: string; contentType: string; as_of: string }, ip?: string): Promise<CourseSourceRecord> {
+export async function stageCatalog(ctx: AppContext, actor: SessionUser, sourceId: string, input: { buffer: Buffer; filename: string; contentType: string; as_of: string; sessionId: string | null }, ip?: string): Promise<CourseSourceRecord> {
   const s = sourceRow(ctx, sourceId);
   if (!s) throw notFound('No such course source.');
   if (s.withdrawn_at) throw conflict('That source is withdrawn. Register it again to load its catalog.', 'source_withdrawn');
@@ -328,6 +329,8 @@ export async function stageCatalog(ctx: AppContext, actor: SessionUser, sourceId
   const id = newId();
   const at = now();
   ctx.db.transaction(() => {
+    // The scan awaits (ADR-0035): the session that sent the file must still be live, confirmed and allowed to load catalogs.
+    freshPlatformAuthority(ctx, input.sessionId, actor.id, 'platform.settings');
     // Read again now the scan is done: a source withdrawn while its file was scanned takes no file.
     if (sourceRow(ctx, sourceId)?.withdrawn_at) throw conflict('That source was withdrawn while its file was read. Register it again to load its catalog.', 'source_withdrawn');
     // What it would change, against the catalog in use.

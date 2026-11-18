@@ -4,6 +4,7 @@ import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { audit } from './audit.ts';
+import { freshAuthority } from '../auth/fresh.ts';
 import { PERMISSIONS, can, detailUnitsFor, membersAcross, orgOfUnit, sameInstance, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
 import { getUnit, primaryOrgOf } from './org.ts';
 import { periodBounds } from './reports.ts';
@@ -1567,19 +1568,46 @@ export function inExportLine<T>(work: () => Promise<T>): Promise<T> {
   return run.finally(() => { exportsInLine -= 1; });
 }
 
-/** A report as a file. Whether the reader may take it away is decided before anything is read. */
-export async function exportReport(ctx: AppContext, user: SessionUser, scope: Scope, q: ReportQuery, format: ReportFileFormat, ip?: string): Promise<ReportFile> {
+/** The target a report is drawn for, and the file it may leave as, or a refusal. */
+function exportTarget(ctx: AppContext, user: SessionUser, scope: Scope, q: ReportQuery, format: ReportFileFormat): ReportTarget {
   const t = resolveTarget(ctx, user, scope, q);
   if (!t.files.includes(format)) {
     throw forbidden(t.subject === 'member'
       ? 'Taking another Marine’s records away as a spreadsheet or data file needs the unit’s export permission. The PDF is yours to download.'
       : 'Downloading a unit’s report needs the unit’s export permission. You may view and print it.');
   }
-  // The reads and the drawing wait their turn together; who may have the file was decided above.
-  const { doc, file } = await inExportLine(async () => {
-    const built = buildReportDocument(ctx, user, scope, q, t);
-    return { doc: built, file: await renderFile(built, format) };
+  return t;
+}
+
+/** Whether a target decided now still covers everything a file drawn for an earlier one holds: the same report, no unit or Marine more. */
+const covers = (current: ReportTarget, drawn: ReportTarget) =>
+  current.subject === drawn.subject && current.userId === drawn.userId && current.unitId === drawn.unitId
+  && drawn.unitIds.every((u) => current.unitIds.includes(u)) && drawn.detailUnits.every((u) => current.detailUnits.includes(u));
+
+/**
+ * A report as a file. Whether the reader may take it away is decided before anything is read, and decided again when
+ * its turn in the export line comes and once more when the file is drawn, each time on the session, the account and the
+ * scope as they are then (ADR-0035). The line can hold a request for seconds; a role, a membership, a session or an
+ * account ended meanwhile ends the export, no file leaves, and nothing is audited as exported. `abandoned` says the
+ * reader has gone (their connection closed): such an export is skipped, or its file dropped unsent and unaudited, and
+ * the answer is null.
+ */
+export async function exportReport(ctx: AppContext, user: SessionUser, scope: Scope, q: ReportQuery, format: ReportFileFormat, sessionId: string | null, ip?: string, abandoned: () => boolean = () => false): Promise<ReportFile | null> {
+  exportTarget(ctx, user, scope, q, format);
+  const drawnFor = await inExportLine(async () => {
+    // A reader who left while it waited is not drawn a file, and nothing is audited as exported to them.
+    if (abandoned()) return null;
+    const turn = freshAuthority(ctx, sessionId, user.id);
+    const target = exportTarget(ctx, turn.user, turn.scope, q, format);
+    const built = buildReportDocument(ctx, turn.user, turn.scope, q, target);
+    const drawn = await renderFile(built, format);
+    // Drawing a file awaits; before any of it leaves, the reader must still hold everything it holds.
+    const after = freshAuthority(ctx, sessionId, user.id);
+    if (!covers(exportTarget(ctx, after.user, after.scope, q, format), target)) throw forbidden('Your access changed while the file was being drawn. Run the report again.', 'access_changed');
+    return { doc: built, file: drawn, t: target };
   });
+  if (!drawnFor || abandoned()) return null;
+  const { doc, file, t } = drawnFor;
   audit(ctx, {
     actor_id: user.id, action: 'export_report', entity: 'report', entity_id: q.type,
     subject_id: t.subject === 'member' ? t.userId : null, unit_id: t.unitId, detail: auditDetail(doc, format.toUpperCase()), ip,

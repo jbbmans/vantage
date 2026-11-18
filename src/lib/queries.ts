@@ -380,6 +380,8 @@ export async function signOutEverywhere() {
 export interface ThreadSummary {
   id: string; subject: string; state: string; unit_id: string | null; visibility: string;
   contact_id: string | null; contact_name: string | null; contact_organization: string | null;
+  /** The thread has a contact this reader may not see (ADR-0035). */
+  contact_hidden: boolean;
   follow_up_at: string | null; last_message_at: string | null; response_at: string | null;
   ksd_at: string | null; resolved_at: string | null; message_count: number; linked_items: number;
   provider: string | null; version: number; updated_at: string;
@@ -397,7 +399,7 @@ export const useContacts = (enabled = true) => useQuery<Array<Record<string, any
 export const useThreads = (params: Record<string, string | undefined> = {}, enabled = true) =>
   useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.threads(params), queryFn: () => api.listThreads(params), staleTime: 15_000, enabled });
 export const useThread = (id: string | null) =>
-  useQuery<{ thread: any; messages: any[]; links: any[]; contact: any }>({ queryKey: correspondenceKeys.thread(id || ''), queryFn: () => api.threadDetail(id!), enabled: Boolean(id) });
+  useQuery<{ thread: any; messages: any[]; links: any[]; contact: any; contact_hidden: boolean }>({ queryKey: correspondenceKeys.thread(id || ''), queryFn: () => api.threadDetail(id!), enabled: Boolean(id) });
 export const useItemThreads = (workItemId: string | null) =>
   useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.itemThreads(workItemId || ''), queryFn: () => api.threadsForItem(workItemId!), enabled: Boolean(workItemId) });
 export const useConnectors = (enabled = true) =>

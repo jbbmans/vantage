@@ -4,6 +4,7 @@ import { ingest, record } from '../services/telemetry.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
+import { freshAuthority } from '../auth/fresh.ts';
 import { sameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport, trackOf } from '../services/reports.ts';
 import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
@@ -19,7 +20,7 @@ import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
 import { periodClause } from '../services/timeframes.ts';
-import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
+import { runAiWorkflow, aiStatus, AiError, assertAiInputStillAllowed } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyStaff } from '../services/notifications.ts';
@@ -76,6 +77,17 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
     audit(req.ctx, { actor_id: req.user.id, action: 'build_report', entity: 'user', entity_id: userId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
   }
   return { q, userId, unitId };
+}
+
+/**
+ * After a PDF is drawn, and before it is sent (ADR-0035): the reader's session must still be live and, for another
+ * Marine's report, the reader must still open that Marine's records in the unit it was drawn for, both read afresh.
+ */
+function stillReportable(req: Parameters<Parameters<typeof wrap>[0]>[0], userId: string, unitId: string | null) {
+  const { scope } = freshAuthority(req.ctx, req.sessionId, req.user.id);
+  if (userId !== req.user.id && !(unitId && detailUnitsFor(req.ctx, scope, userId).includes(unitId))) {
+    throw forbidden('Your access changed while the file was being drawn. Run the report again.', 'access_changed');
+  }
 }
 
 const draftSchema = z.object({
@@ -240,6 +252,7 @@ miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
   const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
   // Its handling line is the one every report carries (ADR-0020).
   const pdf = await renderAnalysisPdf({ report, narrative: withEdits(base.narrative, q.narrative), pkg: base.pkg, classification: req.ctx.runtime.reportMarking });
+  stillReportable(req, userId, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `analysis; ${report.label}`, ip: clientIp(req) });
   const file = `vantage-analysis-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
@@ -255,6 +268,7 @@ miscRouter.get('/reports/pdf', wrap(async (req, res) => {
     title, subject: report.subject, unitLine: report.unit ? report.unit.short_name || report.unit.name : '', period: report.label, track: report.track,
     generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings, worksheet: report.worksheet,
   });
+  stillReportable(req, userId, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: report.label, ip: clientIp(req) });
   const file = `vantage-${report.track}-input-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
@@ -284,6 +298,9 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
   const workflow = String(req.body?.workflow || '');
   try {
     const result = await runAiWorkflow(ctx, req.user, workflow, req.body?.input, req.body?.model, req);
+    // The provider's answer awaits. It is handed back only to a session still live whose reader may still reach what it
+    // was drawn from (ADR-0035): another Marine's records, a case, a unit's figures.
+    assertAiInputStillAllowed(ctx, freshAuthority(ctx, req.sessionId, req.user.id).user, workflow, req.body?.input);
     audit(ctx, { actor_id: req.user.id, action: 'ai_assist', entity: 'ai_request', entity_id: result.request_id, detail: `${workflow}; ${result.model}; ${result.usage.total_tokens} tokens; suggestion only`, ip: clientIp(req) });
     res.json(result);
   } catch (error) {

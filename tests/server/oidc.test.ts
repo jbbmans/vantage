@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto';
 import { startApp, PASSWORD, type TestApp } from './helpers.ts';
-import { resetOidcCache } from '../../server/auth/oidc.ts';
+import { resetOidcCache, PENDING_PER_BROWSER } from '../../server/auth/oidc.ts';
+import { resetLimiters } from '../../server/auth/limiter.ts';
 
 /** A stand-in identity provider: discovery, keys, and a token endpoint that checks the PKCE verifier. */
 async function provider() {
@@ -53,13 +54,31 @@ function jwt(claims: Record<string, unknown>, key: KeyObject, header: Record<str
   return `${data}.${header.alg === 'none' ? '' : sign('sha256', Buffer.from(data), key).toString('base64url')}`;
 }
 
-async function signIn(app: TestApp, idp: Awaited<ReturnType<typeof provider>>, claims: (nonce: string) => Record<string, unknown>, opts: { key?: KeyObject; header?: Record<string, unknown>; query?: string } = {}) {
-  const start = await fetch(`${app.base}/api/auth/oidc/start${opts.query ?? ''}`, { redirect: 'manual' });
+type Idp = Awaited<ReturnType<typeof provider>>;
+interface SignInOpts { key?: KeyObject; header?: Record<string, unknown>; query?: string; jar?: string; headers?: Record<string, string> }
+
+/**
+ * A browser beginning an organization sign-in, and the provider signing the person in: the code and state it returns
+ * with, and the browser's cookies afterwards (`jar`), which hold the binding the start set (ADR-0035).
+ */
+async function begin(app: TestApp, idp: Idp, claims: (nonce: string) => Record<string, unknown>, opts: SignInOpts = {}) {
+  const start = await fetch(`${app.base}/api/auth/oidc/start${opts.query ?? ''}`, { redirect: 'manual', headers: { ...canonicalHost(app), ...(opts.jar ? { cookie: opts.jar } : {}), ...opts.headers } });
   const location = start.headers.get('location') || '';
-  if (!location.startsWith(idp.issuer)) return { start: location, callback: null as Response | null };
+  const jar = cookieOf(start) || opts.jar || '';
+  if (!location.startsWith(idp.issuer)) return { start: location, startResponse: start, jar, code: null, state: null };
   const { code, state } = idp.authorize(location, (nonce) => jwt(claims(nonce), opts.key || idp.privateKey, opts.header));
-  const callback = await fetch(`${app.base}/api/auth/oidc/callback?code=${code}&state=${encodeURIComponent(state)}`, { redirect: 'manual' });
-  return { start: location, callback, state, code };
+  return { start: location, startResponse: start, jar, code, state };
+}
+
+/** The provider's return reaching a browser holding `jar`. */
+const finish = (app: TestApp, code: string, state: string, jar: string, headers: Record<string, string> = {}) =>
+  fetch(`${app.base}/api/auth/oidc/callback?code=${code}&state=${encodeURIComponent(state)}`, { redirect: 'manual', headers: { ...(jar ? { cookie: jar } : {}), ...headers } });
+
+async function signIn(app: TestApp, idp: Idp, claims: (nonce: string) => Record<string, unknown>, opts: SignInOpts = {}) {
+  const b = await begin(app, idp, claims, opts);
+  if (!b.code || !b.state) return { start: b.start, callback: null as Response | null, jar: b.jar };
+  const callback = await finish(app, b.code, b.state, b.jar, opts.headers);
+  return { start: b.start, callback, state: b.state, code: b.code, jar: b.jar };
 }
 
 const claimsFor = (issuer: string, extra: Record<string, unknown> = {}) => (nonce: string) => {
@@ -67,7 +86,12 @@ const claimsFor = (issuer: string, extra: Record<string, unknown> = {}) => (nonc
   return { iss: issuer, aud: 'vantage-test', sub: 'subject-boletz', nonce, iat: t, nbf: t, exp: t + 600, email: 'boletz@example.mil', name: 'John Boletz', ...extra };
 };
 
-const env = (issuer: string, more: Record<string, string> = {}) => ({ VANTAGE_OIDC_ISSUER: issuer, VANTAGE_OIDC_CLIENT_ID: 'vantage-test', VANTAGE_OIDC_CLIENT_SECRET: 'provider-secret', VANTAGE_OIDC_TRUST_EMAIL: 'true', ...more });
+const env = (issuer: string, more: Record<string, string> = {}) => ({ VANTAGE_OIDC_ISSUER: issuer, VANTAGE_OIDC_CLIENT_ID: 'vantage-test', VANTAGE_OIDC_CLIENT_SECRET: 'provider-secret', VANTAGE_OIDC_TRUST_EMAIL: 'true', TRUST_PROXY: 'true', ...more });
+/**
+ * A browser on the configured application address. A sign-in begun under any other name moves there first (the provider
+ * returns there, and the binding cookie is that host's), and fetch cannot set Host, so the tests present it as a proxy would.
+ */
+const canonicalHost = (app: TestApp): Record<string, string> => ({ 'x-forwarded-host': new URL(app.ctx.config.urls.app).host });
 const cookieOf = (res: Response) => (res.headers.getSetCookie?.() || []).map((c) => c.split(';')[0]).join('; ');
 
 test('an organization sign-in links the existing account by email the first time, then by subject, and opens a session', async () => {
@@ -159,7 +183,7 @@ test('exclusive organization sign-in turns passwords and self-registration off; 
     assert.equal(password.status, 403);
     assert.equal(password.body.code, 'oidc_required');
 
-    const unaccepted = await fetch(`${app.base}/api/auth/oidc/start`, { redirect: 'manual' });
+    const unaccepted = await fetch(`${app.base}/api/auth/oidc/start`, { redirect: 'manual', headers: canonicalHost(app) });
     assert.equal(unaccepted.headers.get('location'), '/login?sso_error=consent_required');
     const accepted = await signIn(app, idp, claimsFor(idp.issuer), { query: '?consent=1' });
     assert.equal(accepted.callback!.status, 302);
@@ -204,4 +228,168 @@ test('misconfiguration is refused at start', async () => {
   await assert.rejects(startApp({ VANTAGE_OIDC_ISSUER: 'https://login.example.com' }), /VANTAGE_OIDC_CLIENT_ID/);
   await assert.rejects(startApp({ VANTAGE_OIDC_ISSUER: 'http://idp.example.com', VANTAGE_OIDC_CLIENT_ID: 'x' }), /https/);
   await assert.rejects(startApp({ VANTAGE_OIDC_ISSUER: 'https://login.example.com', VANTAGE_OIDC_CLIENT_ID: 'x', VANTAGE_OIDC_LINK: 'edipi' }), /EDIPI_CLAIM/);
+});
+
+// ——— C03: an organization sign-in finishes only in the browser, and on the face, that began it (ADR-0035) ———
+
+const sessionCookie = (res: Response) => cookieOf(res).includes('vantage_session=');
+const linked = (app: TestApp) => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users WHERE oidc_subject IS NOT NULL').get() as { n: number }).n;
+
+test('a return carried to another browser is refused before anything is spent, linked or opened, and still finishes where it began', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer));
+  try {
+    await app.setupOperator();
+    // The attacker begins a sign-in in browser A; the victim's browser B has begun one of its own, so holds a binding too.
+    const a = await begin(app, idp, claimsFor(idp.issuer));
+    const b = await begin(app, idp, claimsFor(idp.issuer, { sub: 'someone-else' }));
+    assert.match(a.jar, /^vantage_oidc=[A-Za-z0-9_-]{43}$/, 'the start sets the binding');
+    assert.notEqual(a.jar, b.jar, 'each browser has its own');
+    const set = a.startResponse.headers.getSetCookie().find((c) => c.startsWith('vantage_oidc='))!;
+    assert.match(set, /HttpOnly/i);
+    assert.match(set, /SameSite=Lax/i);
+    assert.match(set, /Max-Age=600/i);
+    assert.match(set, /Path=\//i);
+    assert.doesNotMatch(set, /Domain=/i, 'host-only');
+    assert.equal(app.ctx.db.prepare('SELECT 1 FROM oidc_states WHERE browser_hash = ?').get(a.jar.split('=')[1]), undefined, 'only its digest is kept');
+
+    const carried = await finish(app, a.code!, a.state!, b.jar);
+    assert.equal(carried.headers.get('location'), '/login?sso_error=oidc_browser');
+    assert.equal(sessionCookie(carried), false, 'no session in the browser it was carried to');
+    assert.equal(linked(app), 0, 'and no account linked');
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n, 1, 'only the operator’s own session');
+    // Missing and altered bindings are refused the same way.
+    assert.equal((await finish(app, a.code!, a.state!, '')).headers.get('location'), '/login?sso_error=oidc_browser');
+    const altered = a.jar.slice(0, -1) + (a.jar.endsWith('A') ? 'B' : 'A');
+    assert.equal((await finish(app, a.code!, a.state!, altered)).headers.get('location'), '/login?sso_error=oidc_browser');
+    assert.equal(linked(app), 0);
+
+    // In the browser that began it, it still finishes, once.
+    const own = await finish(app, a.code!, a.state!, a.jar);
+    assert.equal(own.status, 302);
+    assert.equal(own.headers.get('location'), '/');
+    assert.ok(sessionCookie(own));
+    assert.equal(linked(app), 1);
+    const again = await finish(app, a.code!, a.state!, a.jar);
+    assert.equal(again.headers.get('location'), '/login?sso_error=oidc_state', 'a replay in the same browser finds it spent');
+    assert.equal(sessionCookie(again), false);
+  } finally { await app.close(); await idp.close(); }
+});
+
+test('an expired sign-in or one begun before browsers were bound is refused; tabs of one browser each finish, and the binding goes after the last', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer));
+  try {
+    await app.setupOperator();
+    const late = await begin(app, idp, claimsFor(idp.issuer));
+    app.ctx.db.prepare('UPDATE oidc_states SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+    const expired = await finish(app, late.code!, late.state!, late.jar);
+    assert.equal(expired.headers.get('location'), '/login?sso_error=oidc_state');
+    assert.equal(sessionCookie(expired), false);
+    assert.match(expired.headers.getSetCookie().join('\n'), /vantage_oidc=;/, 'nothing is pending, so the binding is cleared');
+    // The binding cookie lasts as long as the sign-in, so a late return usually carries none: it is still told it was late.
+    const later = await begin(app, idp, claimsFor(idp.issuer));
+    app.ctx.db.prepare('UPDATE oidc_states SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+    assert.equal((await finish(app, later.code!, later.state!, '')).headers.get('location'), '/login?sso_error=oidc_state', 'late, with the cookie gone');
+
+    const old = await begin(app, idp, claimsFor(idp.issuer));
+    app.ctx.db.prepare('UPDATE oidc_states SET browser_hash = NULL').run();
+    assert.equal((await finish(app, old.code!, old.state!, old.jar)).headers.get('location'), '/login?sso_error=oidc_browser', 'an attempt from before the upgrade');
+    assert.equal(linked(app), 0);
+
+    // Two tabs: the second start presents the first's binding and keeps it.
+    const first = await begin(app, idp, claimsFor(idp.issuer));
+    const second = await begin(app, idp, claimsFor(idp.issuer), { jar: first.jar });
+    assert.equal(second.jar, first.jar, 'one binding for the browser');
+    const one = await finish(app, first.code!, first.state!, first.jar);
+    assert.ok(sessionCookie(one));
+    assert.doesNotMatch(one.headers.getSetCookie().join('\n'), /vantage_oidc=;/, 'the other tab still needs it');
+    const two = await finish(app, second.code!, second.state!, first.jar);
+    assert.ok(sessionCookie(two));
+    assert.match(two.headers.getSetCookie().join('\n'), /vantage_oidc=;/, 'cleared once nothing is pending');
+
+    // A browser keeps a bounded number of sign-ins in progress.
+    let jar = '';
+    resetLimiters();
+    for (let i = 0; i < PENDING_PER_BROWSER + 3; i++) {
+      const started = await begin(app, idp, claimsFor(idp.issuer), { jar });
+      assert.ok(started.code, `start ${i + 1} reaches the provider`);
+      jar = started.jar;
+    }
+    const pending = app.ctx.db.prepare('SELECT browser_hash, COUNT(*) AS n FROM oidc_states WHERE used_at IS NULL AND browser_hash IS NOT NULL GROUP BY browser_hash').all() as Array<{ n: number }>;
+    assert.deepEqual(pending.map((p) => p.n), [PENDING_PER_BROWSER]);
+  } finally { await app.close(); await idp.close(); }
+});
+
+test('a sign-in begun under another name for the server moves to the configured address before anything is set or spent', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer, { VANTAGE_OIDC_EXCLUSIVE: 'true' }));
+  try {
+    await app.setupOperator();
+    const configured = new URL(app.ctx.config.urls.app);
+    const pending = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM oidc_states').get() as { n: number }).n;
+    const before = pending();
+    // Reached by its IP address (or an alias, or the platform's own hostname): sent on to the address the provider returns to.
+    const aliased = await fetch(`${app.base}/api/auth/oidc/start?consent=1&return=%2Fsettings`, { redirect: 'manual' });
+    assert.equal(aliased.status, 302);
+    assert.equal(aliased.headers.get('location'), `${configured.origin}/api/auth/oidc/start?consent=1&return=%2Fsettings&moved=1`);
+    assert.deepEqual(aliased.headers.getSetCookie(), [], 'no binding is set on a host the provider will not return to');
+    assert.equal(pending(), before, 'and no sign-in is begun there');
+    // Moving is not a sign-in attempt: however often it happens, the sign-in limit is untouched.
+    for (let i = 0; i < 20; i++) assert.equal((await fetch(`${app.base}/api/auth/oidc/start`, { redirect: 'manual' })).status, 302);
+    // A browser moves once. Behind a proxy that hands on a Host of its own, the configured address it moved to still
+    // reaches the server under another name: it begins there rather than being sent round again.
+    const moved = await begin(app, idp, claimsFor(idp.issuer), { query: '?consent=1&moved=1', headers: { 'x-forwarded-host': 'vantage-upstream' } });
+    assert.ok(moved.start.startsWith(idp.issuer), moved.start);
+    // Cookies ignore ports, so a port a proxy adds or strips moves nothing.
+    const ported = await begin(app, idp, claimsFor(idp.issuer), { query: '?consent=1', headers: { 'x-forwarded-host': `${configured.hostname}:8443` } });
+    assert.ok(ported.start.startsWith(idp.issuer), ported.start);
+    // The target is the configuration's, whatever the request claims to be.
+    const spoofed = await fetch(`${app.base}/api/auth/oidc/start`, { redirect: 'manual', headers: { 'x-forwarded-host': 'evil.example' } });
+    assert.equal(new URL(String(spoofed.headers.get('location'))).origin, configured.origin);
+    // On the configured address it begins, binds this browser, and the provider is told to return there.
+    const there = await begin(app, idp, claimsFor(idp.issuer), { query: '?consent=1' });
+    assert.ok(there.start.startsWith(idp.issuer));
+    assert.equal(new URL(there.start).searchParams.get('redirect_uri'), `${configured.origin}/api/auth/oidc/callback`);
+    assert.match(there.jar, /vantage_oidc=/);
+    assert.equal(pending(), before + 3);
+  } finally { await app.close(); await idp.close(); }
+});
+
+test('over HTTPS the binding is a __Host- cookie; a return on another face is refused; app and console each still sign in', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const APP = 'secure.vantage.test';
+  const CONSOLE = 'dev.vantage.test';
+  const app = await startApp(env(idp.issuer, { VANTAGE_APP_URL: `https://${APP}`, VANTAGE_CONSOLE_URL: `https://${CONSOLE}`, VANTAGE_SITE_URL: '', TRUST_PROXY: 'true' }));
+  const on = (host: string) => ({ 'x-forwarded-host': host, 'x-forwarded-proto': 'https' });
+  try {
+    const setup = await app.call('POST', '/api/auth/setup', { headers: on(APP), body: { username: 'boletz', password: PASSWORD, first_name: 'John', last_name: 'Boletz', email: 'boletz@example.mil', unit_name: 'G-8 Comptroller', unit_short_name: 'G8' } });
+    assert.equal(setup.status, 200, JSON.stringify(setup.body));
+    const started = await begin(app, idp, claimsFor(idp.issuer), { headers: on(APP) });
+    assert.match(started.jar, /^__Host-vantage_oidc=/);
+    const set = started.startResponse.headers.getSetCookie().find((c) => c.startsWith('__Host-vantage_oidc='))!;
+    assert.match(set, /Secure/i);
+    assert.match(set, /Path=\//i);
+    assert.doesNotMatch(set, /Domain=/i);
+    // A plain cookie of the same purpose does not stand in for it over HTTPS.
+    const plain = started.jar.replace('__Host-vantage_oidc=', 'vantage_oidc=');
+    assert.equal((await finish(app, started.code!, started.state!, plain, on(APP))).headers.get('location'), '/login?sso_error=oidc_browser');
+    // Begun on the app, returned on the console, even carrying the cookie: refused, and still good on the app.
+    const crossed = await finish(app, started.code!, started.state!, started.jar, on(CONSOLE));
+    assert.match(String(crossed.headers.get('location')), /sso_error=oidc_browser/);
+    assert.equal(sessionCookie(crossed), false);
+    const back = await finish(app, started.code!, started.state!, started.jar, on(APP));
+    assert.equal(back.headers.get('location'), '/');
+    assert.ok(sessionCookie(back));
+
+    // The console's own sign-in, for its owner, begins and ends on the console.
+    const consoleSignIn = await signIn(app, idp, claimsFor(idp.issuer), { headers: on(CONSOLE) });
+    assert.equal(new URL(consoleSignIn.start).searchParams.get('redirect_uri'), `https://${CONSOLE}/api/auth/oidc/callback`);
+    assert.equal(consoleSignIn.callback!.status, 302);
+    assert.ok(sessionCookie(consoleSignIn.callback!));
+  } finally { await app.close(); await idp.close(); }
 });

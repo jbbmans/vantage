@@ -94,6 +94,19 @@ test('a contact can be corrected after it is saved', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Save contact' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Contact saved.' })).toBeVisible();
   await expect(page.getByText('DFAS Indianapolis')).toBeVisible();
+
+  // Changed by someone else while it is open: the save is refused, the dialog closes, and the list shows the change.
+  await page.getByRole('button', { name: `Edit ${name}` }).click();
+  await dialog.getByLabel('Organization').fill('DFAS Columbus');
+  const current = (await (await page.request.get('/api/correspondence/contacts')).json() as Array<Record<string, unknown>>).find((c) => c.name === name)!;
+  const meanwhile = await page.request.put(`/api/correspondence/contacts/${current.id}`, { headers: H, data: { name, email: 'reyes@example.mil', organization: 'DFAS Cleveland', visibility: 'unit', unit_id: 'G8', version: current.version } });
+  expect(meanwhile.ok(), await meanwhile.text()).toBeTruthy();
+  await dialog.getByRole('button', { name: 'Save contact' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Someone changed this contact since you opened it' })).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('DFAS Cleveland')).toBeVisible();
+  await page.getByRole('button', { name: `Edit ${name}` }).click();
+  await expect(dialog.getByLabel('Organization')).toHaveValue('DFAS Cleveland');
 });
 
 test('the owner links an account to its EDIPI so it can sign in with a CAC', async ({ page, browser }) => {

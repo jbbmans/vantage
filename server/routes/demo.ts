@@ -27,7 +27,7 @@ demoRouter.post('/start', wrap((req, res) => {
   if (limited) throw tooMany('Too many demo workspaces from this connection. Try again shortly.', limited.retryAfter, 'demo_throttled');
   limiters.registerIp.bump(ip);
   const ws = createWorkspace(req.ctx);
-  const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(ws.persona_user_id) as { id: string; must_change_password: number };
+  const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(ws.persona_user_id) as { id: string; must_change_password: number; auth_epoch: number };
   return finishSignIn(req, res, user, 'demo', 'demo_start');
 }));
 
@@ -38,7 +38,7 @@ demoRouter.post('/persona', requireAuth, wrap((req, res) => {
   const ws = workspaceOf(req.ctx, req.user.id);
   if (!ws) throw forbidden('Only a demo persona can switch personas.');
   const targetId = (persona as Persona) === 'leader' ? ws.leader_user_id : ws.persona_user_id;
-  const target = req.ctx.db.prepare('SELECT * FROM users WHERE id = ? AND demo_workspace_id = ?').get(targetId, ws.id) as { id: string; must_change_password: number } | undefined;
+  const target = req.ctx.db.prepare('SELECT * FROM users WHERE id = ? AND demo_workspace_id = ?').get(targetId, ws.id) as { id: string; must_change_password: number; auth_epoch: number } | undefined;
   if (!target) throw notFound('That persona is gone. Reset the demo.');
   destroySession(req.ctx, req.sessionId);
   audit(req.ctx, { actor_id: req.user.id, action: 'demo_persona', subject_id: target.id, unit_id: ws.unit_id, detail: persona });
@@ -52,7 +52,7 @@ demoRouter.post('/reset', requireAuth, wrap((req, res) => {
   destroySession(req.ctx, req.sessionId);
   purgeWorkspace(req.ctx, ws.id);
   const fresh = createWorkspace(req.ctx);
-  const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(fresh.persona_user_id) as { id: string; must_change_password: number };
+  const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(fresh.persona_user_id) as { id: string; must_change_password: number; auth_epoch: number };
   return finishSignIn(req, res, user, 'demo', 'demo_start');
 }));
 

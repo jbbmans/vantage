@@ -56,7 +56,11 @@ export async function registrationOptions(ctx: AppContext, user: { id: string; u
   return options;
 }
 
-export async function completeRegistration(ctx: AppContext, userId: string, response: RegistrationResponseJSON, name: string) {
+/**
+ * Saves a new passkey once its response verifies. `stillAllowed` runs after that wait and before anything is written: the
+ * caller's check that the session that asked is still live and still confirmed (ADR-0035). It throws to refuse.
+ */
+export async function completeRegistration(ctx: AppContext, userId: string, response: RegistrationResponseJSON, name: string, stillAllowed?: () => void) {
   const pending = take(ctx, 'registration', `reg:${userId}`);
   if (!pending) throw new Error('Passkey registration timed out. Start again.');
   const verification = await verifyRegistrationResponse({
@@ -64,6 +68,7 @@ export async function completeRegistration(ctx: AppContext, userId: string, resp
   });
   if (!verification.verified || !verification.registrationInfo) throw new Error('The passkey could not be verified.');
   const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+  stillAllowed?.();
   ctx.db.prepare(
     `INSERT INTO passkeys (id, user_id, public_key, counter, transports, device_type, backed_up, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(credential.id, userId, Buffer.from(credential.publicKey), credential.counter, JSON.stringify(credential.transports || []), credentialDeviceType, credentialBackedUp ? 1 : 0, name.slice(0, 80) || 'Passkey', now());
@@ -93,13 +98,17 @@ export async function completeAuthentication(ctx: AppContext, response: Authenti
   const row = ctx.db.prepare('SELECT * FROM passkeys WHERE id = ?').get(response.id) as PasskeyRow | undefined;
   if (!row) throw new Error('That passkey is not registered here.');
   if (pending.userId && pending.userId !== row.user_id) throw new Error('That passkey belongs to a different account.');
+  // The account's authentication epoch as this proof begins (ADR-0035): the session it opens must still be under it.
+  const epoch = (ctx.db.prepare('SELECT auth_epoch FROM users WHERE id = ?').get(row.user_id) as { auth_epoch: number } | undefined)?.auth_epoch ?? -1;
   const verification = await verifyAuthenticationResponse({
     response, expectedChallenge: pending.challenge, expectedOrigin: passkeyOrigins(ctx), expectedRPID: ctx.config.rpId, requireUserVerification: true,
     credential: { id: row.id, publicKey: new Uint8Array(row.public_key), counter: row.counter, transports: JSON.parse(row.transports || '[]') },
   });
   if (!verification.verified) throw new Error('The passkey could not be verified.');
-  ctx.db.prepare('UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?').run(verification.authenticationInfo.newCounter, now(), row.id);
-  return { userId: row.user_id, passkeyId: row.id };
+  // A passkey removed while it was being checked opens nothing.
+  const kept = ctx.db.prepare('UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ? AND user_id = ?').run(verification.authenticationInfo.newCounter, now(), row.id, row.user_id).changes;
+  if (kept !== 1) throw new Error('That passkey was removed. Sign in another way.');
+  return { userId: row.user_id, passkeyId: row.id, epoch };
 }
 
 export function deletePasskey(ctx: AppContext, userId: string, id: string): boolean {

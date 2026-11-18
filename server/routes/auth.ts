@@ -8,7 +8,7 @@ import { assertNotLocked, assertNameNotLocked, recordFailure, recordNameFailure,
 import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
-import { createSession, destroySession, invalidateUserSessions, resolveSession, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
+import { createSession, credentialsChanged, destroySession, invalidateUserSessions, resolveSession, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { matchTotp } from '../auth/totp.ts';
@@ -25,19 +25,19 @@ import { scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { slug } from '../lib/ids.ts';
 import type { Request, Response } from 'express';
 import type { AppContext } from '../context.ts';
-import { startSignIn, completeSignIn, resolveOidcAccount, OidcError } from '../auth/oidc.ts';
+import { startSignIn, completeSignIn, resolveOidcAccount, OidcError, browserCookieName, browserHasPending, isBrowserBinding, newBrowserBinding, redirectUri, STATE_MINUTES, type Face } from '../auth/oidc.ts';
 import { markEdipiVerified } from '../services/identity.ts';
 
 export const authRouter = Router();
 
-interface UserRow { id: string; username: string; email: string | null; first_name: string; last_name: string; password_hash: string; totp_enabled: number; totp_secret: string | null; totp_last_step: number | null; must_change_password: number; active: number; is_operator: number }
+interface UserRow { id: string; username: string; email: string | null; first_name: string; last_name: string; password_hash: string; totp_enabled: number; totp_secret: string | null; totp_last_step: number | null; must_change_password: number; active: number; is_operator: number; auth_epoch: number }
 
 function cookieOptions(req: Request) {
   const secure = req.ctx.config.production || req.secure;
   return { httpOnly: true, sameSite: 'lax' as const, secure, path: '/' };
 }
 
-export function finishSignIn(req: Request, res: Response, user: { id: string; must_change_password: number }, method: string, action = 'login') {
+export function finishSignIn(req: Request, res: Response, user: { id: string; must_change_password: number; auth_epoch: number }, method: string, action = 'login') {
   const { token, expires } = openSession(req, res, user, method, action);
   const body: Record<string, unknown> = { ok: true, expires, mustChangePassword: Boolean(user.must_change_password) };
   if (req.ctx.config.test) body.token = token;
@@ -46,9 +46,11 @@ export function finishSignIn(req: Request, res: Response, user: { id: string; mu
 
 /**
  * Every way of getting a session ends here: the notice, the console's owners-only rule, the lockout count and the
- * cookies. `consented` is for a sign-in that came back from another site and so carries no header.
+ * cookies. `consented` is for a sign-in that came back from another site and so carries no header. `user.auth_epoch` is
+ * the account's authentication epoch as the proof found it: the session is opened only if it is still the account's
+ * (ADR-0035).
  */
-function openSession(req: Request, res: Response, user: { id: string }, method: string, action: string, opts: { consented?: boolean } = {}) {
+function openSession(req: Request, res: Response, user: { id: string; auth_epoch: number }, method: string, action: string, opts: { consented?: boolean } = {}) {
   const ctx = req.ctx;
   // The router refused anything unaccepted before it ran; this is the backstop for any future way in.
   if (consentFor(ctx) && !(opts.consented ?? req.get('x-vantage-consent') === '1')) throw forbidden('Read and accept the notice before signing in.', 'consent_required');
@@ -65,7 +67,7 @@ function openSession(req: Request, res: Response, user: { id: string }, method: 
     }
   }
   clearFailures(ctx, user.id);
-  const { token, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true });
+  const { token, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true, epoch: user.auth_epoch });
   audit(ctx, { actor_id: user.id, action, ip: clientIp(req), detail: method });
   res.cookie(SESSION_COOKIE, token, cookieOptions(req));
   setSignedInMarker(req, res, token);
@@ -229,14 +231,22 @@ authRouter.post('/login', wrap(async (req, res) => {
     if (recordFailure(ctx, row.id, { ip, where: 'password' })) assertNotLocked(ctx, row.id);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
-  rehashIfOld(ctx, row.id, password, row.password_hash);
-  if (row.totp_enabled) {
-    const mfaLimit = limiters.mfaUser.limited(row.id);
+  // The account as it stands now, not as it stood when the password began to be checked (ADR-0035): a reset, a session
+  // wipe or a deactivation meanwhile ends this sign-in, and a second factor turned on meanwhile is asked for.
+  const current = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(row.id) as UserRow | undefined;
+  if (!current || current.auth_epoch !== row.auth_epoch) {
+    audit(ctx, { actor_id: null, action: 'login_failed', subject_id: row.id, ip, detail: 'password; the account changed while it was checked' });
+    throw credentialsChanged();
+  }
+  rehashIfOld(ctx, current.id, password, row.password_hash);
+  if (current.totp_enabled) {
+    const mfaLimit = limiters.mfaUser.limited(current.id);
     if (mfaLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', mfaLimit.retryAfter);
-    const { token } = issueToken(ctx, 'login_mfa', { userId: row.id, ttlMinutes: 5, payload: { ip } });
+    // The challenge carries the epoch it was issued under; a reset before it is answered spends it (ADR-0035).
+    const { token } = issueToken(ctx, 'login_mfa', { userId: current.id, ttlMinutes: 5, payload: { ip, epoch: current.auth_epoch } });
     return res.json({ ok: false, mfa: 'totp', challenge: token });
   }
-  return finishSignIn(req, res, row, 'password');
+  return finishSignIn(req, res, current, 'password');
 }));
 
 authRouter.post('/login/mfa', wrap((req, res) => {
@@ -250,6 +260,12 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!pending?.user_id) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(pending.user_id) as UserRow | undefined;
   if (!row) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
+  // A challenge stands only in the epoch it was issued under (ADR-0035): one issued before a reset, a second-factor reset
+  // or a session wipe is spent unanswered, and so is one from before the epoch existed.
+  if (typeof pending.payload.epoch !== 'number' || pending.payload.epoch !== row.auth_epoch) {
+    consumeToken(ctx, 'login_mfa', challenge);
+    throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
+  }
   const accountLimit = limiters.mfaUser.limited(row.id);
   if (accountLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', accountLimit.retryAfter);
   assertNotLocked(ctx, row.id);
@@ -304,7 +320,8 @@ authRouter.post('/passkey/verify', wrap(async (req, res) => {
   catch (error) { limiters.loginIp.bump(ip); throw unauthorized((error as Error).message, 'passkey_failed'); }
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(result.userId) as UserRow | undefined;
   if (!row) throw unauthorized('That account is not active.', 'inactive');
-  return finishSignIn(req, res, row, 'passkey');
+  // Opened under the epoch the passkey's check began in, or not at all (ADR-0035).
+  return finishSignIn(req, res, { ...row, auth_epoch: result.epoch }, 'passkey');
 }));
 
 authRouter.post('/logout', requireAuth, wrap((req, res) => {
@@ -324,15 +341,17 @@ authRouter.post('/sudo', requireAuth, wrap(async (req, res) => {
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
   // Failures here count toward the same lockout as sign-in: a stolen session must not become a way to guess the password.
   try { assertNotLocked(ctx, req.user.id); } catch (e) { record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id }); throw e; }
-  const row = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
+  const row = ctx.db.prepare('SELECT password_hash, auth_epoch FROM users WHERE id = ?').get(req.user.id) as { password_hash: string; auth_epoch: number };
   if (!(await verifyPassword(password, row.password_hash))) {
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
     if (recordFailure(ctx, req.user.id, { ip: clientIp(req), where: 'step_up' })) assertNotLocked(ctx, req.user.id);
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
+  // Granted only to a session still live under the epoch the password was checked in (ADR-0035): a reset or a sign-out
+  // everywhere while it hashed confirms nothing.
+  const until = grantSudo(ctx, req.sessionId, row.auth_epoch);
   clearFailures(ctx, req.user.id);
   rehashIfOld(ctx, req.user.id, password, row.password_hash);
-  const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
   res.json({ ok: true, until });
 }));
@@ -398,7 +417,7 @@ authRouter.post('/reset', wrap((req, res) => {
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(pending.user_id) as UserRow | undefined;
   if (!row) throw badRequest('That account is not active.');
   if (row.totp_enabled) {
-    const { token: challenge } = issueToken(ctx, 'login_mfa', { userId: row.id, ttlMinutes: 5, payload: { ip } });
+    const { token: challenge } = issueToken(ctx, 'login_mfa', { userId: row.id, ttlMinutes: 5, payload: { ip, epoch: row.auth_epoch } });
     return res.json({ ok: false, mfa: 'totp', challenge });
   }
   return finishSignIn(req, res, row, 'password', 'password_reset_login');
@@ -501,10 +520,29 @@ const localPath = (value: unknown): string | null => {
   return /^\/(?!\/)[^\\\s]*$/.test(v) ? v.slice(0, 300) : null;
 };
 
-/** Sends the browser to the organization's identity provider. */
+/** The face an organization sign-in begins and must end on: the console on a host of its own, else the app. */
+const oidcFace = (res: Response): Face => {
+  const faces = facesOf(res);
+  return faces.has('console') && !faces.has('app') ? 'console' : 'app';
+};
+
+/** Sends the browser to the organization's identity provider, bound to this browser by a short-lived cookie (ADR-0035). */
 authRouter.get('/oidc/start', wrap(async (req, res) => {
   const ctx = req.ctx;
   if (!ctx.config.oidc.enabled) throw notFound('Organization sign-in is not enabled here.');
+  const face = oidcFace(res);
+  // The provider returns to the configured address, and the binding cookie belongs to one host, so a sign-in begun under
+  // any other name (an alias, an IP, the platform's own hostname, an admin-only host) first moves to that address. The
+  // target comes from configuration, never from the request's Host, so this is no open redirect. Names are compared
+  // without ports, as cookies are. A browser moves once (`moved=1`): having followed an absolute redirect to the
+  // configured address it is there, whatever Host a proxy in front then hands on, and asking it to move again would
+  // send it round for ever.
+  const canonical = new URL(redirectUri(ctx, face));
+  if (String(req.hostname || '').toLowerCase() !== canonical.hostname.toLowerCase() && req.query.moved !== '1') {
+    const target = new URL(`${canonical.origin}${req.originalUrl}`);
+    target.searchParams.set('moved', '1');
+    if (target.origin === canonical.origin) return res.redirect(302, target.toString());
+  }
   const ip = clientIp(req);
   const limited = limiters.loginIp.limited(ip);
   if (limited) return res.redirect(302, signInPage(req, res, 'throttled'));
@@ -512,10 +550,15 @@ authRouter.get('/oidc/start', wrap(async (req, res) => {
   const consented = req.query.consent === '1';
   // The notice is accepted on the sign-in page before the browser leaves for the provider; the answer rides in the state.
   if (consentFor(ctx) && !consented) return res.redirect(302, signInPage(req, res, 'consent_required'));
-  const faces = facesOf(res);
-  const face = faces.has('console') && !faces.has('app') ? 'console' : 'app';
+  const options = cookieOptions(req);
+  const name = browserCookieName(options.secure);
+  // Tabs of one browser share its binding, so a sign-in begun in each can finish in each.
+  const presented = req.cookies?.[name];
+  const browser = isBrowserBinding(presented) ? presented : newBrowserBinding();
   try {
-    res.redirect(302, await startSignIn(ctx, { face, consented, returnTo: localPath(req.query.return) }));
+    const url = await startSignIn(ctx, { face, consented, returnTo: localPath(req.query.return), browser });
+    res.cookie(name, browser, { ...options, maxAge: STATE_MINUTES * 60_000 });
+    res.redirect(302, url);
   } catch (error) {
     if (!(error instanceof OidcError)) throw error;
     audit(ctx, { action: 'oidc_rejected', ip, detail: `${error.code}: ${error.message}`.slice(0, 300) });
@@ -529,20 +572,27 @@ authRouter.get('/oidc/callback', wrap(async (req, res) => {
   if (!ctx.config.oidc.enabled) throw notFound('Organization sign-in is not enabled here.');
   const ip = clientIp(req);
   const q = req.query as Record<string, string | undefined>;
+  const options = cookieOptions(req);
+  const name = browserCookieName(options.secure);
+  const browser = typeof req.cookies?.[name] === 'string' ? String(req.cookies[name]) : null;
+  // The binding goes once this browser has no sign-in left to finish; another tab's still needs it.
+  const settle = () => { if (browser && !browserHasPending(ctx, browser)) res.clearCookie(name, options); };
   try {
-    const done = await completeSignIn(ctx, { code: q.code, state: q.state, error: q.error, error_description: q.error_description });
+    const done = await completeSignIn(ctx, { code: q.code, state: q.state, error: q.error, error_description: q.error_description }, { browser, face: oidcFace(res) });
     const account = resolveOidcAccount(ctx, done.claims);
     if (account.linked) audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}`.slice(0, 300) });
-    const user = ctx.db.prepare('SELECT id, must_change_password FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number } | undefined;
+    const user = ctx.db.prepare('SELECT id, must_change_password, auth_epoch FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number; auth_epoch: number } | undefined;
     if (!user) throw new OidcError('That account is not active.', 'oidc_inactive');
     // The enterprise provider asserting the EDIPI the account carries proves it, as the card does (ADR-0009).
     const asserted = ctx.config.oidc.edipiClaim ? String(done.claims[ctx.config.oidc.edipiClaim] ?? '').trim() : '';
     if (/^\d{10}$/.test(asserted)) markEdipiVerified(ctx, user.id, asserted);
     openSession(req, res, user, 'oidc', 'login', { consented: done.consented });
+    settle();
     res.redirect(302, done.returnTo || '/');
   } catch (error) {
     const code = error instanceof OidcError ? error.code : error instanceof HttpError ? error.code : null;
     if (!code) throw error;
+    settle();
     limiters.loginIp.bump(ip);
     // The owner reads the reason in the audit log; the browser is only told the code.
     audit(ctx, { action: 'oidc_rejected', ip, detail: `${code}: ${(error as Error).message}`.slice(0, 300) });

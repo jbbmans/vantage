@@ -392,3 +392,35 @@ test('a mailbox too big for one sync picks up where the last one stopped, and an
     assert.equal(elsewhere.status, 403, 'synced mail could be filed as shared correspondence of a unit the Marine is not in');
   } finally { await fresh.close(); }
 });
+
+test('a sync refused part way stores the pages before the refusal and none after, and the mailbox keeps the place it had (ADR-0035)', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const connectorId = (await fresh.call('POST', '/api/correspondence/connectors', { token: owner.token, body: { cloud: 'global', account_label: 'a@b.mil' } })).body.id;
+    const base = MICROSOFT_CLOUDS.global.graph;
+    const place = `${base}/v1.0/me/messages/delta?$deltatoken=before`;
+    fresh.ctx.db.prepare("UPDATE connectors SET status = 'connected', delta_token = ? WHERE id = ?").run(place, connectorId);
+    const user = fresh.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(owner.id) as never;
+    const message = (id: string) => ({ id, conversationId: `c-${id}`, subject: `Page ${id}`, receivedDateTime: '2026-06-01T00:00:00Z', body: { contentType: 'text', content: 'hello' } });
+    const pages: DeltaPage[] = [
+      { value: [message('p1')] as never, '@odata.nextLink': `${base}/v1.0/me/messages/delta?$skiptoken=2` },
+      { value: [message('p2')] as never, '@odata.deltaLink': `${base}/v1.0/me/messages/delta?$deltatoken=after` },
+    ];
+    let call = 0;
+    let asked = 0;
+    // Allowed when the first page comes back, refused when the second does.
+    const stillAllowed = () => { asked += 1; if (asked > 1) throw Object.assign(new Error('Your access changed.'), { status: 403, code: 'access_changed' }); };
+    await assert.rejects(syncMailbox(fresh.ctx, user, connectorId, async () => pages[call++], { visibility: 'private', stillAllowed }), /Your access changed/);
+    assert.equal(asked, 2, 'asked after each page');
+    const subjects = (fresh.ctx.db.prepare('SELECT subject FROM threads ORDER BY subject').all() as Array<{ subject: string }>).map((t) => t.subject);
+    assert.deepEqual(subjects, ['Page p1'], 'the first page stays, the second is not stored');
+    const row = fresh.ctx.db.prepare('SELECT status, delta_token, last_error FROM connectors WHERE id = ?').get(connectorId) as Record<string, unknown>;
+    assert.deepEqual({ ...row }, { status: 'connected', delta_token: place, last_error: null }, 'not marked failing, and the next sync reads from where this one began');
+
+    // The next sync, allowed throughout, reads from there: the first page is already held, the second is stored.
+    call = 0;
+    const again = await syncMailbox(fresh.ctx, user, connectorId, async () => pages[call++], { visibility: 'private', stillAllowed: () => {} });
+    assert.deepEqual({ stored: again.stored, skipped: again.skipped }, { stored: 1, skipped: 1 });
+  } finally { await fresh.close(); }
+});

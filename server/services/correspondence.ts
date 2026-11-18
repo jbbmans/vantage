@@ -42,15 +42,45 @@ const readable = (scope: Scope, user: SessionUser, row: { owner_id: string; unit
 const writable = (scope: Scope, user: SessionUser, row: { owner_id: string; unit_id: string | null; visibility: string }) =>
   row.owner_id === user.id || (Boolean(row.unit_id) && can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id!));
 
-export function listContacts(ctx: AppContext, user: SessionUser, scope: Scope) {
+interface ContactAccessRow { owner_id: string; unit_id: string | null; visibility: string; deleted_at?: string | null }
+
+/**
+ * The one rule for reading a contact (ADR-0035): it is not removed, and it is the reader's own or shared with a unit they
+ * belong to. A thread the reader may open does not lend them its contact; every list, detail and join uses this rule or
+ * contactReadableSql, its SQL twin.
+ */
+export const contactReadable = (scope: Scope, user: SessionUser, row: ContactAccessRow) =>
+  !row.deleted_at && (row.owner_id === user.id || (row.visibility === 'unit' && Boolean(row.unit_id) && isMember(scope, row.unit_id!)));
+
+/**
+ * The one rule for changing a contact (ADR-0035): its owner, or someone who can read a shared contact and manages records
+ * in its unit. A private contact is its owner's alone, whoever manages the unit it was once shared with.
+ */
+export const contactWritable = (scope: Scope, user: SessionUser, row: ContactAccessRow) =>
+  contactReadable(scope, user, row)
+  && (row.owner_id === user.id || (row.visibility === 'unit' && can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id!)));
+
+/** contactReadable as SQL over the contact alias `c`, with its parameters in order. */
+function contactReadableSql(user: SessionUser, scope: Scope): { sql: string; params: unknown[] } {
   const units = scope.unitIds;
-  const rows = units.length
-    ? ctx.db.prepare(`SELECT * FROM contacts WHERE deleted_at IS NULL AND (owner_id = ? OR (visibility = 'unit' AND unit_id IN (${units.map(() => '?').join(',')}))) ORDER BY name`).all(user.id, ...units)
-    : ctx.db.prepare('SELECT * FROM contacts WHERE deleted_at IS NULL AND owner_id = ? ORDER BY name').all(user.id);
-  return rows as Array<Record<string, unknown>>;
+  return units.length
+    ? { sql: `(c.deleted_at IS NULL AND (c.owner_id = ? OR (c.visibility = 'unit' AND c.unit_id IN (${units.map(() => '?').join(',')}))))`, params: [user.id, ...units] }
+    : { sql: '(c.deleted_at IS NULL AND c.owner_id = ?)', params: [user.id] };
 }
 
-export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, input: Record<string, unknown>, id?: string) {
+export function listContacts(ctx: AppContext, user: SessionUser, scope: Scope) {
+  const readableClause = contactReadableSql(user, scope);
+  return ctx.db.prepare(`SELECT c.* FROM contacts c WHERE ${readableClause.sql} ORDER BY c.name`).all(...readableClause.params) as Array<Record<string, unknown>>;
+}
+
+export interface ContactChange { action: 'create_contact' | 'edit_contact'; contact: Record<string, unknown>; detail: string }
+
+/**
+ * Add or change a contact. A change is checked and written in one transaction against the version the editor read, so a
+ * contact made private, moved or removed meanwhile is never overwritten (ADR-0035). The returned detail names only what
+ * kind of change it was, never the contact's words, for the audit trail.
+ */
+export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, input: Record<string, unknown>, id?: string): ContactChange {
   const name = String(input.name || '').trim().slice(0, 200);
   if (!name) throw badRequest('Give the contact a name.');
   const visibility = input.visibility === 'private' ? 'private' : 'unit';
@@ -62,24 +92,43 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
   const fields = [name, email, String(input.organization || '').slice(0, 200) || null, String(input.role || '').slice(0, 120) || null, String(input.phone || '').slice(0, 60) || null, String(input.notes || '').slice(0, 4000) || null];
 
   if (id) {
-    const existing = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(id) as Record<string, unknown> | undefined;
-    if (!existing) throw notFound('No such contact.');
-    if (!writable(scope, user, existing as never)) throw forbidden('That contact is not yours to edit.');
-    // A leader may tidy a shared contact; only the person who added it may take it into another Unit Instance (ADR-0008).
-    if (existing.owner_id !== user.id) assertSameInstance(ctx, existing.unit_id as string | null, unitId, 'Only the person who added this contact can move it into another Unit Instance.');
-    // Even its owner moves it only where the correspondence that names it is.
-    if (unitId && unitId !== existing.unit_id && ctx.db.prepare(`SELECT 1 FROM threads t JOIN units tu ON tu.id = t.unit_id
-      WHERE t.contact_id = ? AND tu.org_id IS NOT (SELECT org_id FROM units WHERE id = ?) LIMIT 1`).get(id, unitId)) {
-      throw forbidden('Correspondence in another Unit Instance names this contact, so it cannot move there.', 'cross_instance');
-    }
-    ctx.db.prepare('UPDATE contacts SET name = ?, email = ?, organization = ?, role = ?, phone = ?, notes = ?, visibility = ?, unit_id = ?, version = version + 1, updated_at = ? WHERE id = ?')
-      .run(...fields, visibility, unitId, at, id);
-    return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    const expected = input.version == null ? null : Number(input.version);
+    return ctx.db.transaction((): ContactChange => {
+      const existing = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(id) as (ContactAccessRow & Record<string, unknown>) | undefined;
+      // A contact the editor cannot read is answered as missing, so an id learned earlier says nothing about it now.
+      if (!existing || !contactReadable(scope, user, existing)) throw notFound('No such contact.');
+      if (!contactWritable(scope, user, existing)) throw forbidden('That contact is not yours to edit.');
+      if (expected != null && Number(existing.version) !== expected) {
+        throw conflict('Someone changed this contact since you opened it. Open it again to see the change.', 'version_conflict');
+      }
+      const owner = existing.owner_id === user.id;
+      if (!owner) {
+        // Only its owner makes a shared contact private again, or takes it out of every unit.
+        if (visibility === 'private') throw forbidden('Only the person who added this contact can make it private.', 'owner_only');
+        // A leader may tidy a shared contact; only the person who added it may take it into another Unit Instance (ADR-0008).
+        assertSameInstance(ctx, existing.unit_id, unitId, 'Only the person who added this contact can move it into another Unit Instance.');
+        // And a leader moves it only to a unit where they manage records too.
+        if (unitId !== existing.unit_id && !can(scope, PERMISSIONS.MANAGE_RECORDS, unitId!)) {
+          throw forbidden('You can move this contact only to a unit where you manage records.');
+        }
+      }
+      // Even its owner moves it only where the correspondence that names it is.
+      if (unitId && unitId !== existing.unit_id && ctx.db.prepare(`SELECT 1 FROM threads t JOIN units tu ON tu.id = t.unit_id
+        WHERE t.contact_id = ? AND tu.org_id IS NOT (SELECT org_id FROM units WHERE id = ?) LIMIT 1`).get(id, unitId)) {
+        throw forbidden('Correspondence in another Unit Instance names this contact, so it cannot move there.', 'cross_instance');
+      }
+      const changed = ctx.db.prepare(`UPDATE contacts SET name = ?, email = ?, organization = ?, role = ?, phone = ?, notes = ?, visibility = ?, unit_id = ?,
+          version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND deleted_at IS NULL`)
+        .run(...fields, visibility, unitId, at, id, existing.version).changes;
+      if (changed !== 1) throw conflict('Someone changed this contact since you opened it. Open it again to see the change.', 'version_conflict');
+      const movement = existing.visibility !== visibility ? `${existing.visibility}_to_${visibility}` : unitId !== existing.unit_id ? 'moved' : 'edited';
+      return { action: 'edit_contact', contact: ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(id) as Record<string, unknown>, detail: `${owner ? 'owner' : 'unit_manager'} ${movement}` };
+    })();
   }
   const newContactId = newId();
   ctx.db.prepare('INSERT INTO contacts (id, owner_id, unit_id, visibility, name, email, organization, role, phone, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(newContactId, user.id, unitId, visibility, ...fields, at, at);
-  return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(newContactId);
+  return { action: 'create_contact', contact: ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(newContactId) as Record<string, unknown>, detail: visibility };
 }
 
 /** A contact shown on a thread: one with no unit, or one in the thread's own Unit Instance (or a thread with no unit). */
@@ -103,15 +152,18 @@ export function listThreads(ctx: AppContext, user: SessionUser, scope: Scope, fi
   if (filters.dueOnly) { where.push("t.follow_up_at IS NOT NULL AND t.follow_up_at <= ? AND t.state NOT IN ('resolved', 'ksd_received')"); params.push(zonedDay(ctx.config.timezone)); }
   if (filters.q?.trim()) { where.push("lower(t.subject) LIKE ? ESCAPE '\\'"); params.push(`%${filters.q.trim().toLowerCase().replace(/[\\%_]/g, '\\$&')}%`); }
 
+  // A thread names its contact only to someone who may read that contact (ADR-0035); otherwise it says it has one they cannot see.
+  const contactClause = contactReadableSql(user, scope);
   const rows = ctx.db.prepare(
     `SELECT t.*, c.name AS contact_name, c.organization AS contact_organization,
+            CASE WHEN t.contact_id IS NOT NULL AND c.id IS NULL THEN 1 ELSE 0 END AS contact_hidden,
             (SELECT COUNT(*) FROM thread_messages m WHERE m.thread_id = t.id) AS message_count,
             (SELECT COUNT(*) FROM thread_links l WHERE l.thread_id = t.id) AS linked_items
-       FROM threads t LEFT JOIN contacts c ON c.id = t.contact_id AND ${SAME_INSTANCE_CONTACT}
+       FROM threads t LEFT JOIN contacts c ON c.id = t.contact_id AND ${SAME_INSTANCE_CONTACT} AND ${contactClause.sql}
       WHERE ${where.join(' AND ')}
       ORDER BY (t.follow_up_at IS NULL), t.follow_up_at, t.updated_at DESC LIMIT 300`
-  ).all(...params) as Array<Record<string, unknown>>;
-  return rows;
+  ).all(...contactClause.params, ...params) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({ ...r, contact_hidden: Boolean(r.contact_hidden) }));
 }
 
 export function createThread(ctx: AppContext, user: SessionUser, scope: Scope, input: Record<string, unknown>) {
@@ -122,9 +174,9 @@ export function createThread(ctx: AppContext, user: SessionUser, scope: Scope, i
   assertPlacement(scope, unitId, visibility);
   const contactId = (input.contact_id as string | null) || null;
   if (contactId) {
-    const contact = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(contactId) as Record<string, unknown> | undefined;
+    const contact = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(contactId) as (ContactAccessRow & Record<string, unknown>) | undefined;
     if (!contact) throw notFound('No such contact.');
-    if (!readable(scope, user, contact as never)) throw forbidden('That contact is not one you can use.');
+    if (!contactReadable(scope, user, contact)) throw forbidden('That contact is not one you can use.');
     assertSameInstance(ctx, contact.unit_id as string | null, unitId, 'That contact belongs to another Unit Instance.');
   }
   const id = newId();
@@ -158,10 +210,13 @@ export function threadDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
   ).all(id) as Array<WorkItemRow & { link_id: string; linked_at: string }>)
     .filter((w) => readableWork(scope, user, w))
     .map((w) => ({ id: w.link_id, work_item_id: w.id, created_at: w.linked_at, natural_key: w.natural_key, title: w.title, state: w.state }));
+  // The thread's own content is the reader's to see; its contact only under the contact's own rule (ADR-0035).
+  const contactClause = contactReadableSql(user, scope);
   const contact = thread.contact_id
-    ? ctx.db.prepare(`SELECT c.* FROM contacts c JOIN threads t ON t.id = ? WHERE c.id = ? AND ${SAME_INSTANCE_CONTACT}`).get(thread.id, thread.contact_id) ?? null
+    ? ctx.db.prepare(`SELECT c.* FROM contacts c JOIN threads t ON t.id = ? WHERE c.id = ? AND ${SAME_INSTANCE_CONTACT} AND ${contactClause.sql}`)
+      .get(thread.id, thread.contact_id, ...contactClause.params) ?? null
     : null;
-  return { thread, messages, links, contact };
+  return { thread, messages, links, contact, contact_hidden: Boolean(thread.contact_id) && !contact };
 }
 
 export interface StateChange { state: ThreadState; at?: string | null; follow_up_at?: string | null; version?: number | null }
