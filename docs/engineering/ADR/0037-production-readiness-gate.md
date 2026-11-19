@@ -73,7 +73,22 @@ code before its fix. The defects, and the rules they now hold to:
   database copied without them. A restore across a secret change seals the stored secrets again, and a rotation is in
   the trail. A settings change refused for its metrics changes nothing. The database directory is `0700` and the file
   `0600`, and browser backups are drawn in a private directory.
-- **Smaller ones.** Moving a unit under another parent says where it sat before. Signing out forgets the recently
+- **Organization sign-in linking an account.** A first sign-in that finds its account by address or EDIPI
+  (`VANTAGE_OIDC_LINK`) makes the account the signed-in person's alone, in one transaction before their session opens:
+  the link is taken only if nobody linked it meanwhile, and the account's password, passkeys, second factor, recovery
+  codes, unused links and sessions end, each counted in the `oidc_linked` entry. Without that, whoever put a person's
+  address on an account (by self-registration, an invitation or a profile edit) kept a way into the account that person
+  then used, and a Unit Manager's import became "proven" (ADR-0035) while its opener still held its password. Someone
+  who had a password and links this way sets a new one by reset where the instance still takes passwords.
+- **Within a unit.** A goal's contributors are listed only where the reader may open the source (`canRead`). Editing,
+  binning and restoring a counseling draft take what sharing and finalizing take: a counselor who no longer counsels
+  the Marine reads what they wrote but no longer moves it (ADR-0027 §2-3).
+- **Nothing is cut without a word (ADR-0032 §1).** A whole record list cut at `VANTAGE_MAX_RECORDS_PER_USER` keeps the
+  reader's own entries first (for tasks, their open work first), shows them in the table's order, and answers
+  `X-Vantage-Rows: shown/total`. A paged list and the bin keep their own order. A CSV given to intake says it was cut,
+  as a workbook's sheet does. The record pages do not yet say it in words; that stays open in the register.
+- **Smaller ones.** After Load older, the access log's focus waits for the first new row to exist. Moving a unit under
+  another parent says where it sat before. Signing out forgets the recently
   opened list in both storages. A counseling copy that prints an EDIPI always carries the PII notice. An assignee's
   export leaves out a task its owner binned.
 
@@ -92,6 +107,8 @@ code before its fix. The defects, and the rules they now hold to:
 
 - **A dynamic scan.** HawkScan needs a StackHawk API key this environment does not have.
 - **CI.** Disregarded on John's standing instruction (2026-10-08). The full browser suite ran in the container, because
-  GitHub's browser job stops at 25 minutes and the suite takes about 32.
+  GitHub's browser job stops at 25 minutes and the suite takes about 30 to 32.
+- **Mediums and lows.** Only critical and high findings were checked by a second reviewer. Mediums and lows are in the
+  register as reported, open, for later Tasks.
 - **Security review packages C06 to C35** beyond the defects above. Their code-side defects are in the register; the
   policy, evidence and conditional parts wait on their owners.
