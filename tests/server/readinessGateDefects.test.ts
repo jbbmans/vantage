@@ -147,10 +147,46 @@ test('the AI command brief totals only the units its reader reads, and needs Vie
     assert.equal(narrow.status, 200);
     assert.ok(!/ZZFISCALCAT|98765/.test(narrow.sent), 'FISCAL’s totals never reach the provider for a reader who does not reach FISCAL');
     assert.equal((await brief(await holder('exportbrief', 20, PERMISSIONS.VIEW_UNIT | PERMISSIONS.EXPORT_DATA))).status, 403, 'Export data alone briefs nothing');
+    // Reading FISCAL as its NCO, who may not export there, does not carry FISCAL's totals out under G8's export permission.
+    await holder('clerkbrief', 0, PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.EXPORT_DATA);
+    const clerk = local.ctx.db.prepare("SELECT id FROM users WHERE username = 'clerkbrief'").get() as { id: string };
+    await enroll(local, lead.token, 'FISCAL', clerk.id, 'nco');
+    const clerkBrief = await sent((await local.login('clerkbrief')).body.token as string);
+    assert.equal(clerkBrief.status, 200);
+    assert.ok(!/ZZFISCALCAT|98765/.test(clerkBrief.sent), 'a unit read without its export permission is not briefed');
     const wide = await sent(lead.token);
     assert.equal(wide.status, 200);
     assert.match(wide.sent, /ZZFISCALCAT/, 'the unit’s leader’s brief rolls up the units beneath');
   } finally { await local.close(); mock.close(); }
+});
+
+test('a unit report leaves as a file only with the export permission in every unit it reads', async () => {
+  const role = await app.call('POST', '/api/org/roles', { token: op.token, body: { unit_id: 'G8', name: 'Staff Exporter', position: 0, permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.EXPORT_DATA } });
+  assert.equal(role.status, 201, JSON.stringify(role.body));
+  const u = await app.register('fiscalclerk');
+  await enroll(app, op.token, 'G8', u.id);
+  assert.equal((await app.call('POST', `/api/org/team/${u.id}/roles`, { token: op.token, body: { role_id: role.body.id, unit_id: 'G8' } })).status, 200);
+  await enroll(app, op.token, 'FISCAL', u.id, 'nco');
+  const token = (await app.login('fiscalclerk')).body.token as string;
+  const report = (unit: string, format?: string) => app.call('GET', `/api/report-center/${format ? 'export' : 'run'}?type=activity&subject=unit&unit_id=${unit}&period=all${format ? `&format=${format}` : ''}`, { token });
+
+  assert.equal((await report('FISCAL', 'csv')).status, 403, 'FISCAL is read as its NCO, who may not export it');
+  const run = await report('G8');
+  assert.equal(run.status, 200, run.text.slice(0, 200));
+  assert.match(run.text, /ZZFISCAL obligation/, 'the report on G8 reads FISCAL, as the clerk does');
+  assert.deepEqual(run.body.files, [], 'so it offers no file');
+  for (const format of ['csv', 'pdf', 'json']) {
+    const file = await report('G8', format);
+    assert.equal(file.status, 403, `${format}: ${file.text.slice(0, 120)}`);
+    assert.doesNotMatch(file.text, /ZZFISCAL/);
+  }
+
+  const narrow = await app.call('GET', '/api/report-center/export?type=activity&subject=unit&unit_id=G8&period=all&format=csv', { token: reader.token });
+  assert.equal(narrow.status, 200, 'a reader of G8 alone exports G8');
+  assert.doesNotMatch(narrow.text, /ZZFISCAL/);
+  const full = await app.call('GET', '/api/report-center/export?type=activity&subject=unit&unit_id=G8&period=all&format=csv', { token: op.token });
+  assert.equal(full.status, 200);
+  assert.match(full.text, /ZZFISCAL obligation/, 'the unit’s leader exports the units beneath');
 });
 
 // ——— EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's ———

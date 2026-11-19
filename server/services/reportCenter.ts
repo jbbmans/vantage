@@ -171,9 +171,11 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
   // names a Marine of a unit where the reader may not.
   const unitIds = q.type === 'comparison' ? [q.unit_id] : subtreeIds(ctx, q.unit_id).filter(reads);
   const detailUnits = unitIds.filter((u) => can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, u));
+  // A file holds every unit the report reads, so it leaves only with the export permission in each of them: export
+  // authority at the top of a subtree does not carry a sub-unit read through another role out as a file.
   return {
     type: q.type, subject, userId: null, unitId: q.unit_id, unitIds,
-    detail: detailUnits.length === unitIds.length, detailUnits, files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
+    detail: detailUnits.length === unitIds.length, detailUnits, files: unitIds.every((u) => can(scope, PERMISSIONS.EXPORT_DATA, u)) ? all : [],
   };
 }
 
@@ -1574,7 +1576,7 @@ function exportTarget(ctx: AppContext, user: SessionUser, scope: Scope, q: Repor
   if (!t.files.includes(format)) {
     throw forbidden(t.subject === 'member'
       ? 'Taking another Marine’s records away as a spreadsheet or data file needs the unit’s export permission. The PDF is yours to download.'
-      : 'Downloading a unit’s report needs the unit’s export permission. You may view and print it.');
+      : 'Downloading a unit’s report needs the export permission in every unit it reads. You may view and print it.');
   }
   return t;
 }

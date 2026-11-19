@@ -192,14 +192,14 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     case 'command_brief': {
       const unitId = str(safe.unit_id, 120);
       // The brief's totals are of shared records, read as the dashboard reads them: View shared records as well as Export
-      // data, and the units beneath only where the reader reads them in their own right (readableSubtree).
+      // data, and the units beneath only where the reader reads them in their own right (readableSubtree) and may export.
       if (!unitId || !can(scope, PERMISSIONS.EXPORT_DATA, unitId) || !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw new AiError('You cannot generate an aggregate brief for that unit.', 403, 'forbidden');
       const from = date(safe.from, windowStart(ctx, 30))!;
       const to = date(safe.to, nowDay)!;
       if (from > to) throw new AiError('The brief start must be before its end.', 400, 'validation');
       const unit = ctx.db.prepare('SELECT short_name, name FROM units WHERE id = ? AND active = 1').get(unitId) as { short_name: string | null; name: string } | undefined;
       if (!unit) throw new AiError('No such unit.', 404, 'not_found');
-      return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, readableSubtree(ctx, scope, unitId).units, from, safe.to ? to : queryEnd) };
+      return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, readableSubtree(ctx, scope, unitId).units.filter((u) => can(scope, PERMISSIONS.EXPORT_DATA, u)), from, safe.to ? to : queryEnd) };
     }
     default:
       throw new AiError('Unknown AI workflow.', 400, 'validation');
