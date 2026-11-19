@@ -46,7 +46,8 @@ needs fails rather than publishing a take without it.
 The trailer shows no address, price, trial or sign-up. Its last words before the end card are "Each command runs its
 own Unit Instance, kept apart from every other. / Unit Managers govern it. Vantage Administrators run the service.",
 over the application's own footer and the Unit Manager console. The end card carries only the mark and what the demo
-banner and the application's footer say: "Synthetic demo data. Not an official DoD or USMC system of record."
+banner says: "Synthetic demo data." (Amended 2026-11-19: the sentence about official status left the end card and the
+application's footer once Vantage was approved as an official system.)
 `tests/server/trailer.test.ts` holds the script and the composition to the ten outcomes, in order, and to that wording.
 
 ### 4. In the current look

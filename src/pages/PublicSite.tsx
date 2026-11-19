@@ -225,9 +225,6 @@ function SiteFooter({ cta = true }: { cta?: boolean }) {
             <a href="/login">Sign in</a><a href="/login?help">Ask for help</a>
           </nav>
         </div>
-        <div className="ps-footer-bottom">
-          <p>{SITE.disclaimer}</p>
-        </div>
       </div>
     </footer>
   );

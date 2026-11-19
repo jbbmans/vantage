@@ -91,7 +91,7 @@ export const CHANGES: Change[] = [
       'Write a counseling from a Marine’s page and save it as a draft only you see. Share it with the Marine for review when you want their eyes on it; they read it and answer in its comments.',
       'Finalize it when it is done: it needs the date of the session. The Marine is then asked to acknowledge it, which means they read it, not that they agree.',
       'A final counseling changes only by amendment. Say what changed and why; what it said before is kept in its amendment history, and the Marine acknowledges the amended text.',
-      'Open a counseling and choose Worksheet to preview it in the layout of NAVMC 2795 Appendix A, Print to print it, or Download → As a worksheet (PDF). It is not an official form and never shows an SSN.',
+      'Open a counseling and choose Worksheet to preview it in the layout of NAVMC 2795 Appendix A, Print to print it, or Download → As a worksheet (PDF). It never shows an SSN.',
       'Counselings written before today are final as they were, and your own notes of a counseling stay yours to edit.',
     ],
   },

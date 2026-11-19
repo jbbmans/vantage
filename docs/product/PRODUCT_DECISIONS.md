@@ -211,7 +211,7 @@ are defaults John can change, without a decision card:
 - **Ten outcomes, in the specification's order,** each one take from the synthetic demo, then a close on who governs a
   Unit Instance. About 100 seconds, no narration; what it says is listed under the player.
 - **No address, price or sign-up.** "Demo data" stays on screen while the application is, and the end card says
-  synthetic demo data, not an official DoD or USMC system of record.
+  synthetic demo data.
 - **The thirteen chapters stay** as they are, marked as recorded before the current look.
 - **The demo scores duty,** under one scoring version the section lead published 120 days back, so Duty can be shown.
 

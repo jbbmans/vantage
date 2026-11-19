@@ -46,7 +46,7 @@
 }
 .auth-panel-points span { font-size: 14px; line-height: 1.6; color: #aebbd0; }
 .auth-panel-points b { display: block; margin-bottom: 2px; font-size: 15px; font-weight: 600; color: #fff; }
-.auth-panel-foot { margin: 0; font-size: 12px; line-height: 1.6; color: #8e9cb4; max-width: 28rem; }
+.auth-panel-copy { margin-block: auto; }
 
 .auth-side {
   position: relative; display: flex; flex-direction: column; min-height: 100dvh;

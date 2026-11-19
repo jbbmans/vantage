@@ -52,7 +52,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
       embedded={embedded}
       eyebrow={place.group}
       title={track === 'fitrep' ? 'FITREP readiness' : 'JEPES readiness'}
-      lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your MOL score is the only official number.'}
+      lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your score of record is the one on MOL.'}
       actions={<Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>}
     >
 
@@ -92,7 +92,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
                   </div>
                 ); })}
               </div>
-              <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Info className="mt-0.5 h-3 w-3 shrink-0" />Vantage never computes a JEPES score. Point tables live in {ref.order} and change; MOL is authoritative.</p>
+              <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Info className="mt-0.5 h-3 w-3 shrink-0" />Vantage never computes a JEPES score. Point tables live in {ref.order} and change; MOL holds the score of record.</p>
             </Panel>
           ) : (
             <Panel title="Attribute coverage" subtitle="Does your log evidence each section your RS marks?">

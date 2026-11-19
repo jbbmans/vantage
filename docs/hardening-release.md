@@ -4,7 +4,7 @@ Baseline: `b1892945a9d6fccceb2b7cc5cba8948d9c7d0dbc` from `jbbmans/vantage`.
 The changes were first proposed in PR #71 (`codex/cradle-to-grave-hardening`). They reach `main` through a fix-up
 branch that keeps that work, leaves out what did not belong in the product repository, and corrects the defects a
 review found in it. The entries below describe the result as merged.
-This is a tested engineering change, not a statement that the product is perfect or authorized for operational Marine Corps data.
+This is a tested engineering change, not a statement that the product is perfect.
 
 ## What changed, including the small details
 

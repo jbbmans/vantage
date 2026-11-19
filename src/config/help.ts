@@ -429,11 +429,11 @@ export const HELP: HelpSection[] = [
       },
       {
         id: 'system-of-record',
-        q: 'Is Vantage a system of record?',
+        q: 'Where are official evaluations recorded?',
         a: [
-          'No. Vantage is an independent project and is not an official Department of Defense or U.S. Marine Corps system of record. It organizes source material and drafts; official submissions belong in the authoritative systems.',
+          'On Marine Online (MOL). Your JEPES score and your fitness reports are recorded there, and official submissions go through the authoritative systems. Vantage keeps the working record behind them and drafts the input from it.',
         ],
-        also: ['official', 'mol', 'authoritative', 'dod'],
+        also: ['official', 'mol', 'authoritative', 'dod', 'system of record'],
       },
     ],
   },

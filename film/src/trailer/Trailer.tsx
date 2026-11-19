@@ -27,8 +27,8 @@ const PIPING_Y = 212;
 const OVERLAP = 10;
 const ID = 'trailer';
 
-/** What the end card says beneath the mark: the demo's own banner (synthetic) and the application's footer (not an official system of record). */
-export const FINE_PRINT = 'Synthetic demo data. Not an official DoD or USMC system of record.';
+/** What the end card says beneath the mark: what the demo's own banner says. */
+export const FINE_PRINT = 'Synthetic demo data.';
 
 export function Trailer() {
   const tl = film(ID);

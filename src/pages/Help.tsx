@@ -204,8 +204,8 @@ export default function Help() {
               ))}
             </ul>
             <p className="mt-3 text-xs text-ink-3">
-              Verified {EVAL_VERIFIED}. Vantage is not a system of record; it organises source material and drafts.
-              Official submissions belong in the authoritative systems.
+              Verified {EVAL_VERIFIED}. Vantage organises source material and drafts; official submissions go through the
+              authoritative systems.
             </p>
           </Panel>
 

@@ -63,7 +63,7 @@ migration.
   specification's order (Marine dashboard, Personnel, Records, Duty, Training, FM workflows, Error analysis, Case
   guidance, Reports, Analytics) and a close on who governs a Unit Instance. Every take is the application in the
   synthetic demo, in dress blues; "Demo data" stays on screen while the application is, and the end card says
-  "Synthetic demo data. Not an official DoD or USMC system of record." No address, price or sign-up.
+  "Synthetic demo data." No address, price or sign-up.
 - **The ad and the tour are retired** (code, captures and files, about 74 MB): earlier look, earlier product, and a
   public-site pitch. The trailer leads Help → Field guide → Starting out and is the legacy public page's film. The
   thirteen chapters are unchanged.
@@ -386,7 +386,7 @@ Counseling is structured data with a lifecycle
 - **Acknowledgement is bound to the text read**, and its counselor is told.
 - **Preview, print, PDF.** One structured worksheet, in the layout of NAVMC 2795 Appendix A (Figure A-1 for E-1 to E-3,
   A-2 for the rest), drawn three ways: in the counseling's dialog, on a print page without the app around it, and as a
-  PDF drawn on demand with the report PDF's pieces. Never stored, never an SSN, labelled "Not an official form", with
+  PDF drawn on demand with the report PDF's pieces. Never stored, never an SSN, with
   the instance's handling line on every page. Earlier revisions print with a band that says they were replaced.
 - **Who may do what** is one rule (`counselingOptions`), sent with each counseling, checked before a request's body is
   read.

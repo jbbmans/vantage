@@ -32,7 +32,7 @@ export function structuredData(origin: string) {
       {
         '@type': 'Organization', ...organization, name: 'VANTAGE', alternateName: SITE.alternateName, url,
         logo: { '@type': 'ImageObject', url: abs('/icon-512.png'), width: 512, height: 512 },
-        description: SITE.disclaimer,
+        description: SITE.description,
       },
       {
         '@type': 'WebSite', '@id': `${origin}/#website`, url, name: SITE.name, alternateName: SITE.alternateName,

@@ -381,10 +381,6 @@
 .ps-footer { background: linear-gradient(180deg, var(--ps-navy-2), var(--ps-navy)); color: var(--ps-on-dark); padding: 112px 0 40px; }
 .ps-footer-cta { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 32px; padding-bottom: 72px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
 .ps-footer h2 { font-size: clamp(38px, 5.4vw, 72px); line-height: 1; letter-spacing: -0.042em; font-weight: 600; color: #fff; }
-.ps-footer-bottom { padding-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; font-size: 13px; color: var(--ps-on-dark-3); }
-.ps-footer-bottom p { flex: 1 1 22rem; }
-.ps-footer-bottom a { display: inline-flex; align-items: center; gap: 6px; color: var(--ps-on-dark); }
-.ps-footer-bottom a:hover { color: var(--ps-teal); }
 
 /* The hero's record mock: one sentence in, an entry with evidence, a report line that cites it. */
 .ps-record-body { display: grid; gap: 14px; padding: 20px; }
@@ -455,7 +451,6 @@
 .ps-footer-grid nav p { margin-bottom: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ps-on-dark-3); }
 .ps-footer-grid nav a { color: var(--ps-on-dark-2); transition: color 0.3s var(--ps-ease); }
 .ps-footer-grid nav a:hover { color: #fff; }
-.ps-footer-grid + .ps-footer-bottom { margin-top: 48px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 
 /* Plain-language documents: security, privacy, accessibility. */
 .ps-doc-band { padding-bottom: 0; }
