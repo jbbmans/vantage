@@ -611,6 +611,10 @@ test('the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its 
   const theirs = (await file(diaz.token, `/api/records/counselings/${forDiaz.id}/export?format=pdf`)).buffer!;
   assert.ok(pdfDraws(theirs, '1234567890'));
   assert.ok(!theirs.toString('latin1').includes('/T (reported_edipi)'), 'a printed EDIPI is not a field');
+  // A printed EDIPI makes the copy PII, and its last page says so (ADR-0033); the leader's copy, with none, has no such page.
+  assert.equal(pages(theirs), 2);
+  assert.ok(pdfDraws(theirs, 'About this counseling worksheet'));
+  assert.equal(pages(pdf), 1);
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['export_record', 'pdf; revision 1; EDIPI of Marine']]);
   // The Unit Instance's own marking replaces the default.
   const marking = app.ctx.runtime.reportMarking;
