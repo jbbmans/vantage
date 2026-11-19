@@ -17,7 +17,7 @@
     "start": "node server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tests/browser",
     "typecheck:film": "tsc -p film/tsconfig.json --noEmit",
-    "lint": "eslint . && node scripts/any-budget.ts && node scripts/commit-identity.ts --local",
+    "lint": "eslint . && node scripts/any-budget.ts && node scripts/wording.ts && node scripts/commit-identity.ts --local",
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",
     "film": "npm --prefix film run render --",
