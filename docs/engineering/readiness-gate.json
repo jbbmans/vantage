@@ -1998,10 +1998,10 @@
     },
     {
       "id": "code-scanning-alerts",
-      "title": "Code-scanning alerts: 14 on PR #69 and the 12 high on PR #84, each fixed or dismissed with a reason",
+      "title": "Code-scanning alerts: 14 on PR #69, the 12 high on PR #84 and the high on PR #86, each fixed or dismissed with a reason",
       "owner": "John, as repository owner",
       "source": "Task 19; security review §8",
-      "note": "Dismissals are a repository owner’s decision; none has been made."
+      "note": "Dismissals are a repository owner’s decision; none has been made. PR #86 drew 5 high at 0872fcb: three on the record list’s queries in server/services/records.ts, traced on their threads as a checked table name with every value bound; one on this summary’s escaping, fixed in ac51f60; one not shown on the pull request’s lines."
     },
     {
       "id": "mcele-source",
@@ -2053,8 +2053,8 @@
       "command": "npm run lint",
       "required": true,
       "result": "pass",
-      "on": "0058137",
-      "detail": "Clean. The any budget is at its limits: 168 in src, 4 in server, 3 in shared."
+      "on": "ac51f60",
+      "detail": "Clean, there and on 0058137. The any budget is at its limits: 168 in src, 4 in server, 3 in shared."
     },
     {
       "id": "typecheck",
@@ -2062,8 +2062,8 @@
       "command": "npm run typecheck",
       "required": true,
       "result": "pass",
-      "on": "0058137",
-      "detail": "Server, web and browser tests."
+      "on": "ac51f60",
+      "detail": "Server, web and browser tests, there and on 0058137."
     },
     {
       "id": "build",
@@ -2072,7 +2072,7 @@
       "required": true,
       "result": "pass",
       "on": "0058137",
-      "detail": ""
+      "detail": "The only later change to code, ac51f60, is to scripts/readiness-gate.ts and its test, which the build does not include."
     },
     {
       "id": "server-suite",
@@ -2080,8 +2080,8 @@
       "command": "npm test",
       "required": true,
       "result": "pass",
-      "on": "0058137",
-      "detail": "1,317 of 1,317 (4 min 17 s). The baseline on 5a80959 was 1,278."
+      "on": "ac51f60",
+      "detail": "1,317 of 1,317 (4 min), there and on 0058137. The baseline on 5a80959 was 1,278."
     },
     {
       "id": "browser-suite",
@@ -2090,7 +2090,7 @@
       "required": true,
       "result": "pass",
       "on": "0058137",
-      "detail": "267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb."
+      "detail": "267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The only later change to code, ac51f60, is to the gate script and its test, which no browser test reaches. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb."
     },
     {
       "id": "register",
@@ -2098,7 +2098,7 @@
       "command": "node scripts/readiness-gate.ts",
       "required": true,
       "result": "pass",
-      "on": "0058137",
+      "on": "ac51f60",
       "detail": "Also run, with tests/server/readinessGate.test.ts, on the commit that records these results."
     },
     {

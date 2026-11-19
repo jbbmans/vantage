@@ -18,12 +18,12 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 
 | Check | Command | Required | Result | Ran on | Detail |
 |---|---|---|---|---|---|
-| Lint and the any budget | `npm run lint` | Yes | Pass | `0058137` | Clean. The any budget is at its limits: 168 in src, 4 in server, 3 in shared. |
-| Type check (server, web, browser tests) | `npm run typecheck` | Yes | Pass | `0058137` | Server, web and browser tests. |
-| Production build and prerender | `npm run build` | Yes | Pass | `0058137` |  |
-| Unit and integration tests | `npm test` | Yes | Pass | `0058137` | 1,317 of 1,317 (4 min 17 s). The baseline on 5a80959 was 1,278. |
-| End-to-end browser suite | `npx playwright test --trace off` | Yes | Pass | `0058137` | 267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb. |
-| The register checks out and READINESS_GATE.md is drawn from it | `node scripts/readiness-gate.ts` | Yes | Pass | `0058137` | Also run, with tests/server/readinessGate.test.ts, on the commit that records these results. |
+| Lint and the any budget | `npm run lint` | Yes | Pass | `ac51f60` | Clean, there and on 0058137. The any budget is at its limits: 168 in src, 4 in server, 3 in shared. |
+| Type check (server, web, browser tests) | `npm run typecheck` | Yes | Pass | `ac51f60` | Server, web and browser tests, there and on 0058137. |
+| Production build and prerender | `npm run build` | Yes | Pass | `0058137` | The only later change to code, ac51f60, is to scripts/readiness-gate.ts and its test, which the build does not include. |
+| Unit and integration tests | `npm test` | Yes | Pass | `ac51f60` | 1,317 of 1,317 (4 min), there and on 0058137. The baseline on 5a80959 was 1,278. |
+| End-to-end browser suite | `npx playwright test --trace off` | Yes | Pass | `0058137` | 267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The only later change to code, ac51f60, is to the gate script and its test, which no browser test reaches. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb. |
+| The register checks out and READINESS_GATE.md is drawn from it | `node scripts/readiness-gate.ts` | Yes | Pass | `ac51f60` | Also run, with tests/server/readinessGate.test.ts, on the commit that records these results. |
 | Dependency audit | `npm audit` | Yes | Pass | `0058137` | 0 vulnerabilities. |
 | Dynamic scan (HawkScan) | `hawk scan` | No | Not run | `none` | No StackHawk API key in this environment, so it cannot run; listed under owners outside the code (dynamic-scan). |
 | GitHub Actions on the pull request | `.github/workflows/ci.yml` | No | Not run | `none` | Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 31, so the suite ran in the container instead. |
@@ -174,7 +174,7 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 |---|---|---|---|
 | The sign-in method and assurance policy for MCEN: which methods an instance accepts and what step-up must prove (`sign-in-method-policy`) | The service’s sign-in owner (MCEN identity) | Security review C06, C07 | Open defect c06-passkey-accepted-under-exclusive-modes waits on it. |
 | A dynamic application scan (HawkScan) of the candidate (`dynamic-scan`) | John: a StackHawk API key for this environment | Project setup | HAWK_API_KEY is not set, so no scan has ever run. |
-| Code-scanning alerts: 14 on PR #69 and the 12 high on PR #84, each fixed or dismissed with a reason (`code-scanning-alerts`) | John, as repository owner | Task 19; security review §8 | Dismissals are a repository owner’s decision; none has been made. |
+| Code-scanning alerts: 14 on PR #69, the 12 high on PR #84 and the high on PR #86, each fixed or dismissed with a reason (`code-scanning-alerts`) | John, as repository owner | Task 19; security review §8 | Dismissals are a repository owner’s decision; none has been made. PR #86 drew 5 high at 0872fcb: three on the record list’s queries in server/services/records.ts, traced on their threads as a checked table name with every value bound; one on this summary’s escaping, fixed in ac51f60; one not shown on the pull request’s lines. |
 | An approved MCeLE course source for the course lookup (`mcele-source`) | John, with the training office | Task 22 | The lookup ships with its built-in catalog until a source is named. |
 | Who approves a support reset of a sign-in: the Task 7 decision card was never answered (`task7-support-reset-approver`) | John | Task 7 | Built as “Second staff member”. |
 | Which review step a counseling takes: the Task 20 decision card was never answered (`task20-review-step`) | John | Task 20 | Built as “the Marine’s review”. |
