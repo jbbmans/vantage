@@ -330,7 +330,7 @@ function read(input: DiagnosisInput): Reading {
     const cell = sheet.get(f.key);
     if (!cell) continue;
     const raw = cell.value.trim();
-    const parsed = raw && !/^[-–—]$/.test(raw) ? parseMoney(raw) : null;
+    const parsed = raw && !/^[-–\u2014]$/.test(raw) ? parseMoney(raw) : null;
     figures[f.key] = { label: f.label, cents: parsed?.ok ? parsed.cents : null, shown: Boolean(parsed?.ok), from: `${importedFrom(input)}, column “${cell.column}”`, evidence: [] };
   }
 
@@ -492,7 +492,7 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
         // until someone records the field, which replaces it.
         const cell = e || figure ? null
           : field.key === 'purchase_method' ? r.method
-            : input.sheet?.find((c) => c.field === field.key && c.value.trim() && !/^[-–—]$/.test(c.value.trim()));
+            : input.sheet?.find((c) => c.field === field.key && c.value.trim() && !/^[-–\u2014]$/.test(c.value.trim()));
         if (e || fromSheet || cell) continue;
         if (field.optional) { optional.push(field.label); continue; }
         missing.push(unknown(`${field.label}: not recorded.`, `${step.title}${step.help.system ? ` · ${step.help.system}` : ''}.`));

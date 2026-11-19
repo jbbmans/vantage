@@ -1,5 +1,6 @@
 import { formatCents } from '../../../shared/money';
 import { cn } from '@/lib/utils';
+import { NO_VALUE } from '../../../shared/metrics';
 
 export interface Figures { commitment: number | null; obligation: number | null; delivered: number | null; paid: number | null }
 
@@ -86,7 +87,7 @@ export default function LifecycleBars({ figures, travel = false, compact = false
           <caption>Lifecycle figures</caption>
           <thead><tr><th>Phase</th><th>Amount</th><th>Open from the phase before</th></tr></thead>
           <tbody>
-            {ROWS.map((r, i) => { const g = shownGap(i); return <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{g ? `${g.label} ${formatCents(g.cents)}` : '—'}</td></tr>; })}
+            {ROWS.map((r, i) => { const g = shownGap(i); return <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{g ? `${g.label} ${formatCents(g.cents)}` : NO_VALUE}</td></tr>; })}
           </tbody>
         </table>
       </div>

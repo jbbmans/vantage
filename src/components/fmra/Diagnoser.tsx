@@ -126,9 +126,9 @@ export default function Diagnoser() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
             <Field label="Exact report error" hint="If you have one">
               <Select value={s.error} onValueChange={(v) => setS((p) => ({ ...p, error: v === 'none' ? '' : v }))} placeholder="None"
-                options={[{ value: 'none', label: 'None' }, ...ERROR_OPTIONS.flatMap((g) => g.options.map((o) => ({ value: `${g.kind}:${o.key}`, label: `${g.report} — ${o.label}` })))]} />
+                options={[{ value: 'none', label: 'None' }, ...ERROR_OPTIONS.flatMap((g) => g.options.map((o) => ({ value: `${g.kind}:${o.key}`, label: `${g.report}: ${o.label}` })))]} />
             </Field>
-            <Field label="Age (days)"><NumberInput value={s.age} onChange={(e) => setS((p) => ({ ...p, age: e.target.value.replace(/[^\d]/g, '') }))} placeholder="—" /></Field>
+            <Field label="Age (days)"><NumberInput value={s.age} onChange={(e) => setS((p) => ({ ...p, age: e.target.value.replace(/[^\d]/g, '') }))} placeholder="Optional" /></Field>
           </div>
           {input.invalid.length > 0 && <p className="text-xs text-bad" role="alert">{input.invalid.join(' ')}</p>}
           <Switch checked={practice} onChange={(v) => { setPractice(v); writeStore(PRACTICE_KEY, v); setRevealed(false); setGuess([]); }}

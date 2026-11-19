@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { can, useIdentity } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
-import { formatNumber } from '../../shared/metrics';
+import { formatNumber, NO_VALUE } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
@@ -282,7 +282,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
                         options={FIELD_OPTIONS}
                       />
                     </td>
-                    <td className="px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || '—'}</td>
+                    <td className="px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || NO_VALUE}</td>
                   </tr>
                 ))}
               </tbody>

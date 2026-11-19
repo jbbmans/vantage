@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
+import { NO_VALUE, PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
 
 /**
  * The reports Vantage prints and files (ADR-0020): what each answers, whom it may be about, the filters it
@@ -340,8 +340,6 @@ export interface ReportDocument {
 }
 
 export { DEFAULT_REPORT_MARKING } from './reportMarking.ts';
-
-const NO_VALUE = '—';
 
 /** A value as a printed table shows it. Files keep the raw value. */
 export function formatCell(value: Cell | undefined, kind: ColumnKind = 'text', currency = '$'): string {

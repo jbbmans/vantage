@@ -16,7 +16,7 @@ import { BULK_WORK_LIMIT } from '../../shared/bulkWork';
 import { can, useBackgroundRefresh, useIdentity, useItemThreads, usePrefs, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
-import { formatDollarsExact, formatNumber } from '../../shared/metrics';
+import { formatDollarsExact, formatNumber, NO_VALUE } from '../../shared/metrics';
 import { cn, isoDay, todayIso, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
 import { isTextEntry, shortcutsOn } from '@/lib/keyboard';
@@ -507,10 +507,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                         </td>
                         <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
                         <td className={cn('w-28 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
-                          <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
+                          <DateText value={row.due_date} fallback={NO_VALUE} />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
                         </td>
                         <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
-                        <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
+                        <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : 'Nobody'}</td>
                         <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           {row.claimed_by
                             ? (mine && !isClosedRow(row) ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)

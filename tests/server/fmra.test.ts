@@ -181,7 +181,7 @@ test('the reading of the figures is one sentence with one full stop', () => {
   const one = diagnose({ commitment: 3_200_000 });
   assert.ok(one.ok);
   if (!one.ok) return;
-  assert.match(one.meaning, /^OCMT \(full\) — \$32,000\.00 open: a requisition amount not yet covered by an obligation\.$/);
+  assert.match(one.meaning, /^OCMT \(full\), \$32,000\.00 open: a requisition amount not yet covered by an obligation\.$/);
   const two = diagnose({ commitment: 10_000, obligation: 8_000, delivered: 5_000 });
   assert.ok(two.ok);
   if (!two.ok) return;

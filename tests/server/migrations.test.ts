@@ -545,7 +545,7 @@ test('031 adds duty records, empty, widens the move history to name duty with ev
   try {
     let db = openDatabase(path);
     assert.ok(migrationHistory(db).some((m) => m.id === 31 && m.name === '031_duty_records'));
-    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM duties').get() as { n: number }).n, 0, 'nothing moves to duty on an upgrade (John, 2026-10-17)');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM duties').get() as { n: number }).n, 0, 'nothing moves to duty on an upgrade');
     const lineageSql = () => (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'record_lineage'").get() as { sql: string }).sql;
     assert.match(lineageSql(), /'duties'/);
     assert.deepEqual(db.prepare('SELECT rowid AS r, id, from_table, to_table, method FROM record_lineage ORDER BY rowid').all().map((r) => ({ ...(r as object) })),

@@ -7,7 +7,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { QueryFailure } from '@/components/QueryFailure';
 import { ScrollRegion } from '@/components/common';
 import { cn } from '@/lib/utils';
-import { formatDate, formatNumber } from '../../../shared/metrics';
+import { formatDate, formatNumber, NO_VALUE } from '../../../shared/metrics';
 import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
 
 export { counted, formatFigure, summaryOf };
@@ -177,7 +177,7 @@ export function RateMeter({ visual, onDrill }: { visual: Visual; onDrill?: OnDri
   return (
     <div className="min-w-0">
       <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className="stat-value">{r.percent == null ? '—' : `${r.percent}%`}</span>
+        <span className="stat-value">{r.percent == null ? NO_VALUE : `${r.percent}%`}</span>
         <span className="text-sm text-ink-3">{r.of ? `${formatNumber(r.done)} of ${counted(r.of, visual.noun)}` : 'Nothing to count'}</span>
       </p>
       <div className="chart-bar-track mt-3 h-2.5" aria-hidden>{r.percent ? <span className="chart-ink block h-full" style={{ width: `${r.percent}%`, background: TONE.accent }} /> : null}</div>

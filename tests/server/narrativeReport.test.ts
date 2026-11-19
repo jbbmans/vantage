@@ -70,7 +70,7 @@ test('the report writes the narrative with its sentences, sources, review and ca
   assert.equal((await app.call('GET', `/api/reports?${range}&chars=50`, { token: avery.token })).status, 400, 'a length too short to write is refused');
 
   // The PDF takes the same choices, or the text as edited by hand.
-  const pdf = await app.call('GET', `/api/reports/pdf?${range}&exclude=${encodeURIComponent(ids.mipr)}&narrative=${encodeURIComponent('MISSION: Reconciled 14 ULOs — all cleared.')}`, { token: avery.token, binary: true });
+  const pdf = await app.call('GET', `/api/reports/pdf?${range}&exclude=${encodeURIComponent(ids.mipr)}&narrative=${encodeURIComponent('MISSION: Reconciled 14 ULOs \u2014 all cleared.')}`, { token: avery.token, binary: true });
   assert.equal(pdf.status, 200);
   assert.equal(pdf.buffer!.subarray(0, 5).toString(), '%PDF-');
 });

@@ -487,7 +487,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       byEdipi.set(update.edipi, row);
       audit(ctx, {
         actor_id: actorId, action: 'personnel_sync_update', entity: 'personnel_roster', entity_id: update.edipi, org_id: plan.orgId,
-        detail: `${plan.source}: ${update.changes.map((c) => `${c.field} ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`,
+        detail: `${plan.source}: ${update.changes.map((c) => `${c.field} ${c.from ?? '(none)'} → ${c.to ?? '(none)'}`).join('; ')}`,
       });
       if (update.changes.some((c) => c.field === 'status' && c.from === 'separated' && c.to === 'active')) reactivate(update.edipi);
     }
@@ -511,7 +511,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       audit(ctx, {
         actor_id: actorId, action: 'personnel_profile_updated', entity: 'users', entity_id: account.id as string,
         subject_id: account.id as string, org_id: plan.orgId,
-        detail: `${plan.source}: ${changes.map((c) => `${c.field} ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`,
+        detail: `${plan.source}: ${changes.map((c) => `${c.field} ${c.from ?? '(none)'} → ${c.to ?? '(none)'}`).join('; ')}`,
       });
     };
     for (const row of byEdipi.values()) applyToAccount(row);

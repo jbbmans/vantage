@@ -388,7 +388,7 @@ test('a file’s content, type, size and name are checked on the server, and a d
   // could not name is read by its filename and then proven the same way.
   const two = await up({ body: Buffer.from('%PDF-2.0\n% transcript\n%%EOF\n'), name: 'transcript.pdf' });
   assert.equal(two.status, 201, JSON.stringify(two.body));
-  const accented = await up({ body: Buffer.from('Peña, José\tSgt\r\nNguyễn, Trí\tCpl\n\fpage two — “complete” ✓\n'), name: 'names.txt', type: 'text/plain' });
+  const accented = await up({ body: Buffer.from('Peña, José\tSgt\r\nNguyễn, Trí\tCpl\n\fpage two \u2014 “complete” ✓\n'), name: 'names.txt', type: 'text/plain' });
   assert.equal(accented.status, 201, JSON.stringify(accented.body));
   const csv = await up({ body: Buffer.from('\uFEFFName,Rank\r\nDiaz,Cpl\r\n'), name: 'roster.csv', type: 'application/vnd.ms-excel', kind: 'roster' });
   assert.equal(csv.status, 201, JSON.stringify(csv.body));

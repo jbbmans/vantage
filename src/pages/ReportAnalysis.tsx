@@ -8,7 +8,7 @@ import { Table, StatusBadge } from '@/components/common';
 import { QueryFailure } from '@/components/QueryFailure';
 import { keys, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { formatDollars, formatNumber } from '../../shared/metrics';
+import { formatDollars, formatNumber, NO_VALUE } from '../../shared/metrics';
 import type { Analysis, Kpi, LedgerRow } from '../../shared/analytics';
 import type { DrillRecord } from '../../shared/unitAnalytics';
 import type { Movement } from '../../shared/delta';
@@ -110,7 +110,7 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
         />
         <Panel title="Logging cadence">
           <dl className="space-y-1.5 text-sm">
-            {([['Active days', `${a.consistency.activeDays} of ${a.consistency.spanDays}`], ['Entries per active day', String(a.consistency.entriesPerActiveDay)], ['Weeks with nothing logged', `${a.consistency.zeroWeeks} of ${a.consistency.weeks}`], ['Longest gap', `${a.consistency.longestGapDays} days`], ['Mean per week (σ)', `${a.consistency.meanPerWeek} (${a.consistency.stdevPerWeek})`], ['Busiest week', a.consistency.busiestWeek ? `${a.consistency.busiestWeek.week}: ${a.consistency.busiestWeek.entries}` : '—']] as Array<[string, string]>).map(([k, v]) => <div key={k} className="flex items-center justify-between gap-2"><dt className="text-ink-2">{k}</dt><dd className="fig text-ink">{v}</dd></div>)}
+            {([['Active days', `${a.consistency.activeDays} of ${a.consistency.spanDays}`], ['Entries per active day', String(a.consistency.entriesPerActiveDay)], ['Weeks with nothing logged', `${a.consistency.zeroWeeks} of ${a.consistency.weeks}`], ['Longest gap', `${a.consistency.longestGapDays} days`], ['Mean per week (σ)', `${a.consistency.meanPerWeek} (${a.consistency.stdevPerWeek})`], ['Busiest week', a.consistency.busiestWeek ? `${a.consistency.busiestWeek.week}: ${a.consistency.busiestWeek.entries}` : NO_VALUE]] as Array<[string, string]>).map(([k, v]) => <div key={k} className="flex items-center justify-between gap-2"><dt className="text-ink-2">{k}</dt><dd className="fig text-ink">{v}</dd></div>)}
           </dl>
         </Panel>
       </div>

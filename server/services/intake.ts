@@ -604,7 +604,7 @@ const methodKey = (text: string | null): MethodKey | null => methodFromText(text
 
 const centsOrNull = (text: string | null) => {
   const t = String(text ?? '').trim();
-  if (!t || /^[-–—]$/.test(t)) return null;
+  if (!t || /^[-–\u2014]$/.test(t)) return null;
   const parsed = parseMoney(t);
   return parsed.ok ? parsed.cents : null;
 };
@@ -658,7 +658,7 @@ export function seedsForRow(row: NormalizedRow, plan: ImportPlan): Seed[] {
     const raw = row.data[col] ?? '';
     if (target === 'purchase_method') { const m = methodKey(raw); if (m) seeds.push({ field, value_text: m }); continue; }
     if (target === 'error_text') { if (raw.trim()) seeds.push({ field, value_text: raw }); continue; }
-    seeds.push({ field, amount: raw, not_shown: !raw.trim() || /^[-–—]$/.test(raw.trim()) });
+    seeds.push({ field, amount: raw, not_shown: !raw.trim() || /^[-–\u2014]$/.test(raw.trim()) });
   }
   if (row.amount != null) seeds.push({ field: 'hold_amount', amount: String(row.amount) });
   return seeds;

@@ -51,7 +51,7 @@ test('formatters', () => {
   assert.equal(M.formatDollars(1240000), '$1.24M');
   assert.equal(M.formatDollars(-500), '-$500');
   assert.equal(M.formatDollarsExact(1118.38), '$1,118.38');
-  assert.equal(M.formatDate('not-a-date'), '—');
+  assert.equal(M.formatDate('not-a-date'), 'None');
   assert.equal(M.delta(5, 0), null);
   assert.equal(M.delta(150, 100), 50);
 });

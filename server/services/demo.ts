@@ -579,7 +579,7 @@ function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) 
   // and no audit entry stamped today claims it was published today, 120 days after it took effect.
   const policyId = newId();
   const since = dayOffset(-DEMO_SCORING_SINCE_DAYS);
-  const note = 'The section’s scoring (synthetic): the specification’s worked examples.';
+  const note = 'The section’s scoring (synthetic): the worked examples.';
   ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)')
     .run(policyId, unitId, since, JSON.stringify(content), note, ids.leader, isoAt(DEMO_SCORING_SINCE_DAYS + 1, 15));
 }

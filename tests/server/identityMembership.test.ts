@@ -409,11 +409,11 @@ test('018 proves only the EDIPIs a card already signed in under, and opens a his
     user('typed', '3333333333');       // never signed in with a card
     user('nocard', null);
     const entry = (actor: string, action: string, detail: string, n: number) => seed.prepare('INSERT INTO audit_log (id, actor_id, action, detail, at, entry_hash) VALUES (?, ?, ?, ?, ?, ?)').run(`a${n}`, actor, action, detail, `2026-06-0${n}T00:00:00.000Z`, `h${n}`);
-    entry('carded', 'cac_verified', 'edipi=1234567890 cn=AVERY.JORDAN.Q.1234567890 issuer=— serial=—', 1);
-    entry('carded', 'cac_verified', 'edipi=1234567890 cn=AVERY.JORDAN.Q.1234567890 issuer=— serial=—', 2);
-    entry('rekeyed', 'cac_verified', 'edipi=1111111111 cn=— issuer=— serial=—', 3);
+    entry('carded', 'cac_verified', 'edipi=1234567890 cn=AVERY.JORDAN.Q.1234567890 issuer=\u2014 serial=\u2014', 1);
+    entry('carded', 'cac_verified', 'edipi=1234567890 cn=AVERY.JORDAN.Q.1234567890 issuer=\u2014 serial=\u2014', 2);
+    entry('rekeyed', 'cac_verified', 'edipi=1111111111 cn=\u2014 issuer=\u2014 serial=\u2014', 3);
     entry('typed', 'personnel_link', 'EDIPI 3333333333', 4);
-    entry('rekeyed', 'cac_verified', 'edipi=22222222229 cn=— issuer=— serial=—', 5);
+    entry('rekeyed', 'cac_verified', 'edipi=22222222229 cn=\u2014 issuer=\u2014 serial=\u2014', 5);
     seed.prepare('INSERT INTO unit_members (user_id, unit_id, is_primary, billet, joined_at) VALUES (?, ?, ?, ?, ?)').run('carded', 'G8', 1, 'Budget Analyst', at);
     seed.prepare('INSERT INTO unit_members (user_id, unit_id, is_primary, joined_at) VALUES (?, ?, ?, ?)').run('typed', 'G8', 1, at);
     seed.close();

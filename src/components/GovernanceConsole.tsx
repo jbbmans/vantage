@@ -8,6 +8,7 @@ import { withSudo } from '@/components/SudoDialog';
 import { Table, DateText } from '@/components/common';
 import * as api from '@/lib/api';
 import { downloadText, humanize, timeAgo } from '@/lib/utils';
+import { NO_VALUE } from '../../shared/metrics';
 
 /** One organization's governance data, behind a recent password confirmation like the rest of the Unit Manager console. */
 function useOrgData<T = any>(orgId: string, key: string, fn: () => Promise<T>) {
@@ -84,7 +85,7 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
             <div className="card mb-3 border-warn/50 bg-warn/5 p-3" role="alert">
               <p className="flex items-center gap-2 text-base font-semibold text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This would separate {plan.massSeparation.count} of {plan.massSeparation.activeBefore} people</p>
               <p className="mt-1 text-sm text-ink-2">That usually means the extract is partial rather than that the command emptied. Those people are held back; nothing about them changes unless you confirm.</p>
-              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole Unit Instance — separate them</Button>
+              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole Unit Instance: separate them</Button>
             </div>
           )}
           <div className="mb-3 flex flex-wrap gap-2">
@@ -100,7 +101,7 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
               <Table label="Changed records" minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
                 {plan.updates.map((u) => (
                   <tr key={u.edipi}><td className="mono text-xs">{u.edipi}</td><td>{u.name}</td>
-                    <td className="text-xs text-ink-2">{u.changes.map((c) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
+                    <td className="text-xs text-ink-2">{u.changes.map((c) => `${humanize(c.field)}: ${c.from ?? NO_VALUE} → ${c.to ?? NO_VALUE}`).join('; ')}</td></tr>
                 ))}
               </Table>
             </div>
@@ -114,7 +115,7 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
           {plan.conflicts.length > 0 && (
             <div className="card mt-3 p-3">
               <p className="mb-1 text-base font-medium text-ink">Held for a person to look at</p>
-              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c) => <li key={c.edipi}><span className="mono">{c.edipi}</span> — {c.reason}</li>)}</ul>
+              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c) => <li key={c.edipi}><span className="mono">{c.edipi}</span>: {c.reason}</li>)}</ul>
             </div>
           )}
         </Panel>
@@ -124,8 +125,8 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
         {gaps.isPending ? <Skeleton className="h-24" /> : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <GapList title="Accounts with no EDIPI" rows={gaps.data?.accountsWithoutEdipi || []} render={(r) => `${r.last_name}, ${r.first_name} (@${r.username})`} empty="Every account is linked." />
-            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.edipi}`} empty="Every linked account is on the roster." />
-            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.rank_id || '—'}`} empty="Everyone on the roster has an account." />
+            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r) => `${r.last_name}, ${r.first_name} (${r.edipi})`} empty="Every linked account is on the roster." />
+            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r) => `${r.last_name}, ${r.first_name} (${r.rank_id || 'no grade'})`} empty="Everyone on the roster has an account." />
           </div>
         )}
       </Panel>
@@ -298,7 +299,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
               <Field label="Keep for" hint="days from the record's own date"><Input value={String(draft.retain_days)} onChange={(e) => setDraft({ ...draft, retain_days: e.target.value.replace(/[^0-9]/g, '') })} /></Field>
               <Field label="Then">
                 <Select value={draft.disposition} onValueChange={(v) => setDraft({ ...draft, disposition: v })}
-                  options={[{ value: 'review', label: 'Report only — never acts on its own' }, { value: 'anonymize', label: 'Anonymize — keep the counts, drop the words' }, { value: 'destroy', label: 'Destroy — remove the row' }]} />
+                  options={[{ value: 'review', label: 'Report only: never acts on its own' }, { value: 'anonymize', label: 'Anonymize: keep the counts, drop the words' }, { value: 'destroy', label: 'Destroy: remove the row' }]} />
               </Field>
               <Field label="Authority" hint="the schedule this comes from"><Input value={draft.authority || ''} onChange={(e) => setDraft({ ...draft, authority: e.target.value })} placeholder="NARA GRS 2.2, item 010" /></Field>
               <Switch checked={Boolean(draft.enabled)} onChange={(v) => setDraft({ ...draft, enabled: v })} label="Enabled" description="Off means this schedule is recorded but never runs." />
@@ -373,10 +374,10 @@ export function PrivacyConsole({ demo = false, orgId }: { demo?: boolean; orgId?
             {data.tables.map((t: any) => (
               <tr key={t.table} className="cursor-pointer" onClick={() => setOpen(open === t.table ? null : t.table)}>
                 <td className="font-medium text-ink">{t.table}</td>
-                <td className="fig text-right text-xs">{t.rows == null || t.rows < 0 ? '—' : t.rows.toLocaleString()}</td>
+                <td className="fig text-right text-xs">{t.rows == null || t.rows < 0 ? NO_VALUE : t.rows.toLocaleString()}</td>
                 <td className="text-xs text-ink-2">{t.purpose || <span className="text-warn">not declared</span>}</td>
                 <td className="text-xs">{t.retention ? `${t.retention.retain_days}d ${t.retention.disposition}${t.retention.enabled ? '' : ' (off)'}` : <span className="text-ink-3">none</span>}</td>
-                <td>{t.unclassified.length || t.stale.length ? <Badge tone="warn">{t.unclassified.length + t.stale.length}</Badge> : <Badge tone="good">—</Badge>}</td>
+                <td>{t.unclassified.length || t.stale.length ? <Badge tone="warn">{t.unclassified.length + t.stale.length}</Badge> : <Badge tone="good">{NO_VALUE}</Badge>}</td>
               </tr>
             ))}
           </Table>

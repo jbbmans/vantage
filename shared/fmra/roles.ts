@@ -71,7 +71,7 @@ export const DAI_RESPONSIBILITIES: Responsibility[] = [
 export const SPECIAL_ROLES = [
   {
     key: 'certifier', name: 'Certifier',
-    meaning: 'Performs funds certification on PR approval and approves a CLM award so the transaction can post. A funds manager — Supply Officer, Supply Chief or department head — appointed by the commanding officer.',
+    meaning: 'Performs funds certification on PR approval and approves a CLM award so the transaction can post. A funds manager (Supply Officer, Supply Chief or department head) appointed by the commanding officer.',
     rule: 'Do not infer an appointment from possession of a system role.',
   },
   {

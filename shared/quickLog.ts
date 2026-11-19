@@ -74,7 +74,7 @@ export interface ParsedQuickLog {
 
 // A trailing clause that says what came of the work, after a comma, semicolon or dash. Only words that open an outcome
 // count, so "for G-8, S-4 and S-1" stays in the title. The lead-in that only links the clause is dropped.
-const RESULT_CLAUSE = /\s*(?:[,;]|\s[-–—])\s*((?:resulting in|which|so that|so|leading to|saving|clearing|cutting|reducing|all|each|every one|zero|no)\b.+)$/i;
+const RESULT_CLAUSE = /\s*(?:[,;]|\s[-–\u2014])\s*((?:resulting in|which|so that|so|leading to|saving|clearing|cutting|reducing|all|each|every one|zero|no)\b.+)$/i;
 const RESULT_LINK = /^(?:resulting in|leading to|which|so that|so)\s+/i;
 
 const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, mil: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };

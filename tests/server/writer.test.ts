@@ -82,7 +82,7 @@ test('money is written once, next to its count, the way an evaluation writes it'
 });
 
 test('a sentence comes out finished: plain characters, one space, punctuation where it belongs', () => {
-  assert.equal(finish('reconciled 14 ULOs ;all cleared “on time” — early'), 'Reconciled 14 ULOs; all cleared "on time" - early.');
+  assert.equal(finish('reconciled 14 ULOs ;all cleared “on time” \u2014 early'), 'Reconciled 14 ULOs; all cleared "on time" - early.');
   assert.equal(finish('Reconciled $1,118.38 at 14:30'), 'Reconciled $1,118.38 at 14:30.');
   assert.equal(pick(['a', 'b', 'c'], 1, 'k'), pick(['a', 'b', 'c'], 1, 'k'));
 });
@@ -169,7 +169,7 @@ test('text edited by hand is reviewed from its words', () => {
 test('whatever is logged, the narrative is well-formed text inside its limit', () => {
   let state = 7;
   const rand = () => { state = (state * 1103515245 + 12345) % 2 ** 31; return state / 2 ** 31; };
-  const words = ['reconciled', 'Processing', 'I', 'my', 'several', 'ULOs', 'Marines', '$4,000', '14', 'in', 'DAI', 'the', 'was', 'helped', 'brief', 'of', '—', '“quoted”', 'km', '', '  ', ';', 'résumé'];
+  const words = ['reconciled', 'Processing', 'I', 'my', 'several', 'ULOs', 'Marines', '$4,000', '14', 'in', 'DAI', 'the', 'was', 'helped', 'brief', 'of', '\u2014', '“quoted”', 'km', '', '  ', ';', 'résumé'];
   const units = ['ULOs', 'Marines', 'hours', 'km', '%', '', 'points', 'MIPRs'];
   for (let run = 0; run < 150; run += 1) {
     const entries = Array.from({ length: Math.floor(rand() * 25) }, (_, i) => ({

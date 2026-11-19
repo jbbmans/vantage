@@ -12,7 +12,7 @@ import { LANDSCAPE_COLUMNS, chartBars, formatCell, isRightAligned, labelledColum
 const INK = '#111827'; const INK2 = '#4b5563'; const MUTED = '#6b7280'; const RULE = '#d1d5db'; const SOFT = '#f3f4f6'; const ACCENT = '#9f1d22';
 
 /** The standard PDF fonts read WinAnsi: Latin-1 and the punctuation Windows adds to it. Anything else prints as '?'. */
-const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ');
+const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–\u2014˜™š›œžŸ');
 export const pdfText = (text: string) => text.replace(/[\r\t]/g, ' ').replace(/[^\n\x20-\x7e\xa0-\xff]/gu, (ch) => (WIN_ANSI_EXTRA.has(ch) ? ch : '?'));
 
 /** A table wider than this many columns turns the document to landscape, so no column is too narrow to read. */

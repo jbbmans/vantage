@@ -66,7 +66,7 @@ function rowOf<T>(ctx: AppContext, kind: Kind, orgId: string, id: string): T {
 function changes(before: object, after: object): string {
   const b = before as Record<string, unknown>;
   const a = after as Record<string, unknown>;
-  return Object.keys(a).filter((k) => (b[k] ?? null) !== (a[k] ?? null)).map((k) => `${k}: ${b[k] ?? '—'} → ${a[k] ?? '—'}`).join('; ');
+  return Object.keys(a).filter((k) => (b[k] ?? null) !== (a[k] ?? null)).map((k) => `${k}: ${b[k] ?? '(none)'} → ${a[k] ?? '(none)'}`).join('; ');
 }
 
 const lifecycle = (before: { active: number } | null, after: { active: number }) =>

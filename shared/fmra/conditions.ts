@@ -72,7 +72,7 @@ export const NORMAL_CONDITIONS: Record<NormalKey, NormalCondition> = {
     },
     causes: [
       { key: 'valid_back_order', label: 'Valid back-order', pattern: 'both', research: 'Verify the items (or the remaining portion) are still on back-order.', correction: 'Retain the valid obligation and monitor the expected delivery.', valid: true, responsibility: ['research'] },
-      { key: 'missing_receipt', label: 'Receipt not recorded', pattern: 'both', research: 'Establish that the goods or services were actually received — all of them, or which portion.', correction: 'Record or correct the delivered entry for the actually received portion through the proper source process. The cause may be an interface failure or an omitted manual entry.', responsibility: ['receipt'] },
+      { key: 'missing_receipt', label: 'Receipt not recorded', pattern: 'both', research: 'Establish that the goods or services were actually received: all of them, or which portion.', correction: 'Record or correct the delivered entry for the actually received portion through the proper source process. The cause may be an interface failure or an omitted manual entry.', responsibility: ['receipt'] },
       { key: 'erroneous_award', label: 'Erroneous award', pattern: 'full', research: 'Determine that the requirement is genuinely invalid.', correction: 'Modify or amend the award and requisition through the authorized process to recoup the unsupported funds.', responsibility: ['award', 'requisition'] },
       { key: 'final_price_lower', label: 'Lower final price', pattern: 'partial', research: 'Validate the final cost.', correction: 'Adjust the award and requisition accordingly.', responsibility: ['award', 'requisition'] },
     ],
@@ -229,7 +229,7 @@ export const INTERFACE_ERRORS: { causes: AbnormalCause[]; verification: string; 
 };
 
 export const INVOICE_HOLDS = {
-  meaning: 'An invoice on hold knows where it should post but cannot satisfy the required conditions, and payment has not yet occurred. A hold may affect the full or a partial amount — e.g. $100 delivered with $0 paid, or $100 delivered with $50 paid and $50 still on hold.',
+  meaning: 'An invoice on hold knows where it should post but cannot satisfy the required conditions, and payment has not yet occurred. A hold may affect the full or a partial amount, e.g. $100 delivered with $0 paid, or $100 delivered with $50 paid and $50 still on hold.',
   causes: [
     { key: 'billed_exceeds_ordered', label: 'Quantity billed exceeds quantity ordered', match: 'Two-way or three-way', research: 'Validate the bill.', correction: 'Reconcile the supported award or order.', responsibility: ['award'] as WorkResponsibility[] },
     { key: 'billed_exceeds_received', label: 'Quantity billed exceeds quantity received', match: 'Three-way', research: 'Validate the actual receipt.', correction: 'Reconcile the receipt record.', responsibility: ['receipt'] as WorkResponsibility[] },
@@ -242,7 +242,7 @@ export const INVOICE_HOLDS = {
 } as const;
 
 export const UMT = {
-  definition: 'Payment occurred but did not successfully match or post to the intended accounting record — a payment without a home.',
+  definition: 'Payment occurred but did not successfully match or post to the intended accounting record: a payment without a home.',
   objective: 'Validate the unmatched disbursement, correct the underlying condition, and use the proper posting route so the payment is accounted for correctly. The work is incomplete if the cause is fixed but the paid transaction remains unmatched.',
   causes: [
     'No matching award',

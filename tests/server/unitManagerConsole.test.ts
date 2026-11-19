@@ -99,7 +99,7 @@ test('a billet list: added, edited, retired and restored by a Unit Manager, each
 
   const edited = await patch(um, `/api/orgs/G8/billets/${added.body.id}`, { description: 'Prepares the budget' });
   assert.equal(edited.status, 200);
-  assert.match(lastAudit('billet_updated')!.detail, /description: — → Prepares the budget/);
+  assert.match(lastAudit('billet_updated')!.detail, /description: \(none\) → Prepares the budget/);
   const retired = await patch(um, `/api/orgs/G8/billets/${added.body.id}`, { active: false });
   assert.equal(retired.body.active, 0);
   assert.ok(lastAudit('billet_retired'));

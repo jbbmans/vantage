@@ -72,7 +72,7 @@ export default function LiveParser() {
     <div className="live-parser" ref={host}>
       <div className="live-parser-head">
         <span className="live-parser-dot" aria-hidden />
-        <strong>Try it — this is the real parser</strong>
+        <strong>Try it: this is the real parser</strong>
         <span>nothing is sent anywhere</span>
       </div>
 

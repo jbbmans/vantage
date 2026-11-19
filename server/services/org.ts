@@ -258,7 +258,7 @@ export function updateUnit(ctx: AppContext, actor: SessionUser, scope: Scope, un
   ctx.db.prepare('UPDATE units SET name = ?, short_name = ?, echelon = ?, location = ?, parent_id = ? WHERE id = ?').run(after.name, after.short_name, after.echelon, after.location, after.parent_id, unitId);
   // What changed, from and to: where a unit sat in the chain of command is the history of every Marine in it.
   const was = unit as unknown as Record<string, unknown>;
-  const changed = (Object.keys(after) as Array<keyof typeof after>).filter((k) => (was[k] ?? null) !== (after[k] ?? null)).map((k) => `${k}: ${was[k] ?? '—'} → ${after[k] ?? '—'}`);
+  const changed = (Object.keys(after) as Array<keyof typeof after>).filter((k) => (was[k] ?? null) !== (after[k] ?? null)).map((k) => `${k}: ${was[k] ?? '(none)'} → ${after[k] ?? '(none)'}`);
   audit(ctx, { actor_id: actor.id, action: 'edit_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: changed.length ? changed.join('; ').slice(0, 900) : 'no change', ip });
   return getUnit(ctx, unitId)!;
 }
