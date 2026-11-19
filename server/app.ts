@@ -51,7 +51,7 @@ import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
-import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
+import { loadChainKey, resealStoredSecrets, sealedUnderPreviousSecret } from './lib/keys.ts';
 import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
@@ -65,6 +65,7 @@ export function createContext(config: AppConfig): AppContext {
   const db = openDatabase(config.databasePath);
   // Before anything is written: a database put in place outside the restore command is recorded (ADR-0014).
   detectReplacement({ db, config });
+  const rotated = sealedUnderPreviousSecret(db, config);
   const chainKey = loadChainKey(db, config);
   const resealed = resealStoredSecrets(db, config);
   if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
@@ -89,6 +90,8 @@ export function createContext(config: AppConfig): AppContext {
   auditUpgrades(ctx);
   auditRestores(ctx);
   auditServerBackups(ctx);
+  // A changed VANTAGE_SECRET is a key rotation: the trail says this start made it, and what it sealed again.
+  if (rotated || resealed) audit(ctx, { actor_id: null, action: 'secret_rotated', entity: 'database', detail: `VANTAGE_SECRET changed: ${rotated ? 'the audit chain key wrapped under it, ' : ''}${resealed} stored secret${resealed === 1 ? '' : 's'} sealed again` });
   // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform. A grant the
   // configuration makes is audited when it is made, not on every start that finds it already in place.
   if (config.operatorUsernames.length) {

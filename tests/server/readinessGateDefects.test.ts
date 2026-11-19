@@ -14,6 +14,8 @@ import { PERMISSIONS } from '../../shared/permissions.ts';
 import { SCHEMA_VERSION, openDatabase } from '../../server/db/index.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
 import { verifyAuditChain } from '../../server/services/audit.ts';
+import { loadConfig } from '../../server/config.ts';
+import { createContext } from '../../server/app.ts';
 
 const day = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const EDIPI_RUN = /(?<!\d)\d{10}(?!\d)/;
@@ -441,4 +443,28 @@ test('the database, its write-ahead log and its directory are the service’s al
       assert.equal(statSync(join(dir, 'data')).mode & 0o777, 0o700);
     } finally { db.close(); }
   } finally { process.umask(previous); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a change of VANTAGE_SECRET is in the trail, once, with what it sealed again', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-rotate-'));
+  const path = join(dir, 'vantage.db');
+  const OLD = 'old-secret-old-secret-old-secret-0001';
+  const NEW = 'new-secret-new-secret-new-secret-0002';
+  const start = (env: Record<string, string>) => createContext(loadConfig({
+    NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: path, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_PUBLIC_URL: 'http://localhost:5173', ...env,
+  } as NodeJS.ProcessEnv));
+  const rotations = (ctx: ReturnType<typeof start>) => (ctx.db.prepare("SELECT actor_id, detail FROM audit_log WHERE action = 'secret_rotated'").all() as Array<{ actor_id: string | null; detail: string }>);
+  try {
+    const first = start({ VANTAGE_SECRET: OLD });
+    first.db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, totp_secret, created_at, updated_at) VALUES ('u1', 'avery', '', 'Jordan', 'Avery', ?, '2026-10-01', '2026-10-01')`).run(encryptSecret(OLD, 'JBSWY3DPEHPK3PXP'));
+    assert.deepEqual(rotations(first), [], 'a first start rotates nothing');
+    first.db.close();
+    const rotating = start({ VANTAGE_SECRET: NEW, VANTAGE_SECRET_PREVIOUS: OLD });
+    assert.deepEqual(rotations(rotating), [{ actor_id: null, detail: 'VANTAGE_SECRET changed: the audit chain key wrapped under it, 1 stored secret sealed again' }]);
+    assert.equal(verifyAuditChain(rotating).ok, true);
+    rotating.db.close();
+    const again = start({ VANTAGE_SECRET: NEW, VANTAGE_SECRET_PREVIOUS: OLD });
+    assert.equal(rotations(again).length, 1, 'a start with nothing left to seal writes nothing');
+    again.db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
