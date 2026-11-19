@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * The audit chain's anchors in the Vantage Administrator console (Task 7, ADR-0013): the head of the chain and the last
+ * The audit chain's anchors in the Vantage Administrator console (ADR-0013): the head of the chain and the last
  * anchor written into it, and a check of an anchor kept off the host, from the keyboard, with its result announced.
  * The access logs (ADR-0032): a unit's names who opened whose record, a Marine's names who opened theirs, each pages
  * back to its oldest entry, and a log that cannot load says so.

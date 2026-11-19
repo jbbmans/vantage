@@ -227,7 +227,7 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
 
 /**
  * A Vantage Administrator adds a Lead Unit Manager or Unit Manager to any Unit Instance at any time, never themselves
- * (John, 2026-10-08; ADR-0010 §5). Only a member of the Unit Instance is assigned: the platform names who runs a command,
+ * (ADR-0010 §5). Only a member of the Unit Instance is assigned: the platform names who runs a command,
  * it does not add people to one. The instance's Lead Unit Managers are told, and the step is in both audit trails.
  */
 export function assignManager(ctx: AppContext, actor: SessionUser, orgId: string, input: { user_id: string; role: UnitManagerRole }, ip?: string) {

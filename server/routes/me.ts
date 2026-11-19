@@ -216,7 +216,7 @@ meRouter.get('/export', requireSudo, wrap((req, res) => {
   send(buffer, filename, format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/zip', counts);
 }));
 
-// ——— Importing their own records (ADR-0019): upload, review, correct, import, undo ———
+// Importing their own records (ADR-0019): upload, review, correct, import, undo
 
 const importBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.recordImports.maxBytes })(req, res, next);

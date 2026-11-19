@@ -6,7 +6,7 @@ import { DEFAULT_UNIT_SETTINGS, STANDARD_DUTY_TYPES, UNIT_CONFIG_FORMAT, UNIT_SE
 import { releaseStaleClaims } from '../../server/services/work.ts';
 
 /**
- * The Unit Manager console (Task 6, ADR-0012): unit-scoped configuration that a Unit Instance's own Unit Managers run
+ * The Unit Manager console (ADR-0012): unit-scoped configuration that a Unit Instance's own Unit Managers run
  * (billets, duty types, training requirements, work settings and report defaults), its audit trail, roster and
  * configuration exports, and configuration imports. Each is checked by the server against the caller's Unit Instance
  * permissions, stays inside its Unit Instance, is audited there, and never goes past what Vantage sets for everyone.

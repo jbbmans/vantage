@@ -16,7 +16,7 @@ import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { REDACTED } from '../../shared/constants.ts';
 
 /**
- * Task 9: each record kind keeps its own store (ADR-0015). An Activity sits on the timeline beside awards, training,
+ * Each record kind keeps its own store (ADR-0015). An Activity sits on the timeline beside awards, training,
  * counselings and goals, and never stands in for one. An entry that was really an award or a course moves, by its
  * owner only, with its lineage kept and an undo; nothing moves on an upgrade.
  */
@@ -103,7 +103,7 @@ test('the registry: every timeline kind with a store is read from a table the ti
   for (const kind of RECORD_KINDS.filter((k) => k.timeline && k.store)) {
     assert.ok((timelineTables as string[]).includes(kind.store!.table), `${kind.key} is on the timeline, but the timeline does not read ${kind.store!.table}`);
   }
-  // Every timeline kind has its store now that duty has one (Task 17, ADR-0023).
+  // Every timeline kind has its store now that duty has one (ADR-0023).
   assert.deepEqual(RECORD_KINDS.filter((k) => k.timeline && !k.store).map((k) => k.key), []);
 });
 
@@ -605,7 +605,7 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   items.recognition = (await made(lopez.token, 'awards', { name: 'Meritorious Mast', type: 'meritorious_mast', status: 'presented', date: '2025-10-20' })).id;
   items.counseling = (await made(nguyen.token, 'counselings', { user_id: lopez.id, type: 'monthly', date: '2026-06-01', summary: 'Solid month.', visibility: 'unit' })).id;
   items.goal = (await made(lopez.token, 'goals', { title: 'Close 50 ULOs', metric: 'manual', target_value: 50, status: 'achieved', period_end: '2026-06-30' })).id;
-  // Duty has its own store (Task 17, ADR-0023): one of G8's duty types, stood before any window below.
+  // Duty has its own store (ADR-0023): one of G8's duty types, stood before any window below.
   const at = new Date().toISOString();
   app.ctx.db.prepare("INSERT INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES ('tl-dnco', 'G8', 'TLDNCO', 'Duty NCO', NULL, 1, ?, ?)").run(at, at);
   items.duty = (await made(lopez.token, 'duties', { duty_type_id: 'tl-dnco', date: '2025-09-05', start_time: '0800', end_date: '2025-09-06', end_time: '0800', unit_id: 'G8' })).id;

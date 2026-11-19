@@ -318,7 +318,7 @@ export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURICompon
 export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
 export const unitOverview = (id: string, opts: { roster?: boolean } = {}) => api.get(`/org/units/${encodeURIComponent(id)}/overview${opts.roster ? '?roster=1' : ''}`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
-/** The unit's analytics (Task 21): one section's figures over a window, and the records behind one of them. */
+/** The unit's analytics: one section's figures over a window, and the records behind one of them. */
 export const unitAnalytics = (id: string, section: AnalyticsSection, from: string, to: string) =>
   api.get<AnalyticsResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}?${qs({ from, to })}`);
 export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { from: string; to: string; visual: string; key: string; series?: string | null }) =>
@@ -415,7 +415,7 @@ export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1'
 export const maradminState = (id: string, payload: unknown) => api.put(`/maradmins/${encodeURIComponent(id)}/state`, payload);
 export const search = (q: string) => api.get(`/search?q=${encodeURIComponent(q)}`);
 
-// ——— Vantage Administrator console (/api/platform): the service, for Vantage staff ———
+// Vantage Administrator console (/api/platform): the service, for Vantage staff
 const enc = encodeURIComponent;
 export const platformMe = () => api.get('/platform/me');
 export const platformOverview = () => api.get('/platform/overview');
@@ -501,7 +501,7 @@ export const platformPlaceHold = (body: unknown) => api.post('/platform/holds', 
 export const platformReleaseHold = (id: string) => api.del(`/platform/holds/${enc(id)}`);
 export const platformImport = (archive: unknown) => api.post('/platform/import', archive);
 
-// ——— Unit Manager console (/api/orgs/:orgId): one Unit Instance, for the people who hold its roles ———
+// Unit Manager console (/api/orgs/:orgId): one Unit Instance, for the people who hold its roles
 const orgPath = (orgId: string, path = '') => `/orgs/${enc(orgId)}${path}`;
 export const myOrgs = () => api.get('/orgs');
 export const orgOverview = (orgId: string) => api.get(orgPath(orgId, '/overview'));
@@ -552,7 +552,7 @@ export const orgSaveTrainingRequirement = (orgId: string, body: unknown, id?: st
 export const orgSaveUnitSettings = (orgId: string, body: unknown) => api.patch(orgPath(orgId, '/configuration/settings'), body);
 export const orgConfigurationExportUrl = (orgId: string) => `/api${orgPath(orgId, '/configuration/export')}`;
 export const orgImportConfiguration = (orgId: string, file: unknown, apply: boolean) => api.post(orgPath(orgId, `/configuration/import${apply ? '?apply=1' : ''}`), file);
-// Duty scoring versions (ADR-0012, Task 18 brought forward): published once, withdrawn only before they take effect.
+// Duty scoring versions (ADR-0012): published once, withdrawn only before they take effect.
 export const orgPublishScoringPolicy = (orgId: string, body: unknown) => api.post(orgPath(orgId, '/duty-scoring'), body);
 export const orgWithdrawScoringPolicy = (orgId: string, id: string) => api.post(orgPath(orgId, `/duty-scoring/${enc(id)}/withdraw`));
 // Guidance on file for the case diagnoser (ADR-0022): the command's SOPs and SME workflows, and its validated examples.

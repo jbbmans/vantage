@@ -8,7 +8,7 @@ import { buildPersonalExport } from '../../server/services/personalExport.ts';
 import { UMT_2WAY } from '../../shared/procedures.ts';
 
 /**
- * Drafts (Task 23, ADR-0030). A draft lives with its own kind. The forms people save to finish later are their author's
+ * Drafts (ADR-0030). A draft lives with its own kind. The forms people save to finish later are their author's
  * alone, checked loosely when saved and properly when sent through their own form's route, which removes the draft in the
  * same transaction. One about a Marine is saved only by someone who may act for them, and is nowhere the Marine looks.
  * Drafts lists every kind, for the person asking only, and stores nothing.

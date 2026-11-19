@@ -7,7 +7,7 @@ import {
 
 /**
  * A counseling as the COUNSELING WORKSHEET Marines use (ADR-0033, replacing ADR-0027's look-alike), drawn box for box
- * from the copy John supplied: the title, the references line, black section bars with upright bold white type, the
+ * from the copy in use: the title, the references line, black section bars with upright bold white type, the
  * labelled administrative boxes on the form's eight columns, the billet title, the four narrative sections and the two
  * certification rows. Built from the structured document the server makes from the stored record, never from the
  * screen, and never stored.
@@ -113,7 +113,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       doc.font('Helvetica').fontSize(size).fillColor(INK).text(pdfText(t), x, y, { width: w, lineBreak: false, ellipsis: true });
     const value = (t: string, x: number, y: number, w: number) =>
       doc.font('Courier').fontSize(VALUE_SIZE).fillColor(INK).text(pdfText(t), x, y, { width: w, lineBreak: false, ellipsis: true });
-    /** A black section bar, its heading in upright bold white type (not italic, as John asked). */
+    /** A black section bar, its heading in upright bold white type, not italic. */
     const bar = (y: number, heading: string, note?: string) => {
       const top = y + (H.bar - 9.5) / 2 + 0.8;
       doc.rect(LEFT, y, WIDTH, H.bar).fill(INK);
@@ -125,7 +125,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       return y + H.bar;
     };
 
-    // ——— One administrative row: its labels, then its boxes on the form's columns ———
+    // One administrative row: its labels, then its boxes on the form's columns
     const adminRow = (y: number, boxes: WorksheetBox[], valueHeight: number) => {
       sides(y, y + H.label + valueHeight);
       for (const b of boxes) {
@@ -146,16 +146,16 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       return end;
     };
 
-    // ——— The narrative's size: the largest at which the whole form keeps to one page with its boxes as the form has
+    // The narrative's size: the largest at which the whole form keeps to one page with its boxes as the form has
     // them; else the largest at which it does once short sections give their spare room to long ones; else 9 point,
-    // running on to the next page ———
+    // running on to the next page
     const sections = form.worksheet.sections;
     const fixed = H.bar + H.label * 3 + H.valueTall * 2 + H.valueShort + H.bar + H.billet + sections.length * H.bar + H.bar + 2 * (H.sigLabel + H.sigBox);
     const fits = ([size, tight]: readonly [number, boolean]) =>
       FORM_TOP + fixed + sections.reduce((n, s) => n + sectionHeight(s.key, sectionLines(s, size).length, size, tight), 0) <= BOTTOM;
     const [size, tight] = [...NARRATIVE_SIZES.map((n) => [n, false] as const), ...NARRATIVE_SIZES.map((n) => [n, true] as const)].find(fits) ?? [NARRATIVE_SIZES[0], false];
 
-    // ——— Title, a band when this is not the final current text, and the references line ———
+    // Title, a band when this is not the final current text, and the references line
     const band = documentBand(form);
     doc.font('Helvetica-Bold').fontSize(13).fillColor(INK).text(form.worksheet.title, LEFT, TOP + 2, { width: WIDTH, align: 'center', lineBreak: false });
     if (band) doc.font('Helvetica-Bold').fontSize(7.5).fillColor(ALERT).text(pdfText(band), LEFT, TOP + 20, { width: WIDTH, align: 'right', lineBreak: false, ellipsis: true });
@@ -173,7 +173,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
     y += H.billet;
     rule(LEFT, y, LEFT + WIDTH, y);
 
-    // ——— C to F: each section's text under its bar, running on to the next page when it must ———
+    // C to F: each section's text under its bar, running on to the next page when it must
     const drawLines = (lines: string[], top: number) => {
       doc.font('Courier').fontSize(size).fillColor(INK);
       lines.forEach((l, n) => { if (l) doc.text(pdfText(l), LEFT + PAD + 2, top + PAD + 1 + n * lineHeight(size), { lineBreak: false }); });
@@ -202,7 +202,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       rule(LEFT, y, LEFT + WIDTH, y);
     }
 
-    // ——— G. Certification: two signature lines, each with its date ———
+    // G. Certification: two signature lines, each with its date
     if (y + H.bar + 2 * (H.sigLabel + H.sigBox) > BOTTOM) { doc.addPage(); y = FORM_TOP; }
     y = bar(y, form.worksheet.certification.heading);
     for (const row of form.worksheet.certification.rows) {
@@ -219,8 +219,8 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       rule(LEFT, y, LEFT + WIDTH, y);
     }
 
-    // ——— What the form has no box for, on a page of its own, only when there is something to say. A printed EDIPI is:
-    // the copy then holds PII, and its last page says so (ADR-0033) ———
+    // What the form has no box for, on a page of its own, only when there is something to say. A printed EDIPI is:
+    // the copy then holds PII, and its last page says so (ADR-0033)
     if (band || form.amendments.length || form.own_notes || (form.particulars_as_of === 'now' && form.stage === 'final') || form.edipi.reported || form.edipi.senior) {
       const notes = signatureNotes(form);
       doc.addPage();
@@ -245,7 +245,7 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       for (const note of [...form.notices, form.source]) para(`•  ${note}`, 'Helvetica', 8, MUTED, 2);
     }
 
-    // ——— The handling line at the top and foot of every page, and where the page comes from ———
+    // The handling line at the top and foot of every page, and where the page comes from
     const range = doc.bufferedPageRange();
     const zone = form.generated.zone;
     const status = [

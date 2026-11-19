@@ -15,7 +15,7 @@ import {
 import { REQUEST_KINDS } from '../../shared/workflowMessages.ts';
 
 /**
- * Task 24 (ADR-0031): what Vantage tells a person. Every kind is in the catalogue; a kind that coalesces keeps one unread
+ * ADR-0031: what Vantage tells a person. Every kind is in the catalogue; a kind that coalesces keeps one unread
  * notice per record; nobody is told about what they did, nor anybody no longer active, nor about a group they turned off
  * (only discussion, work updates and announcements may be). Each notice is checked again when it is read, so one about a
  * record its reader can no longer open is neither shown nor counted, and a notice about a record never carries anybody's

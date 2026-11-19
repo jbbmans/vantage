@@ -2,7 +2,7 @@ import { PERMISSIONS } from './permissions.ts';
 import { calculatePoints, describeRule, policyOn, SCORING_CONDITIONS, type ScoringCondition, type ScoringPolicyContent } from './dutyScoring.ts';
 
 /**
- * A duty a Marine stood (VANTAGE_CLAUDE_MASTER Task 17, ADR-0023): one of the Unit Instance's duty types, from a start
+ * A duty a Marine stood (ADR-0023): one of the Unit Instance's duty types, from a start
  * day and time to an end day and time, in a unit. What it ran to (hours, duty days, overnight, multi-day, weekend) is
  * worked out here from its start and end, never taken from whoever records it, and its points come from the Unit
  * Instance's scoring version in force on the day it began (ADR-0012), with the same arithmetic the console's Try it
@@ -12,7 +12,7 @@ import { calculatePoints, describeRule, policyOn, SCORING_CONDITIONS, type Scori
  * clock change counts the hours its start and end say.
  */
 
-/** Where a duty stands with its reviewers. Task 17 records duty as submitted; Task 18 approves, returns or rejects it. */
+/** Where a duty stands with its reviewers: recorded as submitted (pending), then approved, returned or rejected. */
 export const DUTY_STATUSES = ['pending', 'approved', 'returned', 'rejected'] as const;
 export type DutyStatus = (typeof DUTY_STATUSES)[number];
 export const DUTY_STATUS_LABELS: Record<DutyStatus, string> = { pending: 'Submitted', approved: 'Approved', returned: 'Returned', rejected: 'Rejected' };
@@ -41,7 +41,7 @@ export function mayCorrectDuty(
 
 /** Conditions the duty's own start and end decide. */
 export const DERIVED_CONDITIONS = ['weekend', 'overnight'] as const satisfies readonly ScoringCondition[];
-/** Conditions only whoever records it can say, and a reviewer checks (Task 18). */
+/** Conditions only whoever records it can say, and a reviewer checks. */
 export const CLAIMED_CONDITIONS = ['holiday', 'short_notice', 'extended', 'consecutive'] as const satisfies readonly ScoringCondition[];
 export type ClaimedCondition = (typeof CLAIMED_CONDITIONS)[number];
 export const CONDITION_LABELS: Record<ScoringCondition, string> = Object.fromEntries(SCORING_CONDITIONS.map((c) => [c.key, c.label])) as Record<ScoringCondition, string>;

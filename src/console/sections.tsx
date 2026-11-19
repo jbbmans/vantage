@@ -35,7 +35,7 @@ export function useAct() {
 
 export const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
 
-// ——— Operations (ADR-0014) ———
+// Operations (ADR-0014)
 
 /** The Unit Instance's version, last upgrade, health, backup, restore and withheld features, as Vantage reports them. */
 export function Operations({ orgId }: { orgId: string }) {
@@ -45,7 +45,7 @@ export function Operations({ orgId }: { orgId: string }) {
   return <InstanceOperationsDetail instance={data} audience="manager" />;
 }
 
-// ——— Overview ———
+// Overview
 
 interface OverviewData {
   organization: PublicOrg; counts: OrgCounts;
@@ -89,7 +89,7 @@ export function Overview({ orgId }: { orgId: string }) {
   );
 }
 
-// ——— People: members, organization roles, and "why can they?" ———
+// People: members, organization roles, and "why can they?"
 
 export function People({ org }: { org: OrgSummary }) {
   const can = (p: string) => org.permissions.includes(p);
@@ -285,7 +285,7 @@ export function WhyDialog({ orgId, member, onClose }: { orgId: string; member: {
   );
 }
 
-// ——— Vantage access ———
+// Vantage access
 
 export function VantageAccess({ org }: { org: OrgSummary }) {
   const can = (p: string) => org.permissions.includes(p);
@@ -334,7 +334,7 @@ export function VantageAccess({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Audit trail ———
+// Audit trail
 
 /** The Unit Instance's trail, filtered and paged on the server, with a unit filter (ADR-0012). */
 export function AuditTrail({ orgId }: { orgId: string }) {
@@ -351,7 +351,7 @@ export function AuditTrail({ orgId }: { orgId: string }) {
   );
 }
 
-// ——— Settings ———
+// Settings
 
 export function Settings({ org, extra }: { org: OrgSummary; extra?: React.ReactNode }) {
   const can = (p: string) => org.permissions.includes(p);

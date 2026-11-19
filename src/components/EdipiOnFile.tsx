@@ -9,7 +9,7 @@ import { EDIPI_PATTERN, counselorWritten } from '../../shared/counseling';
 
 /**
  * The EDIPI a person's counseling worksheets print in their EDIPI box (ADR-0033): the one on their account, else one
- * they type here, which saves to their own profile. Only they set it (John, 2026-11-17: "Each person types their own"),
+ * they type here, which saves to their own profile. Only they set it,
  * it is never used to sign in, and the page is only ever told its last four digits.
  */
 

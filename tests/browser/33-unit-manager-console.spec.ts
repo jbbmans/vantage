@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
- * The Unit Manager console's structure and configuration pages (Task 6, ADR-0012): each opens and reads cleanly to
+ * The Unit Manager console's structure and configuration pages (ADR-0012): each opens and reads cleanly to
  * assistive technology at every width, a Unit Manager runs billets, duty types and their scoring, training requirements,
  * teams and work settings from them, and a Unit Auditor sees the same pages without a control that changes anything.
  */
@@ -132,7 +132,7 @@ test('a Unit Manager publishes a duty scoring version after trying it, and it is
   await expect(dialog.getByLabel('Takes effect')).toBeVisible();
   const results = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze();
   expect(serious(results.violations), 'the new scoring version dialog').toEqual([]);
-  // DNCO, 5 points; a holiday multiplies it by 1.5 (VANTAGE_CLAUDE_MASTER §13's example).
+  // DNCO, 5 points; a holiday multiplies it by 1.5.
   await dialog.getByRole('combobox', { name: 'How DNCO is scored', exact: true }).click();
   await page.getByRole('option', { name: 'Fixed', exact: true }).click();
   await dialog.getByLabel('Points for DNCO', { exact: true }).fill('5');

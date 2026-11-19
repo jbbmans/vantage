@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Course lookup (Task 22, ADR-0029). A Vantage Administrator registers an approved course source with the document that
+ * Course lookup (ADR-0029). A Vantage Administrator registers an approved course source with the document that
  * approves it, loads the catalog it publishes, reads what it would change and applies it. A Marine typing a course code
  * on a training sees what that catalog lists, fills the form from it, and sees beside each value whether it is verified
  * (what the catalog lists) or manual (what they entered). The training says which catalog verified what, and when; once

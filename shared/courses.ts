@@ -1,5 +1,5 @@
 /**
- * Course lookup (Task 22, ADR-0029): what a course code says, and where it was said.
+ * Course lookup (ADR-0029): what a course code says, and where it was said.
  *
  * Vantage holds no course list of its own and fetches none. A Vantage Administrator registers an approved authoritative
  * source (with the authorization that approves it) and loads the catalog that source publishes. A course value on a
@@ -160,7 +160,7 @@ export const filled = (v: unknown) => v !== null && v !== undefined && String(v)
 /** "MarineNet course catalog (TECOM), catalog as of 2026-10-01" as a file or a page writes it. */
 export const courseSourceLabel = (entry: Pick<CourseEntry, 'source' | 'as_of'>) => `${entry.source.name} (${entry.source.authority}), catalog as of ${entry.as_of}`;
 
-// ——— The Vantage Administrator's side ———
+// The Vantage Administrator's side
 
 /** An approved source as the console lists it. */
 export interface CourseSourceRecord {

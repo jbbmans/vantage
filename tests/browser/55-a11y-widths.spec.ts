@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, loginAs, logout, confirmSudoIfAsked, OPERATOR } from './fixtures';
 
 /**
- * WCAG 2.2 AA at every width people use Vantage at (Task 25, ADR-0032): a phone held upright at 320 and 390 px, a tablet
+ * WCAG 2.2 AA at every width people use Vantage at (ADR-0032): a phone held upright at 320 and 390 px, a tablet
  * at 768 and a desktop at 1280, in light and dark. Every rule axe tags WCAG 2.0, 2.1 or 2.2 A or AA must pass, whatever
  * its impact, on each core page, the consoles and the dialogs people open most. Reflow (1.4.10): no page scrolls sideways.
  */

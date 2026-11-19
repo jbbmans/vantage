@@ -7,7 +7,7 @@ import { canRead, type RecordRow } from '../../server/authz/records.ts';
 import { DUTY_COUNTED, dutyListWhere, dutyPageSql, dutyListQuery } from '../../server/services/duties.ts';
 
 /**
- * The Duty page a page at a time (Task 25). Each tab holds only duty its reader may read, decided in SQL before a page
+ * The Duty page a page at a time. Each tab holds only duty its reader may read, decided in SQL before a page
  * is cut, and goes on from a cursor with nothing left out or shown twice. The totals and the tab counts come from all of
  * the reader's duty, never from the page they have open. A page is audited as the Marines on it, and is read in the order
  * of an index rather than sorted.

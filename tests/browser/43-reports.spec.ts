@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
- * Reports and printable output (Task 14, ADR-0020). A leader chooses a report, whom it is about and its filters, sees
+ * Reports and printable output (ADR-0020). A leader chooses a report, whom it is about and its filters, sees
  * it, saves the choices, takes it as a file and prints it on a page laid out for paper: the app's frame is gone, each
  * table's header repeats on every printed page, a row never splits between pages, and the buttons above the report
  * never print. A Marine reports on themselves and is told why a unit's report is not theirs. Every page reads cleanly

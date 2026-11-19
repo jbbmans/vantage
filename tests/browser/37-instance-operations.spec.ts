@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, loginAs, OPERATOR } from './fixtures';
 
 /**
- * MCEN operations in both consoles (Task 8, ADR-0014): each Unit Instance's version, upgrades, health, backup and
+ * MCEN operations in both consoles (ADR-0014): each Unit Instance's version, upgrades, health, backup and
  * restores for Vantage staff; Backup and restore, with the data exports that are not backups; a feature withheld from
  * one Unit Instance and given back; and the Unit Manager console's own Operations page. Each reads cleanly to
  * assistive technology.

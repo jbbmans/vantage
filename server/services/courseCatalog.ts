@@ -1,5 +1,5 @@
 /**
- * Approved course sources and the catalogs loaded for them (Task 22, ADR-0029): the Vantage Administrator's side of the
+ * Approved course sources and the catalogs loaded for them (ADR-0029): the Vantage Administrator's side of the
  * course lookup.
  *
  * Vantage fetches no course list and scrapes none. A Vantage Administrator who holds platform.settings registers a source
@@ -154,7 +154,7 @@ function discardLoad(ctx: AppContext, loadId: string, at: string) {
   ctx.db.prepare("UPDATE course_catalog_loads SET status = 'discarded', discarded_at = ? WHERE id = ? AND status = 'staged'").run(at, loadId);
 }
 
-// ——— Reading a catalog file ———
+// Reading a catalog file
 
 const ROW_LIMIT_MESSAGE = `A catalog file lists at most ${MAX_CATALOG_ROWS.toLocaleString('en-US')} courses. Applying a catalog replaces the one in use, so a file is never read in part: ask the source for a smaller extract, or split it into sources the approval names.`;
 

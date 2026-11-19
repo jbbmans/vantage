@@ -65,7 +65,7 @@ const source = resolve(from!);
 if (!existsSync(source)) fail(`No backup at ${source}.`);
 if (source === resolve(live)) fail('That is the live database itself.');
 
-// ——— 1. The service must not be running: take the live database's lock, and hold it until the copy is ready ———
+// 1. The service must not be running: take the live database's lock, and hold it until the copy is ready
 let liveDb: Database.Database | null = null;
 if (existsSync(live)) {
   try {
@@ -80,7 +80,7 @@ if (existsSync(live)) {
 }
 const releaseLive = () => { try { liveDb?.close(); } catch { /* closed */ } liveDb = null; };
 
-// ——— 2. A private copy of the backup beside the live database: the backup is never written, and the swap is one rename ———
+// 2. A private copy of the backup beside the live database: the backup is never written, and the swap is one rename
 const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 18);
 const dir = dirname(live);
 const temp = join(dir, `.vantage-restore-${stamp}-${process.pid}.db`);
@@ -99,7 +99,7 @@ try {
 }
 const db = copy!;
 
-// ——— 3. Is it a sound Vantage database this build can run, sealed under this secret, with a trail that verifies? ———
+// 3. Is it a sound Vantage database this build can run, sealed under this secret, with a trail that verifies?
 const integrity = String(db.pragma('quick_check', { simple: true }));
 if (integrity !== 'ok') abandon(`The backup fails SQLite's integrity check: ${integrity}.`);
 const hasTable = (name: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
@@ -118,7 +118,7 @@ if (!chain.ok) abandon(`The backup's audit trail does not verify (${chain.reason
 const resealed = resealStoredSecrets(db, config);
 if (resealed) console.log(`Sealed ${resealed} stored secret${resealed === 1 ? '' : 's'} again under the current VANTAGE_SECRET.`);
 
-// ——— 4. Who authorized it: an active Lead Vantage Administrator, as the live database has it, or the backup when there is no live one ———
+// 4. Who authorized it: an active Lead Vantage Administrator, as the live database has it, or the backup when there is no live one
 type Owner = { id: string; username: string; first_name: string; last_name: string };
 const ownerIn = (d: Database.Database) => d.prepare(`SELECT u.id, u.username, u.first_name, u.last_name FROM users u JOIN platform_roles p ON p.user_id = u.id AND p.role = 'owner'
                                                        WHERE lower(u.username) = lower(?) AND u.active = 1`).get(by) as Owner | undefined;
@@ -131,7 +131,7 @@ if (!liveReadable) owner = ownerIn(db);
 if (!owner) abandon(`${by} is not an active Lead Vantage Administrator ${liveReadable ? 'of this service' : 'in the backup'}. A restore is authorized by one, named by username.`);
 const authorizer = owner!;
 
-// ——— 5. What it replaces, and what that undoes ———
+// 5. What it replaces, and what that undoes
 const restored = chainPoint(db);
 let replaced: ChainPoint | null = null;
 let sameDatabase: boolean | null = null;
@@ -170,7 +170,7 @@ if (dryRun) {
   process.exit(0);
 }
 
-// ——— 6. A safety copy of what is replaced, beside it ———
+// 6. A safety copy of what is replaced, beside it
 let safetyCopy: string | null = null;
 if (liveDb) {
   safetyCopy = join(dir, `vantage-before-restore-${stamp}.db`);
@@ -184,7 +184,7 @@ if (liveDb) {
   chmodSync(safetyCopy, 0o600);
 }
 
-// ——— 7. The copy keeps this host's history, starts with nobody signed in, and records the restore ———
+// 7. The copy keeps this host's history, starts with nobody signed in, and records the restore
 const HOST_HISTORY = ['release_history', 'backup_history', 'last_backup_at', 'upgrade_history', 'restore_history'];
 const at = new Date().toISOString();
 db.transaction(() => {
@@ -210,13 +210,13 @@ db.pragma('wal_checkpoint(TRUNCATE)');
 db.pragma('journal_mode = DELETE');
 db.close();
 
-// ——— 8. Put it in place: the replaced database's journal goes with it, and the copy is renamed over it ———
+// 8. Put it in place: the replaced database's journal goes with it, and the copy is renamed over it
 releaseLive();
 for (const suffix of ['-wal', '-shm']) if (existsSync(`${live}${suffix}`)) unlinkSync(`${live}${suffix}`);
 renameSync(temp, live);
 chmodSync(live, 0o600);
 
-// ——— 9. The lineage notes the restored chain, so the next start tells this restore from a database put back some other way ———
+// 9. The lineage notes the restored chain, so the next start tells this restore from a database put back some other way
 if (config.operations.lineageFile) {
   const placed = new Database(live, { readonly: true, fileMustExist: true });
   writeLineageFile(config.operations.lineageFile, chainPoint(placed));

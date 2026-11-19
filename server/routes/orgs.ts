@@ -100,7 +100,7 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
   res.json(updateOrganization(req.ctx, req.user, org.id, { name: body.name, short_name: body.short_name, settings: body.settings as { vantageAccess: 'approval' | 'notify' } | undefined }, ip(req)));
 }));
 
-// ——— Unit Instance roles: Lead Unit Managers assign them, never their own (ADR-0010) ———
+// Unit Instance roles: Lead Unit Managers assign them, never their own (ADR-0010)
 
 /**
  * The Unit Instance's operations for its Unit Managers (ADR-0014): the version it runs, its last upgrade, its health, the
@@ -133,7 +133,7 @@ orgsRouter.delete('/:orgId/roles/:userId/:role', inOrg('org.owners'), wrap((req,
   res.json({ holders: revokeOrgRole(req.ctx, req.user, orgOf(req).id, String(req.params.userId), String(req.params.role), ip(req)) });
 }));
 
-// ——— Members ———
+// Members
 
 const membersQuery = z.object({
   q: z.string().optional(),
@@ -225,7 +225,7 @@ orgsRouter.post('/:orgId/accounts/sign-in-details', inOrg('org.members'), wrap(a
   res.json({ results });
 }));
 
-// ——— Units ———
+// Units
 
 orgsRouter.get('/:orgId/units', inOrg('org.view'), wrap((req, res) => res.json({ units: orgUnits(req.ctx, orgOf(req).id) })));
 
@@ -234,7 +234,7 @@ orgsRouter.post('/:orgId/units/:unitId/leader', inOrg('org.units'), wrap((req, r
   res.json(setUnitLeader(req.ctx, req.user, orgOf(req).id, String(req.params.unitId), user_id, ip(req)));
 }));
 
-// ——— Personnel feed ———
+// Personnel feed
 
 const rosterBody = express.text({ type: ['text/*', 'application/json'], limit: '32mb' });
 
@@ -303,7 +303,7 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   res.json({ ok: true });
 }));
 
-// ——— Retention and holds ———
+// Retention and holds
 
 orgsRouter.get('/:orgId/retention', inOrg('org.retention', 'org.holds'), wrap((req, res) => {
   const org = orgOf(req);
@@ -343,7 +343,7 @@ orgsRouter.delete('/:orgId/holds/:id', inOrg('org.holds'), wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// ——— Privacy, audit, export ———
+// Privacy, audit, export
 
 orgsRouter.get('/:orgId/privacy/inventory', inOrg('org.privacy'), wrap((req, res) => {
   const inventory = buildInventory(req.ctx, orgOf(req).id);
@@ -446,7 +446,7 @@ orgsRouter.get('/:orgId/roster.csv', inOrg('org.export'), wrap((req, res) => {
   res.type('text/csv').send(rowsToCsv(rows, ['last_name', 'first_name', 'rank', 'username', 'status', 'unit_id', 'unit', 'billet', 'primary', 'unit_roles', 'unit_instance_roles']));
 }));
 
-// ——— Unit roles: defined and granted through /api/org, listed here across the whole Unit Instance ———
+// Unit roles: defined and granted through /api/org, listed here across the whole Unit Instance
 
 /**
  * Every unit role in the Unit Instance's units, who holds it, and whether the caller may change it. The roles are
@@ -468,7 +468,7 @@ orgsRouter.get('/:orgId/unit-roles', inOrg('org.roles', 'org.members', 'org.owne
   });
 }));
 
-// ——— Unit configuration (ADR-0012): billets, duty types, training requirements, error report types, work and report settings ———
+// Unit configuration (ADR-0012): billets, duty types, training requirements, error report types, work and report settings
 
 orgsRouter.get('/:orgId/configuration', inOrg('org.view'), wrap((req, res) => res.json(unitConfiguration(req.ctx, orgOf(req).id))));
 
@@ -522,7 +522,7 @@ orgsRouter.patch('/:orgId/configuration/settings', inOrg('org.config'), wrap((re
   res.json(updateUnitSettings(req.ctx, req.user, orgOf(req).id, body, ip(req)));
 }));
 
-/** Duty scoring (Task 18 brought forward): a new version, checked again in the service against the duty types in use. */
+/** Duty scoring: a new version, checked again in the service against the duty types in use. */
 const keysOf = <T extends ReadonlyArray<{ key: string }>>(list: T) => list.map((x) => x.key) as unknown as [T[number]['key'], ...Array<T[number]['key']>];
 const scoringBody = z.object({
   effective_from: auditDay,
@@ -604,7 +604,7 @@ orgsRouter.post('/:orgId/configuration/import', inOrg('org.config'), wrap((req, 
   res.json({ applied: true, ...applyConfigurationImport(req.ctx, req.user, org.id, file, ip(req)) });
 }));
 
-// ——— Vantage access requests ———
+// Vantage access requests
 
 orgsRouter.get('/:orgId/access', inOrg('org.access', 'org.audit'), wrap((req, res) => res.json({ grants: accessForOrg(req.ctx, orgOf(req).id) })));
 

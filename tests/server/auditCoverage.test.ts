@@ -14,8 +14,8 @@ import { totpCode } from '../../server/auth/totp.ts';
 import type { AppContext } from '../../server/context.ts';
 
 /**
- * What the audit trail covers (ADR-0013, Task 7): the chain's head anchored and checked against a copy kept off the
- * host, and the entries the spec asks for: deployments, migrations, owners named in the configuration, failed sign-ins,
+ * What the audit trail covers (ADR-0013): the chain's head anchored and checked against a copy kept off the
+ * host, and the entries it must hold: deployments, migrations, owners named in the configuration, failed sign-ins,
  * refusals at the administration routes, counseling amendments, role changes and restores.
  */
 
@@ -45,7 +45,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-// ——— C. The external anchor ———
+// C. The external anchor
 
 test('anchoring writes the chain’s head into the chain, and the integrity view shows it', async () => {
   const head = auditHead(app.ctx)!;
@@ -159,7 +159,7 @@ test('an anchor goes off the host like every entry', async () => {
   }
 });
 
-// ——— D. Coverage ———
+// D. Coverage
 
 test('a new release is audited once, and a restart of the same one is not', () => {
   const before = count('release_deployed');

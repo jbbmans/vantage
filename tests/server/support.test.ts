@@ -171,7 +171,7 @@ test('creating your own unit does not hand you everybody else’s tickets', asyn
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const token = (await app.login('opportunist')).body.token;
 
-  // They hold VIEW_SUPPORT — inside their own unit.
+  // They hold VIEW_SUPPORT, inside their own unit.
   const listed = await app.call('GET', '/api/support/tickets', { token });
   assert.equal(listed.status, 200);
   const ids = (listed.body.tickets as Array<{ id: string }>).map((t) => t.id);

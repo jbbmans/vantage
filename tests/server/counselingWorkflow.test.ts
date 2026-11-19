@@ -14,7 +14,7 @@ import {
 } from '../../shared/counseling.ts';
 
 /**
- * Task 20 (ADR-0027): a counseling is structured data. A leader drafts it, may share it with the Marine to review, and
+ * ADR-0027: a counseling is structured data. A leader drafts it, may share it with the Marine to review, and
  * finalizes it; once final it changes only by an amendment that keeps what it replaced. The Marine acknowledges the text
  * as it stands. Its COUNSELING WORKSHEET (ADR-0033), on screen, in print and as a PDF, is drawn from the stored record and never
  * stored itself. Until it is final it is nobody's but its counselor's (and, shared for review, its Marine's).
@@ -274,7 +274,7 @@ test('shared for review, its Marine reads it and answers in its comments; the un
   // The Marine answers in its comments, and its counselor hears it.
   const answer = await post(diaz.token, `${path}/comments`, { body: 'Can we add the GTCC follow-up to the targets?' });
   assert.equal(answer.status, 201, JSON.stringify(answer.body));
-  // Task 24: one notice per counseling while it is unread, naming who spoke and never what they said.
+  // One notice per counseling while it is unread, naming who spoke and never what they said.
   const heard = app.ctx.db.prepare("SELECT title, message, count FROM notifications WHERE user_id = ? AND kind = 'counseling_comment' AND entity = 'counselings' AND entity_id = ?").get(lopez.id, c.id) as { title: string; message: string | null; count: number } | undefined;
   assert.match(heard?.title ?? '', /commented/);
   assert.equal(heard?.message, null, 'a notice never carries what was said');

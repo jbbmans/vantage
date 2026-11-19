@@ -72,7 +72,7 @@ const TRAINING_FROM_SERVER = ['course_entry_id', 'course_verified', 'course_veri
 /** A duty's review is never put back from a snapshot (ADR-0024): an undo restores what the duty says, not where it stands. */
 const DUTY_REVIEW_STATE = new Set<string>(DUTY_REVIEW_COLUMNS);
 
-// ——— The plan: what the person chose ———
+// The plan: what the person chose
 
 const fixValue = z.union([z.string().max(8000), z.number(), z.boolean(), z.null(), z.array(z.string().max(2000)).max(20)]);
 export const importPlanSchema = z.object({
@@ -95,7 +95,7 @@ export const importCommitSchema = importPlanSchema.extend({
 }).strict();
 export type ImportPlan = z.infer<typeof importPlanSchema> & { scanned?: Record<string, string> };
 
-// ——— Reading the file ———
+// Reading the file
 
 interface Candidate {
   ref: string; source: string;
@@ -416,7 +416,7 @@ function readSource(content: Buffer, filename: string, plan: ImportPlan): Source
   return fromSpreadsheet(content, found.kind, filename, plan);
 }
 
-// ——— Running it: the review is this, rolled back ———
+// Running it: the review is this, rolled back
 
 /** A record's key for "already here": the same thing on the same day, by its record type's own words. */
 function contentKey(table: ImportTable, r: Row): string {
@@ -947,7 +947,7 @@ function profileChanges(ctx: AppContext, user: SessionUser, source: Source, plan
   return { mode, changes, seen };
 }
 
-// ——— The import's life: upload, review, change, commit, undo, cancel ———
+// The import's life: upload, review, change, commit, undo, cancel
 
 interface ImportRow { id: string; user_id: string; status: ImportReview['status']; source_kind: SourceKind; filename: string | null; size_bytes: number; sha256: string; content: Buffer | null; plan: string; review: string | null; results: string | null; created_at: string; updated_at: string; committed_at: string | null; undone_at: string | null }
 

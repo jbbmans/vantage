@@ -52,7 +52,7 @@ export function withPersonnelNote<T>(ctx: AppContext, note: Parameters<typeof no
   return out;
 }
 
-// ——— Reading ———
+// Reading
 
 interface MembershipRow {
   user_id: string; unit_id: string; org_id: string | null; is_primary: number; billet: string | null; billet_id: string | null;
@@ -439,7 +439,7 @@ export function supervisorCandidates(ctx: AppContext, scope: Scope, unitId: stri
   return { results: rows.slice(0, SUPERVISOR_CHOICES), more: rows.length > SUPERVISOR_CHOICES };
 }
 
-// ——— Changing ———
+// Changing
 
 const day = isoDate.nullable();
 export const assignmentSchema = z.object({
@@ -624,7 +624,7 @@ export function endSupervisionsOf(ctx: AppContext, userId: string, actorId: stri
     ctx.db.prepare('UPDATE personnel_records SET supervisor_id = NULL, updated_at = ?, updated_by = ? WHERE supervisor_id = ?').run(now(), actorId, userId).changes);
 }
 
-// ——— Bulk ———
+// Bulk
 
 export const BULK_ACTIONS = ['supervisor', 'checked_in', 'assignment_start', 'assignment_end', 'billet', 'responsibility', 'move'] as const;
 export const bulkSchema = z.object({

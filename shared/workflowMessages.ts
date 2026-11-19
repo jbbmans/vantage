@@ -4,7 +4,7 @@ import { REQUEST_KINDS, type RequestKind } from './requestKinds.ts';
 export { REQUEST_KINDS, REQUEST_KIND_LABELS, isRequestKind, type RequestKind } from './requestKinds.ts';
 
 /**
- * What is said on a record or a work case (Task 24, ADR-0031). Nothing here is a chat: every entry hangs on the record it
+ * What is said on a record or a work case (ADR-0031). Nothing here is a chat: every entry hangs on the record it
  * is about, is read by exactly those who read that record, and is one of these kinds.
  */
 export const COMMENT_KINDS = ['comment', 'review_request', 'clarification_request', 'answer', 'assignment_note'] as const;

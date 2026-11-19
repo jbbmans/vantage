@@ -12,7 +12,7 @@ import { signInMethods } from '../../server/services/deployment.ts';
 import { exportInstance, importInstance } from '../../server/services/exports.ts';
 
 /**
- * Task 3: one identity, many memberships (ADR-0009). A Marine's account is the same account for a whole career: its id,
+ * One identity, many memberships (ADR-0009). A Marine's account is the same account for a whole career: its id,
  * its EDIPI, its sign-in methods and its records stay put while the units it belongs to change, and every one of those
  * changes is kept as history. What changes the identity itself (the EDIPI a card signs in with, the profile every Unit
  * Instance reads, the lock on a shared account) is governed once, not by whichever instance asks first.
@@ -309,7 +309,7 @@ test('an instance archive carries the membership history, and history keeps bein
   } finally { await fresh.close(); }
 });
 
-// ——— CAC step-up ———
+// CAC step-up
 
 const fixture = (name: string) => readFileSync(resolve(import.meta.dirname, '../fixtures', name), 'utf8');
 const CARD = fixture('cac-user.pem');      // EDIPI 1234567890 (synthetic)
@@ -377,7 +377,7 @@ test('where only a card signs in, every password path is closed: reset, invitati
   } finally { await cac.close(); }
 });
 
-// ——— Test sign-in kept out of production ———
+// Test sign-in kept out of production
 
 test('the test suite’s token sign-in needs both test settings, and the MCEN profile runs only as production', () => {
   assert.throws(() => loadConfig({ NODE_ENV: 'development', VANTAGE_TEST: '1' } as NodeJS.ProcessEnv), /VANTAGE_TEST=1 is for the test suite only/);
@@ -390,7 +390,7 @@ test('the test suite’s token sign-in needs both test settings, and the MCEN pr
   assert.equal(signInMethods(loadConfig({ NODE_ENV: 'development' } as NodeJS.ProcessEnv)).testTokens, false);
 });
 
-// ——— Migration 018 ———
+// Migration 018
 
 test('018 proves only the EDIPIs a card already signed in under, and opens a history period for every membership held', () => {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-018-'));

@@ -62,7 +62,7 @@ export function instanceOperations(ctx: AppContext, { at = Date.now(), service, 
   if (!orgs.length) return [];
   const atIso = new Date(at).toISOString();
 
-  // ——— What every Unit Instance shares: the build, the schema, the upgrades, the backups and restores ———
+  // What every Unit Instance shares: the build, the schema, the upgrades, the backups and restores
   const version = versionStatus(ctx);
   const releases = releaseHistory(ctx);
   // The build this process serves; read from outside it (scripts/operations-report.ts), the newest release recorded.
@@ -75,7 +75,7 @@ export function instanceOperations(ctx: AppContext, { at = Date.now(), service, 
   const restores = restoreHistory(db);
   const maxAgeHours = ctx.config.operations.backupMaxAgeHours;
 
-  // ——— Grouped once for every Unit Instance ———
+  // Grouped once for every Unit Instance
   const seated = new Set((db.prepare(`SELECT DISTINCT r.org_id FROM org_roles r JOIN users u ON u.id = r.user_id
       WHERE r.role = 'owner' AND u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`).all(atIso) as Array<{ org_id: string }>).map((r) => r.org_id));
   const since = new Date(at - 86_400_000).toISOString();
@@ -115,7 +115,7 @@ export function instanceOperations(ctx: AppContext, { at = Date.now(), service, 
     const restore = [...restores].reverse().find((r) => r.at >= org.created_at) ?? null;
     const own = flags.filter((f) => f.org_id === org.id);
 
-    // ——— Health: the service it runs on, and what is this Unit Instance's own ———
+    // Health: the service it runs on, and what is this Unit Instance's own
     const checks: HealthCheck[] = [
       { id: 'service', label: 'The service', status: service, summary: service === 'ok' ? 'Every check on the service this Unit Instance runs on passes.' : 'The service this Unit Instance runs on needs attention; Vantage staff see why under Operations.' },
     ];

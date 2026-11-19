@@ -374,7 +374,7 @@ export function isProvenAccount(ctx: AppContext, userId: string): boolean {
   return Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ? AND (edipi_verified_at IS NOT NULL OR oidc_subject IS NOT NULL)').get(userId));
 }
 
-/** An account this person created or invited that has not yet shown who holds it (John, "Until proven"). */
+/** An account this person created or invited that has not yet shown who holds it (ADR-0013). */
 export function isUnprovenOwnAccount(ctx: AppContext, actorId: string, targetId: string): boolean {
   return targetId !== actorId && accountOpenedBy(ctx, targetId) === actorId && !isProvenAccount(ctx, targetId);
 }
@@ -397,7 +397,7 @@ export const UNPROVEN_MESSAGE = 'You created or invited this account, and it has
 
 /**
  * A Unit Manager who creates or invites an account gives it no role that reads records, no Unit Instance role and no
- * unit to lead until it has signed in with its own CAC or the organization's sign-in (John, "Until proven"; ADR-0013).
+ * unit to lead until it has signed in with its own CAC or the organization's sign-in (ADR-0013).
  * Otherwise one person could open an account they hold themselves and read through it. Another Unit Manager, or the
  * unit's chain of command, can grant it all the same. Refused as unproven_own_account, written to the trail as any
  * refusal at the administration routes is.

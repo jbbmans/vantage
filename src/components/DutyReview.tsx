@@ -11,7 +11,7 @@ import { DUTY_REVIEW_EVENT_LABELS, DUTY_REVIEW_LIMITS, hasReviewOptions, isOverr
 import type { Duty } from '../../shared/types';
 
 /**
- * Reviewing a duty (Task 18, ADR-0024). The server sends, with each duty, the decisions open to its reader (`review`);
+ * Reviewing a duty (ADR-0024). The server sends, with each duty, the decisions open to its reader (`review`);
  * these controls offer exactly those and nothing else, and the server decides again when one is asked. A decision that
  * takes a reason (a return, a rejection, a reopening, points apart from the calculated ones) asks for it first, and the
  * reason is kept with the duty where its Marine reads it. An approval may carry a note the same way, if its reviewer has

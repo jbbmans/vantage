@@ -5,7 +5,7 @@ import { scopeFor, scopesFor, detailUnitsFor } from '../../server/authz/scope.ts
 import { PERMISSIONS, NAMED_ONLY_BITS } from '../../shared/permissions.ts';
 
 /**
- * scopesFor reads many people's scopes with a fixed number of statements (Task 25, ADR-0032). Each must be exactly what
+ * scopesFor reads many people's scopes with a fixed number of statements (ADR-0032). Each must be exactly what
  * scopeFor gives that person, whatever mix of memberships, roles, leadership, Unit Instance roles and Vantage access
  * they hold: a roster or a drill decides from these what the reader may do about each person on it.
  */

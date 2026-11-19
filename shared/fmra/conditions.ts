@@ -191,7 +191,7 @@ export interface AbnormalCause {
   label: string;
   research: string;
   correction: string;
-  /** Check this first, then that — when the book names an order. */
+  /** Check this first, then that, when the book names an order. */
   order?: string[];
   responsibility: WorkResponsibility[];
 }

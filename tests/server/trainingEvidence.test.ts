@@ -10,7 +10,7 @@ import { attachmentDetailsSchema } from '../../shared/schemas.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 
 /**
- * Task 19 (ADR-0025): a training holds its evidence as files. Each says what it is and what it shows, beside its name,
+ * ADR-0025: a training holds its evidence as files. Each says what it is and what it shows, beside its name,
  * its type, who added it and when; its content and size are checked on the server; it is exactly as reachable as the
  * training it hangs on; and it keeps all of that through an export, an import, a move and an undo.
  */

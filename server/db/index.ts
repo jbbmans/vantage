@@ -285,8 +285,8 @@ const MIGRATIONS: Migration[] = [
     name: '023_record_lineage',
     // Each record type keeps its own records, and an entry its owner moves between them keeps its lineage (ADR-0015). The
     // lineage table comes from schema.sql. An award keeps who entered it, so a leader's recommendation is no longer its
-    // subject's to change. Nothing already in Activities moves: each owner moves what they choose (John's decision of
-    // 2026-10-17), so no row is removed and the migration declares nothing it reshapes.
+    // subject's to change. Nothing already in Activities moves: each owner moves what they choose
+    // (ADR-0015), so no row is removed and the migration declares nothing it reshapes.
     run: (db) => {
       if (!columnsOf(db, 'awards').has('recorded_by')) db.exec('ALTER TABLE awards ADD COLUMN recorded_by TEXT REFERENCES users(id)');
       if (!columnsOf(db, 'activities').has('kind_confirmed_at')) db.exec('ALTER TABLE activities ADD COLUMN kind_confirmed_at TEXT');
@@ -380,11 +380,11 @@ const MIGRATIONS: Migration[] = [
   {
     id: 31,
     name: '031_duty_records',
-    // Duty as a record of its own (Task 17, ADR-0023). The duties table comes from schema.sql, which is safe to replay; the
+    // Duty as a record of its own (ADR-0023). The duties table comes from schema.sql, which is safe to replay; the
     // boundary keeps a duty, its type and its scoring version in one Unit Instance, and its start and end are kept in
     // order as every record's are (ADR-0018). The move history widens to name duty, so an activity that was a duty can be
     // moved to it by its owner and back. Nothing already written moves: an activity logged as duty stays one until its
-    // owner moves it (John's decision of 2026-10-17), so the migration declares nothing it reshapes.
+    // owner moves it (ADR-0015), so the migration declares nothing it reshapes.
     run: (db) => {
       widenRecordLineage(db);
       instanceBoundaryTriggers(db);
@@ -394,7 +394,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 32,
     name: '032_duty_review',
-    // Duty is reviewed (Task 18, ADR-0024). A duty gains who set its approved points apart from the calculated ones, when
+    // Duty is reviewed (ADR-0024). A duty gains who set its approved points apart from the calculated ones, when
     // and why; a database that had the duties table before these columns gets them here, with the check schema.sql gives a
     // new one. Its review history (duty_reviews) comes from schema.sql, which is safe to replay, and the boundary keeps a
     // review in its duty's Unit Instance. The standard SNCO and SNCOIC roles of every unit gain the review permissions the
@@ -414,7 +414,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 33,
     name: '033_attachment_evidence',
-    // Training evidence (Task 19, ADR-0025). A file gains what it is evidence of (a certificate, a transcript, a
+    // Training evidence (ADR-0025). A file gains what it is evidence of (a certificate, a transcript, a
     // completion or qualification document, a roster) and a line on what it shows. A database that had the attachments
     // table before these columns gets them here, with the checks schema.sql gives a new one. Both are empty on every
     // file already attached: nothing is guessed from a filename, no row is removed or reshaped, and no file's content,
@@ -431,7 +431,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 35,
     name: '035_counseling_workflow',
-    // Counseling as structured data (Task 20, ADR-0027). A counseling gains where it stands (a draft, shared with its
+    // Counseling as structured data (ADR-0027). A counseling gains where it stands (a draft, shared with its
     // Marine for review, or final), which text it is (its revision), who finalized it and when, and the particulars its
     // worksheet prints as they stood then. A database that had the counselings table before these columns gets them here,
     // with the checks schema.sql gives a new one. Every counseling already written is final at revision 1, as it read to
@@ -457,7 +457,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 36,
     name: '036_course_lookup',
-    // Course lookup (Task 22, ADR-0029). A training gains the course code its person enters and the CEUs it earned, and
+    // Course lookup (ADR-0029). A training gains the course code its person enters and the CEUs it earned, and
     // what of it an approved source's catalog verified: the entry it was checked against, which values matched and when.
     // A database that had the trainings table before these columns gets them here, with the checks schema.sql gives a new
     // one, last and in its order. Every training already written has no course code and nothing verified: its values are
@@ -475,7 +475,7 @@ const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_trainings_course_entry ON trainings(course_entry_id)');
     },
   },
-  // Drafts (Task 23, ADR-0030). A form its author saves to finish later, a goal, an award, a training entry, a task or a
+  // Drafts (ADR-0030). A form its author saves to finish later, a goal, an award, a training entry, a task or a
   // change to a Marine's assignment, is kept in form_drafts until it is sent through its kind's own route, discarded or
   // left 90 days. The table and its indexes come from schema.sql, which is safe to replay. Every other draft stays where it
   // always was: a counseling's stage, a report package with no revision, correspondence not sent, an entry from work not
@@ -485,7 +485,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 38,
     name: '038_workflow_messages',
-    // Workflow messaging (Task 24, ADR-0031). A comment gains its kind (a comment, a question or a review request to one
+    // Workflow messaging (ADR-0031). A comment gains its kind (a comment, a question or a review request to one
     // named person, the answer to one, an assignment's note), whom a request is for, where it stands, the request an
     // answer is to, who closed a request and when, and whether it was said on a counseling before it was final. A notice
     // gains its Unit Instance, the record or work case it is about, who acted, and how many events one unread notice
@@ -524,7 +524,7 @@ const MIGRATIONS: Migration[] = [
   {
     id: 39,
     name: '039_performance_indexes',
-    // Performance at MCEN scale (Task 25, ADR-0032). Indexes only: no table, column, trigger or row changes. Each serves a
+    // Performance at MCEN scale (ADR-0032). Indexes only: no table, column, trigger or row changes. Each serves a
     // read that otherwise scans a table or sorts it in memory, and the read's test asserts its plan. Built here rather than
     // in schema.sql because several are on columns earlier migrations added, which schema.sql runs before. The period
     // indexes are on the exact expression periodClause (server/services/timeframes.ts) writes for the last day a record

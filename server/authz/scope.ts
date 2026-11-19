@@ -82,7 +82,7 @@ function ancestorsOf(tree: ReturnType<typeof unitTree>, unitId: string): string[
 const cache = new WeakMap<object, Map<string, Scope>>();
 
 /**
- * Authority a role must name (approving one's own duty; John, "role only", ADR-0024 §2) counts for a person only from a
+ * Authority a role must name (approving one's own duty, ADR-0024 §2) counts for a person only from a
  * role that someone else granted them. Not from a grant that names nobody or names its own holder, whatever wrote it;
  * and not from the default role or the Unit Leader role, which come with joining a unit and with leading it, never from
  * a decision about one person. The routes refuse each of those too. This is the one place every path ends at: a row
@@ -177,8 +177,8 @@ function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, acces
     if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | bits;
     source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
   }
-  // Leading a unit is every permission in it but the ones a role must name (approving one's own duty, ADR-0024 §2; John,
-  // "role only"): those stay as the leader's roles give them, here and in the units beneath.
+  // Leading a unit is every permission in it but the ones a role must name (approving one's own duty, ADR-0024 §2):
+  // those stay as the leader's roles give them, here and in the units beneath.
   for (const id of owned) {
     permissions[id] = (permissions[id] || 0) | FULL_UNIT_AUTHORITY;
     positions[id] = Math.max(positions[id] || 0, 100);

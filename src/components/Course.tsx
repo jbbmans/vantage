@@ -11,7 +11,7 @@ import {
 } from '../../shared/courses';
 
 /**
- * A training's course (Task 22, ADR-0029): the course code looked up in the approved catalogs in use, the values a listing
+ * A training's course (ADR-0029): the course code looked up in the approved catalogs in use, the values a listing
  * gives, and, beside each value, whether it is what the catalog lists (verified) or what the person entered (manual).
  * The marks here are the same rule the server applies when the training is saved (shared/courses.ts verifiedValues): the
  * server decides, from the catalogs in use, and nothing the form sends can say a value is verified.
@@ -29,7 +29,7 @@ export function useCourseLookup(code: string): Lookup {
   const key = courseKey(code);
   const [state, setState] = useState<Lookup>({ code: '', state: 'idle', result: null });
   useEffect(() => {
-    // Any code the server would look up is looked up here too: a one-character key is a key (Codex, PR #77).
+    // Any code the server would look up is looked up here too: a one-character key is a key.
     if (!key) { setState({ code: '', state: 'idle', result: null }); return; }
     // What was found for the code before is not shown for this one while it is looked up.
     setState({ code, state: 'looking', result: null });

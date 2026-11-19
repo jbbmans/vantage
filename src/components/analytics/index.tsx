@@ -13,7 +13,7 @@ import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord
 export { counted, formatFigure, summaryOf };
 
 /**
- * The analytics kit (Task 21, ADR-0028): KPI tiles, bars, columns over time and a rate, each in a frame that asks its
+ * The analytics kit (ADR-0028): KPI tiles, bars, columns over time and a rate, each in a frame that asks its
  * question, says what it shows in a sentence, switches to a table of the same figures, and prints with that table.
  * Every bar that counts something is a button that lists the records behind it. Drawn in HTML on the theme's tokens, so
  * it reads in both themes and every palette, prints in colour, and needs no chart library.

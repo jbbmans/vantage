@@ -6,7 +6,7 @@ import { claimUnit } from '../../server/services/org.ts';
 import { listZip } from '../../server/lib/zip.ts';
 
 /**
- * Personnel records (Task 11, ADR-0017): one structured record per Marine, built from their account, their memberships
+ * Personnel records (ADR-0017): one structured record per Marine, built from their account, their memberships
  * and a record per Unit Instance; its history written by the database whoever changes it; changed one Marine at a time
  * or in bulk, all or nothing, by those who manage members, never by the Marine for themselves; read by whoever sees the
  * Marine on a roster, with account status, history and record counts only for those entitled to them.

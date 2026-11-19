@@ -1,7 +1,7 @@
 import type { COUNSELING_TYPES } from './constants.ts';
 
 /**
- * Counseling as structured data (VANTAGE_CLAUDE_MASTER Task 20, ADR-0027). A counseling a leader writes for a Marine is
+ * Counseling as structured data (ADR-0027). A counseling a leader writes for a Marine is
  * drafted, may be shared with that Marine to review, is finalized, and from then on changes only by an amendment that
  * keeps what it replaced. Its Marine acknowledges the text as it stands. A Marine's own counseling notes stay as they
  * were: theirs to write and correct, always final.
@@ -112,7 +112,7 @@ export interface CounselingRevision {
 // USMC User's Guide to Counseling), MCI 8002, MCI 7104, the IRAM and MCO P1610.7E (PES): A. Administrative information,
 // B. Billet title, C. Major accomplishments/significant events, D. Evaluation of performance this period, E. Tasks
 // assigned next period, F. Additional comments and G. Certification. Vantage draws that form box for box, from the copy
-// John supplied on 2026-11-17 (ADR-0033), with the section bars in upright type. It replaces Task 20's look-alike of the
+// in use (ADR-0033), with the section bars in upright type. It replaces the earlier look-alike of the
 // guide's Appendix A figures, which was not the form in use.
 //
 // Every box Vantage fills, it fills from the stored record. A box it has nothing for (date of rank, billet MOS, the start

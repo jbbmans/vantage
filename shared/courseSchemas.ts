@@ -1,5 +1,5 @@
 /**
- * What the Vantage Administrator console sends about approved course sources (Task 22, ADR-0029). Kept apart from
+ * What the Vantage Administrator console sends about approved course sources (ADR-0029). Kept apart from
  * courses.ts, which the browser imports, so the browser bundle does not carry the validation library it never runs.
  */
 import { z } from 'zod';

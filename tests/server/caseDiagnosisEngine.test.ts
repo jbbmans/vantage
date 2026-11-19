@@ -8,7 +8,7 @@ import { FORMULAS, PROCEDURES } from '../../shared/procedures.ts';
 import { PROVENANCE, provenanceOf } from '../../shared/procedureTypes.ts';
 
 /**
- * The automatic financial case diagnoser (Task 16, ADR-0022), read as a pure function: what it says about a case from
+ * The automatic financial case diagnoser (ADR-0022), read as a pure function: what it says about a case from
  * the case alone, every statement labelled, every recommendation ranked by its source, and never inference as policy.
  */
 

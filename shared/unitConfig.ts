@@ -2,7 +2,7 @@ import { DEFAULT_PERIOD, PERIOD_OPTIONS, type PeriodKey } from './metrics.ts';
 import type { TRAINING_TYPES } from './constants.ts';
 
 /**
- * What a Unit Instance configures for itself (VANTAGE_CLAUDE_MASTER §19, ADR-0012): its billets, duty types, training
+ * What a Unit Instance configures for itself (ADR-0012): its billets, duty types, training
  * requirements, work settings and report defaults. Each setting has an enterprise limit Vantage sets for every Unit
  * Instance; a value outside it is refused when saved and clamped when read, so unit configuration never goes past it.
  */
@@ -37,7 +37,7 @@ export function normalizeUnitSettings(raw: unknown): UnitSettings {
   };
 }
 
-/** The duty types the master specification names (Task 17), offered as a starting list. A Unit Instance keeps its own. */
+/** The standard duty types, offered as a starting list. A Unit Instance keeps its own. */
 export const STANDARD_DUTY_TYPES: ReadonlyArray<{ code: string; name: string }> = [
   { code: 'DNCO', name: 'DNCO' },
   { code: 'ADNCO', name: 'ADNCO' },

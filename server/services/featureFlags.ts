@@ -5,7 +5,7 @@ import { lockedRuntime, outboundConnections } from './deployment.ts';
  * Feature flags for the Vantage Administrator console (ADR-0011): the platform-level switches in one place. A runtime
  * flag is changed from the console by a holder of platform.settings and takes effect at once; an environment flag is set
  * when the service is deployed and only read here. Flags are service-wide: a Unit Instance's own settings are its Unit
- * Managers' (Task 6), and nothing here turns a feature on for one Unit Instance alone.
+ * Managers', and nothing here turns a feature on for one Unit Instance alone.
  */
 
 export type RuntimeFlagKey = 'selfRegistration' | 'selfServiceUnits' | 'attachmentsEnabled' | 'maradminsEnabled' | 'aiEnabled';

@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Drafts (Task 23, ADR-0030). A draft lives with its own kind. A new goal, award, training entry, task or billet change
+ * Drafts (ADR-0030). A draft lives with its own kind. A new goal, award, training entry, task or billet change
  * can be saved as a draft to finish later; closing a form with unsaved text asks first. Each page lists its own drafts,
  * and the Drafts page lists every kind, each opening where it is finished. A leader's drafted award recommendation is
  * theirs alone: its Marine sees nothing and is told nothing until it is added. Every view reads cleanly to assistive

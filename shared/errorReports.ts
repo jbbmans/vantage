@@ -1,5 +1,5 @@
 /**
- * Financial error reports (Task 15, ADR-0021): the kinds of report a Unit Instance files (ULO, OCMT, UMT, IOH, sync
+ * Financial error reports (ADR-0021): the kinds of report a Unit Instance files (ULO, OCMT, UMT, IOH, sync
  * errors and its own), what each column of a filed report is, which statuses close a row, and how two filed reports of
  * one series compare. A filed report is a snapshot: what the report said on the day it stands on, never changed after.
  *
@@ -7,7 +7,7 @@
  * the tests count the same way. Money is whole cents (ADR-0005); a day is YYYY-MM-DD.
  */
 
-/** The kinds of report the specification names, offered to every Unit Instance. A Unit Instance keeps its own. */
+/** The standard kinds of report, offered to every Unit Instance. A Unit Instance keeps its own. */
 export const STANDARD_ERROR_REPORT_TYPES: ReadonlyArray<{ code: string; name: string; description: string }> = [
   { code: 'ULO', name: 'Unliquidated obligations', description: 'Obligations not yet fully paid, as the term is used at work.' },
   { code: 'OCMT', name: 'Open commitments', description: 'Requisition amounts not yet covered by an obligation.' },
@@ -21,7 +21,7 @@ export const errorTypeCode = (code: string) => code.trim().toUpperCase().replace
 
 export interface ErrorReportType { id: string; org_id: string; code: string; name: string; description: string | null; active: number; created_at: string; updated_at: string }
 
-// ——— Columns ———
+// Columns
 
 /** What a column of a filed report holds. The identifier is chosen apart from these: one column, or two together. */
 export const COLUMN_ROLES = ['reference', 'description', 'category', 'amount', 'owner', 'status', 'unit', 'opened', 'age', 'keep', 'ignore'] as const;
@@ -57,7 +57,7 @@ export function guessRole(header: string): ColumnRole {
   return 'keep';
 }
 
-// ——— Status ———
+// Status
 
 /** A status as compared: trimmed, lower case, one space between words. */
 export const normalStatus = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -75,7 +75,7 @@ export const closedByDefault = (status: string) => CLOSED_WORDS.includes(normalS
 /** An owner as compared: case, spacing and punctuation do not make a change of owner. */
 export const normalOwner = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
 
-// ——— Rows and their comparison ———
+// Rows and their comparison
 
 /** One line of a filed report, as kept. */
 export interface SnapshotRow {
@@ -143,7 +143,7 @@ export function compareRows(before: readonly SnapshotRow[], after: readonly Snap
   return out;
 }
 
-// ——— Ages ———
+// Ages
 
 const DAY_MS = 86_400_000;
 export const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
@@ -171,7 +171,7 @@ export function daysToResolve(before: Pick<SnapshotRow, 'opened_on' | 'age_days'
   return null;
 }
 
-// ——— What a figure drills to ———
+// What a figure drills to
 
 /**
  * The rows behind a figure. Each figure on the page and in the document names one, and the rows route answers it: the
@@ -213,7 +213,7 @@ export function inDrill(row: ComparedRow, drill: Drill, series: { persistent: Re
 /** The row a drill shows a compared row by: the earlier report's for what was open on it, the later's otherwise. */
 export const shownRow = (row: ComparedRow, drill: Drill): SnapshotRow => ((drill === 'resolved' || drill === 'before') ? row.before ?? row.after! : row.after ?? row.before!);
 
-// ——— Money ———
+// Money
 
 /** Whole cents summed exactly. */
 export function centsOf(rows: ReadonlyArray<{ amount_cents: number | null }>): number {
@@ -222,7 +222,7 @@ export function centsOf(rows: ReadonlyArray<{ amount_cents: number | null }>): n
   return Number(total);
 }
 
-// ——— The figures of a comparison ———
+// The figures of a comparison
 
 /**
  * What the series says about each identifier up to the later report: the day of the first report it was open on (for
@@ -352,7 +352,7 @@ export function groupLines(compared: readonly ComparedRow[], group: DrillGroup, 
   return [...lines.values()].sort((a, b) => b.open - a.open || b.open_cents - a.open_cents || b.resolved - a.resolved || a.label.localeCompare(b.label));
 }
 
-// ——— What the API answers (server/routes/errorReports.ts) ———
+// What the API answers (server/routes/errorReports.ts)
 
 /** A filed report as the page lists it: its day, file, counts and who filed it, and whether it was withdrawn. */
 export interface SnapshotSummary {

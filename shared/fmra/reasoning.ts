@@ -31,7 +31,7 @@ export const ANSWER_FORMAT = [
   { key: 'references', label: 'References and limits', question: 'Which pages support the answer, and which inputs are missing?' },
 ] as const;
 
-/** What an answer — a person's, Vantage's, or an AI's — must never do. */
+/** What an answer must never do, whether it is a person's, Vantage's or an AI's. */
 export const NEVER = [
   'Present a classroom example as a confirmed live balance.',
   'Present a printed threshold as verified current policy.',

@@ -16,7 +16,7 @@ import { audit } from '../../server/services/audit.ts';
 import type { AppContext } from '../../server/context.ts';
 
 /**
- * The Vantage Administrator console's operations (Task 5, ADR-0011): health, build, schema and migrations, backups,
+ * The Vantage Administrator console's operations (ADR-0011): health, build, schema and migrations, backups,
  * scheduled jobs, sign-in health, feature flags, controlled maintenance and the platform audit trail. Each is for the
  * staff roles that hold its permission, and none of it shows what a Unit Instance keeps.
  */

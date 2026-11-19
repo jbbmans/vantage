@@ -1,9 +1,9 @@
 /**
- * Duty scoring policies (VANTAGE_CLAUDE_MASTER §13, Task 18; ADR-0012): how many points a Unit Instance gives each kind
+ * Duty scoring policies (ADR-0012): how many points a Unit Instance gives each kind
  * of duty. A policy is published as a version with the day it takes effect, and never changed after: a duty is scored
  * under the version in force on the day it was stood, so a later version never recalculates earlier duty.
  *
- * Pure, so the console can show what a draft would give before it is published, and duty records (Task 17) score with
+ * Pure, so the console can show what a draft would give before it is published, and duty records score with
  * the same arithmetic the console showed.
  */
 
@@ -54,7 +54,7 @@ export interface ScoringPolicy extends ScoringPolicyContent {
 }
 export type ScoringPolicyStatus = 'in_force' | 'scheduled' | 'superseded' | 'withdrawn';
 
-/** One duty as scoring needs it. Task 17's records derive hours and days from their start and end. */
+/** One duty as scoring needs it. A duty record derives its hours and days from its start and end. */
 export interface DutyForScoring { duty_type_id: string; hours: number; days: number; conditions: readonly ScoringCondition[] }
 export interface PointsResult { rule: ScoringRule | null; base: number; factor: number; applied: ScoringCondition[]; points: number }
 

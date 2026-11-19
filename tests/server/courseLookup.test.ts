@@ -10,7 +10,7 @@ import { bestListing, sameCourseInputs, verifiedValues } from '../../shared/cour
 import { REDACTED } from '../../shared/constants.ts';
 
 /**
- * Course lookup (Task 22, ADR-0029): a course code on a training is looked up only in the current catalog of an approved
+ * Course lookup (ADR-0029): a course code on a training is looked up only in the current catalog of an approved
  * source a Vantage Administrator registered with its authorization. Vantage fetches nothing. A value is verified only when
  * it is what that catalog lists, worked out by the server on every write; anything else filled in is manual. Sources are
  * never edited, catalogs are staged before they are applied, and every step is audited.

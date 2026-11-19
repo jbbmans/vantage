@@ -11,8 +11,8 @@ import type { AuditConfig } from '../config.ts';
  *
  * The audit chain and the case seals are keyed by a secret on this server, so on their own they prove nothing
  * against somebody who holds the server: with the database and the secret, a history can be rewritten and
- * re-signed. A copy held somewhere that person does not control — a SIEM, a syslog collector, the platform's
- * log store — is what makes a rewrite visible: the entry hashes there stop matching the chain here. The daily
+ * re-signed. A copy held somewhere that person does not control (a SIEM, a syslog collector, the platform's
+ * log store) is what makes a rewrite visible: the entry hashes there stop matching the chain here. The daily
  * anchor of every case head is an audit record, so it travels the same way.
  */
 

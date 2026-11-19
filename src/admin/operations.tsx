@@ -27,7 +27,7 @@ function Failed({ error, retry }: { error: unknown; retry: () => void }) {
   return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
 }
 
-// ——— Operations ———
+// Operations
 
 interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
 interface BackupRecord { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null }
@@ -123,7 +123,7 @@ export function Operations() {
   );
 }
 
-// ——— Unit Instance operations (ADR-0014) ———
+// Unit Instance operations (ADR-0014)
 
 interface UpgradeRecordView {
   id: string; at: string; version: string; schema: { from: number; to: number }; status: UpgradeStatus; ms: number; migrations: number[];
@@ -234,7 +234,7 @@ export function InstanceOperationsPage() {
   );
 }
 
-// ——— Sign-in health ———
+// Sign-in health
 
 interface CrlStatus { file: string; issuer: string | null; thisUpdate: string | null; nextUpdate: string | null; error: string | null; status: HealthStatus }
 interface SignInReport {
@@ -320,7 +320,7 @@ export function SignInHealth() {
   );
 }
 
-// ——— Feature flags ———
+// Feature flags
 
 interface RuntimeFlag { key: string; label: string; hint: string; settings: string[]; on: boolean; blockedBy: string | null; reaches: { destination: string; mcen: 'refused' | 'approval' | 'enterprise' } | null; changedAt: string | null; changedBy: string | null }
 interface EnvironmentFlag { key: string; label: string; on: boolean; value?: string; settings: string[]; hint: string }
@@ -449,7 +449,7 @@ function InstanceFlags({ report, editable, refresh }: { report: InstanceFlagRepo
   );
 }
 
-// ——— Controlled maintenance ———
+// Controlled maintenance
 
 interface MaintenanceWindow { reason: string; message: string | null; until: string | null; startedAt: string; startedBy: string; startedByName: string }
 interface TaskResult { task: string; label: string; ok: boolean; summary: string; detail: string[]; ms: number; at: string }

@@ -137,7 +137,7 @@ test('every audit action listed is catalogued, and every action a route writes i
   assert.deepEqual(orgUnlock.audit, [{ action: 'account_unlock', category: 'unit' }]);
 });
 
-// ——— Runtime: people who must not reach these routes are refused, and nothing changes ———
+// Runtime: people who must not reach these routes are refused, and nothing changes
 
 let app: TestApp;
 let op: { token: string; id: string };

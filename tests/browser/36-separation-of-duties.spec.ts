@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, loginAs, OPERATOR } from './fixtures';
 
 /**
- * The separation-of-duties report in the Vantage Administrator console (Task 7, ADR-0013): read-only, one section per
+ * The separation-of-duties report in the Vantage Administrator console (ADR-0013): read-only, one section per
  * kind of crossing, each saying whether anybody is in it. The account that set Vantage up is a Lead Vantage
  * Administrator and the first Unit Instance's Lead Unit Manager and leader, so it appears twice.
  */

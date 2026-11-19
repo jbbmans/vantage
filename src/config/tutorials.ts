@@ -55,7 +55,7 @@ export interface Tutorial {
 }
 
 /**
- * The tutorials (VANTAGE_CLAUDE_MASTER.md Task 26, ADR-0034): short, one task each, offered on the page the task is
+ * The tutorials (ADR-0034): short, one task each, offered on the page the task is
  * done on, and followed in the real application rather than watched. In the order of shared/tutorials.ts.
  */
 export const TUTORIALS: Tutorial[] = [

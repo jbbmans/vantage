@@ -6,7 +6,7 @@ import { useNav } from '@/lib/useNav';
 interface Answer { id: string; q: string; a: string; to: string[]; otherwise?: string }
 
 /**
- * The questions a new user asks first (VANTAGE_CLAUDE_MASTER.md section 16, the UX definition of done), each answered
+ * The questions a new user asks first (the UX definition of done), each answered
  * with where to go. Places are named and linked from the menu, and only those this person may open are offered.
  */
 const ANSWERS: Answer[] = [

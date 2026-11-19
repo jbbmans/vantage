@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Duty records (Task 17, ADR-0023). A Marine records duty they stood on Records → Duty: the form shows what Vantage
+ * Duty records (ADR-0023). A Marine records duty they stood on Records → Duty: the form shows what Vantage
  * will record (its length, its conditions and its points) before it is sent, and the duty waits for review. They
  * correct it, and move an activity that was really duty, with undo. A leader records duty for a Marine from the
  * Marine's page; the Marine sees it and cannot change it. Every view reads cleanly to assistive technology and fits a

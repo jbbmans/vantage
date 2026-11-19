@@ -26,7 +26,7 @@ test('a member can stand up a unit of their own and owns it', async () => {
   assert.equal(made.status, 201, JSON.stringify(made.body));
   assert.equal(made.body.name, 'Rivera Fire Team');
 
-  // Owning it means holding every permission inside it — and none outside.
+  // Owning it means holding every permission inside it, and none outside.
   const me = await app.call('GET', '/api/me', { token: (await app.login('rivera')).body.token });
   const perms = me.body.permissions || {};
   assert.ok((perms[made.body.id] || 0) > 0, 'the creator has authority in their own unit');

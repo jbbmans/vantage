@@ -21,7 +21,7 @@ const userExists = (ctx: AppContext, id: string | null | undefined) => Boolean(i
 const lossText = (changes: Array<{ table: string; before: number; after: number | null }>) =>
   changes.slice(0, 8).map((c) => `${c.table} ${c.before} to ${c.after ?? 'gone'}`).join(', ') + (changes.length > 8 ? `, and ${changes.length - 8} more` : '');
 
-// ——— Upgrades ———
+// Upgrades
 
 /** Audits each schema upgrade this database recorded and has not audited: one entry for the service, one per Unit Instance that lost rows. */
 export function auditUpgrades(ctx: AppContext) {
@@ -72,7 +72,7 @@ export function reviewUpgrade(ctx: AppContext, user: SessionUser, id: string, no
   return updated!;
 }
 
-// ——— Backups ———
+// Backups
 
 /**
  * Audits each backup `scripts/backup.ts` recorded and the trail does not hold yet (ADR-0014). The script writes its record
@@ -93,7 +93,7 @@ export function auditServerBackups(ctx: AppContext): number {
   return due.length;
 }
 
-// ——— Restores ———
+// Restores
 
 /** One sentence on what happened to the database, ending with its full stop. */
 const restoreSummary = (r: RestoreRecord) => {
@@ -141,7 +141,7 @@ export function auditRestores(ctx: AppContext) {
   }
 }
 
-// ——— Lineage ———
+// Lineage
 
 const lastWritten = new WeakMap<AppContext, { key: string; at: string }>();
 const keeps = (ctx: AppContext) => (ctx.config.accessMode === 'demo' ? null : ctx.config.operations.lineageFile);

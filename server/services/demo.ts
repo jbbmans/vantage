@@ -545,7 +545,7 @@ export const DEMO_SCORING_SINCE_DAYS = 120;
  * The section's duty set-up (ADR-0023, ADR-0024): the standard duty types and one scoring version in force from the
  * workspace's invented past. A real Unit Instance's Unit Managers add both in the console, and a version they publish
  * takes effect tomorrow at the soonest; the demo has no console, so without this a visitor could record duty but never
- * see it scored. The points are the specification's own worked examples (§13), and the content is held to the console's
+ * see it scored. The points are the documented worked examples, and the content is held to the console's
  * rules before it is written.
  */
 function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) {

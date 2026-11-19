@@ -66,7 +66,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
   let shortened = false;
   const cellText = (v: string) => { if (v.length <= MAX_CELL) return v; shortened = true; return `${v.slice(0, MAX_CELL - 1).trimEnd()}…`; };
 
-  // ——— Cover block ———
+  // Cover block
   drawMark(doc, left + width - 38, doc.y - 4, 38);
   text(`VANTAGE  ·  ${report.title.toUpperCase()}`, 'Helvetica-Bold', 8, MUTED, { characterSpacing: 1.6, width: width - 56 });
   doc.moveDown(0.3);
@@ -97,7 +97,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
   }
   rule();
 
-  // ——— Figures in a grid ———
+  // Figures in a grid
   const figures = (list: ReportFigure[]) => {
     if (!list.length) return;
     const cols = wide ? 4 : 3; const colW = width / cols; const rowH = 30;
@@ -114,7 +114,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
     doc.moveDown(0.2);
   };
 
-  // ——— Charts, each with its labels and figures; the table below holds the same numbers in full ———
+  // Charts, each with its labels and figures; the table below holds the same numbers in full
   // A chart is kept on one page, and says which table and column it draws. A figure over time stands in columns.
   const COLUMN_PLOT = 86; const BAR_ROW = 13;
   const drawn = (c: ReportChart) => { const { bars } = chartBars(c); return bars.length >= 2 && bars.some((b) => b.value); };
@@ -163,7 +163,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
     doc.moveDown(0.5);
   };
 
-  // ——— Tables: wrapped cells, the header again on every page the table reaches ———
+  // Tables: wrapped cells, the header again on every page the table reaches
   const table = async (t: ReportTable) => {
     // The title, the header and a first row together, so a title never ends a page on its own.
     ensure(72);
@@ -219,7 +219,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
     doc.moveDown(0.6);
   };
 
-  // ——— Summary, sections, notes ———
+  // Summary, sections, notes
   if (report.summary.length) {
     text('SUMMARY', 'Helvetica-Bold', 8, ACCENT, { characterSpacing: 1.4 });
     doc.moveDown(0.25);
@@ -248,7 +248,7 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
     for (const note of notes) text(`•  ${note}`, 'Helvetica', 8, INK2, { paragraphGap: 1.5 });
   }
 
-  // ——— The handling line at the top and foot of every page, with its number ———
+  // The handling line at the top and foot of every page, with its number
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i);

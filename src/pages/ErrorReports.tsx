@@ -68,7 +68,7 @@ const RowHead = ({ children, className }: { children: React.ReactNode; className
 );
 
 /**
- * Financial error reports (Task 15, ADR-0021): the ULO, OCMT, UMT, invoices-on-hold and sync-error reports a unit is
+ * Financial error reports (ADR-0021): the ULO, OCMT, UMT, invoices-on-hold and sync-error reports a unit is
  * sent, each filed as it stood on its day and kept as filed, and any two of a series compared: what is new, still
  * open, back, or resolved, what changed, and the figures that follow, each opening the rows behind it. What a person
  * may read, file or take away is the server's to decide; the page shows what it says.
@@ -127,7 +127,7 @@ export default function ErrorReports() {
   );
 }
 
-// ——— Every series of the unit ———
+// Every series of the unit
 
 function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen: (unitId: string, typeId: string) => void; onFile?: () => void }) {
   if (!data.series.length) {
@@ -167,7 +167,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
   );
 }
 
-// ——— One series: two of its reports compared ———
+// One series: two of its reports compared
 
 interface DrillAsk { drill: Drill; group?: DrillGroup; value?: string; title: string }
 
@@ -516,7 +516,7 @@ function WithdrawDialog({ report, code, onClose, onDone }: { report: SnapshotSum
   );
 }
 
-// ——— Filing a report ———
+// Filing a report
 
 type Step = 'file' | 'sheet' | 'columns' | 'preview' | 'done';
 type Filed = SnapshotSummary & { unit_id: string; type_id: string };

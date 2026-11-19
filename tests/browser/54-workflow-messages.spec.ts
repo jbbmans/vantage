@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, logout, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Workflow messages and notifications (Task 24, ADR-0031). What is said is said on the record it is about: one Marine asks
+ * Workflow messages and notifications (ADR-0031). What is said is said on the record it is about: one Marine asks
  * another a question in a task's Discussion, choosing them from the people who can already read it. The person asked is
  * told in the bell, on Today and on the Notifications page under "Asked of you", answers on the record, and the asker
  * sees the answer and is told it came. A notice names the event, who and the record, never anybody's words. Discussion is

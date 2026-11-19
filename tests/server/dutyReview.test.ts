@@ -13,7 +13,7 @@ import { REDACTED } from '../../shared/constants.ts';
 import type { SessionUser } from '../../server/context.ts';
 
 /**
- * Task 18 (ADR-0024): duty is submitted, waits for review, and is approved, returned or rejected. Only approved duty
+ * ADR-0024: duty is submitted, waits for review, and is approved, returned or rejected. Only approved duty
  * counts, at its approved points. Who decides it is the server's to say: a reviewer of its unit, never its own Marine
  * unless a role names that authority, which nobody gives themselves. Points apart from the calculated ones take their own
  * permission and a reason. A decision never rescores, and every one is kept.
@@ -173,7 +173,7 @@ test('the permissions: three for duty, the SNCO reviews, the SNCOIC overrides to
   assert.ok(template('snco') & PERMISSIONS.REVIEW_DUTY);
   assert.equal(template('snco') & PERMISSIONS.OVERRIDE_DUTY_POINTS, 0);
   assert.ok(template('sncoic') & PERMISSIONS.REVIEW_DUTY && template('sncoic') & PERMISSIONS.OVERRIDE_DUTY_POINTS);
-  // Role only (John, 2026-11-10): no standard role names it, and neither full unit authority nor leading a unit carries it.
+  // Role only (ADR-0024 §2): no standard role names it, and neither full unit authority nor leading a unit carries it.
   for (const r of ROLE_TEMPLATE) assert.equal(r.permissions & PERMISSIONS.APPROVE_OWN_DUTY, 0, r.key);
   assert.equal(NAMED_ONLY_BITS, PERMISSIONS.APPROVE_OWN_DUTY);
   assert.equal(FULL_UNIT_AUTHORITY & PERMISSIONS.APPROVE_OWN_DUTY, 0);
@@ -264,7 +264,7 @@ test('duty is submitted and waits: it counts nothing until a reviewer approves i
   assert.match(trail[0].detail, /calculated 3; approved 3; scoring version 1/);
   const told = notesFor(reyes.id, d.id);
   assert.equal(told.length, 1);
-  // Task 24: the event, who and the points; the duty is named by its type and day when the notice is read.
+  // The event, who and the points; the duty is named by its type and day when the notice is read.
   assert.match(told[0].title, /Nguyen approved your duty for 3 points$/);
   assert.deepEqual([told[0].entity, told[0].entity_id, told[0].message], ['duties', d.id, null]);
   assert.ok(!/Battalion|Quiet/.test(String(told[0].message) + told[0].title), 'never the duty’s words');

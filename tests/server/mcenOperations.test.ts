@@ -19,7 +19,7 @@ import { DATA_TRANSFERS, infrastructureBodyProblem, infrastructureFileProblem, d
 import { VERSION } from '../../server/version.ts';
 
 /**
- * MCEN operations (Task 8, ADR-0014): each Unit Instance's version, schema, last upgrade, upgrade status, health and
+ * MCEN operations (ADR-0014): each Unit Instance's version, schema, last upgrade, upgrade status, health and
  * backup freshness; upgrades that count every Unit Instance's rows before and after; a restore that is privileged, done
  * on the host and audited; a database put back any other way noticed; features withheld from one Unit Instance; and
  * infrastructure backups kept apart from the data exports, which restore nothing.
@@ -383,7 +383,7 @@ test('every change a restore lists for review is in the audit catalog', () => {
   for (const action of RESTORE_REVIEW_ACTIONS) assert.ok(action in AUDIT_CATALOG, action);
 });
 
-// ——— The restore command, on a file database, as a host would run it ———
+// The restore command, on a file database, as a host would run it
 
 test('npm run restore is privileged, checked and audited; a database put back by hand is noticed', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-restore-'));

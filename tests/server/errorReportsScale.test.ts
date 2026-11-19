@@ -27,7 +27,7 @@ const dayAfter = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`)
 const get = (path: string) => app.call('GET', path, { token: op.token });
 const qs = (params: Record<string, string | number | undefined>) => new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]): [string, string] => [k, String(v)])).toString();
 
-// ——— A series of 34 weekly reports, some withdrawn between them, and the identifiers whose history matters ———
+// A series of 34 weekly reports, some withdrawn between them, and the identifiers whose history matters
 
 /** A small seeded generator, so the fixture is the same on every run. */
 function random(seed: number) {
@@ -382,7 +382,7 @@ test('a preview against a long series counts what the comparison counts once it 
   assert.ok(c.reopened > 0 && c.new >= 2, 'some are back; NEWEST and D9 (not the two-part D9 / 2) are new');
 });
 
-// ——— Plans, with planner statistics in place ———
+// Plans, with planner statistics in place
 
 const plan = (sql: string, ...args: unknown[]) => (app.ctx.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as Array<{ detail: string }>).map((r) => r.detail).join('\n');
 

@@ -11,7 +11,7 @@ import {
 } from '../../shared/errorReports.ts';
 
 /**
- * Financial error reports (Task 15, ADR-0021): a unit files the ULO, OCMT, UMT, IOH and sync-error reports it is sent,
+ * Financial error reports (ADR-0021): a unit files the ULO, OCMT, UMT, IOH and sync-error reports it is sent,
  * each kept as it stood on its day; any two of a series compare, and every figure opens exactly the rows it counts. Who
  * may read, file, withdraw or take a comparison away is decided on the server, in the reader's own Unit Instance.
  */
@@ -111,7 +111,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-// ——— The arithmetic, from rows alone ———
+// The arithmetic, from rows alone
 
 const row = (key: string, over: Partial<SnapshotRow> = {}): SnapshotRow => ({
   key, source_row: 2, reference: null, description: null, category: null, unit: null, owner: null, owner_user_id: null, status: 'Open', closed: false,
@@ -174,7 +174,7 @@ test('every count is the number of rows its drill holds, and the groups add up t
   assert.equal(first.figures.find((f) => f.id === 'persistent')!.value, null, 'not known until the series has three reports');
 });
 
-// ——— Report types ———
+// Report types
 
 test('a Unit Instance is given the five standard reports, and its Unit Managers keep its own', async () => {
   const seq = lastSeq();
@@ -206,7 +206,7 @@ test('a Unit Instance is given the five standard reports, and its Unit Managers 
   for (const action of ['error_report_type_created', 'error_report_type_retired']) assert.ok(actions.includes(action), action);
 });
 
-// ——— Filing ———
+// Filing
 
 test('a report is previewed against the one before it, then filed as it stood, its rows and columns kept', async () => {
   const p1 = await plan(nco.token, 'ULO 14 days ago.csv', R1, { as_of: R1_DAY });
@@ -459,7 +459,7 @@ test('a filed report is never changed or deleted, in the database itself', async
     VALUES ('x-1', 'G8', 'G8', ?, ?, 'x.csv', 'abc', '2026-01-01', 'x', 1, '[]', '{}', '[]', 0, 0, 0, 0, '[]', ?, ?)`).run(g1Type, r1.source_file_id, op.id, new Date().toISOString()), /cross_instance/);
 });
 
-// ——— Who may do what ———
+// Who may do what
 
 test('reading needs the unit’s shared records, filing posting its work, and figures by Marine its member records', async () => {
   for (const who of [nco, ftl, snco, reader, op]) assert.equal((await get(who.token, '/api/error-reports?unit_id=G8')).status, 200);
@@ -554,7 +554,7 @@ test('every read is in the audit trail, with what was read', async () => {
   assert.ok(withdrawn.size > 0 && !uloChoice.reports.some((r: { id: string }) => withdrawn.has(r.id)), 'a withdrawn report is not offered');
 });
 
-// ——— The report library ———
+// The report library
 
 test('the report library prints and files the comparison, and its figures are the page’s', async () => {
   const run = (token: string, params: Record<string, string>) => get(token, `/api/report-center/run?${qs({ type: 'comparison', unit_id: 'G8', ...params })}`);

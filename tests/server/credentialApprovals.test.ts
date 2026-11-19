@@ -272,7 +272,7 @@ test('taking authority away, changing the sign-in alone and giving it back is no
 });
 
 test('the staff member who changed an account’s sign-in can then give it authority, in the trail and told to its Lead Unit Managers', async () => {
-  // John's decision of 2026-10-11 (ADR-0013): no block on reset-then-promote; both steps are audited and the instance is told.
+  // ADR-0013: no block on reset-then-promote; both steps are audited and the instance is told.
   const va = await staffMember('vadmin3', 'admin');
   const target = await app.register('freshmgr');
   await enroll(app, op.token, 'G8', target.id);

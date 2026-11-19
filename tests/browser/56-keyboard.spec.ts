@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { ensureSetup, loginAs, logout, OPERATOR, PASSWORD } from './fixtures';
 
 /**
- * The keyboard walk (Task 25, ADR-0032; WCAG 2.2 AA): where focus is can always be seen (2.4.7) and is never hidden under
+ * The keyboard walk (ADR-0032; WCAG 2.2 AA): where focus is can always be seen (2.4.7) and is never hidden under
  * the sticky header or the phone's tab bar (2.4.11); a dialog gives focus back to what opened it, and so does the phone
  * menu (2.4.3); a button that is busy keeps focus; a form that refuses a save puts focus on the first field to fix
  * (3.3.1); single-key shortcuts can be turned off (2.1.4).

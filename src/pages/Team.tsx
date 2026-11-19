@@ -557,7 +557,7 @@ function Units({ units, manageUnits, orgAdmin, roster }: { units: Unit[]; manage
   );
 }
 
-/** What the unit dashboard shows: what the unit produced (shared outcomes), or one area of its analytics (Task 21). */
+/** What the unit dashboard shows: what the unit produced (shared outcomes), or one area of its analytics. */
 type DashboardShow = 'output' | AnalyticsSection;
 const DASHBOARD_SHOWS: Array<{ value: DashboardShow; label: string }> = [
   { value: 'output', label: 'Output' }, { value: 'work', label: 'Casework' }, { value: 'duty', label: 'Duty' }, { value: 'training', label: 'Training' }, { value: 'personnel', label: 'Personnel' },

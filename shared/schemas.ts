@@ -236,7 +236,7 @@ const requiredTime = z.string({ error: 'Required.' }).max(8).transform((v, ctx) 
 });
 
 /**
- * A duty a Marine stood (Task 17, ADR-0023). Its hours, duty days, overnight, multi-day and weekend are worked out by the
+ * A duty a Marine stood (ADR-0023). Its hours, duty days, overnight, multi-day and weekend are worked out by the
  * server from its start and end; its points, scoring version and review are never taken from the request.
  */
 export const dutySchema = z.object({

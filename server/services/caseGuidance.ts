@@ -117,7 +117,7 @@ function retire(ctx: AppContext, actor: SessionUser, row: GuidanceRow, reason: s
 
 const describe = (r: Pick<GuidanceRow, 'authority' | 'issue' | 'section' | 'citation'>) => `${r.authority} · ${r.issue} · ${r.section}: ${r.citation}`;
 
-// ——— A Unit Instance's own: command SOPs, validated SME workflows, and the examples its leaders validated ———
+// A Unit Instance's own: command SOPs, validated SME workflows, and the examples its leaders validated
 
 /** What a Unit Instance has on file, the examples its leaders validated, and what the service has on file for everyone. */
 export function orgGuidance(ctx: AppContext, user: SessionUser, scope: Scope, orgId: string) {
@@ -147,7 +147,7 @@ export function retireOrgGuidance(ctx: AppContext, actor: SessionUser, orgId: st
   return present(ctx, [byId(ctx, id)], () => false)[0];
 }
 
-// ——— A validated example, marked from the case ———
+// A validated example, marked from the case
 
 function exampleRow(ctx: AppContext, itemId: string) {
   return (ctx.db.prepare('SELECT * FROM case_guidance WHERE work_item_id = ? AND retired_at IS NULL').get(itemId) as GuidanceRow | undefined) || null;
@@ -223,7 +223,7 @@ export function withdrawExample(ctx: AppContext, user: SessionUser, scope: Scope
   return present(ctx, [byId(ctx, current.id)], () => true)[0];
 }
 
-// ——— The service's: official policy and official system guidance ———
+// The service's: official policy and official system guidance
 
 export function enterpriseGuidance(ctx: AppContext): GuidanceRecord[] {
   const rows = ctx.db.prepare('SELECT * FROM case_guidance WHERE org_id IS NULL ORDER BY retired_at IS NOT NULL, recorded_at DESC').all() as GuidanceRow[];
@@ -244,7 +244,7 @@ export function retireEnterpriseGuidance(ctx: AppContext, actor: SessionUser, id
   return present(ctx, [byId(ctx, id)], () => false)[0];
 }
 
-// ——— What a diagnosis is given ———
+// What a diagnosis is given
 
 /**
  * The guidance on file that may speak to this case, for this reader: the service's, and the case's own Unit Instance's,

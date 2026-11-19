@@ -8,7 +8,7 @@ import type { WorkItemRow } from '../../server/services/work.ts';
 import type { CaseDiagnosis, Statement } from '../../shared/caseDiagnosis.ts';
 
 /**
- * The automatic financial case diagnoser on the server (Task 16, ADR-0022): every case a reader opens is diagnosed from what
+ * The automatic financial case diagnoser on the server (ADR-0022): every case a reader opens is diagnosed from what
  * that reader may see; guidance is put on file by the people who answer for it, never edited or removed, every change
  * audited; a past case is an example only at the hands of a leader who did not resolve it, offered only to its readers;
  * and nothing crosses a Unit Instance.

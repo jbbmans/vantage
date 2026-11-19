@@ -62,7 +62,7 @@ export interface NavGroup {
 export const HOME: NavPage = { to: '/', label: 'Today', icon: Gauge, end: true, key: 'd', hint: 'What needs you now' };
 
 /**
- * The menu, in the order of the specification's top-level structure (ADR-0016). A page sits in the group that answers
+ * The menu, in the order of the top-level structure (ADR-0016). A page sits in the group that answers
  * its question, and keeps its address when it moves between groups: /career/awards is Records → Awards. The header,
  * the document title, the palette, the shortcuts and every sentence that names a place (placeName) read it from here.
  */

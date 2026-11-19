@@ -9,7 +9,7 @@ import { STAGES } from '../../shared/caseModel.ts';
 import { REPORT_FORMAT, REPORT_ROW_LIMIT, type ReportDocument } from '../../shared/reportCatalog.ts';
 
 /**
- * The report center past its read cap (Task 25, ADR-0032). Each report decides what it reads before the cap, totals what
+ * The report center past its read cap (ADR-0032). Each report decides what it reads before the cap, totals what
  * the reader may see however much was listed, and says so whenever a list or a file was cut. Each test writes its bulk
  * rows straight to the table in one transaction and removes them after.
  */

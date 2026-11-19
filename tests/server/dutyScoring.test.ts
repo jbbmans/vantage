@@ -5,8 +5,8 @@ import { calculatePoints, describeRule, policyOn, scoringPolicyProblems, type Sc
 import { scoringToday } from '../../server/services/dutyScoring.ts';
 
 /**
- * Duty scoring policies (VANTAGE_CLAUDE_MASTER §13 and Task 18, brought into Task 6 by John's decision; ADR-0012).
- * The arithmetic gives the spec's examples; a version is published once with the day it takes effect, never changed
+ * Duty scoring policies (ADR-0012).
+ * The arithmetic gives the documented examples; a version is published once with the day it takes effect, never changed
  * after, and only withdrawn before that day, so duty is always scored under the version in force on its own day.
  */
 

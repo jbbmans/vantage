@@ -15,7 +15,7 @@ import {
 } from '../../shared/drafts.ts';
 
 /**
- * Drafts (Task 23, ADR-0030). A draft lives with its own kind, never in a second copy. The forms a person saves to finish
+ * Drafts (ADR-0030). A draft lives with its own kind, never in a second copy. The forms a person saves to finish
  * later, which before had nowhere to be kept, are kept here (`form_drafts`), each its author's alone: anyone else is
  * answered as if it did not exist. A form is not a record. Nothing counts it, lists it to anyone else or tells anyone of it,
  * and it is checked loosely, because the form it came from checks it when it is sent through its own route

@@ -20,7 +20,7 @@ import {
 } from '../../shared/workflowMessages.ts';
 
 /**
- * Workflow messaging (Task 24, ADR-0031). What is said is said on the record it is about, or on a work case: a comment, a
+ * Workflow messaging (ADR-0031). What is said is said on the record it is about, or on a work case: a comment, a
  * question or a review request to one named person, the answer to one, or the note an assignment carries. Nothing here is
  * a chat. One rule decides who may speak on a record, be asked about it, be named in it or be told what is said on it
  * (speaks); everybody else who reads the record reads its discussion and says nothing.

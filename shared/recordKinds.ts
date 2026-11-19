@@ -2,7 +2,7 @@ import { AWARD_NAMES, type AWARD_TYPES, type TRAINING_TYPES } from './constants.
 
 /**
  * Where each kind of record Vantage knows lives, who writes it, who may correct it, and which system outside Vantage
- * holds the official copy (ADR-0015). One entry per concept of the spec's core domain model (section 11).
+ * holds the official copy (ADR-0015). One entry per concept of the core domain model.
  *
  * An Activity is one kind among these: work a person did. It sits on the timeline beside the others, and it never stands
  * in for an award, a course, a counseling or a duty, which keep records of their own. The timeline is read from each
@@ -10,7 +10,7 @@ import { AWARD_NAMES, type AWARD_TYPES, type TRAINING_TYPES } from './constants.
  */
 export interface RecordKind {
   key: string;
-  /** The concept's name in the spec's domain model. */
+  /** The concept's name in the domain model. */
   label: string;
   /** Its table and, where one table holds several kinds, which of its rows. Null for a kind no Task has built yet. */
   store: { table: string; rows?: string } | null;
@@ -49,7 +49,7 @@ export const RECORD_KINDS: readonly RecordKind[] = [
   { key: 'duty_type', label: 'Duty Type', store: { table: 'duty_types' }, writtenBy: 'Unit Managers (ADR-0012)', correctedBy: 'Unit Managers', systemOfRecord: null, timeline: false, activity: false },
   { key: 'duty_scoring_policy', label: 'Duty Scoring Policy', store: { table: 'duty_scoring_policies' }, writtenBy: 'Unit Managers, as versions with effective dates (ADR-0012)', correctedBy: 'Nobody: a new version replaces it from its date', systemOfRecord: null, timeline: false, activity: false },
   { key: 'goal', label: 'Goal', store: { table: 'goals' }, writtenBy: 'The person, or a leader who assigns it', correctedBy: 'Its owner; its assignee for status and progress', systemOfRecord: null, timeline: true, activity: false },
-  // Not one of the spec's concepts, but a record type the records API serves: work a person or their unit is carrying.
+  // Not one of the domain model's concepts, but a record type the records API serves: work a person or their unit is carrying.
   { key: 'project', label: 'Project', store: { table: 'projects' }, writtenBy: 'The person, or a unit leader for shared work', correctedBy: 'Its owner; a unit leader with Edit others’ records, on a shared one', systemOfRecord: null, timeline: false, activity: false },
   { key: 'task', label: 'Task', store: { table: 'tasks' }, writtenBy: 'The person, or a leader who assigns it', correctedBy: 'Its owner; its assignee for status and notes', systemOfRecord: null, timeline: false, activity: false },
   { key: 'financial_case', label: 'Financial Case', store: { table: 'work_items' }, writtenBy: 'Intake from an uploaded report, or a person opening one', correctedBy: 'Through its append-only history only (ADR-0002)', systemOfRecord: 'DAI, SABRS and the other financial systems the case is about', timeline: false, activity: false },

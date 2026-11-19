@@ -122,7 +122,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
   });
 }));
 
-// ——— Operations: the service's health, build, schema, backups and scheduled jobs (ADR-0011) ———
+// Operations: the service's health, build, schema, backups and scheduled jobs (ADR-0011)
 
 platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, res) => {
   const ctx = req.ctx;
@@ -139,7 +139,7 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
   });
 }));
 
-// ——— Each Unit Instance's operations: version, schema, upgrades, health, backups, restores and withheld features (ADR-0014) ———
+// Each Unit Instance's operations: version, schema, upgrades, health, backups, restores and withheld features (ADR-0014)
 
 platformRouter.get('/instances/operations', requirePlatform('platform.view'), wrap((req, res) => {
   const ctx = req.ctx;
@@ -185,7 +185,7 @@ platformRouter.post('/case-guidance/:id/retire', requirePlatform('platform.setti
   res.json(retireEnterpriseGuidance(req.ctx, req.user, String(req.params.id), parse(retireSchema, req.body).reason, ip(req)));
 }));
 
-// Approved course sources and their catalogs (Task 22, ADR-0029): what a course code on a training is verified against.
+// Approved course sources and their catalogs (ADR-0029): what a course code on a training is verified against.
 // Registering a source names the authorization that approves it; a catalog file is staged, looked at, then applied.
 platformRouter.get('/course-sources', requirePlatform('platform.view'), wrap((req, res) => res.json({ sources: listCourseSources(req.ctx) })));
 platformRouter.post('/course-sources', requirePlatform('platform.settings'), wrap((req, res) => {
@@ -221,7 +221,7 @@ platformRouter.put('/orgs/:orgId/features/:flag', requirePlatform('platform.sett
   res.json({ withheld: setInstanceFlag(req.ctx, req.user, String(req.params.orgId), flag, { withheld: body.withheld, reason: body.reason ?? null }, ip(req)) });
 }));
 
-// ——— Platform settings ———
+// Platform settings
 
 const runtimeSchema = z.object({
   displayName: z.string().trim().min(1).max(40).optional(),
@@ -290,7 +290,7 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   res.json(ctx.runtime);
 }));
 
-// ——— Controlled maintenance (ADR-0011) ———
+// Controlled maintenance (ADR-0011)
 
 platformRouter.get('/maintenance', requirePlatform('platform.view'), wrap((req, res) => res.json(maintenanceState(req.ctx))));
 
@@ -324,7 +324,7 @@ platformRouter.post('/maradmins/sync', requirePlatform('platform.settings'), wra
   res.json({ ...result, state: maradminSyncState(req.ctx) });
 }));
 
-// ——— Email ———
+// Email
 
 function emailSetup(ctx: AppContext) {
   const direct = ctx.mailer.provider === 'direct';
@@ -370,7 +370,7 @@ platformRouter.post('/email/test', requirePlatform('platform.email'), wrap(async
   res.json({ ok: true, queued: Boolean(result.queued) });
 }));
 
-// ——— Organizations: containers, never contents ———
+// Organizations: containers, never contents
 
 platformRouter.get('/orgs', requirePlatform('platform.view'), wrap((req, res) => res.json({ organizations: listOrganizations(req.ctx) })));
 
@@ -401,7 +401,7 @@ platformRouter.post('/orgs/:orgId/owner', requirePlatform('platform.orgs'), wrap
   res.json({ roles: nameFirstOwner(req.ctx, req.user, String(req.params.orgId), body.user_id, ip(req)) });
 }));
 
-// Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): any time, never yourself, members of the Unit Instance only.
+// Unit Manager assignment (ADR-0010 §5): any time, never yourself, members of the Unit Instance only.
 platformRouter.post('/orgs/:orgId/managers', requirePlatform('platform.managers'), wrap((req, res) => {
   const body = parse(z.object({ user_id: z.string().max(64), role: z.enum(UNIT_MANAGER_ROLES) }), req.body);
   res.json({ roles: assignManager(req.ctx, req.user, String(req.params.orgId), body, ip(req)).map(({ username: _u, ...r }) => r) });
@@ -412,7 +412,7 @@ platformRouter.delete('/orgs/:orgId/managers/:userId/:role', requirePlatform('pl
   res.json({ roles: removeManager(req.ctx, req.user, String(req.params.orgId), String(req.params.userId), role, ip(req)).map(({ username: _u, ...r }) => r) });
 }));
 
-// ——— Accounts: sign-in help. Who someone is and how they sign in; never what they keep. ———
+// Accounts: sign-in help. Who someone is and how they sign in; never what they keep.
 
 platformRouter.get('/accounts', requirePlatform('platform.accounts'), wrap((req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 80);
@@ -566,7 +566,7 @@ platformRouter.post('/accounts/:userId/reactivate', requirePlatform('platform.ac
   res.json({ ok: true });
 }));
 
-// ——— Two people for a takeover (ADR-0013): a second staff member approves a credential change to an account with authority. ———
+// Two people for a takeover (ADR-0013): a second staff member approves a credential change to an account with authority.
 
 platformRouter.get('/credential-approvals', requirePlatform('platform.accounts'), wrap((req, res) => {
   res.json({ approvals: listApprovals(req.ctx), hours: APPROVAL_HOURS });
@@ -605,7 +605,7 @@ platformRouter.post('/accounts/sign-in-details', requirePlatform('platform.accou
   res.json({ results });
 }));
 
-// ——— Vantage staff ———
+// Vantage staff
 
 platformRouter.get('/staff', requirePlatform('platform.view'), wrap((req, res) => {
   const rows = req.ctx.db.prepare(`SELECT p.user_id, p.role, p.granted_by, p.created_at, u.username, u.first_name, u.last_name, u.active, u.totp_enabled, u.last_login_at,
@@ -650,7 +650,7 @@ platformRouter.delete('/staff/:userId/:role', requirePlatform('platform.staff'),
   res.json({ ok: true });
 }));
 
-// ——— Vantage access to an organization ———
+// Vantage access to an organization
 
 platformRouter.get('/access', requirePlatform('platform.view'), wrap((req, res) => {
   const all = req.user.platformPermissions.includes('platform.audit') || req.user.platformPermissions.includes('platform.staff');
@@ -670,7 +670,7 @@ platformRouter.post('/access/:id/end', requirePlatform('platform.access'), wrap(
   res.json(endAccess(req.ctx, req.user, String(req.params.id), 'staff', undefined, ip(req)));
 }));
 
-// ——— Audit, integrity, usage ———
+// Audit, integrity, usage
 
 /**
  * The platform's own trail: what Vantage staff did, sign-ins, and every access request. An organization's internal
@@ -772,7 +772,7 @@ platformRouter.get('/privacy/inventory', requirePlatform('platform.audit'), wrap
 /** Accounts whose authority crosses a line the role model draws, for review (ADR-0013). Read-only. */
 platformRouter.get('/separation-of-duties', requirePlatform('platform.audit'), wrap((req, res) => res.json(separationOfDuties(req.ctx))));
 
-// ——— Platform-wide legal holds: a hold on the service itself, over every organization ———
+// Platform-wide legal holds: a hold on the service itself, over every organization
 
 platformRouter.get('/holds', requirePlatform('platform.data'), wrap((req, res) => {
   res.json({ holds: openHolds(req.ctx).filter((h) => !h.org_id), holdableTypes: HOLDABLE_TYPES });
@@ -788,7 +788,7 @@ platformRouter.delete('/holds/:id', requirePlatform('platform.data'), wrap((req,
   res.json({ ok: true });
 }));
 
-// ——— Disaster recovery: the whole service. Lead Vantage Administrators only. ———
+// Disaster recovery: the whole service. Lead Vantage Administrators only.
 
 /**
  * The database and the archive hold every Marine's records, password hashes and sealed secrets. On the production

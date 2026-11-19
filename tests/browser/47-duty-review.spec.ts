@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Duty review (Task 18, ADR-0024). Duty a Marine submitted waits under To review for the people who review it. A reviewer
+ * Duty review (ADR-0024). Duty a Marine submitted waits under To review for the people who review it. A reviewer
  * approves it, returns it with a reason or rejects it with one; the Marine reads the reason, corrects a returned duty and
  * it goes back by itself. Calculated points and approved points stand side by side, points apart from the calculated
  * ones take a reason, and every decision is in the duty's review history. Nobody decides their own duty by reviewing:

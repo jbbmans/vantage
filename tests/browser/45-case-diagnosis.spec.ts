@@ -3,9 +3,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * The automatic financial case diagnoser (Task 16, ADR-0022). An import says what the diagnoser reads in the new rows
- * before anything is written; the queue says what an unprocessed case reads as; a case opens with its diagnosis in the
- * specification's order, every statement labelled, every recommendation naming its source and rank. A Unit Manager puts
+ * The automatic financial case diagnoser (ADR-0022). An import says what the diagnoser reads in the new rows
+ * before anything is written; the queue says what an unprocessed case reads as; a case opens with its diagnosis in its
+ * fixed order, every statement labelled, every recommendation naming its source and rank. A Unit Manager puts
  * the command's SOP on file and a Vantage Administrator official policy, and both reach the case ranked above the
  * training reference. A resolved, verified case is validated as an example by a leader who did not resolve it, is offered
  * to the next case like it, and is withdrawn with a reason. Every page reads cleanly to assistive technology and fits a phone.

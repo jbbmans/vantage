@@ -17,7 +17,7 @@
     --surface-3: 232 231 225;   /* hover, pressed, tracks */
     --line: 224 222 214;
     --line-strong: 200 197 187;
-    --ink: 11 22 44;            /* Dress-blue navy — 18:1 on white */
+    --ink: 11 22 44;            /* Dress-blue navy, 18:1 on white */
     --ink-2: 50 61 84;          /* 10.9:1 on white */
     --ink-3: 86 95 112;         /* 6.4:1 on white, 5.6:1 on surface-2, 5.2:1 on surface-3 */
     --good: 21 110 78;
@@ -432,7 +432,7 @@ html.has-tabbar { scroll-padding-bottom: calc(var(--tabbar, 0px) + 12px); }
   .activity-bar { display: none; }
   .tabbar { animation: none; }
 }
-/* ——— Tutorials (ADR-0034) ———
+/* Tutorials (ADR-0034)
    The panel sits at the foot of the screen, over the page's lower right, above the tab bar on a phone. It is not a
    dialog: the page stays usable while it is open. Folded, only its heading shows. --tutorial is its height while open,
    so the page can scroll out from under it and toasts rise above it. */
@@ -459,7 +459,7 @@ html.has-tutorial { --tutorial-lift: calc(var(--tutorial, 0px) + 1rem); scroll-p
 @keyframes tutorial-spot { 50% { outline-offset: 7px; box-shadow: 0 0 0 13px rgb(var(--accent) / .1); } }
 @media print { .tutorial-panel { display: none !important; } }
 
-/* ——— Reports (ADR-0020): one document on screen and on paper ——— */
+/* Reports (ADR-0020): one document on screen and on paper */
 .report-doc { color: rgb(var(--ink)); }
 .report-screen { border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--surface)); padding: 1.25rem; }
 @media (max-width: 640px) { .report-screen { padding: 0.875rem; } }
@@ -614,7 +614,7 @@ html.has-tutorial { --tutorial-lift: calc(var(--tutorial, 0px) + 1rem); scroll-p
   @page { margin: 16mm 14mm; }
 }
 
-/* ——— Analytics charts (Task 21, ADR-0028) ———
+/* Analytics charts (ADR-0028)
    Drawn in HTML on the theme's tokens. A bar's ink prints in colour; its track is outlined so it still reads on a
    white page; the switch's hidden half is shown in print so a printed chart carries its table. */
 .chart-ink { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

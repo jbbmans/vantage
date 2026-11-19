@@ -10,7 +10,7 @@ import { areasFor } from '../../shared/evaluation.ts';
 import { dayKey, previousRange, rangeForPeriod } from '../../shared/metrics.ts';
 
 /**
- * Report Studio and the record report at scale (Task 25, ADR-0032): what a package may cite is decided before the list
+ * Report Studio and the record report at scale (ADR-0032): what a package may cite is decided before the list
  * is cut, the package list pages by a cursor, and the record report and its comparison read only what they use.
  */
 

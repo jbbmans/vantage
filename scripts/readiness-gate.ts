@@ -1,5 +1,5 @@
 /**
- * The production readiness gate (Task 28). `docs/engineering/readiness-gate.json` is the register: every gate item
+ * The production readiness gate. `docs/engineering/readiness-gate.json` is the register: every gate item
  * with the tests that prove it, every defect the gate found, every check run on the candidate, and every item only an
  * owner outside the code can close. `docs/engineering/READINESS_GATE.md` is drawn from it, so the summary never
  * claims more than the register holds. The verdict is computed here and never written by hand:

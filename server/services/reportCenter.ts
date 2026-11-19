@@ -39,7 +39,7 @@ import {
 } from '../../shared/reportCatalog.ts';
 
 /**
- * The report center (Task 14, ADR-0020): one place every report is built, whoever it is about and whatever it is drawn
+ * The report center (ADR-0020): one place every report is built, whoever it is about and whatever it is drawn
  * into. Each builder reads through the code the page it reports already uses (the analysis, the unit dashboard, the
  * workload, the personnel roster, the duty scoring versions) and answers a ReportDocument; the screen, the print page, the
  * PDF, the CSV, the workbook and the JSON are all drawn from that one document.
@@ -128,7 +128,7 @@ const unitLabel = (ctx: AppContext, unitId: string | null) => {
   return u ? u.name : null;
 };
 
-// ——— Who a report is about ———
+// Who a report is about
 
 /**
  * Decides whom the report is about and what the reader may see and take away, or refuses. Nothing is read or written
@@ -231,7 +231,7 @@ const sourceNote = (ctx: AppContext, t: ReportTarget) => {
 
 const SPAN_NOTE = 'An entry that spans more than one period counts in each period it touches (ADR-0018).';
 
-// ——— Individual performance: the analysis, as tables ———
+// Individual performance: the analysis, as tables
 
 function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Built {
   const report = buildAnalysisReport(ctx, { userId: t.userId!, unitId: t.subject === 'member' ? t.unitId : null, period: q.period || 'last12', from: q.from, to: q.to, track: q.track });
@@ -310,7 +310,7 @@ function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Buil
   };
 }
 
-// ——— Activity: the ledger ———
+// Activity: the ledger
 
 function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: Period | null): Built {
   const cfg = ctx.runtime.metrics;
@@ -371,7 +371,7 @@ function buildActivity(ctx: AppContext, t: ReportTarget, q: ReportQuery, period:
   };
 }
 
-// ——— Training: what was completed, and where each Marine stands against the requirements ———
+// Training: what was completed, and where each Marine stands against the requirements
 
 export interface Requirement { id: string; title: string; type: string; course_code: string | null; interval_months: number | null; unit_id: string | null }
 export interface TrainingRow { user_id: string; title: string; status: string | null; date: string | null; end_date: string | null; course_code?: string | null }
@@ -559,7 +559,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
   };
 }
 
-// ——— Unit performance and leadership: the unit dashboard ———
+// Unit performance and leadership: the unit dashboard
 
 const dashboardOf = (ctx: AppContext, t: ReportTarget, period: Period) =>
   unitDashboard(ctx, t.unitId!, period.from || '1970-01-01', period.to || zonedDay(ctx.config.timezone), { units: t.unitIds, detailIn: new Set(t.detailUnits) });
@@ -685,7 +685,7 @@ function buildLeadership(ctx: AppContext, user: SessionUser, t: ReportTarget, pe
   };
 }
 
-// ——— Personnel: the roster ———
+// Personnel: the roster
 
 const ACCOUNT_STATUS: Record<string, string> = { active: 'Active', locked: 'Locked', never_signed_in: 'Never signed in', must_change_password: 'Must change password', deactivated: 'Deactivated' };
 
@@ -738,7 +738,7 @@ function buildPersonnel(ctx: AppContext, user: SessionUser, scope: Scope, t: Rep
   };
 }
 
-// ——— Workload: the team workload ———
+// Workload: the team workload
 
 function buildWorkload(ctx: AppContext, user: SessionUser, scope: Scope, t: ReportTarget, period: Period): Built {
   const tz = zoneOf(ctx, user);
@@ -791,7 +791,7 @@ function buildWorkload(ctx: AppContext, user: SessionUser, scope: Scope, t: Repo
   };
 }
 
-// ——— Duty: what is stood and how it is scored ———
+// Duty: what is stood and how it is scored
 
 const POLICY_STANDING = { in_force: 'In force', scheduled: 'Scheduled', superseded: 'Superseded', withdrawn: 'Withdrawn' } as const;
 
@@ -987,7 +987,7 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
   };
 }
 
-// ——— Financial work: cases, by procedure ———
+// Financial work: cases, by procedure
 
 export interface CaseRow {
   id: string; unit_id: string; title: string; reference: string | null; due_date: string | null; amount: number | null; state: string; stage: string | null;
@@ -1203,7 +1203,7 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
   };
 }
 
-// ——— Error report comparison: two filed reports of a series (ADR-0021) ———
+// Error report comparison: two filed reports of a series (ADR-0021)
 
 const dollars = (cents: number | null | undefined) => (cents == null ? null : cents / 100);
 
@@ -1318,7 +1318,7 @@ function buildComparisonReport(ctx: AppContext, scope: Scope, t: ReportTarget, q
   };
 }
 
-// ——— Custom: a dataset, its columns, its grouping and its order ———
+// Custom: a dataset, its columns, its grouping and its order
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthOf = (d: Cell) => (typeof d === 'string' && /^\d{4}-\d{2}/.test(d) ? `${MONTH_NAMES[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : 'Undated');
@@ -1478,7 +1478,7 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
   };
 }
 
-// ——— The document ———
+// The document
 
 function aboutLine(ctx: AppContext, t: ReportTarget): string {
   if (t.subject === 'unit') {
@@ -1650,7 +1650,7 @@ export async function renderFile(doc: ReportDocument, format: ReportFileFormat):
   return { body: writeWorkbook([about, ...sheets]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: reportFileName(doc, 'xlsx') };
 }
 
-// ——— Saved reports: a report's choices kept to run again, never its data ———
+// Saved reports: a report's choices kept to run again, never its data
 
 export const DEFINITION_LIMIT = 100;
 
