@@ -948,9 +948,13 @@
       "title": "Rotating VANTAGE_SECRET (chain key re-wrap and stored-secret reseal) writes no audit entry",
       "severity": "medium",
       "area": "Audit, migrations and recovery",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a change of VANTAGE_SECRET is in the trail, once, with what it sealed again"
+        }
+      ]
     },
     {
       "id": "runtime-patch-applied-before-validation",
@@ -1091,6 +1095,51 @@
       "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
     },
     {
+      "id": "c28-session-lifecycle-unaudited",
+      "title": "Session cap eviction, idle or absolute expiry and the scheduled prune end sessions with no audit entry, and sign-in entries carry no session correlation",
+      "severity": "medium",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c35-passkey-profile-and-removal",
+      "title": "A synced (backup-eligible, backed-up) passkey is registered with no profile check, and removing it leaves the session it opened signed in",
+      "severity": "medium",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c31-csv-no-handling-line",
+      "title": "Report CSV export carries no handling line, although docs and the test title say every file does",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c34-stale-asvs-claims",
+      "title": "ASVS self-assessment still carries stale or overstated claims (V16.5.2 Met, V15.2 npm audit, V15.1 no SBOM)",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "codeql-biased-random-passphrase",
+      "title": "Generated import passphrases use modulo-biased random selection (open CodeQL biased-cryptographic-random alert)",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+    },
+    {
       "id": "export-leaks-others-ip",
       "title": "The personal export gives the Marine the IP addresses of other people who acted on them",
       "severity": "high",
@@ -1108,9 +1157,13 @@
       "title": "The assignee's export includes another person's binned task or goal, its files and comments",
       "severity": "medium",
       "area": "Import and export",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export holds a task someone else owns only while its read rule gives it: assigned, shared, and not in its owner’s bin"
+        }
+      ]
     },
     {
       "id": "restore-order-leaves-duty-unscored",
@@ -1351,7 +1404,8 @@
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran"
         }
-      ]
+      ],
+      "note": "Also reported under security review C25 (c25-edipi-unit-audit-trail)."
     },
     {
       "id": "edipi-in-personal-export",

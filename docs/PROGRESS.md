@@ -1,6 +1,36 @@
 # Progress
 
-_Updated 2026-11-18_
+_Updated 2026-11-19_
+
+## What changed (2026-11-19: Task 28, the final production readiness gate)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word. Engineering gate and operational
+release as `docs/engineering/READINESS_GATE.md` states them.
+
+Task 28 of the specification, from `5a80959` ([ADR-0037](engineering/ADR/0037-production-readiness-gate.md)). No
+migration.
+
+- **The gate is a register** (`docs/engineering/readiness-gate.json`): each requirement with the tests that show it,
+  each defect found with its severity and the test that fails without its fix, what only an owner outside the code can
+  close, and each check with the commit it ran on. `scripts/readiness-gate.ts` checks it and draws
+  `READINESS_GATE.md`; the engineering verdict is computed (no open critical or high defect, no open item, every
+  required check passed) and operational release is never decided there.
+- **The six roles side by side** (`tests/server/readinessGate.test.ts`): Marine, supervisor, NCO/SNCO, Unit Leader,
+  Unit Manager and Vantage Administrator, in one Unit Instance with another beside it, against records, personnel, the
+  consoles, escalation, another instance's ids, duty, the counseling worksheet, exports, attachments and the report PDF.
+- **Reach.** A unit export, team workload and its report, a unit-measured goal and the AI command brief read the units
+  beneath only where the reader reads them in their own right. A unit export needs View shared records; a unit report
+  or brief leaves as a file only with the export permission in every unit it reads.
+- **EDIPIs and addresses.** A Unit Instance's audit trail never shows, matches or exports an EDIPI. A personal export
+  names others by rank and name where their username is a card's EDIPI, holds only the Marine's own sign-in addresses,
+  and leaves out a task its owner binned. A counseling copy that prints an EDIPI always carries the PII notice.
+- **Archives and recovery.** A service archive from a newer build, with no trail, or with a trail that does not verify,
+  is refused, and only a fresh instance takes one. The audit log's append-only triggers are put in place on every
+  start. A restore across a secret change seals stored secrets again, and a rotation is in the trail. A settings change
+  refused for its metrics changes nothing. The database directory is `0700` and its files `0600`; browser backups are
+  drawn in a private directory. Moving a unit says where it sat before. Signing out forgets recent visits.
+- **Tests.** `tests/server/readinessGateDefects.test.ts` holds one test per fixed defect, each seen to fail on the code
+  before its fix; `readinessGate.test.ts` also holds the register to the suite.
 
 ## What changed (2026-11-18: Task 27, the trailer)
 
