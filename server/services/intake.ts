@@ -211,10 +211,12 @@ export function inspectSource(ctx: AppContext, row: SourceFileRow): { sheets: Sh
       };
     }
     const text = buffer.toString('utf8');
-    const rows = readDelimited(text, sniffDelimiter(text)).slice(0, limits.maxRows);
+    const all = readDelimited(text, sniffDelimiter(text));
+    const rows = all.slice(0, limits.maxRows);
+    // A delimited file longer than the intake reads is cut as a workbook's sheet is, and says so as a sheet does.
     return {
       notes: [],
-      sheets: [{ name: row.filename, rows: rows.length, truncated: false, columns: rows.reduce((n, r) => Math.max(n, r.length), 0), sample: rows.slice(0, 20) }],
+      sheets: [{ name: row.filename, rows: rows.length, truncated: all.length > rows.length, columns: rows.reduce((n, r) => Math.max(n, r.length), 0), sample: rows.slice(0, 20) }],
     };
   } catch (e) {
     if (e instanceof WorkbookError || e instanceof ZipError) throw badRequest(e.message);

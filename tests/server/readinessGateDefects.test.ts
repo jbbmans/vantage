@@ -279,6 +279,29 @@ test('a whole task list longer than its cap keeps the reader’s own open work, 
   }
 });
 
+test('a delimited file longer than the intake reads says it was cut, as a workbook’s sheet does', async () => {
+  const capped = await startApp({ VANTAGE_INTAKE_MAX_ROWS: '5' });
+  try {
+    const lead = await capped.setupOperator();
+    const upload = async (rows: number) => {
+      const csv = ['Document Number,Amount', ...Array.from({ length: rows }, (_, i) => `M00264-26-RC-${String(i).padStart(4, '0')},${i + 1}.00`)].join('\n');
+      const r = await capped.call('POST', '/api/work/sources', { token: lead.token, raw: Buffer.from(csv), headers: { 'content-type': 'text/csv', 'x-filename': `errors-${rows}.csv`, 'x-unit-id': 'G8', 'x-visibility': 'unit' } });
+      assert.equal(r.status, 201, JSON.stringify(r.body));
+      const seen = await capped.call('GET', `/api/work/sources/${r.body.id}`, { token: lead.token });
+      assert.equal(seen.status, 200);
+      return seen.body.sheets[0] as { rows: number; truncated: boolean };
+    };
+    const cut = await upload(8);
+    assert.equal(cut.rows, 5, 'nine lines, five read');
+    assert.equal(cut.truncated, true, 'and the page warns that only the first rows are filed');
+    const whole = await upload(3);
+    assert.equal(whole.rows, 4);
+    assert.equal(whole.truncated, false);
+  } finally {
+    await capped.close();
+  }
+});
+
 // ——— EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's ———
 
 test('the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran', async () => {
