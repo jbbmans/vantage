@@ -199,9 +199,10 @@ if (import.meta.main) {
     if (total < allowed && !over.length) console.log(`  ${allowed - total} under budget. Run \`node scripts/wording.ts --update\` to lock that in.`);
   }
   if (over.length) {
-    console.error(`\nwording: ${over.length} file${over.length === 1 ? '' : 's'} over budget.`);
+    const fileCount = new Set(over.map((o) => o.file)).size;
+    console.error(`\nwording: ${fileCount} file${fileCount === 1 ? '' : 's'} over budget.`);
     for (const { rule, file, count, allowed } of over) {
-      console.error(`\n${file}: ${count} of ${RULES[rule].what} (${rule}), budget ${allowed}. ${RULES[rule].hint}`);
+      console.error(`\n${file}: ${count} ${rule} (${RULES[rule].what}), budget ${allowed}. ${RULES[rule].hint}`);
       for (const f of findings.get(file)!.filter((x) => x.rule === rule)) {
         console.error(`  ${f.file}:${f.line}:${f.column}  ${f.where}: "${f.match}" in ${f.text.length > 140 ? `${f.text.slice(0, 137)}...` : f.text}`);
       }
