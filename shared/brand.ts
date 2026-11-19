@@ -11,21 +11,19 @@ export const BRAND = {
   white: '#FFFFFF',
 } as const;
 
-/** The four parts on a 120-unit square, bottom to top. The mark's bounding box is centred on (60, 60). */
+/** Two broad strokes separated by a diagonal cut that stays visible at favicon size. */
 export const MARK_PATHS = {
-  v: 'M7 34h28l25 43 25-43h28L60 118 7 34Z',
-  peak: 'M60 2 90 32 74 48 60 34 46 48 30 32 60 2Z',
-  facet: 'M60 33 82 58 60 90 38 58 60 33Z',
-  sight: 'M60 43 72 58 60 78 48 58 60 43Z',
+  v: 'M4 14H32L73 85L60 108Z',
+  rise: 'M65 56L89 14H117L79 81Z',
 } as const;
 
 export type MarkVariant = 'primary' | 'reversed' | 'monochrome';
 
-/** Fills for each surface. Reversed is for navy and other dark grounds: the V knocks out to white and the facet takes the ground. */
+/** Fills for light, dark and single-ink surfaces. The gap always shows the ground. */
 export const MARK_FILLS: Record<MarkVariant, Record<keyof typeof MARK_PATHS, string>> = {
-  primary: { v: BRAND.navy, peak: BRAND.teal, facet: BRAND.white, sight: BRAND.cobalt },
-  reversed: { v: BRAND.white, peak: BRAND.teal, facet: BRAND.navy, sight: BRAND.cobalt },
-  monochrome: { v: BRAND.navy, peak: BRAND.navy, facet: BRAND.white, sight: BRAND.navy },
+  primary: { v: BRAND.navy, rise: BRAND.teal },
+  reversed: { v: BRAND.white, rise: BRAND.teal },
+  monochrome: { v: BRAND.navy, rise: BRAND.navy },
 };
 
 const paths = (variant: MarkVariant, indent = '  ') =>

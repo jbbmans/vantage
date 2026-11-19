@@ -1145,9 +1145,14 @@
       "title": "On the MCEN profile, mail including password-reset links is sent in clear text to a relay that offers no STARTTLS",
       "severity": "medium",
       "area": "Security review C06-C20",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/deployment.test.ts",
+          "test": "enterprise SMTP requires verified TLS for either relay scheme"
+        }
+      ],
+      "note": "The MCEN SMTP configuration now requires TLS and peer verification before mail is sent. Relay certificate deployment is verified by the host."
     },
     {
       "id": "c14-recent-titles-survive-sign-out",
@@ -1334,9 +1339,14 @@
       "title": "Error-report amounts with three or more decimals are rounded through a float, inconsistently and without a note, against ADR-0005",
       "severity": "medium",
       "area": "Error reports and cases",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "the filing preview flags fractional cents and preserves the row"
+        }
+      ],
+      "note": "Filing uses the exact-cent parser and preserves the source text and row note for a value it cannot read."
     },
     {
       "id": "type-recode-relabels-history",
@@ -1361,18 +1371,28 @@
       "title": "'Amount changed' counts an amount that was unreadable on one report as $0, so the net change reports the whole amount",
       "severity": "low",
       "area": "Error reports and cases",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "amount changes preserve unknown amounts and genuine zeroes"
+        }
+      ],
+      "note": "The comparison retains the changed rows and withholds a complete net when either amount is unavailable."
     },
     {
       "id": "new-standing-hint-wrong-for-span",
       "title": "'New' is labelled 'on no earlier report of this series', but compared against an older report it also counts errors that were on a report in between",
       "severity": "low",
       "area": "Error reports and cases",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "new describes the selected comparison interval"
+        }
+      ],
+      "note": "The standing text identifies the two selected reports as the comparison interval."
     },
     {
       "id": "diagnosis-omits-approver",

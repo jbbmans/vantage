@@ -325,6 +325,29 @@ function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emai
   return problems;
 }
 
+/** Enterprise mail uses a verified TLS connection for both implicit TLS and STARTTLS relays. */
+function enterpriseRelayUrl(raw: string): string {
+  let relay: URL;
+  try { relay = new URL(raw); }
+  catch { throw new Error('SMTP_URL must identify an enterprise SMTP relay.'); }
+  if (!['smtp:', 'smtps:'].includes(relay.protocol) || !relay.hostname) {
+    throw new Error('SMTP_URL must use smtp:// or smtps:// with the enterprise relay hostname.');
+  }
+  // Transport and service overrides can replace TLS options inside Nodemailer. Keep ordinary relay tuning.
+  const allowed = new Set(['name', 'tls.servername', 'connectionTimeout', 'greetingTimeout', 'socketTimeout']);
+  const policy: Record<string, string> = {
+    secure: String(relay.protocol === 'smtps:'), requireTLS: 'true', ignoreTLS: 'false',
+    opportunisticTLS: 'false', 'tls.rejectUnauthorized': 'true',
+  };
+  for (const [key, value] of relay.searchParams) {
+    if (!allowed.has(key) && (!Object.hasOwn(policy, key) || value !== policy[key])) {
+      throw new Error('SMTP_URL contains an option outside the enterprise TLS policy. Check the relay settings.');
+    }
+  }
+  for (const [key, value] of Object.entries(policy)) relay.searchParams.set(key, value);
+  return relay.toString();
+}
+
 function resolveTrustProxy(raw: string | undefined, production: boolean): boolean | number | string {
   if (raw === undefined || raw === '') return production ? 1 : false;
   const v = raw.trim().toLowerCase();
@@ -484,7 +507,7 @@ export function loadConfig(env = process.env): AppConfig {
       from: env.VANTAGE_EMAIL_FROM || 'Vantage <no-reply@localhost>',
       replyTo: env.VANTAGE_EMAIL_REPLY_TO || '',
       resendApiKey: env.RESEND_API_KEY || '',
-      smtpUrl: env.SMTP_URL || '',
+      smtpUrl: deployment.profile === 'mcen' && emailProvider === 'smtp' ? enterpriseRelayUrl(env.SMTP_URL || '') : env.SMTP_URL || '',
       dkimSelector: (env.VANTAGE_DKIM_SELECTOR || 'vantage').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'vantage',
       helo: (env.VANTAGE_EMAIL_HELO || '').trim(),
       directRoute: test ? (env.VANTAGE_EMAIL_DIRECT_ROUTE || '') : '',

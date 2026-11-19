@@ -57,6 +57,21 @@ test('MCEN starts on the enterprise defaults: the consent banner, no self-regist
   assert.equal(enterprise.deployment.topology, 'dedicated');
 });
 
+test('enterprise SMTP requires verified TLS for either relay scheme', () => {
+  for (const scheme of ['smtp', 'smtps']) {
+    const url = new URL(mcen({ VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: `${scheme}://relay.example.mil?name=vantage` }).email.smtpUrl);
+    assert.equal(url.searchParams.get('secure'), String(scheme === 'smtps'));
+    assert.equal(url.searchParams.get('requireTLS'), 'true');
+    assert.equal(url.searchParams.get('tls.rejectUnauthorized'), 'true');
+    assert.equal(url.searchParams.get('opportunisticTLS'), 'false');
+    assert.equal(url.searchParams.get('name'), 'vantage');
+  }
+  for (const raw of ['', 'http://relay.example.mil', 'smtp://relay.example.mil?ignoreTLS=true', 'smtps://relay.example.mil?tls.rejectUnauthorized=false']) {
+    assert.throws(() => mcen({ VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: raw }), /SMTP_URL/);
+  }
+  assert.equal(prod({ VANTAGE_PUBLIC_URL: 'https://public.example.test', VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://public.example.test' }).email.smtpUrl, 'smtp://public.example.test');
+});
+
 test('MCEN refuses every public-internet service of the legacy site, and names them all at once', () => {
   const refusals: Array<[Record<string, string>, RegExp]> = [
     [{ VANTAGE_INDEXNOW: 'true' }, /VANTAGE_INDEXNOW/],

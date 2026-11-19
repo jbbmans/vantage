@@ -63,7 +63,7 @@ Each is off until it is set. Each points at a service the enterprise names.
 |---|---|---|
 | Sign-in with CAC/PIV | `CAC_MODE=proxy` (with `CAC_PROXY_SECRET`) or `direct` (with `CAC_CA_BUNDLE`, `CAC_CRL_DIR`) | I-05 |
 | Sign-in with the enterprise IdP | `VANTAGE_OIDC_ISSUER`, `VANTAGE_OIDC_CLIENT_ID`, `VANTAGE_OIDC_CLIENT_SECRET` | I-05 |
-| Mail through the enterprise relay | `VANTAGE_EMAIL_PROVIDER=smtp`, `SMTP_URL`, `VANTAGE_EMAIL_FROM` | I-15 |
+| Mail through the enterprise relay | `VANTAGE_EMAIL_PROVIDER=smtp`, `SMTP_URL`, `VANTAGE_EMAIL_FROM`. Use `smtps://` for implicit TLS or `smtp://` for mandatory STARTTLS. Certificate validation is required. Optional URL settings include `tls.servername`, `name`, and connection, greeting and socket timeouts. | I-15 |
 | Audit records to the SIEM | `VANTAGE_AUDIT_SYSLOG=tls://<collector>:6514` | I-08 |
 | Malware scanning of uploads | `VANTAGE_CLAMD`, and `VANTAGE_SCAN_REQUIRED=true` | I-07 |
 

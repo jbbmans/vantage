@@ -115,7 +115,7 @@ test('search engines can verify ownership and are told once when the public page
     assert.equal(await announcePublicPage(app.ctx, html, fetcher), 'sent');
     assert.deepEqual(sent[0].body, { host: 'vantage.example.test', key, keyLocation: `https://vantage.example.test/${key}.txt`, urlList: ['https://vantage.example.test/'] });
     assert.equal(await announcePublicPage(app.ctx, html.replace(/\/assets\/public-[^"]+/, '/assets/public-renamed.js'), fetcher), 'unchanged', 'a rebuild that only renames scripts is not news');
-    assert.equal(await announcePublicPage(app.ctx, html.replace('A clearer picture', 'A sharper picture'), fetcher), 'sent');
+    assert.equal(await announcePublicPage(app.ctx, html.replace('behind the brief', 'behind the report'), fetcher), 'sent');
     assert.equal(sent.length, 2);
   } finally { await app.close(); }
 

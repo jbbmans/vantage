@@ -22,7 +22,7 @@ export interface VideoSlot {
 }
 
 const VIDEO_SLOTS: VideoSlot[] = [
-  { id: 'trailer', title: 'Vantage, the trailer', description: 'The finished product on synthetic demo data: the Marine dashboard, personnel, records, duty, training, financial workflows, error analysis, case guidance, reports and analytics, and who governs a Unit Instance.', length: '1 min 40 sec', topic: 'getting-started' },
+  { id: 'trailer', title: 'Vantage, the trailer', description: 'Follow a Marine and a section leader through the dashboard, financial casework and the reports they can brief.', length: '1 min 40 sec', topic: 'getting-started' },
   { id: 'first-week', title: 'Your first week', description: 'Set your password from the sign-in email, work through the first-week checklist, secure your account, log your first entry and find your team.', length: '50 sec', topic: 'getting-started' },
   { id: 'quick-log', title: 'Quick Log', description: 'Press N on any page, type what you did, check what Vantage filled in, and save. Works without a connection too.', length: '40 sec', topic: 'records' },
   { id: 'visibility', title: 'Who can see what', description: 'Pick who can see each entry when you save it: only you, or your unit. See where that is shown and who has opened your record.', length: '45 sec', topic: 'records' },

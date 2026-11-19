@@ -27,6 +27,26 @@ test.describe('the public site', () => {
     expect(dom.toLowerCase(), '"readiness" should at least appear somewhere on the page').toContain('readiness');
   });
 
+  test('the sample brief keeps financial measures separate and reveals their sources', async ({ page }) => {
+    await page.goto('/display');
+    const brief = page.getByRole('region', { name: 'Reconciliation summary' });
+    const umt = brief.locator('details').filter({ hasText: '1 UMT cleared' });
+    await umt.locator('summary').click();
+    await expect(umt.getByText('Invoice pair and follow-up UMT report')).toBeVisible();
+    await expect(brief).not.toContainText('$3,893.38');
+    await expect(page.locator('#watch video')).toHaveAttribute('preload', 'none');
+    await page.getByRole('link', { name: 'Walk through a case' }).click();
+    await expect(page).toHaveURL(/#case-demo$/);
+    await expect(page.getByRole('button', { name: 'See the record' })).toBeInViewport();
+  });
+
+  test('role links select the corresponding walkthrough', async ({ page }) => {
+    await page.goto('/display');
+    await page.locator('#roles').getByRole('link', { name: /Section and command leaders/ }).click();
+    await expect(page.locator('#watch h2')).toHaveText('Leading a section');
+    await expect(page.locator('#watch video')).toHaveAttribute('preload', 'none');
+  });
+
   test('the live parser on the landing page runs the real parser', async ({ page }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
     const input = page.locator('#live-parser-input');
@@ -137,7 +157,7 @@ test.describe('the public site', () => {
       expect(words, `${path} returned ${words} words of readable HTML before JavaScript`).toBeGreaterThan(400);
       expect(html, `${path} should tell caches it varies by cookie`).toBeTruthy();
       expect(res.headers().vary || '', `${path} must send Vary: Cookie`).toContain('Cookie');
-      expect(readable(html)).toContain('A clearer picture');
+      expect(readable(html)).toContain('behind the brief');
     }
 
     // An application route is not content and must keep getting the shell.

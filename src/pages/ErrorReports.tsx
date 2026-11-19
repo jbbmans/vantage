@@ -383,7 +383,7 @@ function FigureCard({ figure: f, disabled, onOpen }: { figure: ErrorFigure; disa
   const text = figureText(f);
   const sub = f.cents != null ? formatCents(f.cents, { signed: f.id === 'amount_changed' }) : null;
   return (
-    <button type="button" disabled={disabled} onClick={onOpen} data-tutorial="error-reports-figure" aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
+    <button type="button" disabled={disabled} onClick={onOpen} data-tutorial="error-reports-figure" aria-description={f.hint} aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
       className={cn('card flex h-full min-w-0 flex-col justify-between p-4 text-left', f.kind === 'money' && 'col-span-2 md:col-span-1', !disabled && 'card-hover', disabled && 'cursor-default')}>
       <span className="line-clamp-2 text-sm font-medium leading-snug text-ink-2">{f.label}</span>
       <span className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2">

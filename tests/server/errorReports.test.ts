@@ -134,6 +134,33 @@ test('two reports compare: new, still open, reopened and resolved, and what chan
   assert.deepEqual(by.E.flags, ['amount_changed']);
 });
 
+test('amount changes preserve unknown amounts and genuine zeroes', () => {
+  const compare = (oldAmount: number | null, newAmount: number | null) => {
+    const before = [row('A', { amount_cents: oldAmount }), row('B', { amount_cents: 200 })];
+    const after = [row('A', { amount_cents: newAmount }), row('B', { amount_cents: 100 })];
+    const { figures } = summarize(compareRows(before, after, new Set(['A', 'B'])),
+      { before: '2026-10-01', after: '2026-10-08' },
+      { persistent: new Set(), recurring: new Set(), firstOpenOn: new Map(), persistentKnown: false });
+    return figures.find((f) => f.id === 'amount_changed')!;
+  };
+  for (const f of [compare(null, 500), compare(500, null)]) {
+    assert.equal(f.value, 2);
+    assert.equal(f.cents, undefined);
+    assert.match(f.hint!, /1 of 2/);
+  }
+  assert.equal(compare(0, 500).cents, 400);
+  assert.equal(compare(500, 0).cents, -600);
+});
+
+test('new describes the selected comparison interval', () => {
+  const summary = summarize(compareRows([], [row('A')], new Set()),
+    { before: '2026-10-01', after: '2026-10-15' },
+    { firstOpenOn: new Map([['A', '2026-10-08']]), recurring: new Set(), persistent: new Set(), persistentKnown: true });
+  const f = summary.figures.find((figure) => figure.id === 'new')!;
+  assert.equal(f.value, 1);
+  assert.match(f.hint!, /after the selected comparison date/);
+});
+
 test('ages run from the opened day, else the stated age, else the first report it was open on', () => {
   assert.deepEqual(ageOf(row('A', { opened_on: '2026-09-01', age_days: 5 }), '2026-10-01', '2026-09-20'), { days: 30, basis: 'opened' });
   assert.deepEqual(ageOf(row('A', { age_days: 12 }), '2026-10-01', '2026-09-20'), { days: 12, basis: 'stated' });
@@ -272,6 +299,16 @@ test('the same file, a second report for one day, a day to come and a retired ty
   assert.equal(noted.status, 200, JSON.stringify(noted.body));
   assert.deepEqual(noted.body.rejections.map((r: { reason: string }) => (/amount/.test(r.reason) ? 'amount' : /opened/.test(r.reason) ? 'opened' : r.reason)), ['amount', 'opened']);
   assert.equal(noted.body.rows, 1, 'an unreadable amount or date is noted, and the row filed without it');
+});
+
+test('the filing preview flags fractional cents and preserves the row', async () => {
+  const csv = [HEAD, 'A,1,First,Open,1.005,,Open,,G8', 'B,1,Second,Open,-1.005,,Open,,G8', 'C,1,Third,Open,10.25,,Open,,G8'].join('\n');
+  const result = await post(nco.token, '/api/error-reports/preview', await plan(nco.token, 'exact-cents.csv', csv));
+  assert.equal(result.status, 200);
+  assert.equal(result.body.rows, 3);
+  assert.equal(result.body.open_cents, 1025);
+  assert.deepEqual(result.body.rejections.map((r: { value: string }) => r.value), ['1.005', '-1.005']);
+  assert.match(result.body.rejections[0].reason, /two decimal places/);
 });
 
 test('the second and third reports compare as worked out by hand, a workbook as a CSV', async () => {
