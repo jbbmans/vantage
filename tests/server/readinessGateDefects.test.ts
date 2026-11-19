@@ -191,6 +191,28 @@ test('a unit report leaves as a file only with the export permission in every un
   assert.match(full.text, /ZZFISCAL obligation/, 'the unit’s leader exports the units beneath');
 });
 
+test('a personal export holds a task someone else owns only while its read rule gives it: assigned, shared, and not in its owner’s bin', async () => {
+  const task = async (title: string) => {
+    const r = await app.call('POST', '/api/records/tasks', { token: op.token, body: { title, status: 'active', visibility: 'unit', unit_id: 'FISCAL', assignee_id: kid.id } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return r.body.id as string;
+  };
+  const live = await task('ZZLIVE assigned task');
+  const binned = await task('ZZBINNED assigned task');
+  const up = await app.call('POST', `/api/records/tasks/${binned}/attachments`, { token: op.token, raw: Buffer.from('%PDF-1.4\n% the leader’s own file\n%%EOF\n'), headers: { 'content-type': 'application/pdf', 'x-vantage-filename': 'leader-notes.pdf' } });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  assert.equal((await app.call('DELETE', `/api/records/tasks/${binned}`, { token: op.token })).status, 200);
+  assert.equal((await app.call('GET', `/api/records/tasks/${binned}`, { token: kid.token })).status, 404, 'the bin is its owner’s alone');
+
+  const mine = await app.call('GET', '/api/me/export?format=json', { token: kid.token });
+  assert.equal(mine.status, 200, mine.text.slice(0, 200));
+  const titles = (mine.body.records.tasks as Array<{ title: string }>).map((t) => t.title);
+  assert.ok(titles.includes('ZZLIVE assigned task'), 'a task assigned to them is theirs to keep');
+  assert.ok(!titles.includes('ZZBINNED assigned task'), 'one its owner binned is not');
+  assert.ok(!(mine.body.attachments as Array<{ original_name: string }>).some((a) => a.original_name === 'leader-notes.pdf'), 'nor its owner’s file');
+  assert.ok(live);
+});
+
 // ——— EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's ———
 
 test('the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran', async () => {

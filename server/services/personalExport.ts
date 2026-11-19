@@ -75,7 +75,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const records: Record<string, Row[]> = {};
   for (const table of RECORD_TABLE_NAMES) {
     // A counseling about the Marine is theirs once it is final; one they wrote, draft or final, is theirs to keep (ADR-0027).
-    const where = table === 'counselings' ? "((user_id = ? AND stage = 'final') OR counselor_id = ?)" : table === 'tasks' || table === 'goals' ? '(user_id = ? OR assignee_id = ?)' : 'user_id = ?';
+    // A task or goal someone else owns is theirs only as its read rule gives it to them: assigned, shared with the unit,
+    // and not in its owner's recycle bin, which is the owner's alone.
+    const where = table === 'counselings' ? "((user_id = ? AND stage = 'final') OR counselor_id = ?)" : table === 'tasks' || table === 'goals' ? "(user_id = ? OR (assignee_id = ? AND visibility = 'unit' AND deleted_at IS NULL))" : 'user_id = ?';
     const params = where.includes('OR') ? [userId, userId] : [userId];
     let rows = (db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY created_at DESC`).all(...params) as Row[]).map((r) => hydrate(r, table as RecordTable)!);
     if (table === 'goals') rows = withGoalProgress(ctx, rows as never) as Row[];
