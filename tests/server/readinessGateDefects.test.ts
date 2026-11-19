@@ -241,6 +241,44 @@ test('a personal export holds a task someone else owns only while its read rule 
   assert.ok(live);
 });
 
+test('a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were', async () => {
+  const capped = await startApp({ VANTAGE_MAX_RECORDS_PER_USER: '10' });
+  try {
+    const lead = await capped.setupOperator();
+    const m = await capped.register('capmarine');
+    await enroll(capped, lead.token, 'G8', m.id);
+    const marine = { id: m.id, token: (await capped.login('capmarine')).body.token as string };
+    const assigned = await capped.call('POST', '/api/records/tasks', { token: lead.token, body: { title: 'ZZMINE assigned to me', status: 'active', visibility: 'unit', unit_id: 'G8', assignee_id: marine.id, due_date: day(60) } });
+    assert.equal(assigned.status, 201, JSON.stringify(assigned.body));
+    const own = await capped.call('POST', '/api/records/tasks', { token: marine.token, body: { title: 'ZZMINE my own', status: 'active', due_date: day(90) } });
+    assert.equal(own.status, 201, JSON.stringify(own.body));
+    // Twelve of the unit's shared tasks, due sooner: by the table's order alone they would fill the list.
+    const at = new Date().toISOString();
+    for (let i = 0; i < 12; i++) {
+      capped.ctx.db.prepare("INSERT INTO tasks (id, user_id, unit_id, visibility, title, status, due_date, created_at, updated_at) VALUES (?, ?, 'G8', 'unit', ?, ?, ?, ?, ?)")
+        .run(`cap-task-${i}`, lead.id, `Unit task ${i}`, i % 2 ? 'completed' : 'active', day(-20 + i), at, at);
+    }
+
+    const list = await capped.call('GET', '/api/records/tasks', { token: marine.token });
+    assert.equal(list.status, 200);
+    const titles = (list.body as Array<{ title: string }>).map((t) => t.title);
+    assert.equal(titles.length, 10);
+    assert.ok(titles.includes('ZZMINE assigned to me') && titles.includes('ZZMINE my own'), `Today and Work keep the Marine’s own: ${titles.join(', ')}`);
+    assert.equal(list.headers.get('x-vantage-rows'), '10/14', 'and the list says it was cut');
+    const due = (list.body as Array<{ due_date: string }>).map((t) => t.due_date);
+    assert.deepEqual(due, [...due].sort(), 'still in the table’s order');
+
+    const page = await capped.call('GET', '/api/records/tasks?limit=5&offset=0', { token: marine.token });
+    assert.deepEqual((page.body as Array<{ title: string }>).map((t) => t.title), ['Unit task 0', 'Unit task 1', 'Unit task 2', 'Unit task 3', 'Unit task 4'], 'a page asked for is a page of the table’s order');
+    assert.equal(page.headers.get('x-vantage-rows'), '5/14');
+    const whole = await capped.call('GET', '/api/records/tasks', { token: lead.token });
+    assert.equal(whole.headers.get('x-vantage-rows'), '10/13', 'the Marine’s private task is not theirs to count');
+    assert.ok((whole.body as Array<{ title: string }>).some((t) => t.title === 'ZZMINE assigned to me'), 'the leader keeps what they assigned');
+  } finally {
+    await capped.close();
+  }
+});
+
 // ——— EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's ———
 
 test('the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran', async () => {

@@ -48,6 +48,7 @@ recordsRouter.get('/:table', wrap((req, res) => {
   const rows = listRecords(req.ctx, req.user, table, scope, {
     unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
+    counted: (shown, total) => res.setHeader('X-Vantage-Rows', `${shown}/${total}`),
   });
   auditListedRecords(req.ctx, req.user.id, table, rows, clientIp(req));
   res.json(rows);
