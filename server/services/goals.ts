@@ -2,6 +2,7 @@ import type { AppContext } from '../context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
 import { PERMISSIONS, can, scopeFor, subtreeIds, type Scope } from '../authz/scope.ts';
+import { canRead } from '../authz/records.ts';
 import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation } from '../../shared/metricEngine.ts';
 import type { GoalProgress } from '../../shared/types.ts';
 
@@ -151,13 +152,17 @@ export function withTypedProgress(ctx: AppContext, goals: GoalRow[]) {
 
 export interface GoalContributor { table: string; id: string; date: string; title: string; value: number; unit: string }
 
-export function goalContributors(ctx: AppContext, goal: GoalRow, reader?: Scope): GoalContributor[] {
+/**
+ * The entries a goal counted, by title, date and amount. With a reader, only the entries that reader could open as
+ * records: a goal they may see (one assigned in their unit, say) tells them its total, never its subject's entries.
+ */
+export function goalContributors(ctx: AppContext, goal: GoalRow, reader?: { scope: Scope; userId: string }): GoalContributor[] {
   const saved = goal.metric_id || legacyMetricId(goal);
   const metricId = saved ? canonicalMetricId(saved) : saved;
   if (!metricId) return [];
   const filters = { ...parseFilters(goal.filters), ...(goal.category && !goal.metric_id ? { category: goal.category } : {}) };
   const window = goalWindow(goal);
-  const measures = measuresForGoal(ctx, goal, reader);
+  const measures = measuresForGoal(ctx, goal, reader?.scope);
   const chosen = selectMeasures(measures, { filters, from: window.from, to: window.to }).filter((m) => m.metricId === metricId);
   // One lookup per table for the titles, not one per contributing entry.
   const ids = { activities: new Set<string>(), trainings: new Set<string>() };
@@ -165,12 +170,14 @@ export function goalContributors(ctx: AppContext, goal: GoalRow, reader?: Scope)
   const sources = new Map<string, { title: string; date: string }>();
   for (const [table, set] of Object.entries(ids)) {
     if (!set.size) continue;
-    for (const row of ctx.db.prepare(`SELECT id, title, date FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...set])) as Array<{ id: string; title: string; date: string }>) sources.set(`${table}:${row.id}`, row);
+    const found = ctx.db.prepare(`SELECT id, title, date, user_id, unit_id, visibility FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...set])) as Array<{ id: string; title: string; date: string; user_id: string; unit_id: string | null; visibility: string }>;
+    for (const row of found) if (!reader || canRead(reader.scope, reader.userId, row)) sources.set(`${table}:${row.id}`, row);
   }
   const rows = new Map<string, GoalContributor>();
   for (const m of chosen) {
     const [table, id] = m.outcomeId.split(':');
     const source = sources.get(`${table === 'trainings' ? 'trainings' : 'activities'}:${id}`);
+    if (reader && !source) continue;
     rows.set(m.outcomeId, { table, id, date: source?.date || m.date, title: source?.title || '', value: m.value, unit: m.unit });
   }
   return [...rows.values()].sort((a, b) => b.date.localeCompare(a.date));

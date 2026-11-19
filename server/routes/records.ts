@@ -59,7 +59,7 @@ recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
   // them anyway. A member who can see the goal still sees its progress, which is a total.
   const scope = scopeFor(req.ctx, req.user, req);
   if (raw.measure_scope === 'unit' && !can(scope, PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
-  res.json(goalContributors(req.ctx, raw as never, scope));
+  res.json(goalContributors(req.ctx, raw as never, { scope, userId: req.user.id }));
 }));
 
 recordsRouter.post('/activities/import', wrap((req, res) => {

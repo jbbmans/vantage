@@ -3,7 +3,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther, unfinalized } from '../authz/records.ts';
+import { readableClause, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther, unfinalized } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
@@ -11,7 +11,7 @@ import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/
 import { periodClause } from './timeframes.ts';
 import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
-import { assertFinalizable, finalizedColumns, tellFinal, withCounselingDetail } from './counselings.ts';
+import { assertFinalizable, editRefusal, finalizedColumns, mayEditRecord, tellFinal, withCounselingDetail } from './counselings.ts';
 import { courseColumns, rechecksCourse, withCourseDetail } from './courses.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
@@ -517,8 +517,9 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // A counseling not yet final is no such record to anyone who may not read it (ADR-0027).
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'edit');
-  const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
-  if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
+  const editable = mayEditRecord(ctx, scope, user.id, row);
+  const assigneeOnly = !editable && isAssignee(scope, user.id, row);
+  if (!editable && !assigneeOnly) throw editRefusal(ctx, scope, user.id, row, 'edit')!;
   const assignmentNote = assignmentNoteOf(table, body);
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
   if (assigneeOnly) {
@@ -633,7 +634,8 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const scope = scopeFor(ctx, user, reqKey);
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'delete');
-  if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to delete.');
+  const refused = editRefusal(ctx, scope, user.id, row, 'delete');
+  if (refused) throw refused;
   let detail: string | undefined;
   ctx.db.transaction(() => {
     ctx.db.prepare(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(now(), now(), id);
@@ -654,7 +656,8 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   if (!row || !row.deleted_at) throw notFound('No such deleted record.');
   const scope = scopeFor(ctx, user, reqKey);
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such deleted record.');
-  if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to restore.');
+  const refused = editRefusal(ctx, scope, user.id, row, 'restore');
+  if (refused) throw refused;
   if (table === 'activities' && row.fingerprint) {
     const twin = ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL AND id != ?').get(row.user_id, row.fingerprint, id) as { id: string; title: string } | undefined;
     if (twin) throw conflict(`An identical live entry already exists (“${twin.title}”). Delete that one first, or leave this copy to purge.`, 'duplicate', { duplicate_id: twin.id });

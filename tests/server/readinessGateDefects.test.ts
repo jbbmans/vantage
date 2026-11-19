@@ -123,6 +123,34 @@ test('a unit-measured goal reads the units beneath only where its setter does, a
   assert.deepEqual(shown.body, [], 'but not the FISCAL entries behind it, by title and amount');
 });
 
+test('a goal assigned in a unit shows its contributors, by title and amount, only to those who may open them: not to its unit’s other Marines', async () => {
+  const marine = async (username: string) => {
+    const u = await app.register(username);
+    await enroll(app, op.token, 'G8', u.id);
+    return { id: u.id, token: (await app.login(username)).body.token as string };
+  };
+  const subject = await marine('goalsubject');
+  const peer = await marine('goalpeer');
+  const entry = await app.call('POST', '/api/records/activities', { token: subject.token, body: { title: 'ZZSUBJECT shared obligation', date: day(-3), dollar_amount: 4321.09, dollar_type: 'obligated', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const goal = await app.call('POST', '/api/records/goals', {
+    token: op.token, body: { title: 'Obligate this quarter', status: 'active', visibility: 'unit', unit_id: 'G8', assignee_id: subject.id, metric_id: 'money:obligated', direction: 'increase', target_value: 10000, period_start: day(-30), period_end: day(30) },
+  });
+  assert.equal(goal.status, 201, JSON.stringify(goal.body));
+  assert.equal(goal.body.progress.current, 4321.09, 'the goal measures its subject’s work');
+  const contributors = (token: string) => app.call('GET', `/api/records/goals/${goal.body.id}/contributors`, { token });
+  const titles = (r: { body: unknown }) => (r.body as Array<{ title: string }>).map((c) => c.title);
+
+  assert.equal((await app.call('GET', `/api/records/goals/${goal.body.id}`, { token: peer.token })).status, 200, 'a Marine of the unit sees the goal set there');
+  const theirs = await contributors(peer.token);
+  assert.equal(theirs.status, 200);
+  assert.deepEqual(theirs.body, [], 'but not the entries behind its total');
+  assert.equal((await app.call('GET', `/api/records/activities/${entry.body.id}`, { token: peer.token })).status, 403, 'as they may not open the entry itself');
+
+  assert.deepEqual(titles(await contributors(subject.token)), ['ZZSUBJECT shared obligation'], 'its subject sees their own');
+  assert.deepEqual(titles(await contributors(op.token)), ['ZZSUBJECT shared obligation'], 'the unit’s leader, who reads shared records, sees them');
+});
+
 test('the AI command brief totals only the units its reader reads, and needs View shared records as well as Export data', async () => {
   const mock = await mockGenAi(() => ({ json: { model: 'm', choices: [{ message: { content: '{"executive_summary":"x","highlights":[],"watch_items":[],"recommended_questions":[],"caveats":[]}' } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } } }));
   const local = await startApp({ VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100', VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url });
