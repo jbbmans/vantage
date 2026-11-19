@@ -143,7 +143,8 @@ export function verdictOf(register: GateRegister): GateVerdict {
 
 const STATUS_LABEL: Record<GateItem['status'], string> = { proven: 'Proven', partly: 'Partly', open: 'Open', external: 'External' };
 const RESULT_LABEL: Record<GateCheck['result'], string> = { pass: 'Pass', fail: 'Fail', cancelled: 'Cancelled', 'not-run': 'Not run' };
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+/** Text for one table cell: a backslash is escaped before a pipe is, so neither can end the cell early. */
+const cell = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 const cite = (evidence: GateEvidence[]) => evidence.map((e) => (e.test ? `\`${e.file}\`: “${cell(e.test)}”` : `\`${e.file}\``) + (e.note ? ` (${cell(e.note)})` : '')).join('<br>') || '–';
 
 /** READINESS_GATE.md, drawn from the register. */

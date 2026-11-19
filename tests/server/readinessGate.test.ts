@@ -341,4 +341,16 @@ test('the verdict: an open critical or high defect, an item not shown, or a requ
   }
   assert.ok(gateProblems({ ...base, items: [{ ...base.items[0], evidence: [{ file: 'tests/server/readinessGate.test.ts', test: `no test is called this ${Date.now()}` }] }] }).some((p) => p.includes('no test called')), 'a cited test must exist');
   assert.ok(gateProblems({ ...base, defects: [{ ...base.defects[0], status: 'fixed' }] }).some((p) => p.includes('regression test')), 'a fix names its test');
+
+  // The summary is a Markdown table, whose cells a pipe ends unless a backslash escapes it, and a backslash escapes
+  // whatever follows it: words holding either stay inside their cell.
+  const cellsOf = (line: string) => {
+    const out = [''];
+    for (let i = 1; i < line.length - 1; i += 1) {
+      if (line[i] === '\\') { out[out.length - 1] += line[i] + line[i + 1]; i += 1; } else if (line[i] === '|') out.push(''); else out[out.length - 1] += line[i];
+    }
+    return out;
+  };
+  const drawn = renderGate({ ...base, defects: [{ ...base.defects[0], title: 'Words with marks', note: 'C:\\| and a | b' }] });
+  assert.equal(cellsOf(drawn.split('\n').find((l) => l.startsWith('| Words with marks'))!).length, 6, 'the defect row keeps its six cells');
 });
