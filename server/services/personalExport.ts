@@ -280,7 +280,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     'vantage-export.json holds everything in one structured file. The CSVs are the same data one dataset per file, for spreadsheets.',
     'Import records (Settings, Your data) reads this ZIP back: awards stay awards, training stays training, files stay on their records.',
     'attachments/ holds the files you uploaded, named <record>-<attachment id>-<original name>. attachments.csv lists each with what it is evidence of, its description, who added it and when.', '',
-    'Records include entries in the recycle bin (deleted_at is set). Nothing here is a system of record; MOL is.',
+    'Records include entries in the recycle bin (deleted_at is set). Evaluations of record are on MOL.',
     ...('sections' in archive ? ['', `Holds only: ${(archive as unknown as { sections: string[] }).sections.map((k) => categoryOf(k)?.label ?? k).join(', ')}.`] : []),
     ...(archive.audit_trail_cut ? ['', auditCutNote(archive.audit_trail_cut)] : []),
     '', 'Datasets:', ...Object.entries(archive.counts).map(([k, v]) => `  ${k}: ${v}`),

@@ -2,9 +2,8 @@
 
 _Assessed 2026-10-10 against `main` plus Task 7 ([ADR-0013](../engineering/ADR/0013-security-audit-least-privilege.md)); revised 2026-10-11 after review. Entries V7.3, V7.4, V8.3.2, V10.1, V10.2 and V15.4 revised 2026-11-18 for the security review's findings F01 to F06 ([ADR-0035](../engineering/ADR/0035-fresh-authority-across-waits.md)); the rest of the assessment has not been redone since 2026-10-11._
 
-This is a self-assessment written by the people who built Vantage. It is not an accreditation, a penetration
-test or a third-party verification. No DoD, USMC, MCEN, NETACT-RES or RMF approval has been sought or granted.
-Dynamic scanning (HawkScan) was not run for this assessment.
+This is a self-assessment written by the people who built Vantage, not a penetration test or a third-party
+verification. Dynamic scanning (HawkScan) was not run for this assessment.
 
 ## Source and provenance
 

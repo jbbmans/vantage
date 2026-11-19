@@ -505,7 +505,7 @@
         {
           "time": "01:48-02:10",
           "picture": "Handoff sheet: owner, support route, configuration record, backup responsibility, test date and open items.",
-          "voice": "Record who owns the deployment and how users get help. Keep a dated configuration and verification record. VANTAGE is independent software; deploying it does not establish official approval.",
+          "voice": "Record who owns the deployment and how users get help. Keep a dated configuration and verification record.",
           "edit": "End on operational handoff, not account secrets. No music swell suggesting certification."
         }
       ]
@@ -550,7 +550,7 @@
         },
         {
           "time": "01:27-01:40",
-          "picture": "End on three short lines: Scope / Authority / Verification, with independent-software clarification.",
+          "picture": "End on three short lines: Scope / Authority / Verification.",
           "voice": "Decide the scope, document the authority, and verify the behavior. These controls support your process; they do not confer approval or compliance by themselves.",
           "edit": "Fade to flat mark; measured delivery, no dramatic closing effect."
         }

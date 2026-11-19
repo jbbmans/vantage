@@ -13,8 +13,8 @@ the evidence in their evaluation input next quarter. None of it is typed twice.
 
 ## What Vantage is not
 
-- Not a system of record. DAI, Advana, GCSS-MC, MOL and the other authoritative systems remain
-  authoritative. Vantage organizes the human work around them, calculates transparently, keeps the
+- Not a replacement for the systems of record. DAI, Advana, GCSS-MC, MOL and the other authoritative systems
+  remain authoritative. Vantage organizes the human work around them, calculates transparently, keeps the
   evidence, and says where every value came from.
 - Not a scoring or surveillance tool. It never labels people and never estimates effort from typing
   or open tabs. A count always comes with its definition, its window, and what it cannot show.

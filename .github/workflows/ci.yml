@@ -30,6 +30,20 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  commit-identity:
+    name: Commit identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Every commit in the pull request, or pushed to main, carries a person's identity and no AI tool lines.
+      - run: node scripts/commit-identity.ts
+
   supply-chain:
     name: Dependencies and SBOM
     runs-on: ubuntu-latest

@@ -98,7 +98,7 @@ const SECURITY: TrustPage = {
           <li>A privacy-impact data inventory is generated from the live database schema, so it cannot quietly stop being true.</li>
           <li>Every build is linted, type-checked and tested; dependencies are audited; a CycloneDX software bill of materials is published; the code is scanned with CodeQL and the image with Trivy; the base image is pinned by digest.</li>
         </ul>
-        <p>Vantage is an independent project. It holds no FedRAMP authorization and no Authority to Operate. The service runs on commercial infrastructure and is not accredited for classified information or Controlled Unclassified Information; do not enter either.</p>
+        <p>The public deployment at vantageusmc.com runs on commercial infrastructure and is not accredited for classified information or Controlled Unclassified Information; do not enter either there.</p>
       </>,
     },
     {
@@ -226,7 +226,7 @@ const PRIVACY: TrustPage = {
     },
     {
       id: 'contact', title: 'Questions',
-      body: <p>Ask through the <a href="/login?help">request form</a> (no account needed) or, once signed in, from Support. Vantage is an independent software project, not affiliated with, endorsed by or sponsored by the Department of Defense, the Department of the Navy or the U.S. Marine Corps.</p>,
+      body: <p>Ask through the <a href="/login?help">request form</a> (no account needed) or, once signed in, from Support.</p>,
     },
   ],
 };

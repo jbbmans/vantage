@@ -143,6 +143,6 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 
 ## Status
 
-Vantage is not a system of record. Marine Online is. Point tables and orders change; the app cites what it relies on and never computes an official score.
+Evaluations of record live on Marine Online. Point tables and orders change; the app cites what it relies on.
 
 See `NOTICE` for terms.

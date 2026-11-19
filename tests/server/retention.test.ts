@@ -178,6 +178,16 @@ test('no declared column has drifted away from the schema', async () => {
   } finally { await app.close(); }
 });
 
+test('every table in a fresh schema is declared, and every column in it classified', async () => {
+  const app = await startApp();
+  try {
+    const inv = buildInventory(app.ctx);
+    assert.deepEqual(inv.summary.undeclared, [], 'declare each new table in server/services/privacyInventory.ts, with its purpose and authority');
+    const unclassified = inv.tables.filter((t) => t.unclassified.length).map((t) => `${t.table}: ${t.unclassified.join(', ')}`);
+    assert.deepEqual(unclassified, [], `classify each new column in its table's declaration:\n${unclassified.join('\n')}`);
+  } finally { await app.close(); }
+});
+
 test('every table the inventory declares still exists', async () => {
   const app = await startApp();
   try {

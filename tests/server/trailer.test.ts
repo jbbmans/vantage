@@ -42,8 +42,8 @@ test('nothing the trailer writes on screen portrays Vantage as a public SaaS sit
   // Its code and the words it draws, not the comments that explain why there is no address.
   const code = composition.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, SAAS, 'the composition’s own words');
-  // The end card says what the demo banner and the application footer say: synthetic data, not a system of record.
-  assert.match(composition, /export const FINE_PRINT = 'Synthetic demo data\. Not an official DoD or USMC system of record\.';/);
+  // The end card says what the demo banner says: the data is synthetic.
+  assert.match(composition, /export const FINE_PRINT = 'Synthetic demo data\.';/);
   assert.match(code, />Demo data\s*</, 'the application is labelled as demo data the whole time it is on screen');
 });
 

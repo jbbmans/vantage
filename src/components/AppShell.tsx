@@ -787,7 +787,6 @@ function Shell() {
           <footer className="no-print mx-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pb-[calc(1.25rem+var(--tabbar,0px))] pt-4 text-xs text-ink-3 sm:mx-6 lg:mx-10">
             <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded-sm font-medium text-ink-2 transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
             <span>Your Unit Instance’s records are kept apart from every other’s.</span>
-            <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
         </div>
 

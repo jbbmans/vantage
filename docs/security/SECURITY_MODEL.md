@@ -2,8 +2,8 @@
 
 This extends `docs/security.md`, which covers identities, sessions, authorization, integrity,
 transport, AI and correspondence. It is not repeated here. This file covers the access modes, the case
-history, the Record, and the synthetic demo. Nothing here is a claim of accreditation: no DoD, USMC,
-MCEN, NETACT-RES, RMF or CAC approval is established by this repository. Deployment authorization is a separate decision for the responsible authority.
+history, the Record, and the synthetic demo. Deployment authorization is recorded by the responsible
+authority, outside this repository.
 
 ## Access modes
 

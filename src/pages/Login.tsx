@@ -320,7 +320,6 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
             <li><Fingerprint strokeWidth={1.75} aria-hidden /><span><b>Sign in your way</b>{status?.cac?.enabled ? 'CAC, passkeys and account security options, with sessions you can end.' : status?.sso?.enabled ? 'Organization sign-in and account security options, with sessions you can end.' : 'Passkeys and authenticator codes, with sessions you can end.'}</span></li>
           </ul>
         </div>
-        <p className="auth-panel-foot">Independent software project. Not an official DoD or USMC system of record.</p>
       </aside>
 
       <div className="auth-side">

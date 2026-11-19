@@ -14,7 +14,7 @@ export const EVAL_REFERENCES: Record<string, EvalReference> = {
       { id: 'MARADMIN 367/21', note: 'MOS Courses and Qualifications initiative', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/2693294/' },
       { id: 'MARADMIN 046/24', note: 'MOS Qualifications expanded to all MOSs; reported via MCTIMS', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/3662965/' },
     ],
-    authoritative: 'Your JEPES score on Marine Online (MOL) is the only official number.',
+    authoritative: 'Your JEPES score of record is the one on Marine Online (MOL).',
   },
   fitrep: {
     system: 'Performance Evaluation System (fitness reports)',
