@@ -18,11 +18,14 @@ export interface Commit {
   message: string;
 }
 
-const TOOL = /\b(claude|anthropic|codex|openai|chatgpt)\b/i;
+/** The tools by name. A person who happens to be called Claude is not one: names are matched whole, or as a bot. */
+const TOOLS = 'claude|claude code|codex|openai codex|chatgpt|copilot|github copilot|gemini|cursor|cursor agent|devin';
+const TOOL_NAME = new RegExp(`^(${TOOLS})$|^[^\\s]*\\b(claude|codex|chatgpt|copilot|gemini|cursor|devin)\\b[^\\s]*\\[bot\\]$`, 'i');
+const TOOL_EMAIL = /@(anthropic\.com|openai\.com)$|\b(claude|codex|chatgpt|copilot|gemini|cursor|devin)\b[^@]*\[bot\]@/i;
 const LINES: ReadonlyArray<readonly [RegExp, string]> = [
-  [/^co-authored-by:.*\b(claude|anthropic|codex|openai|chatgpt)\b/im, 'a Co-Authored-By line naming an AI tool'],
+  [/^co-authored-by:.*\b(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|devin)\b/im, 'a Co-Authored-By line naming an AI tool'],
   [/^claude-session:/im, 'a Claude-Session line'],
-  [/generated with \[?claude code/i, 'a "Generated with Claude Code" line'],
+  [/generated (with|by) \[?(claude|codex|chatgpt|copilot|gemini|cursor|devin)/i, 'a "Generated with" line for an AI tool'],
 ];
 
 export function identityProblems(commits: readonly Commit[]): string[] {
@@ -30,7 +33,7 @@ export function identityProblems(commits: readonly Commit[]): string[] {
   for (const c of commits) {
     const short = c.sha.slice(0, 8);
     for (const [role, name, email] of [['author', c.authorName, c.authorEmail], ['committer', c.committerName, c.committerEmail]] as const) {
-      if (TOOL.test(name) || TOOL.test(email)) problems.push(`${short}: the ${role} is ${name} <${email}>`);
+      if (TOOL_NAME.test(name.trim()) || TOOL_EMAIL.test(email.trim())) problems.push(`${short}: the ${role} is ${name} <${email}>`);
     }
     for (const [pattern, what] of LINES) if (pattern.test(c.message)) problems.push(`${short}: the message has ${what}`);
   }
@@ -44,20 +47,27 @@ function hasRef(ref: string): boolean {
 }
 
 /** The range to check, or null when there is nothing to check here (a manual run, a new branch, no origin/main). */
-export function rangeFor(argv: readonly string[], env: NodeJS.ProcessEnv, hasOriginMain = () => hasRef('origin/main')): string | null {
+export function rangeFor(argv: readonly string[], env: NodeJS.ProcessEnv, exists: (ref: string) => boolean = hasRef): string | null {
   const given = argv.find((a) => a.includes('..'));
   if (given) return given;
   if (!argv.includes('--local') && env.GITHUB_EVENT_PATH) {
     const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
     if (event.pull_request) return `${event.pull_request.base.sha}..${event.pull_request.head.sha}`;
-    if (event.before && event.after && !/^0+$/.test(event.before)) return `${event.before}..${event.after}`;
-    return null;
+    if (!event.after || /^0+$/.test(event.after)) return null;
+    // A new branch has no before. A force-push leaves its before unreachable: then every commit the new head holds is checked.
+    if (!event.before || /^0+$/.test(event.before)) return null;
+    return exists(event.before) ? `${event.before}..${event.after}` : event.after;
   }
-  return hasOriginMain() ? 'origin/main..HEAD' : null;
+  return exists('origin/main') ? 'origin/main..HEAD' : null;
 }
 
 export function commitsIn(range: string): Commit[] {
-  const out = git('log', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e', range);
+  let out: string;
+  try {
+    out = git('log', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e', range);
+  } catch (error) {
+    throw new Error(`commit identity: git cannot read ${range}: ${String((error as { stderr?: string }).stderr ?? error).trim()}`);
+  }
   return out.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean).map((record) => {
     const [sha, authorName, authorEmail, committerName, committerEmail, message] = record.split('\x1f');
     return { sha, authorName, authorEmail, committerName, committerEmail, message };
