@@ -4,14 +4,7 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 
 ## Verdict
 
-- **Engineering gate: FAIL.** Not passed, because:
-  - required check not-run: Lint and the any budget (lint)
-  - required check not-run: Type check (server, web, browser tests) (typecheck)
-  - required check not-run: Production build and prerender (build)
-  - required check not-run: Unit and integration tests (server-suite)
-  - required check not-run: End-to-end browser suite (browser-suite)
-  - required check not-run: The register checks out and READINESS_GATE.md is drawn from it (register)
-  - required check not-run: Dependency audit (npm-audit)
+- **Engineering gate: PASS.** No critical or high defect is open, every gate item is shown or owned outside the code, and every required check passed on the candidate.
 - **Operational release: NOT READY.** This gate never decides it. It waits on 9 items only an owner outside the code can close (below), and on the responsible authority's decision to operate.
 
 ## Candidate
@@ -25,15 +18,15 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 
 | Check | Command | Required | Result | Ran on | Detail |
 |---|---|---|---|---|---|
-| Lint and the any budget | `npm run lint` | Yes | Not run | `pending` |  |
-| Type check (server, web, browser tests) | `npm run typecheck` | Yes | Not run | `pending` |  |
-| Production build and prerender | `npm run build` | Yes | Not run | `pending` |  |
-| Unit and integration tests | `npm test` | Yes | Not run | `pending` |  |
-| End-to-end browser suite | `npx playwright test --trace off` | Yes | Not run | `pending` |  |
-| The register checks out and READINESS_GATE.md is drawn from it | `node scripts/readiness-gate.ts` | Yes | Not run | `pending` |  |
-| Dependency audit | `npm audit` | Yes | Not run | `pending` |  |
+| Lint and the any budget | `npm run lint` | Yes | Pass | `0058137` | Clean. The any budget is at its limits: 168 in src, 4 in server, 3 in shared. |
+| Type check (server, web, browser tests) | `npm run typecheck` | Yes | Pass | `0058137` | Server, web and browser tests. |
+| Production build and prerender | `npm run build` | Yes | Pass | `0058137` |  |
+| Unit and integration tests | `npm test` | Yes | Pass | `0058137` | 1,317 of 1,317 (4 min 17 s). The baseline on 5a80959 was 1,278. |
+| End-to-end browser suite | `npx playwright test --trace off` | Yes | Pass | `0058137` | 267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb. |
+| The register checks out and READINESS_GATE.md is drawn from it | `node scripts/readiness-gate.ts` | Yes | Pass | `0058137` | Also run, with tests/server/readinessGate.test.ts, on the commit that records these results. |
+| Dependency audit | `npm audit` | Yes | Pass | `0058137` | 0 vulnerabilities. |
 | Dynamic scan (HawkScan) | `hawk scan` | No | Not run | `none` | No StackHawk API key in this environment, so it cannot run; listed under owners outside the code (dynamic-scan). |
-| GitHub Actions on the pull request | `.github/workflows/ci.yml` | No | Not run | `none` | Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 32, so the suite ran in the container instead. |
+| GitHub Actions on the pull request | `.github/workflows/ci.yml` | No | Not run | `none` | Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 31, so the suite ran in the container instead. |
 
 ## Gate items
 

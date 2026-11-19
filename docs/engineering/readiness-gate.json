@@ -2052,26 +2052,26 @@
       "title": "Lint and the any budget",
       "command": "npm run lint",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "Clean. The any budget is at its limits: 168 in src, 4 in server, 3 in shared."
     },
     {
       "id": "typecheck",
       "title": "Type check (server, web, browser tests)",
       "command": "npm run typecheck",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "Server, web and browser tests."
     },
     {
       "id": "build",
       "title": "Production build and prerender",
       "command": "npm run build",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
+      "result": "pass",
+      "on": "0058137",
       "detail": ""
     },
     {
@@ -2079,36 +2079,36 @@
       "title": "Unit and integration tests",
       "command": "npm test",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "1,317 of 1,317 (4 min 17 s). The baseline on 5a80959 was 1,278."
     },
     {
       "id": "browser-suite",
       "title": "End-to-end browser suite",
       "command": "npx playwright test --trace off",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb."
     },
     {
       "id": "register",
       "title": "The register checks out and READINESS_GATE.md is drawn from it",
       "command": "node scripts/readiness-gate.ts",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "Also run, with tests/server/readinessGate.test.ts, on the commit that records these results."
     },
     {
       "id": "npm-audit",
       "title": "Dependency audit",
       "command": "npm audit",
       "required": true,
-      "result": "not-run",
-      "on": "pending",
-      "detail": ""
+      "result": "pass",
+      "on": "0058137",
+      "detail": "0 vulnerabilities."
     },
     {
       "id": "hawkscan",
@@ -2126,7 +2126,7 @@
       "required": false,
       "result": "not-run",
       "on": "none",
-      "detail": "Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 32, so the suite ran in the container instead."
+      "detail": "Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 31, so the suite ran in the container instead."
     }
   ]
 }
