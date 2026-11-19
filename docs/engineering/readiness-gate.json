@@ -37,6 +37,14 @@
         {
           "file": "tests/server/readinessGate.test.ts",
           "test": "exports: the Marine takes everything of theirs, an SNCO the unit’s shared work, and nobody else’s private entries or another unit"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a goal assigned in a unit shows its contributors, by title and amount, only to those who may open them: not to its unit’s other Marines"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "a counselor who no longer counsels the Marine reads what they wrote but no longer moves it"
         }
       ]
     },
@@ -221,6 +229,11 @@
         {
           "file": "tests/server/dutyReview.test.ts",
           "test": "approving your own duty takes a role that names it, which someone else grants: nobody gives it to themselves, the Unit Leader included"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends",
+          "note": "An account a Unit Manager opened is proven only once nobody but its person holds a way in."
         }
       ]
     },
@@ -281,7 +294,8 @@
           "file": "tests/server/trainingEvidence.test.ts",
           "test": "a file’s content, type, size and name are checked on the server, and a download is only ever a download"
         }
-      ]
+      ],
+      "note": "Downloads hold for every role. Open mediums on the way in: a record moved into an instance that withholds attachments brings its files, work intake keeps a file the scanner rejected, and an unscanned attachment carries no mark."
     },
     {
       "id": "imports-cannot-inject",
@@ -443,9 +457,13 @@
         {
           "file": "tests/server/clientState.test.ts",
           "test": "signing out forgets what was opened on this device, in both storages, and keeps everything else"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
         }
       ],
-      "note": "Which methods an MCEN instance accepts, and what assurance its step-up needs, wait on the sign-in method policy (review C06, C07): under OIDC-only the server still accepts passkeys and password step-up. Kept open as defect c06-passkey-accepted-under-exclusive-modes until the service’s sign-in owner decides."
+      "note": "Which methods an MCEN instance accepts, and what assurance its step-up needs, wait on the sign-in method policy (review C06, C07): under OIDC-only the server still accepts passkeys and password step-up. Kept open as defect c06-passkey-accepted-under-exclusive-modes until the service’s sign-in owner decides. Open mediums in the same area: step-up opened by any sign-in, staff signing in by password alone, reset links outliving a credential change, username enumeration by passkey options, and the break-glass script under exclusive modes."
     },
     {
       "id": "personnel-history",
@@ -610,7 +628,7 @@
         "Unit Leader",
         "Unit Manager"
       ],
-      "status": "proven",
+      "status": "partly",
       "evidence": [
         {
           "file": "tests/server/errorReports.test.ts",
@@ -635,8 +653,13 @@
         {
           "file": "tests/server/cases.test.ts",
           "test": "money is parsed to exact cents from text, never through a float"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a delimited file longer than the intake reads says it was cut, as a workbook’s sheet does"
         }
-      ]
+      ],
+      "note": "Two open mediums: an error-report amount with three or more decimals is rounded through a float (amount-float-rounding, against ADR-0005), and re-coding a report type relabels reports already filed (type-recode-relabels-history, section 18)."
     },
     {
       "id": "case-diagnosis",
@@ -716,7 +739,8 @@
           "file": "tests/server/readinessGate.test.ts",
           "test": "duty: the Marine submits, a reviewer decides, nobody their own, and a later scoring version leaves past duty as it was"
         }
-      ]
+      ],
+      "note": "Versioning holds through edit, re-approval, reopening, override, import, the bin and a service archive. Three open mediums sit beside it in the review rules: a reviewer may correct a submitted duty’s points by editing it, or bin it, without the override or rejection path, and a duty’s files can change between a reviewer opening it and deciding it."
     },
     {
       "id": "accessibility",
@@ -755,6 +779,10 @@
         {
           "file": "tests/browser/mobile.spec.ts",
           "test": "F1/KB-04: the phone menu is a dialog named Menu that holds focus while open and hands it back when it closes"
+        },
+        {
+          "file": "tests/browser/34-audit-anchors.spec.ts",
+          "test": "a Marine pages back through who has looked at their record, on a phone too (AUD-5, AUD-7)"
         }
       ],
       "note": "No PDF is tagged for assistive technology (ADR-0032 lists it as not done); a formal assessment with assistive technology users is the accrediting authority’s."
@@ -789,9 +817,13 @@
         {
           "file": "tests/server/auditScale.test.ts",
           "test": "AUD-8, AUD-11: past the limits, the personal export says it was cut and a trail export is refused before a row is read"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were"
         }
       ],
-      "note": "Measured in the container, not on the MCEN host: load at the intended concurrency on the intended hardware is evidence only the host can give."
+      "note": "Measured in the container, not on the MCEN host: load at the intended concurrency on the intended hardware is evidence only the host can give. scripts/scale-check.ts gave a worst p95 of 16.3 ms at 1,000 Marines and 50,000 records, timing SQL, not routes. Open mediums: record pages still load and audit a whole list and do not yet say in words that it was cut, Correspondence stops at 300 threads, and unit metrics hold the server for about a second at 50,000 records."
     },
     {
       "id": "migrations",
@@ -865,6 +897,56 @@
     }
   ],
   "defects": [
+    {
+      "id": "today-tasks-silent-cut",
+      "title": "Today and Work → Tasks show none of a Marine's open tasks once their units hold 20,000 readable tasks; the cut is silent",
+      "severity": "high",
+      "area": "Accessibility and performance",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were"
+        }
+      ],
+      "note": "Verified independently. A whole record list cut at its cap keeps the reader’s own first and answers X-Vantage-Rows; see record-lists-silent-cut-own-entries for what remains."
+    },
+    {
+      "id": "record-lists-silent-cut-own-entries",
+      "title": "Activities, Readiness, Training, Awards, Counseling and Goals silently drop a leader's or NCO's own entries; each Activities load is 15 MB and writes 1,000 audit entries",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Partly closed with today-tasks-silent-cut: the reader’s own entries are kept first and the cut is counted in X-Vantage-Rows. The pages do not yet say so in words, and a whole list is still loaded and its reads audited."
+    },
+    {
+      "id": "correspondence-threads-cut-300",
+      "title": "Work → Correspondence stops at 300 threads without saying so, hiding the reader's own threads behind the unit's",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unit-metrics-stall",
+      "title": "Unit /metrics loads every shared row of the period and the period before into memory and freezes the whole server for 0.8 to 1.4 s at 50,000 records",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unit-export-unbounded",
+      "title": "The unit JSON export builds every shared record in one synchronous response (31.65 MB at 50,000 activities) outside the export queue",
+      "severity": "low",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
     {
       "id": "archive-newer-schema-silent-loss",
       "title": "Service archive import accepts an archive from a newer build and silently drops columns and tables it does not know",
@@ -985,7 +1067,7 @@
       "area": "Audit, migrations and recovery",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "single-session-revoke-unaudited",
@@ -994,7 +1076,7 @@
       "area": "Audit, migrations and recovery",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c06-passkey-accepted-under-exclusive-modes",
@@ -1003,7 +1085,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Which sign-in methods an MCEN instance accepts, and what step-up must prove, is the sign-in method policy (review C06, C07). It waits on the service’s sign-in owner; the code follows once it is set."
+      "note": "Which sign-in methods an MCEN instance accepts, and what step-up must prove, is the sign-in method policy (review C06, C07). It waits on the service’s sign-in owner; the code follows once it is set. The identity review confirmed it again (c06-exclusive-modes-accept-other-methods)."
     },
     {
       "id": "c08-mcen-accepts-invalid-security-numbers",
@@ -1012,7 +1094,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c08-mcen-weak-postures-not-refused",
@@ -1021,7 +1103,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c09-default-proxy-trust-forges-client-ip",
@@ -1030,7 +1112,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c12-audit-forwarder-drops-and-miscounts",
@@ -1039,7 +1121,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c15-live-database-world-readable",
@@ -1061,7 +1143,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c14-recent-titles-survive-sign-out",
@@ -1083,7 +1165,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c16-unrecoverable-sealed-values-unreported",
@@ -1092,7 +1174,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c28-session-lifecycle-unaudited",
@@ -1101,7 +1183,7 @@
       "area": "Security review C21-C35",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c35-passkey-profile-and-removal",
@@ -1110,7 +1192,7 @@
       "area": "Security review C21-C35",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c31-csv-no-handling-line",
@@ -1119,7 +1201,7 @@
       "area": "Security review C21-C35",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "c34-stale-asvs-claims",
@@ -1128,7 +1210,7 @@
       "area": "Security review C21-C35",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "codeql-biased-random-passphrase",
@@ -1137,7 +1219,256 @@
       "area": "Security review C21-C35",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reviewer-correction-bypasses-override",
+      "title": "A reviewer without Override duty points changes a submitted duty's points by editing it, then approves: no reason, no review history, the Marine not told",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reviewer-bins-submitted-duty",
+      "title": "A reviewer bins a Marine's submitted duty instead of rejecting it: no reason, no review history, the Marine not told",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "duty-evidence-changes-under-decision",
+      "title": "A duty's files can be removed or swapped between a reviewer opening it and deciding it; the version guard does not cover them",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "multiplier-display-rounded",
+      "title": "The console's 'Try it' and the duty's scoring basis show a rounded multiplier, so the arithmetic shown does not give the points (5 × 1.88 shown as 9.38)",
+      "severity": "low",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "withheld-attachments-move-in",
+      "title": "Files reach a Unit Instance with attachments withheld by moving the record that holds them",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "intake-keeps-rejected-malware-bytes",
+      "title": "Work intake keeps a workbook the scanner rejected, malware bytes included, for 400 days and carries it in the service archive",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "attachments-no-scan-verdict",
+      "title": "An attachment stored without a scan carries no 'not scanned' mark anywhere",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "eml-scan-before-authorization",
+      "title": "The saved-message import reads and scans the whole file before deciding whether the caller may place it",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "intake-filename-not-cleaned",
+      "title": "Work-intake filenames are stored as sent: C1 control characters reach the source list and the append-only audit trail",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "binned-record-zip-carries-evidence",
+      "title": "A binned training shows no evidence, yet its record ZIP export still carries the files",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "row-cap-silent-truncation",
+      "title": "An error report longer than the intake row cap is filed with only its first rows: silently for CSV, and the filed history and every comparison are then wrong",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a delimited file longer than the intake reads says it was cut, as a workbook’s sheet does"
+        }
+      ],
+      "note": "Reported high; the independent check rated it medium (recoverable: withdraw and file again under a higher cap). A CSV now says it was cut, as a workbook’s sheet does, so the page warns before filing. A filed report still does not record that it was cut."
+    },
+    {
+      "id": "amount-float-rounding",
+      "title": "Error-report amounts with three or more decimals are rounded through a float, inconsistently and without a note, against ADR-0005",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "type-recode-relabels-history",
+      "title": "Re-coding or renaming an error report type relabels every report already filed under it; no filed report keeps the type it was filed as",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "damaged-workbook-500",
+      "title": "A damaged workbook sent to error-report preview or filing gives an unhandled 500 instead of a 400",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "net-change-unknown-as-zero",
+      "title": "'Amount changed' counts an amount that was unreadable on one report as $0, so the net change reports the whole amount",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "new-standing-hint-wrong-for-span",
+      "title": "'New' is labelled 'on no earlier report of this series', but compared against an older report it also counts errors that were on a report in between",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "diagnosis-omits-approver",
+      "title": "The case diagnosis does not say who approved an SOP or validated an SME workflow",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "oidc-email-prelink-takeover",
+      "title": "An address nobody proved captures another person's first organization sign-in; the attacker keeps password access to that account",
+      "severity": "critical",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
+        }
+      ],
+      "note": "Verified independently. A first organization sign-in that finds its account by address or EDIPI now ends the account’s password, passkeys, second factor, unused links and sessions before the person’s own session opens. A person who had a password and signs in this way for the first time sets a new one by reset if the instance still takes passwords."
+    },
+    {
+      "id": "until-proven-defeated-by-oidc-link",
+      "title": "A Unit Manager's imported account becomes 'proven' through somebody else's first organization sign-in, and then takes a records-reading role",
+      "severity": "high",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
+        }
+      ],
+      "note": "Verified independently. Closed by the same fix: once the member links, the Unit Manager who opened the account holds no way into it."
+    },
+    {
+      "id": "step-up-granted-by-any-sign-in",
+      "title": "C07: every sign-in, including a silent OIDC return, opens the step-up window; the provider is never asked to re-authenticate",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "staff-password-only-sign-in",
+      "title": "Vantage staff need a second factor only to be granted the role; afterwards a password alone signs them in, and TOTP can be turned off",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reset-links-survive-credential-changes",
+      "title": "A password reset link issued before a password change or an address change still resets the password and signs in",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "recovery-script-useless-in-exclusive-modes",
+      "title": "The break-glass script prints a password that CAC-only or OIDC-only instances refuse, and leaves an existing lock in place",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "passkey-options-enumerate-usernames",
+      "title": "POST /api/auth/passkey/options tells an unauthenticated caller which usernames exist",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "failed-sign-out-keeps-browser-state",
+      "title": "When the sign-out request fails (offline or 5xx), the client keeps recent visits, drafts, the signed-in marker and the server session, yet shows the person signed out",
+      "severity": "low",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "forged-cac-header-unrecorded",
+      "title": "A CAC certificate header presented without the proxy secret is answered 'no card presented', with no audit entry and no limiter count",
+      "severity": "low",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "export-leaks-others-ip",
@@ -1172,7 +1503,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "spreadsheet-drops-author",
@@ -1181,7 +1512,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "fm-work-lost-in-spreadsheet",
@@ -1190,7 +1521,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "personnel-sheet-misrouted",
@@ -1199,7 +1530,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "personnel-history-raw-ids",
@@ -1208,7 +1539,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "duty-placement-says-kept",
@@ -1217,7 +1548,7 @@
       "area": "Import and export",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "export-subtree-no-reach",
@@ -1292,7 +1623,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "counseling-pdf-no-pii-notice",
@@ -1314,7 +1645,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "counseling-pdf-broad-readers",
@@ -1332,7 +1663,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "non-latin1-names-question-marks",
@@ -1341,7 +1672,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "landscape-mid-token-breaks",
@@ -1350,7 +1681,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "toast-prints",
@@ -1359,7 +1690,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "input-pdf-no-marking",
@@ -1368,7 +1699,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "pdfs-untagged",
@@ -1377,7 +1708,7 @@
       "area": "PDF and print",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "gate-test-title-misleading",
@@ -1427,7 +1758,7 @@
       "area": "Personnel history",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "feed-restore-overwrites-rejoin",
@@ -1436,7 +1767,7 @@
       "area": "Personnel history",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "unit-reparent-no-history",
@@ -1459,7 +1790,7 @@
       "area": "Personnel history",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "leader-sets-timezone",
@@ -1468,7 +1799,7 @@
       "area": "Personnel history",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "stepup-bypass-via-org-router",
@@ -1477,7 +1808,7 @@
       "area": "Route sweep (accounts, units, consoles)",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "role-self-revoke-asymmetry",
@@ -1486,7 +1817,7 @@
       "area": "Route sweep (accounts, units, consoles)",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "password-step-up-unaudited",
@@ -1495,7 +1826,7 @@
       "area": "Route sweep (accounts, units, consoles)",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     },
     {
       "id": "member-removal-membership-oracle",
@@ -1504,7 +1835,62 @@
       "area": "Route sweep (accounts, units, consoles)",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe on 5a80959; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "goal-contributors-leak",
+      "title": "A plain Marine reads a fellow Marine's shared entries (titles, dates, dollar values) through an assigned unit goal's contributors",
+      "severity": "high",
+      "area": "Route sweep (records, work, reports)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a goal assigned in a unit shows its contributors, by title and amount, only to those who may open them: not to its unit’s other Marines"
+        }
+      ],
+      "note": "Verified independently."
+    },
+    {
+      "id": "counseling-former-counselor-edit",
+      "title": "A counselor who lost authority over the Marine still rewrites and deletes the counseling the Marine is reviewing through the generic record routes",
+      "severity": "high",
+      "area": "Route sweep (records, work, reports)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "a counselor who no longer counsels the Marine reads what they wrote but no longer moves it"
+        }
+      ],
+      "note": "Verified independently. Editing, binning and restoring a counseling draft now take what sharing and finalizing take (ADR-0027 §2-3)."
+    },
+    {
+      "id": "work-close-reopen-unaudited",
+      "title": "Closing and reopening a case through PATCH /api/work/items/:id (or an action with resolve:true) writes no work_closed or work_reopened audit entry",
+      "severity": "medium",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unaudited-connector-delete-and-unlink",
+      "title": "Connector deletion and thread unlinking are not audited, while their sibling actions are",
+      "severity": "low",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "restore-audit-no-subject",
+      "title": "The record restore audit omits subject_id, while the delete audit records it",
+      "severity": "low",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
     }
   ],
   "external": [
