@@ -204,10 +204,12 @@ test('Yours adds up every duty of the reader’s, even where the old list was cu
     // Three of the leader's own, old; twelve of their Marines', newer.
     put(lead.id, '2025-06-01', 'approved', 3); put(lead.id, '2025-06-08', 'approved', 3); put(lead.id, '2025-06-15', 'pending', 3);
     for (let i = 0; i < 12; i++) put(marines[i % 5], `2026-02-${String(i + 10).padStart(2, '0')}`, 'pending', 1);
-    // The old list fills its cap with the newest duty, so the leader's own are not on it: what the page used to add up.
+    // The whole list used to fill its cap with the newest duty, so the leader's own were not on it: what the page used to
+    // add up. It now keeps the reader's own first and says it was cut (ADR-0037); Yours never read it either way.
     const old = await capped.call('GET', '/api/records/duties', { token: lead.token });
     assert.equal(old.body.length, 10);
-    assert.equal(old.body.filter((r: { user_id: string }) => r.user_id === lead.id).length, 0, 'today’s bug, kept for its other callers');
+    assert.equal(old.body.filter((r: { user_id: string }) => r.user_id === lead.id).length, 3, 'the reader’s own are kept');
+    assert.equal(old.headers.get('x-vantage-rows'), '10/15');
     const summary = await capped.call('GET', '/api/record/duty/summary', { token: lead.token });
     assert.deepEqual(summary.body.mine, { duties: 3, hours: 36, calculated_points: 9, approved_points: 6, pending: 1, returned: 0 });
     assert.deepEqual(summary.body.tabs, { mine: 3, recorded: 0, units: 12, units_more: false });

@@ -169,6 +169,94 @@ test('an account linked to one identity is not taken over by another with the sa
   } finally { await app.close(); await idp.close(); }
 });
 
+test('a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer, { VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' }));
+  const db = app.ctx.db;
+  const of = (username: string) => db.prepare('SELECT id, password_hash, totp_enabled, oidc_subject FROM users WHERE username = ?').get(username) as { id: string; password_hash: string; totp_enabled: number; oidc_subject: string | null };
+  try {
+    const op = await app.setupOperator();
+    // Someone registers with an address that is not theirs, and sets the account up to keep: a passkey, a second
+    // factor, a session and an unused reset link.
+    const planted = await app.register('mallory', { email: 'jordan.avery@example.mil', first_name: 'Jordan', last_name: 'Avery' });
+    const at = new Date().toISOString();
+    db.prepare("INSERT INTO passkeys (id, user_id, public_key, name, created_at) VALUES ('pk-mallory', ?, x'00', 'Mallory key', ?)").run(planted.id, at);
+    db.prepare("UPDATE users SET totp_enabled = 1, totp_secret = 'sealed' WHERE id = ?").run(planted.id);
+    assert.equal((await app.call('POST', '/api/auth/forgot', { body: { identifier: 'mallory' } })).status, 200);
+    assert.equal((await app.call('GET', '/api/me', { token: planted.token })).status, 200);
+
+    // The person who holds the address signs in through the organization for the first time.
+    const sso = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true, name: 'Jordan Avery' }));
+    assert.equal(sso.callback!.status, 302);
+    const cookie = cookieOf(sso.callback!);
+    const me = await fetch(`${app.base}/api/me`, { headers: { cookie } });
+    assert.equal(((await me.json()) as { user: { id: string } }).user.id, planted.id, 'they land in the account their address is on');
+
+    const now = of('mallory');
+    assert.equal(now.oidc_subject, 'subject-avery');
+    assert.equal(now.password_hash, '', 'its password is gone');
+    assert.equal(now.totp_enabled, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(planted.id) as { n: number }).n, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM tokens WHERE user_id = ? AND used_at IS NULL').get(planted.id) as { n: number }).n, 0, 'no reset link left to use');
+    resetLimiters();
+    assert.equal((await app.login('mallory')).status, 401, 'whoever registered it no longer signs in with its password');
+    assert.equal((await app.call('GET', '/api/me', { token: planted.token })).status, 401, 'and their session is over');
+    const write = await fetch(`${app.base}/api/records/activities`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-vantage-client': '1' }, body: JSON.stringify({ title: 'PRIVATE notes', date: '2026-11-01', visibility: 'private' }) });
+    assert.equal(write.status, 201, 'the person carries on in their own session');
+    const linked = db.prepare("SELECT detail FROM audit_log WHERE action = 'oidc_linked' AND subject_id = ?").get(planted.id) as { detail: string };
+    assert.match(linked.detail, /found by its address, so every other way in ended: its password, 1 passkey, its second factor, 1 unused link, 1 session/);
+
+    // An account a Unit Manager opened with a member's address, and gave a password of their own, is the member's alone
+    // once the member signs in: it is proven, and its opener no longer signs in to it.
+    const roster = ['Rank,First Name,Last Name,Username,Email,Temporary Password,Role', 'Cpl,Riley,Quinn,rquinn,riley.quinn@example.mil,QuartzHarborLane4!,Marine'].join('\n');
+    assert.equal((await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: Buffer.from(roster), headers: { 'content-type': 'text/csv', 'x-vantage-filename': 'roster.csv' } })).status, 200);
+    resetLimiters();
+    const opened = await app.login('rquinn', 'QuartzHarborLane4!');
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    assert.equal((await app.call('POST', '/api/me/password', { token: opened.body.token, body: { current_password: 'QuartzHarborLane4!', new_password: 'harbor-lantern-quartz-meadow-614' } })).status, 200);
+    const member = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-quinn', email: 'riley.quinn@example.mil', email_verified: true, name: 'Riley Quinn' }));
+    assert.equal(member.callback!.status, 302);
+    resetLimiters();
+    assert.equal((await app.login('rquinn', 'harbor-lantern-quartz-meadow-614')).status, 401, 'the password its opener chose opens nothing');
+    assert.equal(of('rquinn').password_hash, '');
+  } finally { await app.close(); await idp.close(); }
+});
+
+test('where cards sign in too, an account found by its address that carries an EDIPI is taken only by a sign-in asserting that EDIPI', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer, { CAC_MODE: 'proxy', CAC_PROXY_SECRET: 'x'.repeat(40), VANTAGE_OIDC_EDIPI_CLAIM: 'edipi', VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' }));
+  const db = app.ctx.db;
+  try {
+    await app.setupOperator();
+    // An account with someone else's address on it, and a card on it, as a card sign-in or a Unit Manager's link puts one.
+    const planted = await app.register('mallory', { email: 'jordan.avery@example.mil', first_name: 'Jordan', last_name: 'Avery' });
+    db.prepare("UPDATE users SET edipi = '1234567890' WHERE id = ?").run(planted.id);
+    const subjectOf = () => (db.prepare('SELECT oidc_subject FROM users WHERE id = ?').get(planted.id) as { oidc_subject: string | null }).oidc_subject;
+
+    // The person who holds the address signs in without the provider asserting that EDIPI: nothing is linked or opened.
+    const refused = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true }));
+    assert.equal(refused.callback!.headers.get('location'), '/login?sso_error=oidc_card_bound');
+    assert.equal(sessionCookie(refused.callback!), false);
+    assert.equal(subjectOf(), null);
+    resetLimiters();
+    assert.equal((await app.login('mallory')).status, 200, 'the account is as it was');
+    const rejected = db.prepare("SELECT detail FROM audit_log WHERE action = 'oidc_rejected' ORDER BY seq DESC LIMIT 1").get() as { detail: string };
+    assert.match(rejected.detail, /^oidc_card_bound/);
+    // Another DoD ID asserted is refused the same way.
+    const other = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true, edipi: '1098765432' }));
+    assert.equal(other.callback!.headers.get('location'), '/login?sso_error=oidc_card_bound');
+    assert.equal(subjectOf(), null);
+
+    // The card's own holder, asserted by the provider, takes it, and the card stays theirs.
+    const owner = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true, edipi: '1234567890' }));
+    assert.equal(sessionCookie(owner.callback!), true);
+    assert.equal(subjectOf(), 'subject-avery');
+    assert.equal((db.prepare('SELECT edipi FROM users WHERE id = ?').get(planted.id) as { edipi: string }).edipi, '1234567890');
+  } finally { await app.close(); await idp.close(); }
+});
+
 test('exclusive organization sign-in turns passwords and self-registration off; the notice is accepted before leaving', async () => {
   resetOidcCache();
   const idp = await provider();

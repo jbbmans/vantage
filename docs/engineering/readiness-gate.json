@@ -1,0 +1,2132 @@
+{
+  "format": 1,
+  "task": "Task 28, Final Production Readiness Gate (P0)",
+  "candidate": {
+    "base": "5a80959",
+    "branch": "claude/project-thread-qe1pd4",
+    "runtime": "Node 22 in a Linux cloud container, 4 CPUs",
+    "note": "The fixes this gate made are on the branch, each with the test that fails without it. The checks ran on the branch head named in each row."
+  },
+  "items": [
+    {
+      "id": "role-matrix",
+      "title": "Each representative role does what its role allows and nothing more, end to end",
+      "source": "Task 28 representative roles",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "records: each role reads the Marine’s shared entry as its role allows, and only the Marine reads the private one"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "personnel: the record opens by role, never by being someone’s supervisor, and not for the platform"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "consoles: the Unit Manager runs G-8’s configuration, the Vantage Administrator runs the service, and neither the other’s"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "exports: the Marine takes everything of theirs, an SNCO the unit’s shared work, and nobody else’s private entries or another unit"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a goal assigned in a unit shows its contributors, by title and amount, only to those who may open them: not to its unit’s other Marines"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "a counselor who no longer counsels the Marine reads what they wrote but no longer moves it"
+        }
+      ]
+    },
+    {
+      "id": "unit-isolation-read",
+      "title": "A Unit A user cannot retrieve Unit B personnel or records",
+      "source": "Spec §15 item 1",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a Unit A user cannot retrieve Unit B personnel"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a leader in one Unit Instance is not told where else a Marine serves"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "another Unit Instance: no G-8 role reaches G-1’s records by its id"
+        },
+        {
+          "file": "tests/server/tenancy.test.ts",
+          "test": "an organization sees only itself, and a platform role confers nothing inside one"
+        }
+      ]
+    },
+    {
+      "id": "unit-isolation-change",
+      "title": "A Unit A Unit Manager cannot change Unit B",
+      "source": "Spec §15 item 2",
+      "roles": [
+        "Unit Manager"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a Unit A Unit Manager cannot change Unit B"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "one Unit Instance cannot re-key the sign-in of an account that serves in another"
+        },
+        {
+          "file": "tests/server/tenancy.test.ts",
+          "test": "organization administrators staff the units without reading records, and cannot hand themselves a role that does"
+        }
+      ]
+    },
+    {
+      "id": "ids-cannot-cross",
+      "title": "IDs in a path, query or body cannot be manipulated to cross a boundary",
+      "source": "Spec §15 item 3",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "IDs cannot be manipulated to cross boundaries"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "the database keeps the boundary when code is bypassed"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "nobody else’s record can be moved into another Unit Instance"
+        },
+        {
+          "file": "tests/server/scopeBatch.test.ts",
+          "test": "scopesFor gives each person exactly what scopeFor gives them"
+        }
+      ]
+    },
+    {
+      "id": "reports-stay-in-unit",
+      "title": "A Unit A report cannot contain Unit B records, nor sub-units the reader does not read in their own right",
+      "source": "Spec §15 item 4",
+      "roles": [
+        "NCO/SNCO",
+        "Unit Leader"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a Unit A report cannot contain Unit B records"
+        },
+        {
+          "file": "tests/server/analyticsScope.test.ts",
+          "test": "a unit report reads the units beneath only where the reader reads them in their own right"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "team workload, and its report and export, read the units beneath only where the reader does, and name Marines only where they open member records"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit-measured goal reads the units beneath only where its setter does, and its contributors only where their reader does"
+        }
+      ]
+    },
+    {
+      "id": "exports-stay-in-unit",
+      "title": "A Unit A export cannot contain Unit B data, nor a unit the exporter may not export",
+      "source": "Spec §15 item 5",
+      "roles": [
+        "Marine",
+        "NCO/SNCO",
+        "Unit Leader"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a Unit A export cannot contain Unit B data"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit export holds only the units its exporter reads: it needs View shared records, and a role that does not reach down exports its own unit"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit report leaves as a file only with the export permission in every unit it reads"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the AI command brief totals only the units its reader reads, and needs View shared records as well as Export data"
+        }
+      ]
+    },
+    {
+      "id": "no-privilege-escalation",
+      "title": "Nobody raises their own authority, in any tier; roles are granted only below one’s own",
+      "source": "Spec §15 items 6-7; ADR-0006, 0010, 0013, 0024",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "escalation: nobody raises themselves, whatever tier they start in"
+        },
+        {
+          "file": "tests/server/roleModel.test.ts",
+          "test": "a Unit Manager cannot elevate themselves through any door"
+        },
+        {
+          "file": "tests/server/roleModel.test.ts",
+          "test": "a Vantage Administrator never names themselves a Lead Unit Manager, and founds nothing they then run"
+        },
+        {
+          "file": "tests/server/tenancy.test.ts",
+          "test": "an administrator finds no side door into records: leading a unit, their own join code, widening a role they hold, removing an owner"
+        },
+        {
+          "file": "tests/server/leastPrivilege.test.ts",
+          "test": "a role an import, invitation or join code carries waits for an account its maker opened"
+        },
+        {
+          "file": "tests/server/dutyReview.test.ts",
+          "test": "approving your own duty takes a role that names it, which someone else grants: nobody gives it to themselves, the Unit Leader included"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends",
+          "note": "An account a Unit Manager opened is proven only once nobody but its person holds a way in."
+        }
+      ]
+    },
+    {
+      "id": "platform-reads-no-records",
+      "title": "Vantage Administrators run the service and read no operational records, except through an approved, read-only, audited access",
+      "source": "ADR-0010, ADR-0013",
+      "roles": [
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/tenancy.test.ts",
+          "test": "Vantage support reads nothing in an organization until its owners approve, read-only, until they end it"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "personnel: the record opens by role, never by being someone’s supervisor, and not for the platform"
+        },
+        {
+          "file": "tests/server/privilegedRoutes.test.ts",
+          "test": "an ordinary member is refused on every listed route, and nothing changes but the record of the refusals"
+        }
+      ]
+    },
+    {
+      "id": "file-downloads-authorized",
+      "title": "File downloads enforce record and unit authorization",
+      "source": "Spec §15 item 9; ADR-0025",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "file downloads enforce record and unit authorization"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "a file goes only where it was added, whoever added it and wherever they serve now"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "attachments: a file is exactly as reachable as the record it hangs on"
+        },
+        {
+          "file": "tests/server/trainingEvidence.test.ts",
+          "test": "evidence is exactly as reachable as its training: its owner, the unit’s readers, and nobody else"
+        },
+        {
+          "file": "tests/server/trainingEvidence.test.ts",
+          "test": "a file’s content, type, size and name are checked on the server, and a download is only ever a download"
+        }
+      ],
+      "note": "Downloads hold for every role. Open mediums on the way in: a record moved into an instance that withholds attachments brings its files, work intake keeps a file the scanner rejected, and an unscanned attachment carries no mark."
+    },
+    {
+      "id": "imports-cannot-inject",
+      "title": "An import cannot inject records into another Unit Instance or onto another person",
+      "source": "Spec §15 item 9; ADR-0019",
+      "roles": [
+        "Marine",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "an import cannot inject records into another Unit Instance"
+        },
+        {
+          "file": "tests/server/recordTransfer.test.ts",
+          "test": "an import never reaches another person’s import, another Unit Instance, or a backup"
+        },
+        {
+          "file": "tests/server/recordTransfer.test.ts",
+          "test": "a spreadsheet Vantage ID updates only the importer’s own record, and undo puts it back"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an archive is taken only by a fresh instance: one account, one Unit Instance and no record of any kind"
+        }
+      ]
+    },
+    {
+      "id": "audit-append-only",
+      "title": "Audit events cannot be silently rewritten: the log is append-only and its chain shows any rewrite",
+      "source": "Spec §15 item 10; ADR-0013, ADR-0014",
+      "roles": [
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "audit events cannot be silently rewritten, and an instance reads only its own trail"
+        },
+        {
+          "file": "tests/server/auditAppendOnly.test.ts",
+          "test": "an entry is never changed or removed, and the log is opened only inside a transaction that closes it"
+        },
+        {
+          "file": "tests/server/auditScale.test.ts",
+          "test": "AUD-1: a rewrite the integrity check finds shows on every page that shows the chain, at once"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the audit log is append-only from every start, even for a database copied without its triggers"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a service archive from a newer build, or with its audit trail changed, removed or stripped, is refused and nothing is imported"
+        }
+      ]
+    },
+    {
+      "id": "privileged-actions-audited",
+      "title": "Every privileged route is inventoried, refuses the unauthorized, and writes its audit entry",
+      "source": "Spec §15 item 10; ADR-0013",
+      "roles": [
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/privilegedRoutes.test.ts",
+          "test": "the inventory covers the routers where server/app.ts mounts them"
+        },
+        {
+          "file": "tests/server/privilegedRoutes.test.ts",
+          "test": "every audit action listed is catalogued, and every action a route writes itself is listed"
+        },
+        {
+          "file": "tests/server/privilegedRoutes.test.ts",
+          "test": "without a session every listed route answers 401, and nothing changes"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "moving a unit under another parent says where it sat before, in the trail"
+        }
+      ]
+    },
+    {
+      "id": "edipi-protected",
+      "title": "An EDIPI is masked, kept out of trails and exports it does not belong in, and printed only for its own person and their counselor",
+      "source": "ADR-0033; Task 11",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export names other people by rank and name where their username is their card’s EDIPI"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its own person’s profile, the rest left to fill in, its marking, never stored"
+        }
+      ]
+    },
+    {
+      "id": "identity-sign-in",
+      "title": "Sign-in, step-up, sessions and sign-out hold for every method the instance offers",
+      "source": "Task 3; ADR-0009, 0013, 0026, 0035; review C06, C07, C10, C14",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/auth.test.ts",
+          "test": "login rejects bad credentials uniformly, and three consecutive failures lock the account in the database"
+        },
+        {
+          "file": "tests/server/auth.test.ts",
+          "test": "sudo-gated actions refuse stale sessions"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a forged, misdirected, expired or replayed ID token is refused, and nothing is signed in"
+        },
+        {
+          "file": "tests/server/cac.test.ts",
+          "test": "a forged certificate header without the proxy secret does not sign anyone in"
+        },
+        {
+          "file": "tests/server/cacRevocation.test.ts",
+          "test": "in direct mode a revoked card is refused and a good one accepted"
+        },
+        {
+          "file": "tests/server/stigControls.test.ts",
+          "test": "a session ends after 15 idle minutes, 10 for an owner, and a background poll does not keep it alive"
+        },
+        {
+          "file": "tests/server/securityStage1.test.ts",
+          "test": "a session opened, resolved or confirmed under an older authentication epoch is refused, and a challenge without one is spent (F04, C04)"
+        },
+        {
+          "file": "tests/server/clientState.test.ts",
+          "test": "signing out forgets what was opened on this device, in both storages, and keeps everything else"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
+        },
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "where cards sign in too, an account found by its address that carries an EDIPI is taken only by a sign-in asserting that EDIPI"
+        }
+      ],
+      "note": "Which methods an MCEN instance accepts, and what assurance its step-up needs, wait on the sign-in method policy (review C06, C07): under OIDC-only the server still accepts passkeys and password step-up. Kept open as defect c06-passkey-accepted-under-exclusive-modes until the service’s sign-in owner decides. Open mediums in the same area: step-up opened by any sign-in, staff signing in by password alone, reset links outliving a credential change, username enumeration by passkey options, and the break-glass script under exclusive modes."
+    },
+    {
+      "id": "personnel-history",
+      "title": "Personnel facts change as effective-dated history and are never silently overwritten",
+      "source": "Spec §18; Task 11; ADR-0017",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/personnelRecords.test.ts",
+          "test": "the history names every path that changes a personnel fact: the Marine, Vantage support, and a script"
+        },
+        {
+          "file": "tests/server/personnelRecords.test.ts",
+          "test": "a bulk change is previewed, applied all or nothing, audited as one batch and row by row"
+        },
+        {
+          "file": "tests/server/identityMembership.test.ts",
+          "test": "every membership change is kept as history: who, when and why, with one period per stretch and no re-shuffles"
+        },
+        {
+          "file": "tests/server/personnelRecords.test.ts",
+          "test": "what the personnel feed sets, a leader cannot change either, and the feed’s changes are in the history"
+        },
+        {
+          "file": "tests/server/dutyScoring.test.ts",
+          "test": "the database refuses to change a published version, withdraw one in force, bring back a withdrawn one or publish out of order"
+        },
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "a filed report is never changed or deleted, in the database itself"
+        },
+        {
+          "file": "tests/server/cases.test.ts",
+          "test": "the history is append-only at the database"
+        }
+      ],
+      "note": "Two edge paths still overwrite without a history row: a billet changed to another of the same title, and a feed restore after a re-join (open mediums billet-id-change-no-history, feed-restore-overwrites-rejoin)."
+    },
+    {
+      "id": "import-export-round-trip",
+      "title": "Export and import round trip: every record type comes back as itself, linked, dated and once",
+      "source": "Spec §14 definition of done; Task 13; ADR-0019",
+      "roles": [
+        "Marine"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/recordTransfer.test.ts",
+          "test": "§14 round trip: a representative account, exported and imported into a clean Vantage, comes back as it was"
+        },
+        {
+          "file": "tests/server/recordTransfer.test.ts",
+          "test": "a workbook comes in by record type: awards stay awards, courses training, duty is duty and never becomes an Activity"
+        },
+        {
+          "file": "tests/server/recordTransfer.test.ts",
+          "test": "exports: selective, workbook and one category, and a record download keeps the record’s read rule"
+        },
+        {
+          "file": "tests/server/dutyRecords.test.ts",
+          "test": "a duty sheet imports as duty: its type by code, a file never says its review or score, and nothing goes in twice"
+        },
+        {
+          "file": "tests/server/export.test.ts",
+          "test": "the personal export carries every dataset the Marine owns and none of their secrets"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export gives the Marine where they acted from, never the address of anyone who acted on them"
+        }
+      ],
+      "note": "Approved duty comes back for review (a file never approves duty, by design). Restoring personal records before the unit configuration leaves past duty unscored, and a spreadsheet round trip drops who wrote a counseling or recommendation (open mediums restore-order-leaves-duty-unscored, spreadsheet-drops-author)."
+    },
+    {
+      "id": "counseling-pdf",
+      "title": "The counseling PDF: its two parties and unit readers draw it, the EDIPI only for its own person, PII marked, every draw audited",
+      "source": "Task 20; ADR-0027, ADR-0033",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "counseling: its counselor, its Marine and the unit’s leader draw the NAVMC 2795 worksheet; nobody outside the unit’s chain reaches it"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "a draft is its counselor’s alone: nobody else reads, counts or hears of it"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its own person’s profile, the rest left to fill in, its marking, never stored"
+        },
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "the PDF renders the same document the same way, and long words flow onto more pages, never cut"
+        }
+      ]
+    },
+    {
+      "id": "report-pdf-print",
+      "title": "Report PDF and print: title, unit, period, generated date and filters; headers repeat; drawn, not a screenshot; export gated",
+      "source": "Spec §17; Task 14; ADR-0020",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/reportCenter.test.ts",
+          "test": "every report runs, and is one document with its title, subject, period, filters and handling line"
+        },
+        {
+          "file": "tests/server/reportCenter.test.ts",
+          "test": "a long table prints over pages with its header again on each, and nothing cut off"
+        },
+        {
+          "file": "tests/server/reportCenter.test.ts",
+          "test": "every chart in every report draws a column of a table beside it, and prints with its source"
+        },
+        {
+          "file": "tests/server/reportCenter.test.ts",
+          "test": "a file leaves Vantage only with the authority to take it"
+        },
+        {
+          "file": "tests/server/reportCenter.test.ts",
+          "test": "the handling line is the enterprise’s, on every page and file"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "report PDF: the Marine draws their own; another Marine’s needs their records opened in the unit"
+        },
+        {
+          "file": "tests/server/reportCenterScale.test.ts",
+          "test": "RPT-6: a 5,000-row PDF lets other work run while it draws, and draws the same pages"
+        }
+      ],
+      "note": "Long filter values overprint the filters box, counseling admin boxes clip a three-line billet, and the analysis PDF cuts long titles with an ellipsis (open mediums report-filters-overflow, counseling-admin-clipping, analysis-pdf-truncates-text)."
+    },
+    {
+      "id": "financial-snapshots",
+      "title": "Financial error reports: snapshots kept as filed, comparisons and KPIs exact, read only within the unit",
+      "source": "Task 15; ADR-0021; ADR-0005",
+      "roles": [
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "the second and third reports compare as worked out by hand, a workbook as a CSV"
+        },
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "every count is the number of rows its drill holds, and the groups add up to the figures"
+        },
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "a filed report is never changed or deleted, in the database itself"
+        },
+        {
+          "file": "tests/server/errorReports.test.ts",
+          "test": "reading needs the unit’s shared records, filing posting its work, and figures by Marine its member records"
+        },
+        {
+          "file": "tests/server/errorReportsScale.test.ts",
+          "test": "a series in another Unit Instance, or of another type, with the same identifiers changes nothing"
+        },
+        {
+          "file": "tests/server/cases.test.ts",
+          "test": "money is parsed to exact cents from text, never through a float"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a delimited file longer than the intake reads says it was cut, as a workbook’s sheet does"
+        }
+      ],
+      "note": "Two open mediums: an error-report amount with three or more decimals is rounded through a float (amount-float-rounding, against ADR-0005), and re-coding a report type relabels reports already filed (type-recode-relabels-history, section 18)."
+    },
+    {
+      "id": "case-diagnosis",
+      "title": "The case diagnoser labels every statement, names each recommendation’s source and authority, and keeps each command’s SOPs to it",
+      "source": "Task 16; ADR-0022; decision 2026-11-02",
+      "roles": [
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/caseDiagnosisEngine.test.ts",
+          "test": "it answers in the specification’s order, every statement carries one of the five labels, and every recommendation its source and rank"
+        },
+        {
+          "file": "tests/server/caseDiagnosisEngine.test.ts",
+          "test": "the provenance ladder is the specification’s six tiers, with the training reference and an unvalidated walkthrough between them"
+        },
+        {
+          "file": "tests/server/caseDiagnosis.test.ts",
+          "test": "a Unit Manager puts the command’s SOPs on file; nobody else does, and nothing on file is ever edited or removed"
+        },
+        {
+          "file": "tests/server/caseDiagnosis.test.ts",
+          "test": "a Vantage Administrator puts official guidance on file for every Unit Instance, and only official guidance"
+        },
+        {
+          "file": "tests/server/cases.test.ts",
+          "test": "the candidate calculation reproduces the reference arithmetic in exact cents, citing every input"
+        },
+        {
+          "file": "tests/server/fmra.test.ts",
+          "test": "the diagnoser classifies all eight of the reference’s numerical examples"
+        }
+      ]
+    },
+    {
+      "id": "duty-scoring-versions",
+      "title": "Duty scoring is versioned: a policy change never alters points already earned",
+      "source": "Spec §13; Tasks 17-18; ADR-0023, ADR-0024; decision 2026-11-10",
+      "roles": [
+        "Marine",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/dutyScoring.test.ts",
+          "test": "the calculator gives the spec’s examples"
+        },
+        {
+          "file": "tests/server/dutyScoring.test.ts",
+          "test": "duty keeps the points of the version in force on its day: March under January’s policy stays 4"
+        },
+        {
+          "file": "tests/server/dutyReview.test.ts",
+          "test": "a later scoring version never changes a decided or waiting duty, and a duty with no score is approved for none"
+        },
+        {
+          "file": "tests/server/dutyReview.test.ts",
+          "test": "nobody decides their own duty by reviewing: not its Marine, not an SNCO, not the SNCOIC, not the Unit Leader"
+        },
+        {
+          "file": "tests/server/dutyReview.test.ts",
+          "test": "approved points apart from the calculated ones take the override permission and a reason, are kept with who and why, and never rescore the duty"
+        },
+        {
+          "file": "tests/server/dutyScoring.test.ts",
+          "test": "only a Unit Manager of the Unit Instance publishes or withdraws, and only for its own duty types"
+        },
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "duty: the Marine submits, a reviewer decides, nobody their own, and a later scoring version leaves past duty as it was"
+        }
+      ],
+      "note": "Versioning holds through edit, re-approval, reopening, override, import, the bin and a service archive. Three open mediums sit beside it in the review rules: a reviewer may correct a submitted duty’s points by editing it, or bin it, without the override or rejection path, and a duty’s files can change between a reviewer opening it and deciding it."
+    },
+    {
+      "id": "accessibility",
+      "title": "WCAG 2.2 AA: axe finds no serious violation on the pages people use, at phone to desktop widths, in both themes, and keyboard focus is kept",
+      "source": "Task 25; ADR-0032; spec §16",
+      "roles": [
+        "Marine",
+        "Supervisor",
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager",
+        "Vantage Administrator"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/browser/06-a11y.spec.ts",
+          "test": "core pages have no serious accessibility violations in light and dark themes"
+        },
+        {
+          "file": "tests/browser/55-a11y-widths.spec.ts",
+          "test": "the Unit Manager and Vantage Administrator consoles pass WCAG 2.2 AA at "
+        },
+        {
+          "file": "tests/browser/55-a11y-widths.spec.ts",
+          "test": "the dialogs people open most pass WCAG 2.2 AA at "
+        },
+        {
+          "file": "tests/browser/56-keyboard.spec.ts",
+          "test": "every Tab stop shows where focus is"
+        },
+        {
+          "file": "tests/browser/56-keyboard.spec.ts",
+          "test": "a dialog gives focus back to what opened it"
+        },
+        {
+          "file": "tests/browser/mobile.spec.ts",
+          "test": "F1/KB-04: the phone menu is a dialog named Menu that holds focus while open and hands it back when it closes"
+        },
+        {
+          "file": "tests/browser/34-audit-anchors.spec.ts",
+          "test": "a Marine pages back through who has looked at their record, on a phone too (AUD-5, AUD-7)"
+        }
+      ],
+      "note": "No PDF is tagged for assistive technology (ADR-0032 lists it as not done); a formal assessment with assistive technology users is the accrediting authority’s."
+    },
+    {
+      "id": "performance",
+      "title": "Pages and exports stay bounded for a command-sized unit: paged reads, fixed statement counts, an export line",
+      "source": "Task 25; ADR-0032",
+      "roles": [
+        "NCO/SNCO",
+        "Unit Leader",
+        "Unit Manager"
+      ],
+      "status": "partly",
+      "evidence": [
+        {
+          "file": "tests/server/personnelScale.test.ts",
+          "test": "the roster and the team list read the same number of statements for a team or a command of thousands"
+        },
+        {
+          "file": "tests/server/dutyPaging.test.ts",
+          "test": "a page reads a fixed number of statements however many Marines are on it"
+        },
+        {
+          "file": "tests/server/reportCenterScale.test.ts",
+          "test": "RPT-6: exports are drawn one at a time, and past the line a reader is asked to try again"
+        },
+        {
+          "file": "tests/server/errorReportsScale.test.ts",
+          "test": "the overview reads as many statements for many series as for one"
+        },
+        {
+          "file": "tests/server/auditScale.test.ts",
+          "test": "AUD-8, AUD-11: past the limits, the personal export says it was cut and a trail export is refused before a row is read"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were"
+        }
+      ],
+      "note": "Measured in the container, not on the MCEN host: load at the intended concurrency on the intended hardware is evidence only the host can give. scripts/scale-check.ts gave a worst p95 of 16.3 ms at 1,000 Marines and 50,000 records, timing SQL, not routes. Open mediums: record pages still load and audit a whole list and do not yet say in words that it was cut, Correspondence stops at 300 threads, and unit metrics hold the server for about a second at 50,000 records."
+    },
+    {
+      "id": "migrations",
+      "title": "A fresh database reaches the current schema; old ones upgrade with no row lost, once, audited; a newer one is refused; a failed one rolls back",
+      "source": "Task 7-8; ADR-0014",
+      "roles": [
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/migrations.test.ts",
+          "test": "running the migration twice changes nothing the second time"
+        },
+        {
+          "file": "tests/server/migrations.test.ts",
+          "test": "a newer or malformed schema is refused before base DDL mutates the database"
+        },
+        {
+          "file": "tests/server/mcenOperations.test.ts",
+          "test": "a migration that fails is rolled back, recorded, audited and shown until reviewed"
+        },
+        {
+          "file": "tests/server/mcenOperations.test.ts",
+          "test": "a schema upgrade counts every Unit Instance’s rows before and after; one that loses rows is audited, shown to both consoles and reviewed"
+        },
+        {
+          "file": "tests/server/auditCoverage.test.ts",
+          "test": "a new database says which schema it was created at; each migration after is audited once, and restarts add nothing"
+        }
+      ]
+    },
+    {
+      "id": "rollback-recovery",
+      "title": "Backup, restore and archive: privileged, checked, audited; the chain verifies; another database, a newer schema or an edited trail is refused",
+      "source": "Tasks 7-8; ADR-0014",
+      "roles": [
+        "Vantage Administrator"
+      ],
+      "status": "proven",
+      "evidence": [
+        {
+          "file": "tests/server/mcenOperations.test.ts",
+          "test": "npm run restore is privileged, checked and audited; a database put back by hand is noticed"
+        },
+        {
+          "file": "tests/server/auditAppendOnly.test.ts",
+          "test": "an instance archive loads into a fresh instance with its own chain, and the log is append-only afterwards"
+        },
+        {
+          "file": "tests/server/secretRotation.test.ts",
+          "test": "changing VANTAGE_SECRET with the old one as VANTAGE_SECRET_PREVIOUS keeps the chain and every stored secret"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a restore across a secret change seals the stored secrets again, so the service needs no previous secret afterwards"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an archive sealed under another secret, from before archives said so, is refused before anything is replaced"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a settings change refused for its metrics changes nothing else either, so nothing is in force that is neither saved nor in the trail"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the database, its write-ahead log and its directory are the service’s alone, whatever the umask"
+        }
+      ]
+    }
+  ],
+  "defects": [
+    {
+      "id": "today-tasks-silent-cut",
+      "title": "Today and Work → Tasks show none of a Marine's open tasks once their units hold 20,000 readable tasks; the cut is silent",
+      "severity": "high",
+      "area": "Accessibility and performance",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were"
+        }
+      ],
+      "note": "Verified independently. A whole record list cut at its cap keeps the reader’s own first and answers X-Vantage-Rows; see record-lists-silent-cut-own-entries for what remains."
+    },
+    {
+      "id": "record-lists-silent-cut-own-entries",
+      "title": "Activities, Readiness, Training, Awards, Counseling and Goals silently drop a leader's or NCO's own entries; each Activities load is 15 MB and writes 1,000 audit entries",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Partly closed with today-tasks-silent-cut: the reader’s own entries are kept first and the cut is counted in X-Vantage-Rows. The pages do not yet say so in words, and a whole list is still loaded and its reads audited."
+    },
+    {
+      "id": "correspondence-threads-cut-300",
+      "title": "Work → Correspondence stops at 300 threads without saying so, hiding the reader's own threads behind the unit's",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unit-metrics-stall",
+      "title": "Unit /metrics loads every shared row of the period and the period before into memory and freezes the whole server for 0.8 to 1.4 s at 50,000 records",
+      "severity": "medium",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unit-export-unbounded",
+      "title": "The unit JSON export builds every shared record in one synchronous response (31.65 MB at 50,000 activities) outside the export queue",
+      "severity": "low",
+      "area": "Accessibility and performance",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "archive-newer-schema-silent-loss",
+      "title": "Service archive import accepts an archive from a newer build and silently drops columns and tables it does not know",
+      "severity": "high",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a service archive from a newer build, or with its audit trail changed, removed or stripped, is refused and nothing is imported"
+        }
+      ]
+    },
+    {
+      "id": "archive-chain-not-verified",
+      "title": "Service archive import never verifies the audit trail it brings: an edited trail leaves the host's chain broken for good, and a stripped trail imports as 'intact'",
+      "severity": "high",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a service archive from a newer build, or with its audit trail changed, removed or stripped, is refused and nothing is imported"
+        }
+      ]
+    },
+    {
+      "id": "import-fresh-check-weak",
+      "title": "Archive import's 'fresh instance' guard counts only users and activities; a one-account instance's records, second Unit Instance and audit entries are erased",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an archive is taken only by a fresh instance: one account, one Unit Instance and no record of any kind"
+        }
+      ]
+    },
+    {
+      "id": "import-fails-after-commit",
+      "title": "An archive without key_check, sealed under another secret, commits, then fails: answered 400, unaudited, chain broken, and the service will not start again",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an archive sealed under another secret, from before archives said so, is refused before anything is replaced"
+        }
+      ]
+    },
+    {
+      "id": "restore-across-rotation-secrets-unopenable",
+      "title": "A restore across a secret change re-wraps the chain key but not stored secrets: the service starts without VANTAGE_SECRET_PREVIOUS and TOTP sign-in fails",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a restore across a secret change seals the stored secrets again, so the service needs no previous secret afterwards"
+        }
+      ]
+    },
+    {
+      "id": "append-only-triggers-not-rearmed",
+      "title": "The audit log's append-only triggers are created only by migration 021; a restored database without them runs with a mutable audit_log",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the audit log is append-only from every start, even for a database copied without its triggers"
+        }
+      ]
+    },
+    {
+      "id": "secret-rotation-unaudited",
+      "title": "Rotating VANTAGE_SECRET (chain key re-wrap and stored-secret reseal) writes no audit entry",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a change of VANTAGE_SECRET is in the trail, once, with what it sealed again"
+        }
+      ]
+    },
+    {
+      "id": "runtime-patch-applied-before-validation",
+      "title": "PUT /api/platform/runtime changes the running service's settings before it validates them; a 400 leaves them changed, unsaved and unaudited",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a settings change refused for its metrics changes nothing else either, so nothing is in force that is neither saved nor in the trail"
+        }
+      ]
+    },
+    {
+      "id": "backup-copies-world-readable",
+      "title": "Database copies are world-readable while they are written; the start-over backup is never restricted, and browser backups are staged in shared tmpdir",
+      "severity": "low",
+      "area": "Audit, migrations and recovery",
+      "status": "open",
+      "evidence": [],
+      "note": "Browser backups are now drawn in a private directory (fixed with c15-live-database-world-readable). The backup and restore scripts set 0600 after the copy, and the start-over backup is not restricted."
+    },
+    {
+      "id": "pre022-other-database-not-refused",
+      "title": "restore.ts does not refuse a pre-022 backup of another database when the live trail is shorter than the backup's",
+      "severity": "low",
+      "area": "Audit, migrations and recovery",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "single-session-revoke-unaudited",
+      "title": "Signing out one of one's own sessions is not audited",
+      "severity": "low",
+      "area": "Audit, migrations and recovery",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c06-passkey-accepted-under-exclusive-modes",
+      "title": "Under OIDC-only (and CAC-only) mode the server accepts passkey sign-in and password step-up, but the login page offers no passkey and the console hint says provider-only",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Which sign-in methods an MCEN instance accepts, and what step-up must prove, is the sign-in method policy (review C06, C07). It waits on the service’s sign-in owner; the code follows once it is set. The identity review confirmed it again (c06-exclusive-modes-accept-other-methods)."
+    },
+    {
+      "id": "c08-mcen-accepts-invalid-security-numbers",
+      "title": "The MCEN production profile starts with negative, fractional or huge session, lockout and size limits",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c08-mcen-weak-postures-not-refused",
+      "title": "The MCEN profile starts with CAC revocation off, scanning not required, UDP/TCP syslog, plain SMTP and no enterprise identity",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c09-default-proxy-trust-forges-client-ip",
+      "title": "With the production default TRUST_PROXY (one hop) and the port reached directly, a client forges its address and evades the per-address sign-in limit",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c12-audit-forwarder-drops-and-miscounts",
+      "title": "Off-host audit forwarding drops the oldest records during an outage, loses the queue on restart, and counts unread writes as sent",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c15-live-database-world-readable",
+      "title": "The live database, its WAL and SHM are created 0644 and its directory 0755; the browser backup copy sits in the shared tmpdir before chmod",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the database, its write-ahead log and its directory are the service’s alone, whatever the umask"
+        }
+      ]
+    },
+    {
+      "id": "c18-mcen-smtp-cleartext",
+      "title": "On the MCEN profile, mail including password-reset links is sent in clear text to a relay that offers no STARTTLS",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c14-recent-titles-survive-sign-out",
+      "title": "Record titles, case references and Marine names stay in localStorage after sign-out and expiry",
+      "severity": "medium",
+      "area": "Security review C06-C20",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/clientState.test.ts",
+          "test": "signing out forgets what was opened on this device, in both storages, and keeps everything else"
+        }
+      ]
+    },
+    {
+      "id": "c13-roster-import-skips-required-scan",
+      "title": "With VANTAGE_SCAN_REQUIRED=true and no scanner, the account roster upload is still accepted and applied",
+      "severity": "low",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c16-unrecoverable-sealed-values-unreported",
+      "title": "Key rotation silently skips sealed values that neither secret opens and reports nothing",
+      "severity": "low",
+      "area": "Security review C06-C20",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c28-session-lifecycle-unaudited",
+      "title": "Session cap eviction, idle or absolute expiry and the scheduled prune end sessions with no audit entry, and sign-in entries carry no session correlation",
+      "severity": "medium",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c35-passkey-profile-and-removal",
+      "title": "A synced (backup-eligible, backed-up) passkey is registered with no profile check, and removing it leaves the session it opened signed in",
+      "severity": "medium",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c31-csv-no-handling-line",
+      "title": "Report CSV export carries no handling line, although docs and the test title say every file does",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "c34-stale-asvs-claims",
+      "title": "ASVS self-assessment still carries stale or overstated claims (V16.5.2 Met, V15.2 npm audit, V15.1 no SBOM)",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "codeql-biased-random-passphrase",
+      "title": "Generated import passphrases use modulo-biased random selection (open CodeQL biased-cryptographic-random alert)",
+      "severity": "low",
+      "area": "Security review C21-C35",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reviewer-correction-bypasses-override",
+      "title": "A reviewer without Override duty points changes a submitted duty's points by editing it, then approves: no reason, no review history, the Marine not told",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reviewer-bins-submitted-duty",
+      "title": "A reviewer bins a Marine's submitted duty instead of rejecting it: no reason, no review history, the Marine not told",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "duty-evidence-changes-under-decision",
+      "title": "A duty's files can be removed or swapped between a reviewer opening it and deciding it; the version guard does not cover them",
+      "severity": "medium",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "multiplier-display-rounded",
+      "title": "The console's 'Try it' and the duty's scoring basis show a rounded multiplier, so the arithmetic shown does not give the points (5 × 1.88 shown as 9.38)",
+      "severity": "low",
+      "area": "Duty",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "withheld-attachments-move-in",
+      "title": "Files reach a Unit Instance with attachments withheld by moving the record that holds them",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "intake-keeps-rejected-malware-bytes",
+      "title": "Work intake keeps a workbook the scanner rejected, malware bytes included, for 400 days and carries it in the service archive",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "attachments-no-scan-verdict",
+      "title": "An attachment stored without a scan carries no 'not scanned' mark anywhere",
+      "severity": "medium",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "eml-scan-before-authorization",
+      "title": "The saved-message import reads and scans the whole file before deciding whether the caller may place it",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "intake-filename-not-cleaned",
+      "title": "Work-intake filenames are stored as sent: C1 control characters reach the source list and the append-only audit trail",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "binned-record-zip-carries-evidence",
+      "title": "A binned training shows no evidence, yet its record ZIP export still carries the files",
+      "severity": "low",
+      "area": "Attachments",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "row-cap-silent-truncation",
+      "title": "An error report longer than the intake row cap is filed with only its first rows: silently for CSV, and the filed history and every comparison are then wrong",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a delimited file longer than the intake reads says it was cut, as a workbook’s sheet does"
+        }
+      ],
+      "note": "Reported high; the independent check rated it medium (recoverable: withdraw and file again under a higher cap). A CSV now says it was cut, as a workbook’s sheet does, so the page warns before filing. A filed report still does not record that it was cut."
+    },
+    {
+      "id": "amount-float-rounding",
+      "title": "Error-report amounts with three or more decimals are rounded through a float, inconsistently and without a note, against ADR-0005",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "type-recode-relabels-history",
+      "title": "Re-coding or renaming an error report type relabels every report already filed under it; no filed report keeps the type it was filed as",
+      "severity": "medium",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "damaged-workbook-500",
+      "title": "A damaged workbook sent to error-report preview or filing gives an unhandled 500 instead of a 400",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "net-change-unknown-as-zero",
+      "title": "'Amount changed' counts an amount that was unreadable on one report as $0, so the net change reports the whole amount",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "new-standing-hint-wrong-for-span",
+      "title": "'New' is labelled 'on no earlier report of this series', but compared against an older report it also counts errors that were on a report in between",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "diagnosis-omits-approver",
+      "title": "The case diagnosis does not say who approved an SOP or validated an SME workflow",
+      "severity": "low",
+      "area": "Error reports and cases",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "oidc-email-prelink-takeover",
+      "title": "An address nobody proved captures another person's first organization sign-in; the attacker keeps password access to that account",
+      "severity": "critical",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
+        }
+      ],
+      "note": "Verified independently. A first organization sign-in that finds its account by address or EDIPI now ends the account’s password, passkeys, second factor, unused links and sessions before the person’s own session opens. A person who had a password and signs in this way for the first time sets a new one by reset if the instance still takes passwords."
+    },
+    {
+      "id": "until-proven-defeated-by-oidc-link",
+      "title": "A Unit Manager's imported account becomes 'proven' through somebody else's first organization sign-in, and then takes a records-reading role",
+      "severity": "high",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "a first sign-in found by its address takes the account alone: a password, passkey, second factor, link or session someone else set up there ends"
+        }
+      ],
+      "note": "Verified independently. Closed by the same fix: once the member links, the Unit Manager who opened the account holds no way into it."
+    },
+    {
+      "id": "step-up-granted-by-any-sign-in",
+      "title": "C07: every sign-in, including a silent OIDC return, opens the step-up window; the provider is never asked to re-authenticate",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "staff-password-only-sign-in",
+      "title": "Vantage staff need a second factor only to be granted the role; afterwards a password alone signs them in, and TOTP can be turned off",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "reset-links-survive-credential-changes",
+      "title": "A password reset link issued before a password change or an address change still resets the password and signs in",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "recovery-script-useless-in-exclusive-modes",
+      "title": "The break-glass script prints a password that CAC-only or OIDC-only instances refuse, and leaves an existing lock in place",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "passkey-options-enumerate-usernames",
+      "title": "POST /api/auth/passkey/options tells an unauthenticated caller which usernames exist",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "failed-sign-out-keeps-browser-state",
+      "title": "When the sign-out request fails (offline or 5xx), the client keeps recent visits, drafts, the signed-in marker and the server session, yet shows the person signed out",
+      "severity": "low",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "forged-cac-header-unrecorded",
+      "title": "A CAC certificate header presented without the proxy secret is answered 'no card presented', with no audit entry and no limiter count",
+      "severity": "low",
+      "area": "Identity and sessions",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "export-leaks-others-ip",
+      "title": "The personal export gives the Marine the IP addresses of other people who acted on them",
+      "severity": "high",
+      "area": "Import and export",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export gives the Marine where they acted from, never the address of anyone who acted on them"
+        }
+      ]
+    },
+    {
+      "id": "export-includes-binned-assigned-records",
+      "title": "The assignee's export includes another person's binned task or goal, its files and comments",
+      "severity": "medium",
+      "area": "Import and export",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export holds a task someone else owns only while its read rule gives it: assigned, shared, and not in its owner’s bin"
+        }
+      ]
+    },
+    {
+      "id": "restore-order-leaves-duty-unscored",
+      "title": "Restoring duty before the unit configuration leaves past duty unscored for good, with no warning",
+      "severity": "medium",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "spreadsheet-drops-author",
+      "title": "A workbook or CSV round trip drops who wrote a counseling or an award recommendation",
+      "severity": "medium",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "fm-work-lost-in-spreadsheet",
+      "title": "FM work exported as its own CSV/XLSX category comes back as an ordinary activity",
+      "severity": "low",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "personnel-sheet-misrouted",
+      "title": "The workbook's 'Personnel history' sheet is read back as Career plan rows that cannot import",
+      "severity": "low",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "personnel-history-raw-ids",
+      "title": "Exported personnel history names the supervisor by internal user id",
+      "severity": "low",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "duty-placement-says-kept",
+      "title": "The import review says a duty's placement was 'kept' when it moved to the importer's own unit",
+      "severity": "low",
+      "area": "Import and export",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "export-subtree-no-reach",
+      "title": "Unit export carries every shared record of the units beneath, without View shared records or reach",
+      "severity": "high",
+      "area": "Unit isolation",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit export holds only the units its exporter reads: it needs View shared records, and a role that does not reach down exports its own unit"
+        }
+      ]
+    },
+    {
+      "id": "workload-subtree-no-reach",
+      "title": "Team workload, and its report-center report and export, read sub-units without reach and name their Marines",
+      "severity": "high",
+      "area": "Unit isolation",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "team workload, and its report and export, read the units beneath only where the reader does, and name Marines only where they open member records"
+        }
+      ]
+    },
+    {
+      "id": "goal-unit-measure-subtree",
+      "title": "A unit-measured goal set by a position-0 parent reader totals and lists sub-unit entries, per Marine",
+      "severity": "high",
+      "area": "Unit isolation",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit-measured goal reads the units beneath only where its setter does, and its contributors only where their reader does"
+        }
+      ]
+    },
+    {
+      "id": "ai-command-brief-subtree",
+      "title": "The AI command brief aggregates the whole subtree with only Export data, despite being labelled 'Exact-unit aggregate totals only'",
+      "severity": "medium",
+      "area": "Unit isolation",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the AI command brief totals only the units its reader reads, and needs View shared records as well as Export data"
+        }
+      ],
+      "note": "Also held to the export permission in each unit it totals, as the unit export is."
+    },
+    {
+      "id": "export-gate-root-only",
+      "title": "Unit report export checks EXPORT_DATA only at the root unit, so sub-unit rows leave in CSV/PDF/JSON without export authority there",
+      "severity": "high",
+      "area": "PDF and print",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a unit report leaves as a file only with the export permission in every unit it reads"
+        }
+      ]
+    },
+    {
+      "id": "report-filters-overflow",
+      "title": "Report PDF filter values wrap out of the FILTERS box and overprint the next filter and the rule below",
+      "severity": "medium",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "counseling-pdf-no-pii-notice",
+      "title": "A final counseling PDF carrying both EDIPIs has no PII notice, contrary to ADR-0033",
+      "severity": "medium",
+      "area": "PDF and print",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its own person’s profile, the rest left to fill in, its marking, never stored"
+        }
+      ]
+    },
+    {
+      "id": "counseling-admin-clipping",
+      "title": "Counseling worksheet admin values wrap past their box; a 3-line counselor billet is hidden under the next bar",
+      "severity": "medium",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "counseling-pdf-broad-readers",
+      "title": "Full counseling worksheet PDF drawable by any VIEW_RECORDS holder, including Vantage support and NCOs refused counseling lists",
+      "severity": "medium",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "The record’s read rule (ADR-0027) lets the unit’s record readers read a shared, final counseling, and the PDF follows it; whether that should narrow to member-record readers is the owner’s call."
+    },
+    {
+      "id": "analysis-pdf-truncates-text",
+      "title": "Analysis PDF table cells cut entry titles and text with an ellipsis",
+      "severity": "medium",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "non-latin1-names-question-marks",
+      "title": "Names outside WinAnsi print as '?' in report and counseling PDFs",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "landscape-mid-token-breaks",
+      "title": "Wide landscape report tables break dates and headers mid-token",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "toast-prints",
+      "title": "Toast container is not hidden in print; PrintCounseling shows a toast after PDF download",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "input-pdf-no-marking",
+      "title": "JEPES/FITREP input PDF has no handling line and no page numbers",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "pdfs-untagged",
+      "title": "No PDF is tagged for accessibility",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "gate-test-title-misleading",
+      "title": "Readiness gate counseling test says 'nobody else reaches it' but omits unit readers who can",
+      "severity": "low",
+      "area": "PDF and print",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGate.test.ts",
+          "test": "counseling: its counselor, its Marine and the unit’s leader draw the NAVMC 2795 worksheet; nobody outside the unit’s chain reaches it"
+        }
+      ],
+      "note": "The test now names the unit’s leader among those who draw a final worksheet, as the record’s read rule allows."
+    },
+    {
+      "id": "edipi-in-instance-audit",
+      "title": "Unit Instance audit trail shows, searches and exports full EDIPIs to Unit Auditors and Records Officers",
+      "severity": "high",
+      "area": "Personnel history",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran"
+        }
+      ],
+      "note": "Also reported under security review C25 (c25-edipi-unit-audit-trail)."
+    },
+    {
+      "id": "edipi-in-personal-export",
+      "title": "Personal data export carries other people's EDIPIs via card-provisioned usernames",
+      "severity": "high",
+      "area": "Personnel history",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a personal export names other people by rank and name where their username is their card’s EDIPI"
+        }
+      ]
+    },
+    {
+      "id": "billet-id-change-no-history",
+      "title": "Changing a Marine to a different catalogue billet with the same title writes no history",
+      "severity": "medium",
+      "area": "Personnel history",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "feed-restore-overwrites-rejoin",
+      "title": "Feed restore replaces a leader's newer assignment with pre-separation values after a re-join",
+      "severity": "medium",
+      "area": "Personnel history",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unit-reparent-no-history",
+      "title": "Moving a unit under a new parent leaves no history and an audit entry with no detail",
+      "severity": "medium",
+      "area": "Personnel history",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "moving a unit under another parent says where it sat before, in the trail"
+        }
+      ],
+      "note": "The trail now says where the unit sat and where it went. Section 18 keeps a Marine’s unit as history; a unit’s own place in the hierarchy is kept by the trail."
+    },
+    {
+      "id": "structure-export-edipi",
+      "title": "Unit Instance structure export file carries every member's EDIPI and account security fields",
+      "severity": "low",
+      "area": "Personnel history",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "leader-sets-timezone",
+      "title": "A leader can change a Marine's own timezone preference through the member profile route",
+      "severity": "low",
+      "area": "Personnel history",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "stepup-bypass-via-org-router",
+      "title": "Unit Manager changes refused without step-up on /api/orgs succeed through /api/org",
+      "severity": "medium",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "role-self-revoke-asymmetry",
+      "title": "Staff and Unit Instance role revocation has no self check, unlike the grant routes",
+      "severity": "low",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "password-step-up-unaudited",
+      "title": "Password step-up is not on the audit trail, while the card step-up is",
+      "severity": "low",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "member-removal-membership-oracle",
+      "title": "Member removal answers 404 or 403 by membership before checking authority",
+      "severity": "low",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "goal-contributors-leak",
+      "title": "A plain Marine reads a fellow Marine's shared entries (titles, dates, dollar values) through an assigned unit goal's contributors",
+      "severity": "high",
+      "area": "Route sweep (records, work, reports)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a goal assigned in a unit shows its contributors, by title and amount, only to those who may open them: not to its unit’s other Marines"
+        }
+      ],
+      "note": "Verified independently."
+    },
+    {
+      "id": "counseling-former-counselor-edit",
+      "title": "A counselor who lost authority over the Marine still rewrites and deletes the counseling the Marine is reviewing through the generic record routes",
+      "severity": "high",
+      "area": "Route sweep (records, work, reports)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/counselingWorkflow.test.ts",
+          "test": "a counselor who no longer counsels the Marine reads what they wrote but no longer moves it"
+        }
+      ],
+      "note": "Verified independently. Editing, binning and restoring a counseling draft now take what sharing and finalizing take (ADR-0027 §2-3)."
+    },
+    {
+      "id": "work-close-reopen-unaudited",
+      "title": "Closing and reopening a case through PATCH /api/work/items/:id (or an action with resolve:true) writes no work_closed or work_reopened audit entry",
+      "severity": "medium",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "unaudited-connector-delete-and-unlink",
+      "title": "Connector deletion and thread unlinking are not audited, while their sibling actions are",
+      "severity": "low",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "restore-audit-no-subject",
+      "title": "The record restore audit omits subject_id, while the delete audit records it",
+      "severity": "low",
+      "area": "Route sweep (records, work, reports)",
+      "status": "open",
+      "evidence": [],
+      "note": "Reported with a probe; not independently verified; left open for a later Task."
+    },
+    {
+      "id": "oidc-link-leaves-card",
+      "title": "A first organization sign-in found by address ended every way into the account but a card: whoever put the address on an account that carries their EDIPI still signed in to it with their card",
+      "severity": "high",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/oidc.test.ts",
+          "test": "where cards sign in too, an account found by its address that carries an EDIPI is taken only by a sign-in asserting that EDIPI"
+        }
+      ],
+      "note": "Found by the code review of this gate’s own diff. A card cannot be ended from the server, since its holder carries it. Where the instance takes cards, an account found by address that carries an EDIPI is now taken only by a sign-in asserting the same EDIPI (VANTAGE_OIDC_EDIPI_CLAIM); otherwise the link is refused (oidc_card_bound), audited, and nothing changes."
+    },
+    {
+      "id": "hidden-trail-words-match-edipi",
+      "title": "On a Unit Instance trail, the search still matched an EDIPI, or part of one, in the words of entries other than a card link, so which entries came back confirmed a guess",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran"
+        }
+      ],
+      "note": "Found by the code review of this gate’s own diff. The search no longer looks in the words of any entry that carries ten digits in a row; such an entry is still found by its action, people, entity and address. No action Vantage writes into a Unit Instance trail carries one today besides a card link, so this closes the words people type."
+    },
+    {
+      "id": "restore-rotation-unaudited",
+      "title": "A restore that moved the backup’s keys to the current VANTAGE_SECRET left no key rotation in the trail, since the next start found nothing left to rotate",
+      "severity": "low",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a restore across a secret change seals the stored secrets again, so the service needs no previous secret afterwards"
+        }
+      ],
+      "note": "Found by the code review of this gate’s own diff. The restore record carries what was moved, and the start that audits the restore writes the secret_rotated entry by the administrator who authorized it."
+    },
+    {
+      "id": "browser-backup-copy-left-on-failure",
+      "title": "A browser backup that failed after the copy was drawn, but before it left, left a full copy of the database in the temporary directory",
+      "severity": "low",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a browser backup that fails before it leaves takes its copy with it"
+        }
+      ],
+      "note": "Found by the code review of this gate’s own diff. The copy and its private directory go on any failure before the download begins."
+    },
+    {
+      "id": "stale-page-load-clears-new-sign-in",
+      "title": "A page load sent under a session that had just ended, and answered after a newer sign-in, cleared the new sign-in’s cookie, so the person was signed out at once",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/auth.test.ts",
+          "test": "a page load sent under an ended session and answered after a newer sign-in leaves that sign-in in place"
+        }
+      ],
+      "note": "Found by the full browser suite on 080fed6: spec 33’s Unit Auditor test lost a fresh sign-in after a role grant ended the old one (about 2 sign-ins in 600 under load). The clear came from the document handler (8db5f10) and the service worker’s fetch of / (031d286), both older than this branch. A document no longer clears the session cookie. A dead cookie opens nothing; without its own marker it counts as signed out, and with its marker still in the browser it gets the app, whose first request is refused and clears the marker, as before."
+    },
+    {
+      "id": "sw-install-keeps-public-page",
+      "title": "On a host shared with the public site, the service worker’s install kept whatever / answered as the app’s offline copy, so a browser signed out, or holding an ended session, kept the public page and opened it offline",
+      "severity": "low",
+      "area": "Accessibility and performance",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/serviceWorker.test.ts",
+          "test": "the service worker keeps only the application as its offline copy, whoever installs it"
+        }
+      ],
+      "note": "Found by the review of the fix above: once a dead cookie counts as signed out, an install in that window was one more way in. Older than this branch for a browser with no session. The install now keeps / only when it is the application (from / or /login), the rule navigations already followed."
+    }
+  ],
+  "external": [
+    {
+      "id": "sign-in-method-policy",
+      "title": "The sign-in method and assurance policy for MCEN: which methods an instance accepts and what step-up must prove",
+      "owner": "The service’s sign-in owner (MCEN identity)",
+      "source": "Security review C06, C07",
+      "note": "Open defect c06-passkey-accepted-under-exclusive-modes waits on it."
+    },
+    {
+      "id": "dynamic-scan",
+      "title": "A dynamic application scan (HawkScan) of the candidate",
+      "owner": "John: a StackHawk API key for this environment",
+      "source": "Project setup",
+      "note": "HAWK_API_KEY is not set, so no scan has ever run."
+    },
+    {
+      "id": "code-scanning-alerts",
+      "title": "Code-scanning alerts: 14 on PR #69, the 12 high on PR #84 and the high on PR #86, each fixed or dismissed with a reason",
+      "owner": "John, as repository owner",
+      "source": "Task 19; security review §8",
+      "note": "Dismissals are a repository owner’s decision; none has been made. PR #86 drew 5 high at 0872fcb: three on the record list’s queries in server/services/records.ts, traced on their threads as a checked table name with every value bound; one on this summary’s escaping, fixed in ac51f60; one not shown on the pull request’s lines."
+    },
+    {
+      "id": "mcele-source",
+      "title": "An approved MCeLE course source for the course lookup",
+      "owner": "John, with the training office",
+      "source": "Task 22",
+      "note": "The lookup ships with its built-in catalog until a source is named."
+    },
+    {
+      "id": "task7-support-reset-approver",
+      "title": "Who approves a support reset of a sign-in: the Task 7 decision card was never answered",
+      "owner": "John",
+      "source": "Task 7",
+      "note": "Built as “Second staff member”."
+    },
+    {
+      "id": "task20-review-step",
+      "title": "Which review step a counseling takes: the Task 20 decision card was never answered",
+      "owner": "John",
+      "source": "Task 20",
+      "note": "Built as “the Marine’s review”."
+    },
+    {
+      "id": "mcen-host-evidence",
+      "title": "Evidence from the intended MCEN host: identity provider, malware scanner, syslog collector, TLS, backups and a restore drill",
+      "owner": "MCEN hosting, with the system owner",
+      "source": "ADR-0014; security review §10",
+      "note": "The code supports each; only the host can show them running."
+    },
+    {
+      "id": "review-packages-c07-c35",
+      "title": "Security review packages C07 to C35 that apply only once a service is selected, or that need evidence or policy the code cannot give",
+      "owner": "The system owner, with MCEN",
+      "source": "Security review §10",
+      "note": "Not scheduled. Their code-side defects are in the defects table."
+    },
+    {
+      "id": "authority-to-operate",
+      "title": "The decision to operate Vantage on MCEN",
+      "owner": "The authorizing official",
+      "source": "Security review; spec",
+      "note": "This gate informs that decision and never makes it."
+    }
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "title": "Lint and the any budget",
+      "command": "npm run lint",
+      "required": true,
+      "result": "pass",
+      "on": "ac51f60",
+      "detail": "Clean, there and on 0058137. The any budget is at its limits: 168 in src, 4 in server, 3 in shared."
+    },
+    {
+      "id": "typecheck",
+      "title": "Type check (server, web, browser tests)",
+      "command": "npm run typecheck",
+      "required": true,
+      "result": "pass",
+      "on": "ac51f60",
+      "detail": "Server, web and browser tests, there and on 0058137."
+    },
+    {
+      "id": "build",
+      "title": "Production build and prerender",
+      "command": "npm run build",
+      "required": true,
+      "result": "pass",
+      "on": "0058137",
+      "detail": "The only later change to code, ac51f60, is to scripts/readiness-gate.ts and its test, which the build does not include."
+    },
+    {
+      "id": "server-suite",
+      "title": "Unit and integration tests",
+      "command": "npm test",
+      "required": true,
+      "result": "pass",
+      "on": "ac51f60",
+      "detail": "1,317 of 1,317 (4 min), there and on 0058137. The baseline on 5a80959 was 1,278."
+    },
+    {
+      "id": "browser-suite",
+      "title": "End-to-end browser suite",
+      "command": "npx playwright test --trace off",
+      "required": true,
+      "result": "pass",
+      "on": "0058137",
+      "detail": "267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The only later change to code, ac51f60, is to the gate script and its test, which no browser test reaches. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb."
+    },
+    {
+      "id": "register",
+      "title": "The register checks out and READINESS_GATE.md is drawn from it",
+      "command": "node scripts/readiness-gate.ts",
+      "required": true,
+      "result": "pass",
+      "on": "ac51f60",
+      "detail": "Also run, with tests/server/readinessGate.test.ts, on the commit that records these results."
+    },
+    {
+      "id": "npm-audit",
+      "title": "Dependency audit",
+      "command": "npm audit",
+      "required": true,
+      "result": "pass",
+      "on": "0058137",
+      "detail": "0 vulnerabilities."
+    },
+    {
+      "id": "hawkscan",
+      "title": "Dynamic scan (HawkScan)",
+      "command": "hawk scan",
+      "required": false,
+      "result": "not-run",
+      "on": "none",
+      "detail": "No StackHawk API key in this environment, so it cannot run; listed under owners outside the code (dynamic-scan)."
+    },
+    {
+      "id": "ci",
+      "title": "GitHub Actions on the pull request",
+      "command": ".github/workflows/ci.yml",
+      "required": false,
+      "result": "not-run",
+      "on": "none",
+      "detail": "Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 31, so the suite ran in the container instead."
+    }
+  ]
+}

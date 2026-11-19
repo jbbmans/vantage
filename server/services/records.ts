@@ -3,7 +3,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther, unfinalized } from '../authz/records.ts';
+import { readableClause, canPlace, canPlaceOwnDuty, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther, unfinalized } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
@@ -11,7 +11,7 @@ import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/
 import { periodClause } from './timeframes.ts';
 import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
-import { assertFinalizable, finalizedColumns, tellFinal, withCounselingDetail } from './counselings.ts';
+import { assertFinalizable, editRefusal, finalizedColumns, mayEditRecord, tellFinal, withCounselingDetail } from './counselings.ts';
 import { courseColumns, rechecksCourse, withCourseDetail } from './courses.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
@@ -105,7 +105,24 @@ export function activityFingerprint(userId: string, row: { date?: string | null;
 const keptFingerprint = (userId: string, current: unknown, merged: Record<string, unknown>) =>
   isDrawnFromWork(current) ? String(current) : activityFingerprint(userId, merged as never);
 
-export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null; deleted?: boolean } = {}) {
+/**
+ * What a whole list keeps first when it is longer than its cap: the reader's own records, those assigned to them or
+ * written by them as counselor. Of tasks, open work before done: first what the reader holds, then what they gave
+ * someone, then the unit's. So Today and Work never lose the reader's own work behind their units' (ADR-0032 §1).
+ */
+function keptFirst(table: RecordTable, userId: string): { sql: string; params: unknown[] } {
+  const spec = TABLES[table];
+  const held = ['t.user_id = ?', ...(spec.assignee ? ['t.assignee_id = ?'] : []), ...(spec.counselor ? ['t.counselor_id = ?'] : [])];
+  const mine = `(${held.join(' OR ')})`;
+  const theirs = held.map(() => userId);
+  if (table !== 'tasks') return { sql: `CASE WHEN ${mine} THEN 0 ELSE 1 END`, params: theirs };
+  return {
+    sql: `CASE WHEN t.status <> 'completed' THEN (CASE WHEN COALESCE(t.assignee_id, t.user_id) = ? THEN 0 WHEN ${mine} THEN 1 ELSE 2 END) WHEN ${mine} THEN 3 ELSE 4 END`,
+    params: [userId, ...theirs, ...theirs],
+  };
+}
+
+export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null; deleted?: boolean; counted?: (shown: number, total: number) => void } = {}) {
   const spec = TABLES[table];
   const { clause, params } = readableClause(ctx, scope, user.id, 't', { memberReadable: spec.memberReadable, counselor: spec.counselor, assignee: spec.assignee });
   // The recycle bin is personal: only the owner sees their own deleted rows. A counseling not yet final is its
@@ -126,7 +143,17 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const cap = ctx.config.limits.maxRecordsPerUser;
   const limit = Math.min(Math.max(Number(opts.limit) || cap, 1), cap);
   const offset = Math.max(Number(opts.offset) || 0, 0);
-  const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
+  const paged = Boolean(Number(opts.limit) || Number(opts.offset));
+  // A page is a page of the table's order. A whole list longer than its cap keeps the reader's own first, and is still
+  // given in the table's order; how many there were is told (X-Vantage-Rows), so nothing is cut without a word.
+  const keep = keptFirst(table, user.id);
+  const rows = (paged || opts.deleted
+    ? ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset)
+    : ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE t.id IN (SELECT t.id FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${keep.sql}, ${spec.orderBy} LIMIT ?) ORDER BY ${spec.orderBy}`).all(...params, ...keep.params, limit)) as Array<Record<string, unknown>>;
+  if (opts.counted && rows.length === limit) {
+    const total = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} t WHERE ${where.join(' AND ')}`).get(...params) as { n: number }).n;
+    if (total > offset + rows.length) opts.counted(rows.length, total);
+  }
   const hydrated = rows.map((r) => hydrate(r, table)!);
   if (table === 'counselings') return withCounselingDetail(ctx, user.id, hydrated, scope);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
@@ -517,8 +544,9 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // A counseling not yet final is no such record to anyone who may not read it (ADR-0027).
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'edit');
-  const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
-  if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
+  const editable = mayEditRecord(ctx, scope, user.id, row);
+  const assigneeOnly = !editable && isAssignee(scope, user.id, row);
+  if (!editable && !assigneeOnly) throw editRefusal(ctx, scope, user.id, row, 'edit')!;
   const assignmentNote = assignmentNoteOf(table, body);
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
   if (assigneeOnly) {
@@ -633,7 +661,8 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const scope = scopeFor(ctx, user, reqKey);
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such record.');
   if (table === 'duties' && canRead(scope, user.id, row)) assertDutyOpen(row, 'delete');
-  if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to delete.');
+  const refused = editRefusal(ctx, scope, user.id, row, 'delete');
+  if (refused) throw refused;
   let detail: string | undefined;
   ctx.db.transaction(() => {
     ctx.db.prepare(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(now(), now(), id);
@@ -654,7 +683,8 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   if (!row || !row.deleted_at) throw notFound('No such deleted record.');
   const scope = scopeFor(ctx, user, reqKey);
   if (unfinalized(row) && !canRead(scope, user.id, row)) throw notFound('No such deleted record.');
-  if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to restore.');
+  const refused = editRefusal(ctx, scope, user.id, row, 'restore');
+  if (refused) throw refused;
   if (table === 'activities' && row.fingerprint) {
     const twin = ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL AND id != ?').get(row.user_id, row.fingerprint, id) as { id: string; title: string } | undefined;
     if (twin) throw conflict(`An identical live entry already exists (“${twin.title}”). Delete that one first, or leave this copy to purge.`, 'duplicate', { duplicate_id: twin.id });

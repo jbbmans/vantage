@@ -127,7 +127,7 @@ const ENTERPRISE = [
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
   'maintenance_off', 'maintenance_task', 'purge_deleted', 'drafts_expired', 'notifications_expired',
   // What the service does to itself: a new build, each schema migration it runs, and what counting rows around them found.
-  'release_deployed', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
+  'release_deployed', 'secret_rotated', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
   // Features turned off for one Unit Instance, and given back.
   'instance_feature_withheld', 'instance_feature_restored',
   // Official policy and system guidance the case diagnoser cites for every Unit Instance (ADR-0022).

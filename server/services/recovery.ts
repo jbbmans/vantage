@@ -123,6 +123,8 @@ export function auditRestores(ctx: AppContext) {
     const instances = activeInstances(ctx);
     ctx.db.transaction(() => {
       audit(ctx, { actor_id: actor, action: detected ? 'database_replaced' : 'database_restored', entity: 'database', entity_id: r.id, detail: `${restoreSummary(r)}${lost}${who}${r.safetyCopy ? ` The replaced database was kept as ${r.safetyCopy}.` : ''}` });
+      // Keys the restore moved to the current VANTAGE_SECRET are a rotation, as a start that moves them records one.
+      if (r.rotated) audit(ctx, { actor_id: actor, action: 'secret_rotated', entity: 'database', entity_id: r.id, detail: `VANTAGE_SECRET changed with the restore: ${r.rotated.chainKey ? 'the audit chain key wrapped under it, ' : ''}${r.rotated.resealed} stored secret${r.rotated.resealed === 1 ? '' : 's'} sealed again` });
       for (const org of instances) {
         const own = r.lost?.instances?.[org.id];
         audit(ctx, { actor_id: actor, action: detected ? 'database_replaced' : 'database_restored', category: 'enterprise', entity: 'database', entity_id: r.id, org_id: org.id, detail: `${restoreSummary(r)}${own !== undefined ? ` ${own} of this Unit Instance’s audit entries after it were undone.` : r.lost ? ' None of this Unit Instance’s audit entries were undone.' : ''}${r.method === 'script' ? ` Reason: ${r.reason ?? 'none given'}.` : ''}` });

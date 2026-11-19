@@ -200,11 +200,17 @@ test('audit log and export are permission-gated and chain-verified', async () =>
   // an entry, and the chain is what shows it.
   assert.throws(() => app.ctx.db.prepare("UPDATE audit_log SET detail = 'tampered' WHERE seq = 3").run(), /audit_append_only/);
   assert.equal(verifyAuditChain(app.ctx).ok, true);
+  const original = (app.ctx.db.prepare('SELECT detail FROM audit_log WHERE seq = 3').get() as { detail: string | null }).detail;
   app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
   try {
     app.ctx.db.prepare("UPDATE audit_log SET detail = 'tampered' WHERE seq = 3").run();
     assert.equal(verifyAuditChain(app.ctx).ok, false);
-  } finally { auditAppendOnlyTriggers(app.ctx.db); }
+  } finally {
+    // Put back as it was, so the trail the later tests export still verifies (an archive whose trail does not is refused).
+    app.ctx.db.prepare('UPDATE audit_log SET detail = ? WHERE seq = 3').run(original);
+    auditAppendOnlyTriggers(app.ctx.db);
+  }
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
 });
 
 test('operator console: runtime settings, users, lifecycle, export/import, backup', async () => {

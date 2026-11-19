@@ -21,6 +21,7 @@ import { formatDate, formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays, useMediaQuery } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
+import { useFocusWhenShown } from '@/lib/keyboard';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
 import type { DirectoryCandidate, PersonnelRosterRow, TeamPerson, Unit } from '../../shared/types';
@@ -758,10 +759,11 @@ function UnitAudit({ unitId }: { unitId: string }) {
   });
   const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
   // Focus moves to the first entry a page added, so it is not lost when the button goes after the last page.
+  const focusWhenShown = useFocusWhenShown();
   const loadOlder = async () => {
     const before = rows.length;
     const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
-    if (added) window.requestAnimationFrame(() => document.getElementById(`unit-access-${added.id}`)?.focus());
+    if (added) focusWhenShown(`unit-access-${added.id}`);
   };
   return (
     <Panel title="Who has been reading records in this unit" subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}>

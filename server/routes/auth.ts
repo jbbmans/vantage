@@ -83,14 +83,25 @@ export function setSignedInMarker(req: Request, res: Response, token: string) {
  * A page clears the marker when a request it sent comes back 401, and a newer sign-in may have set it a moment before:
  * cookie writes keep no order, and a page cannot make its clearing conditional. A document served to a session that
  * still stands puts the marker back, so the page it loads is signed in. Costs a lookup only when the marker is wrong.
+ *
+ * The same holds the other way for the session cookie, so a document never clears it. A browser attaches cookies when
+ * a request leaves, and a page load sent under a session that has since ended (a reload in another tab, the service
+ * worker fetching the app again) can be answered after a newer sign-in stored its cookie; a clear in that answer
+ * matches the cookie by name, not by value, and took the new sign-in with it. A dead cookie opens nothing, and the
+ * next sign-in replaces it. Returns whether the visitor counts as signed in for the document it is served: a marker
+ * that matches its session is trusted without a lookup, so a session that ended with its marker still in the browser
+ * gets the app, whose first request is refused and clears the marker.
  */
-export function restoreSignedInMarker(req: Request, res: Response) {
+export function restoreSignedInMarker(req: Request, res: Response): boolean {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (typeof token !== 'string' || !token || req.cookies?.[SIGNED_IN_COOKIE] === signedInMarker(token)) return;
-  // Read as any request reads it, expiry included, without counting as use: a session that idled out gets no marker,
-  // and its cookie goes, so the next page asks nothing of it.
-  if (resolveSession(req.ctx, token, { touch: false })) setSignedInMarker(req, res, token);
-  else res.clearCookie(SESSION_COOKIE, { path: '/' });
+  const marker = req.cookies?.[SIGNED_IN_COOKIE];
+  if (typeof token !== 'string' || !token) return Boolean(marker);
+  if (marker === signedInMarker(token)) return true;
+  // Read as any request reads it, expiry included, without counting as use: a session that idled out ends here and
+  // gets no marker, so the page asks nothing of it.
+  if (!resolveSession(req.ctx, token, { touch: false })) return false;
+  setSignedInMarker(req, res, token);
+  return true;
 }
 
 /** A hash made the old way is replaced while the password is in hand, so the instance moves to PBKDF2 as people sign in. */
@@ -580,7 +591,12 @@ authRouter.get('/oidc/callback', wrap(async (req, res) => {
   try {
     const done = await completeSignIn(ctx, { code: q.code, state: q.state, error: q.error, error_description: q.error_description }, { browser, face: oidcFace(res) });
     const account = resolveOidcAccount(ctx, done.claims);
-    if (account.linked) audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}`.slice(0, 300) });
+    if (account.linked) {
+      const e = account.ended;
+      const ended = e ? [e.password && 'its password', e.passkeys && `${e.passkeys} passkey${e.passkeys === 1 ? '' : 's'}`, e.secondFactor && 'its second factor', e.links && `${e.links} unused link${e.links === 1 ? '' : 's'}`, e.sessions && `${e.sessions} session${e.sessions === 1 ? '' : 's'}`].filter(Boolean) : [];
+      const how = e ? `; found by its ${e.by === 'edipi' ? 'EDIPI' : 'address'}, so every other way in ended${ended.length ? `: ${ended.join(', ')}` : ''}` : '';
+      audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}${how}`.slice(0, 300) });
+    }
     const user = ctx.db.prepare('SELECT id, must_change_password, auth_epoch FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number; auth_epoch: number } | undefined;
     if (!user) throw new OidcError('That account is not active.', 'oidc_inactive');
     // The enterprise provider asserting the EDIPI the account carries proves it, as the card does (ADR-0009).

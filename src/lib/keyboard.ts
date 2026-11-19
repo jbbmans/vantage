@@ -2,6 +2,7 @@
  * What the keyboard shortcuts read from the page before acting on a key: whether it is someone typing, whether it is in
  * a widget that takes typed keys of its own, and whether the person has single-key shortcuts on at all.
  */
+import { useCallback, useEffect, useState } from 'react';
 
 /** Inputs that take no typed text: a letter pressed on one is nobody's text, and the bar under a thumb stays put. */
 const NOT_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color', 'image']);
@@ -71,4 +72,19 @@ export function keepFocusClear(): () => void {
   const moved = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(check); };
   document.addEventListener('focusin', moved);
   return () => { document.removeEventListener('focusin', moved); cancelAnimationFrame(frame); };
+}
+
+/**
+ * Moves focus to an element once it is on the page: `focusWhenShown(id)` after a page of rows is fetched focuses the
+ * first row it added, after React has drawn it, however long that takes. A frame alone could come before the row.
+ */
+export function useFocusWhenShown(): (id: string) => void {
+  const [pending, setPending] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs after every render until the row is drawn, then stops
+  useEffect(() => {
+    if (!pending) return;
+    const el = document.getElementById(pending);
+    if (el) { el.focus(); setPending(null); }
+  });
+  return useCallback((id: string) => setPending(id), []);
 }

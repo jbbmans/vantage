@@ -2,13 +2,13 @@ import type { AppContext } from '../context.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
-import { audit } from './audit.ts';
+import { audit, verifyAuditChain } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
 import { appendRestore, chainPoint } from './restoreLog.ts';
 import { dataExportProblem } from '../../shared/dataTransfer.ts';
 import { writeLineage } from './recovery.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle, dropTimeframeTriggers, timeframeTriggers, timeframeViolations, grantDutyReviewToStandardRoles, backfillWorkflowMessages } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle, dropTimeframeTriggers, timeframeTriggers, timeframeViolations, grantDutyReviewToStandardRoles, backfillWorkflowMessages, SCHEMA_VERSION } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -92,9 +92,19 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   if (notBackup) throw new Error(notBackup);
   if (archive?.format !== 'vantage-instance/1' || !archive.tables) throw new Error('That file is not a Vantage instance archive.');
   if (archive.key_check && !secretsOf(ctx.config).some((secret) => keyCheck(secret) === archive.key_check)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
-  const users = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
-  const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
-  if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');
+  // Only what this build can hold, and only with the trail it was exported with, as restore.ts takes a backup (ADR-0014).
+  // An archive from a newer build would bring columns and tables this one does not know, and they would be dropped
+  // without a word; an archive without its trail would bring every record and leave a chain that holds only this import.
+  const archiveSchema = Number((archive.tables.meta || []).find((m) => m.key === 'schema_version')?.value ?? 0);
+  if (archiveSchema > SCHEMA_VERSION) throw new Error(`This archive is at schema ${archiveSchema}, newer than this build's ${SCHEMA_VERSION}. Import it with the build that exported it, or a later one.`);
+  if (!(archive.tables.audit_log || []).length) throw new Error('This archive holds no audit trail. A Vantage instance archive always carries the trail it was exported with; export it again from the source instance.');
+  // A fresh instance is its first run and nothing more: one account, one Unit Instance, and no record of any kind. Every
+  // table the archive replaces is emptied, the trail with them, so one that holds anything else is never taken for fresh.
+  const count = (sql: string) => (ctx.db.prepare(sql).get() as { n: number }).n;
+  const users = count('SELECT COUNT(*) AS n FROM users');
+  const instances = count('SELECT COUNT(*) AS n FROM organizations');
+  const records = RECORD_TABLE_NAMES.some((table) => ctx.db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get());
+  if (users > 1 || instances > 1 || records) throw new Error('Import only into a fresh instance (one operator account, one Unit Instance, no records).');
   // Read now: the archive replaces this host's accounts, and the importer's may not be among the ones it brings.
   const importer = ctx.db.prepare('SELECT username, first_name, last_name FROM users WHERE id = ?').get(actorId) as { username: string; first_name: string; last_name: string } | undefined;
   const replaced = chainPoint(ctx.db);
@@ -161,6 +171,11 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       }
       ctx.db.prepare(`DELETE FROM meta WHERE key IN (${HOST_META.map(() => '?').join(',')})`).run(...HOST_META);
       for (const { key, value } of hostMeta) metaSet(ctx.db, key, value);
+      // The trail the archive brings is the one it was exported with: it verifies against its own signed head, under its
+      // own chain key, before anything is committed, as restore.ts verifies a backup's. An entry changed or removed in
+      // the file is refused here; once in, the append-only trail could never be put right.
+      const chain = verifyAuditChain({ db: ctx.db, chainKey: loadChainKey(ctx.db, ctx.config) } as unknown as AppContext);
+      if (!chain.ok) throw new Error(`This archive's audit trail does not verify (${chain.reason}). It was changed after it was exported, or sealed under another secret. Nothing was imported.`);
       if (legacy) foundOrganizations(ctx.db);
       if (unstamped) stampAttachmentUnits(ctx.db);
       if (unrecorded) backfillAwardRecorders(ctx.db);

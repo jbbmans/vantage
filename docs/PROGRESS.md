@@ -1,6 +1,56 @@
 # Progress
 
-_Updated 2026-11-18_
+_Updated 2026-11-19_
+
+## What changed (2026-11-19: Task 28, the final production readiness gate)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word. Engineering gate and operational
+release as `docs/engineering/READINESS_GATE.md` states them.
+
+Task 28 of the specification, from `5a80959` ([ADR-0037](engineering/ADR/0037-production-readiness-gate.md)). No
+migration.
+
+- **The gate is a register** (`docs/engineering/readiness-gate.json`): each requirement with the tests that show it,
+  each defect found with its severity and the test that fails without its fix, what only an owner outside the code can
+  close, and each check with the commit it ran on. `scripts/readiness-gate.ts` checks it and draws
+  `READINESS_GATE.md`; the engineering verdict is computed (no open critical or high defect, no open item, every
+  required check passed) and operational release is never decided there.
+- **The six roles side by side** (`tests/server/readinessGate.test.ts`): Marine, supervisor, NCO/SNCO, Unit Leader,
+  Unit Manager and Vantage Administrator, in one Unit Instance with another beside it, against records, personnel, the
+  consoles, escalation, another instance's ids, duty, the counseling worksheet, exports, attachments and the report PDF.
+- **Reach.** A unit export, team workload and its report, a unit-measured goal and the AI command brief read the units
+  beneath only where the reader reads them in their own right. A unit export needs View shared records; a unit report
+  or brief leaves as a file only with the export permission in every unit it reads.
+- **EDIPIs and addresses.** A Unit Instance's audit trail never shows, matches or exports an EDIPI. A personal export
+  names others by rank and name where their username is a card's EDIPI, holds only the Marine's own sign-in addresses,
+  and leaves out a task its owner binned. A counseling copy that prints an EDIPI always carries the PII notice.
+- **Archives and recovery.** A service archive from a newer build, with no trail, or with a trail that does not verify,
+  is refused, and only a fresh instance takes one. The audit log's append-only triggers are put in place on every
+  start. A restore across a secret change seals stored secrets again, and a rotation is in the trail. A settings change
+  refused for its metrics changes nothing. The database directory is `0700` and its files `0600`; browser backups are
+  drawn in a private directory. Moving a unit says where it sat before. Signing out forgets recent visits.
+- **Organization sign-in found by address or EDIPI** (the one critical). A first sign-in that links to an account by
+  its address or EDIPI now ends every other way into it first: its password, passkeys, second factor, unused links and
+  sessions, each counted in the `oidc_linked` audit entry. Before, someone who put another person's address on an
+  account kept a way into the account that person then used, and a Unit Manager's own import counted as "proven".
+  **Behaviour change:** someone who had a password and links this way sets a new one by reset, where the instance
+  still takes passwords. Where cards sign in too, an account that carries an EDIPI is linked only when the provider
+  asserts the same EDIPI (`VANTAGE_OIDC_EDIPI_CLAIM`); otherwise the sign-in is refused and the person uses their card.
+- **Within a unit.** A goal's contributors are listed only to those who may open them. A counselor who no longer
+  counsels the Marine can no longer edit, bin or restore a counseling draft (ADR-0027 §2-3).
+- **Lists cut at their cap.** A whole record list keeps the reader's own entries first (for tasks, their open work
+  first), in the table's order, and answers `X-Vantage-Rows: shown/total`. A CSV says it was cut, as a workbook's sheet
+  does, so intake warns before a report is filed. The pages do not yet say so in words.
+- **Access log.** After Load older, focus waits for the first new row instead of a fixed frame.
+- **Found by the review of this diff.** A Unit Instance trail's search does not look in the words of an entry that
+  carries ten digits in a row. A restore that moves the backup's keys to the current secret is in the trail as a
+  rotation. A browser backup that fails before it leaves takes its copy with it.
+- **Found by the browser suite.** A page load sent under a session that had just ended, and answered after the person
+  signed in again, no longer signs them straight back out: a document never clears the session cookie now. A dead one
+  opens nothing and the next sign-in replaces it. The service worker keeps only the application as its offline copy,
+  never the public page a signed-out browser is given at `/` on a host shared with the site.
+- **Tests.** `tests/server/readinessGateDefects.test.ts` holds one test per fixed defect, each seen to fail on the code
+  before its fix; `readinessGate.test.ts` also holds the register to the suite.
 
 ## What changed (2026-11-18: Task 27, the trailer)
 

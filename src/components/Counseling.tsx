@@ -282,7 +282,8 @@ export function CounselingWorksheet({ doc, variant = 'screen', onAddEdipi }: { d
       ))}
     </div>
   );
-  const annex = Boolean(band || doc.amendments.length || doc.own_notes || (doc.particulars_as_of === 'now' && doc.stage === 'final'));
+  // A printed EDIPI makes the copy PII, and the notice that says so is in the annex (ADR-0033).
+  const annex = Boolean(band || doc.amendments.length || doc.own_notes || (doc.particulars_as_of === 'now' && doc.stage === 'final') || doc.edipi.reported || doc.edipi.senior);
   const form = (
     <div className="cw-form">
       <H1 className="cw-title">{w.title}</H1>

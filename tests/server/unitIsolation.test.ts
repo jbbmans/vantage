@@ -341,7 +341,7 @@ test('audit events cannot be silently rewritten, and an instance reads only its 
 
   // The database refuses an edit to an entry (ADR-0013). One made with its triggers dropped breaks the chain, which is
   // what "cannot be silently rewritten" means.
-  const target = app.ctx.db.prepare("SELECT id FROM audit_log WHERE action = 'create' ORDER BY seq LIMIT 1").get() as { id: string };
+  const target = app.ctx.db.prepare("SELECT id, detail FROM audit_log WHERE action = 'create' ORDER BY seq LIMIT 1").get() as { id: string; detail: string | null };
   assert.throws(() => app.ctx.db.prepare("UPDATE audit_log SET detail = 'rewritten' WHERE id = ?").run(target.id), /audit_append_only/);
   app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
   app.ctx.db.prepare("UPDATE audit_log SET detail = 'rewritten' WHERE id = ?").run(target.id);
@@ -349,6 +349,13 @@ test('audit events cannot be silently rewritten, and an instance reads only its 
   const after = await get(op.token, '/api/platform/integrity');
   assert.equal(after.body.audit.ok, false, 'the chain reports the rewrite');
   assert.match(String(after.body.audit.reason), new RegExp(target.id));
+
+  // Put back as it was written, the entry verifies again: the seal is of what was written, not of when it was checked.
+  // The tests after this one export this service, and an archive with a rewritten trail is refused (Task 28).
+  app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
+  app.ctx.db.prepare('UPDATE audit_log SET detail = ? WHERE id = ?').run(target.detail, target.id);
+  auditAppendOnlyTriggers(app.ctx.db);
+  assert.equal((await get(op.token, '/api/platform/integrity')).body.audit.ok, true, 'and the chain holds again');
 });
 
 test('the database keeps the boundary when code is bypassed', () => {

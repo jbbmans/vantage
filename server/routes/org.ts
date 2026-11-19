@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
@@ -144,8 +144,11 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unit = getUnit(req.ctx, unitId);
   if (!unit) throw notFound('No such unit.');
-  if (!can(scope, PERMISSIONS.EXPORT_DATA, unitId)) throw forbidden('You cannot export that unit.');
-  const unitIds = subtreeIds(req.ctx, unitId);
+  // Exporting a unit's shared records is reading them: the units it holds are those the exporter reads in their own
+  // right and may export, as the dashboard and the report center decide it (readableSubtree). A role that does not reach
+  // down (position 0) exports its own unit alone, and exporting needs View shared records as well as Export data.
+  if (!can(scope, PERMISSIONS.EXPORT_DATA, unitId) || !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot export that unit.');
+  const unitIds = readableSubtree(req.ctx, scope, unitId).units.filter((u) => can(scope, PERMISSIONS.EXPORT_DATA, u));
   const members = membersAcross(req.ctx, unitIds).map((m) => ({ id: m.id, first_name: m.first_name, last_name: m.last_name, mos: m.mos, billet: m.billet, rank_abbr: m.rank_abbr, unit_id: m.unit_id, team: m.team }));
   const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, units: unitIds, generated_at: now(), members };
   for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'duties'] as const) {

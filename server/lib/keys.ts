@@ -32,6 +32,12 @@ function secretThatSignedTheChain(db: Db, candidates: string[]): string | null {
   return null;
 }
 
+/** Whether the chain key is still sealed under a previous secret: this start changes VANTAGE_SECRET. */
+export function sealedUnderPreviousSecret(db: Db, config: Pick<AppConfig, 'secret'>): boolean {
+  const stored = metaGet(db, CHAIN_KEY);
+  return Boolean(stored) && decryptSecret(config.secret, stored!) === null;
+}
+
 /** Opens (or on first start creates) the chain key, and re-wraps it under the current secret. */
 export function loadChainKey(db: Db, config: Pick<AppConfig, 'secret' | 'previousSecrets'>): string {
   const candidates = secretsOf(config);

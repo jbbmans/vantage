@@ -18,7 +18,7 @@ import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
-import { shortcutsOn } from '@/lib/keyboard';
+import { shortcutsOn, useFocusWhenShown } from '@/lib/keyboard';
 import { DEFAULT_PERIOD, PERIOD_OPTIONS } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
@@ -206,10 +206,11 @@ function RecordAccessLog() {
   });
   const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
   // Focus moves to the first entry a page added, so it is not lost when the button goes after the last page.
+  const focusWhenShown = useFocusWhenShown();
   const loadOlder = async () => {
     const before = rows.length;
     const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
-    if (added) window.requestAnimationFrame(() => document.getElementById(`my-access-${added.id}`)?.focus());
+    if (added) focusWhenShown(`my-access-${added.id}`);
   };
   return (
     <Panel className="lg:col-span-2" data-tutorial="access-log" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>

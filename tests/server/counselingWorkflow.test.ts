@@ -502,6 +502,10 @@ test('an amendment keeps what it replaced, why and by whom; the Marine acknowled
 test('a counselor who no longer counsels the Marine reads what they wrote but no longer moves it', async () => {
   const draft = await written();
   const final = await finalize(await written());
+  const inReview = (await post(lopez.token, `/api/records/counselings/${(await written({ summary: 'Shared before they moved on.' })).id}/share`, { version: 1 })).body as Record<string, any>;
+  assert.equal(inReview.stage, 'review', JSON.stringify(inReview));
+  const binned = await written({ summary: 'Binned before they moved on.' });
+  assert.equal((await del(lopez.token, `/api/records/counselings/${binned.id}`)).status, 200);
   const grant = app.ctx.db.prepare("SELECT * FROM member_roles WHERE user_id = ? AND role_id = 'G8:fire-team-leader'").get(lopez.id) as Record<string, unknown>;
   assert.ok(grant);
   app.ctx.db.prepare("DELETE FROM member_roles WHERE user_id = ? AND role_id = 'G8:fire-team-leader'").run(lopez.id);
@@ -512,6 +516,19 @@ test('a counselor who no longer counsels the Marine reads what they wrote but no
     assert.equal((await post(lopez.token, `/api/records/counselings/${final.id}/amend`, { version: final.version, summary: 'Late correction.', reason: 'x' })).status, 403);
     assert.equal((await post(lopez.token, `/api/records/counselings/${draft.id}/share`, { version: draft.version })).status, 403);
     assert.equal((await post(lopez.token, `/api/records/counselings/${draft.id}/finalize`, { version: draft.version })).status, 403);
+    // Nor through the record routes: the draft the Marine is reviewing is not rewritten, binned or brought back by them.
+    for (const c of [draft, inReview]) {
+      const path = `/api/records/counselings/${c.id}`;
+      assert.equal((await get(lopez.token, path)).body.workflow.edit, false, `${c.stage}: no Edit offered`);
+      const rewrite = await put(lopez.token, path, { version: c.version, summary: 'Rewritten after they moved on.' });
+      assert.equal(rewrite.status, 403, `${c.stage}: ${JSON.stringify(rewrite.body)}`);
+      assert.equal(rewrite.body.code, 'counseling_counselor_only');
+      assert.equal((await del(lopez.token, path)).status, 403, `${c.stage}: not binned`);
+      assert.equal(stored(c.id).summary, c.summary);
+      assert.equal(stored(c.id).deleted_at, null);
+    }
+    assert.equal((await post(lopez.token, `/api/records/counselings/${binned.id}/restore`)).status, 403, 'nor brought back from the bin');
+    assert.equal((await get(diaz.token, `/api/records/counselings/${inReview.id}`)).body.summary, 'Shared before they moved on.', 'the Marine reads what was shared');
     assert.equal((await get(lopez.token, `/api/records/counselings/${final.id}/worksheet?purpose=print`)).status, 200, 'and prints it');
     // A records manager of its unit still corrects it.
     assert.equal((await post(reyes.token, `/api/records/counselings/${final.id}/amend`, { version: final.version, summary: 'Corrected by the SNCO.', reason: 'The counselor has moved on.' })).status, 200);
@@ -611,6 +628,10 @@ test('the worksheet is the COUNSELING WORKSHEET: its boxes, each EDIPI from its 
   const theirs = (await file(diaz.token, `/api/records/counselings/${forDiaz.id}/export?format=pdf`)).buffer!;
   assert.ok(pdfDraws(theirs, '1234567890'));
   assert.ok(!theirs.toString('latin1').includes('/T (reported_edipi)'), 'a printed EDIPI is not a field');
+  // A printed EDIPI makes the copy PII, and its last page says so (ADR-0033); the leader's copy, with none, has no such page.
+  assert.equal(pages(theirs), 2);
+  assert.ok(pdfDraws(theirs, 'About this counseling worksheet'));
+  assert.equal(pages(pdf), 1);
   assert.deepEqual(auditSince(seq).map((e) => [e.action, e.detail]), [['export_record', 'pdf; revision 1; EDIPI of Marine']]);
   // The Unit Instance's own marking replaces the default.
   const marking = app.ctx.runtime.reportMarking;

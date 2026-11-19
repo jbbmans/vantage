@@ -219,8 +219,9 @@ export function renderCounselingPdf(form: CounselingDocument): Promise<Buffer> {
       rule(LEFT, y, LEFT + WIDTH, y);
     }
 
-    // ——— What the form has no box for, on a page of its own, only when there is something to say ———
-    if (band || form.amendments.length || form.own_notes || (form.particulars_as_of === 'now' && form.stage === 'final')) {
+    // ——— What the form has no box for, on a page of its own, only when there is something to say. A printed EDIPI is:
+    // the copy then holds PII, and its last page says so (ADR-0033) ———
+    if (band || form.amendments.length || form.own_notes || (form.particulars_as_of === 'now' && form.stage === 'final') || form.edipi.reported || form.edipi.senior) {
       const notes = signatureNotes(form);
       doc.addPage();
       let at = TOP + 6;

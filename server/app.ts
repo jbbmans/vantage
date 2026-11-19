@@ -9,7 +9,6 @@ import { openDatabase, metaSet, metaGet } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
-import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
 import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
@@ -51,7 +50,7 @@ import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
-import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
+import { loadChainKey, resealStoredSecrets, sealedUnderPreviousSecret } from './lib/keys.ts';
 import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
@@ -65,6 +64,7 @@ export function createContext(config: AppConfig): AppContext {
   const db = openDatabase(config.databasePath);
   // Before anything is written: a database put in place outside the restore command is recorded (ADR-0014).
   detectReplacement({ db, config });
+  const rotated = sealedUnderPreviousSecret(db, config);
   const chainKey = loadChainKey(db, config);
   const resealed = resealStoredSecrets(db, config);
   if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
@@ -89,6 +89,8 @@ export function createContext(config: AppConfig): AppContext {
   auditUpgrades(ctx);
   auditRestores(ctx);
   auditServerBackups(ctx);
+  // A changed VANTAGE_SECRET is a key rotation: the trail says this start made it, and what it sealed again.
+  if (rotated || resealed) audit(ctx, { actor_id: null, action: 'secret_rotated', entity: 'database', detail: `VANTAGE_SECRET changed: ${rotated ? 'the audit chain key wrapped under it, ' : ''}${resealed} stored secret${resealed === 1 ? '' : 's'} sealed again` });
   // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform. A grant the
   // configuration makes is audited when it is made, not on every start that finds it already in place.
   if (config.operatorUsernames.length) {
@@ -495,8 +497,9 @@ export function createApp(ctx: AppContext) {
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       // A page can clear the signed-in marker just after a newer sign-in set it; a document served to a live session
-      // puts it back, so the page loads signed in (routes/auth.ts).
-      restoreSignedInMarker(req, res);
+      // puts it back, so the page loads signed in. A dead session cookie is left in place; without its own marker it
+      // counts as signed out here (routes/auth.ts).
+      const signedIn = restoreSignedInMarker(req, res);
       const faces = facesOf(res);
       const path = req.path;
       const query = req.originalUrl.slice(req.path.length);
@@ -526,7 +529,6 @@ export function createApp(ctx: AppContext) {
       // for a signed-out visitor to a set-up instance with accounts (first-time setup and the demo are the app's).
       if (publicRoutes.has(path)) {
         if (faces.has('site')) {
-          const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
           const servePublic = path !== '/' || !faces.has('app') || (!signedIn && config.accessMode === 'accounts' && instanceSetUp());
           const document = trustPages.get(path) ?? publicPage;
           if (!publicSite) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -540,7 +542,6 @@ export function createApp(ctx: AppContext) {
       if (!publicRoutes.has(path) && !isAppPath(path)) {
         // Somebody signed in who follows a bad link keeps the app around them: the shell, answered 404, shows its
         // own "no page here" with the navigation still there. A file-like path, or anyone else, gets the plain page.
-        const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
         if (signedIn && faces.has('app') && !/\.[a-z0-9]{1,8}$/i.test(path)) return res.status(404).type('html').send(shell);
         return notFound(res);
       }

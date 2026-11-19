@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chmodSync, statSync, unlinkSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { normalizeMetrics } from '../../shared/constants.ts';
 import { setCurrencySymbol } from '../../shared/metrics.ts';
 import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, UNIT_MANAGER_ROLES, type PlatformRole } from '../../shared/permissions.ts';
@@ -267,13 +267,17 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   assertRuntimePatchAllowed(ctx.config, patch);
   const before = structuredClone(ctx.runtime) as unknown as Record<string, unknown>;
   const { metrics, ...rest } = patch;
-  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+  // The whole change is checked before any of it is in force: a refused save changes nothing, so nothing is in force
+  // that is neither saved nor in the trail.
   if (metrics) {
     const keys = metrics.value_types.map((t) => t.key);
     if (new Set(keys).size !== keys.length) throw badRequest('Value type keys must be unique.');
     const names = metrics.categories.map((c) => c.name.toLowerCase());
     if (new Set(names).size !== names.length) throw badRequest('Category names must be unique.');
     if (!metrics.value_types.some((t) => t.summable)) throw badRequest('At least one value type must count toward the headline total.');
+  }
+  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+  if (metrics) {
     ctx.runtime.metrics = normalizeMetrics(metrics);
     setCurrencySymbol(ctx.runtime.metrics.currency_symbol);
   }
@@ -814,24 +818,31 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   if (ctx.db.name === ':memory:') throw badRequest('In-memory databases cannot be backed up.');
   const announce = browserCopy(req, 'a full database backup');
   const stamp = now().replace(/[-:]/g, '').slice(0, 13);
-  const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
-  await ctx.db.backup(dest);
-  chmodSync(dest, 0o600);
-  // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
-  try { freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data'); }
-  catch (e) { try { unlinkSync(dest); } catch {} throw e; }
-  // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
-  const copy = new Database(dest, { fileMustExist: true });
-  copy.pragma('journal_mode = DELETE');
-  const seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
-  copy.close();
-  const bytes = statSync(dest).size;
-  ctx.db.transaction(() => {
-    recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
-    audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
-  })();
-  announce();
-  res.download(dest, `vantage-backup-${stamp}.db`, () => { try { unlinkSync(dest); } catch {} });
+  // Written into a directory only this service can open, so no other local account reads the copy while it is drawn.
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-backup-'));
+  const dest = join(dir, `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
+  const discard = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } };
+  // Whatever fails before the file leaves, the copy goes with the directory it was drawn in.
+  try {
+    await ctx.db.backup(dest);
+    chmodSync(dest, 0o600);
+    // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
+    freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
+    // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
+    const copy = new Database(dest, { fileMustExist: true });
+    let seq: number | null;
+    try {
+      copy.pragma('journal_mode = DELETE');
+      seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
+    } finally { copy.close(); }
+    const bytes = statSync(dest).size;
+    ctx.db.transaction(() => {
+      recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
+      audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
+    })();
+    announce();
+  } catch (e) { discard(); throw e; }
+  res.download(dest, `vantage-backup-${stamp}.db`, discard);
 }));
 
 platformRouter.get('/export', requirePlatform('platform.data'), wrap((req, res) => {

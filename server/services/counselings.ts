@@ -51,6 +51,24 @@ export function stillCounsels(ctx: AppContext, scope: Scope, counselorId: string
   return detailUnitsFor(ctx, scope, row.user_id).some((u) => can(scope, PERMISSIONS.COUNSEL, u) && (instance === undefined || orgOfUnit(ctx, u) === instance));
 }
 
+/**
+ * The edit rule (canEdit), with a counseling a leader wrote held to what its workflow takes: its counselor edits,
+ * deletes or restores it only while they still counsel its Marine, as they share, withdraw and finalize it (ADR-0027
+ * §2-3). The generic record routes ask this, so a counselor who has moved on changes nothing they left.
+ */
+export function mayEditRecord(ctx: AppContext, scope: Scope, userId: string, row: RecordRow): boolean {
+  if (!canEdit(scope, userId, row)) return false;
+  return !(counselorWritten(row) && row.stage && row.counselor_id === userId) || stillCounsels(ctx, scope, userId, row);
+}
+
+/** Why the generic record routes refuse to change a record, or null: a counselor who moved on is told why. */
+export function editRefusal(ctx: AppContext, scope: Scope, userId: string, row: RecordRow, verb: 'edit' | 'delete' | 'restore'): HttpError | null {
+  if (mayEditRecord(ctx, scope, userId, row)) return null;
+  if (canEdit(scope, userId, row)) return forbidden(`Only its counselor, who still counsels this Marine, may ${verb} a counseling draft.`, 'counseling_counselor_only');
+  if (verb === 'edit') return forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
+  return forbidden(`That record is not yours to ${verb}.`);
+}
+
 /** What the reader holds over one counseling (shared/counseling.ts CounselingAuthority). */
 export function counselingAuthority(ctx: AppContext, scope: Scope, userId: string, row: RecordRow): CounselingAuthority {
   return {
@@ -63,7 +81,7 @@ export function counselingAuthority(ctx: AppContext, scope: Scope, userId: strin
 
 export function optionsFor(ctx: AppContext, scope: Scope, userId: string, row: CounselingRow): CounselingOptions {
   const authority = counselorWritten(row) ? counselingAuthority(ctx, scope, userId, row) : { counselor: false, manager: false, subject: row.user_id === userId };
-  return counselingOptions(authority, { ...row, anonymized: anonymized(row) }, canEdit(scope, userId, row));
+  return counselingOptions(authority, { ...row, anonymized: anonymized(row) }, mayEditRecord(ctx, scope, userId, row));
 }
 
 /**
@@ -72,7 +90,7 @@ export function optionsFor(ctx: AppContext, scope: Scope, userId: string, row: C
  * they are; a file is not its text.
  */
 export function mayManageCounselingFiles(ctx: AppContext, scope: Scope, userId: string, row: RecordRow): boolean {
-  if (canEdit(scope, userId, row)) return true;
+  if (mayEditRecord(ctx, scope, userId, row)) return true;
   return counselorWritten(row) && row.stage === 'final' && !row.frozen_at && !anonymized(row as unknown as Row) && stillCounsels(ctx, scope, userId, row);
 }
 

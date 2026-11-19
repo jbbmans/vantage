@@ -48,6 +48,7 @@ recordsRouter.get('/:table', wrap((req, res) => {
   const rows = listRecords(req.ctx, req.user, table, scope, {
     unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
+    counted: (shown, total) => res.setHeader('X-Vantage-Rows', `${shown}/${total}`),
   });
   auditListedRecords(req.ctx, req.user.id, table, rows, clientIp(req));
   res.json(rows);
@@ -57,8 +58,9 @@ recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, 'goals', String(req.params.id), req) as Record<string, unknown>;
   // A unit-wide goal's contributors are other people's entries, by title and amount: only for someone who could open
   // them anyway. A member who can see the goal still sees its progress, which is a total.
-  if (raw.measure_scope === 'unit' && !can(scopeFor(req.ctx, req.user, req), PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
-  res.json(goalContributors(req.ctx, raw as never));
+  const scope = scopeFor(req.ctx, req.user, req);
+  if (raw.measure_scope === 'unit' && !can(scope, PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
+  res.json(goalContributors(req.ctx, raw as never, { scope, userId: req.user.id }));
 }));
 
 recordsRouter.post('/activities/import', wrap((req, res) => {

@@ -74,3 +74,28 @@ test('an unknown saved theme falls back to the system instead of becoming an inv
     for (const valid of ['light', 'dark', 'system'] as const) { value = valid; assert.equal(storedTheme(), valid); }
   } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
 });
+
+test('signing out forgets what was opened on this device, in both storages, and keeps everything else', async () => {
+  // A shared workstation (security review C14): titles, case references and Marines' names are not left for the next person.
+  const storage = (entries: Record<string, string>) => {
+    const map = new Map(Object.entries(entries));
+    return { get length() { return map.size; }, key: (i: number) => [...map.keys()][i] ?? null, getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => { map.set(k, v); }, removeItem: (k: string) => { map.delete(k); }, keys: () => [...map.keys()].sort() };
+  };
+  const local = storage({ 'vantage.recent.u1': '[{"to":"/entries/1","title":"Obligation N00123","kind":"entry"}]', 'vantage.recent.u2': '[]', 'vantage.theme': 'dark' });
+  const session = storage({ 'vantage.recent.u1': '[]', 'vantage.draft.x': '{}' });
+  const saved = ['localStorage', 'sessionStorage', 'document', 'window'].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: local });
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: session });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: '' } });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
+  const fetch = mock.method(globalThis, 'fetch', async () => new Response('{"ok":true}'));
+  try {
+    const { logout } = await import(new URL('../../src/lib/api.ts', import.meta.url).href) as { logout: () => Promise<void> };
+    await logout();
+    assert.deepEqual(local.keys(), ['vantage.theme'], 'the recent lists go; the theme stays');
+    assert.deepEqual(session.keys(), [], 'and from the session too, with the drafts');
+  } finally {
+    fetch.mock.restore();
+    for (const [key, d] of saved) { if (d) Object.defineProperty(globalThis, key, d); else Reflect.deleteProperty(globalThis, key); }
+  }
+});

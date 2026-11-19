@@ -91,12 +91,13 @@ export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from
   return measuresOfAll(counted(rows, opts.from) as never, ctx.runtime.metrics);
 }
 
-export function unitMeasures(ctx: AppContext, unitId: string, opts: { from: string; to: string }): Measure[] {
+/** The shared records of the units given, as measures. The caller decides which units the reader may read. */
+export function unitMeasures(ctx: AppContext, unitIds: readonly string[], opts: { from: string; to: string }): Measure[] {
   const rows = collectRows((table, columns) => {
     const period = periodClause(table, 't', opts.from, opts.to);
     return ctx.db.prepare(
       `SELECT ${columns} FROM ${table} t ${BY_LAST_DAY[table]} WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?)) AND ${period.sql}`
-    ).all(JSON.stringify(subtreeIds(ctx, unitId)), ...period.params) as SourceRow[];
+    ).all(JSON.stringify(unitIds), ...period.params) as SourceRow[];
   });
   return measuresOfAll(counted(rows, opts.from) as never, ctx.runtime.metrics);
 }

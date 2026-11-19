@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, PERMISSIONS, subtreeIds, membersAcross } from '../authz/scope.ts';
+import { can, PERMISSIONS, membersAcross } from '../authz/scope.ts';
+import { readableSubtree } from './dashboard.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -186,7 +187,11 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
 export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window): WorkloadResponse {
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
-  const unitIds = subtreeIds(ctx, unitId);
+  // The units beneath are read only where the reader views their records in their own right, and Marines are named only
+  // where the reader opens member records, as the dashboard and the report center decide it (readableSubtree): a role
+  // that does not reach down (position 0) sees its own unit's work alone.
+  const reach = readableSubtree(ctx, scope, unitId);
+  const unitIds = reach.units;
   const units = JSON.stringify(unitIds);
   const [lo, hi] = bounds(ctx.config.timezone, w);
   const today = zonedDay(w.timezone || ctx.config.timezone);
@@ -251,17 +256,20 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
 
   let members: WorkloadMember[] = [];
   if (includeMembers) {
-    const people = membersAcross(ctx, unitIds);
+    // A figure beside a name counts only work of the units where the reader opens member records.
+    const detailUnits = unitIds.filter((u) => reach.detailIn.has(u));
+    const detailSet = new Set(detailUnits);
+    const people = membersAcross(ctx, detailUnits);
     members = people.map((m) => {
-      const held = open.filter((i) => i.claimed_by === m.id);
+      const held = open.filter((i) => i.claimed_by === m.id && i.unit_id != null && detailSet.has(i.unit_id));
       return {
         id: m.id, name: `${m.first_name} ${m.last_name}`, rank_abbr: m.rank_abbr, billet: m.billet, team: unitIds.length > 1 ? m.team : null,
         assigned: held.length,
         waiting: held.filter((i) => stageOf(i) === 'waiting').length,
         blocked: held.filter((i) => stageOf(i) === 'blocked').length,
         overdue: held.filter((i) => i.due_date && i.due_date < today).length,
-        ...contributionCounts(ctx, m.id, w, unitIds),
-        last_recorded_at: (ctx.db.prepare(`SELECT MAX(e.occurred_at) AS at FROM work_events e WHERE e.actor_id = ? AND ${SHARED}`).get(m.id, units) as { at: string | null }).at,
+        ...contributionCounts(ctx, m.id, w, detailUnits),
+        last_recorded_at: (ctx.db.prepare(`SELECT MAX(e.occurred_at) AS at FROM work_events e WHERE e.actor_id = ? AND ${SHARED}`).get(m.id, JSON.stringify(detailUnits)) as { at: string | null }).at,
       };
     });
     audit(ctx, { actor_id: user.id, action: 'view_team_workload', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${w.from}..${w.to}` });

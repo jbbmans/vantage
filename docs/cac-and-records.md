@@ -137,7 +137,7 @@ password and MFA), and is sent back already signed in. Vantage never sees their 
 | `VANTAGE_OIDC_CLIENT_SECRET` | The client secret, if the registration is a confidential client. |
 | `VANTAGE_OIDC_SCOPES` | Default `openid profile email`. |
 | `VANTAGE_OIDC_LABEL` | The button text. Defaults to "Sign in with Microsoft" for Entra ID, otherwise "Sign in with your organization". |
-| `VANTAGE_OIDC_LINK` | How a first sign-in finds its account: `email` (default), `edipi`, or `none` (only accounts already linked). |
+| `VANTAGE_OIDC_LINK` | How a first sign-in finds its account: `email` (default), `edipi`, or `none` (only accounts already linked). An account found by its address or EDIPI becomes the signed-in person's alone: its password, passkeys, second factor, unused links and sessions end, since Vantage never proved who set them up (ADR-0037). A card cannot be ended that way: where cards sign in too, an account found by address that carries an EDIPI is taken only when `VANTAGE_OIDC_EDIPI_CLAIM` asserts the same EDIPI, and is refused otherwise. |
 | `VANTAGE_OIDC_EDIPI_CLAIM` | The claim that carries the EDIPI. Required with `VANTAGE_OIDC_LINK=edipi`. |
 | `VANTAGE_OIDC_TRUST_EMAIL` | Treat the provider's address as verified even without `email_verified`. On by default for Entra ID, whose tenant controls its users' addresses. |
 | `VANTAGE_OIDC_AUTO_PROVISION` | Create the account on first sign-in for someone the personnel roster lists as active (needs the EDIPI claim). |
@@ -158,6 +158,14 @@ re-linked to another with the same address; that sign-in is refused and audited.
 `VANTAGE_OIDC_AUTO_PROVISION`, a person with no account gets one only if the roster lists their EDIPI as
 active, for the same reason as with a CAC: the provider proves who someone is, the roster says they belong here. When `VANTAGE_OIDC_EDIPI_CLAIM` carries the
 EDIPI the account holds, the sign-in proves that EDIPI just as a card would.
+
+A first sign-in that finds its account by address or EDIPI makes it the signed-in person's alone (ADR-0037): the
+account's password, passkeys, second factor, recovery codes, unused links and sessions end before their session opens,
+and the `oidc_linked` audit entry counts each. Someone who had a password and links this way sets a new one by reset
+where the instance still takes passwords. Where the instance also takes cards (`CAC_MODE` is not `off`), an account found
+by address that carries an EDIPI is linked only when the provider asserts that same EDIPI, since whoever holds the card
+would otherwise keep a way in. Without it the sign-in is refused (`oidc_card_bound`, audited) and the person signs in
+with their card; set `VANTAGE_OIDC_EDIPI_CLAIM` so such accounts can link.
 
 If the DoD consent banner is on, the person accepts it on the Vantage sign-in page before leaving for the
 provider, and the server refuses a sign-in that did not.
