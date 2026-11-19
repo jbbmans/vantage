@@ -15,12 +15,26 @@ const SHELL_URLS = [
   '/fonts/geist-normal.woff2', '/fonts/inter-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
+/**
+ * The application's own document, to keep as '/', or null. On a host shared with the public site, '/' answers a
+ * browser that is not signed in (or holds only an ended session's cookie) with the public page, which must never
+ * become the offline copy; /login is the application wherever the application is served. The navigate handler below
+ * keeps the same rule.
+ */
+const appDocument = async () => {
+  for (const path of ['/', '/login']) {
+    const res = await fetch(path, { credentials: 'same-origin' });
+    if (res.ok && res.headers.get('x-vantage-document') === 'app') return res;
+  }
+  return null;
+};
+
 self.addEventListener('install', (event) => {
   // Cached one at a time on purpose. addAll is all-or-nothing, so a single renamed font used to
   // take the whole shell down with it and leave the app with nothing to serve offline.
   event.waitUntil(
     caches.open(SHELL)
-      .then((cache) => Promise.all(SHELL_URLS.map((url) => cache.add(url).catch(() => undefined))))
+      .then((cache) => Promise.all(SHELL_URLS.map((url) => (url === '/' ? appDocument().then((res) => res && cache.put('/', res)) : cache.add(url)).catch(() => undefined))))
       .then(() => self.skipWaiting())
   );
 });
@@ -57,5 +71,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(caches.match(request).then((hit) => hit || fetch(request).then((res) => { if (res.ok && (url.pathname.startsWith('/fonts/') || SHELL_URLS.includes(url.pathname + url.search))) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(request, copy)); } return res; })));
+  // '/' is a document: only the rules above keep it.
+  const shellFile = url.pathname.startsWith('/fonts/') || (url.pathname !== '/' && SHELL_URLS.includes(url.pathname + url.search));
+  event.respondWith(caches.match(request).then((hit) => hit || fetch(request).then((res) => { if (res.ok && shellFile) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(request, copy)); } return res; })));
 });

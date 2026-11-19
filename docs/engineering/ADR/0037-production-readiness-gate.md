@@ -103,8 +103,11 @@ the backup's copy); the register marks them.
 The full browser suite found one more, older than this branch. A page load sent under a session that had just ended (a
 role grant ends the holder's sessions) and answered after the person signed in again cleared the new sign-in's cookie:
 a clear matches a cookie by name, not by value. A document no longer clears the session cookie. A dead cookie opens
-nothing, counts as signed out when the document is chosen, and the next sign-in replaces it. The service worker's
-fetch of `/` was the usual sender; another tab's reload would do the same.
+nothing, and the next sign-in replaces it. Without its own marker it counts as signed out when the document is chosen;
+with its marker still in the browser it gets the app, whose first request is refused and clears the marker, as before.
+The service worker's fetch of `/` was the usual sender; another tab's reload would do the same. The service worker now
+keeps only the application as its offline copy, so a fetch of `/` answered with the public page (a browser signed out,
+or holding an ended session, on a host shared with the site) no longer becomes the copy the app opens offline.
 
 ## Consequences
 

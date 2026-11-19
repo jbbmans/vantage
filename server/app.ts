@@ -497,8 +497,8 @@ export function createApp(ctx: AppContext) {
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       // A page can clear the signed-in marker just after a newer sign-in set it; a document served to a live session
-      // puts it back, so the page loads signed in. A dead session cookie is left in place but counts for nothing here
-      // (routes/auth.ts).
+      // puts it back, so the page loads signed in. A dead session cookie is left in place; without its own marker it
+      // counts as signed out here (routes/auth.ts).
       const signedIn = restoreSignedInMarker(req, res);
       const faces = facesOf(res);
       const path = req.path;

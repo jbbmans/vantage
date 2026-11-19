@@ -1964,7 +1964,21 @@
           "test": "a page load sent under an ended session and answered after a newer sign-in leaves that sign-in in place"
         }
       ],
-      "note": "Found by the full browser suite on 080fed6: spec 33’s Unit Auditor test lost a fresh sign-in after a role grant ended the old one (about 2 sign-ins in 600 under load). The clear came from the document handler (8db5f10) and the service worker’s fetch of / (031d286), both older than this branch. A document no longer clears the session cookie; a dead cookie opens nothing and counts as signed out."
+      "note": "Found by the full browser suite on 080fed6: spec 33’s Unit Auditor test lost a fresh sign-in after a role grant ended the old one (about 2 sign-ins in 600 under load). The clear came from the document handler (8db5f10) and the service worker’s fetch of / (031d286), both older than this branch. A document no longer clears the session cookie. A dead cookie opens nothing; without its own marker it counts as signed out, and with its marker still in the browser it gets the app, whose first request is refused and clears the marker, as before."
+    },
+    {
+      "id": "sw-install-keeps-public-page",
+      "title": "On a host shared with the public site, the service worker’s install kept whatever / answered as the app’s offline copy, so a browser signed out, or holding an ended session, kept the public page and opened it offline",
+      "severity": "low",
+      "area": "Accessibility and performance",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/serviceWorker.test.ts",
+          "test": "the service worker keeps only the application as its offline copy, whoever installs it"
+        }
+      ],
+      "note": "Found by the review of the fix above: once a dead cookie counts as signed out, an install in that window was one more way in. Older than this branch for a browser with no session. The install now keeps / only when it is the application (from / or /login), the rule navigations already followed."
     }
   ],
   "external": [

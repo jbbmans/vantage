@@ -47,7 +47,8 @@ migration.
   rotation. A browser backup that fails before it leaves takes its copy with it.
 - **Found by the browser suite.** A page load sent under a session that had just ended, and answered after the person
   signed in again, no longer signs them straight back out: a document never clears the session cookie now. A dead one
-  opens nothing and the next sign-in replaces it.
+  opens nothing and the next sign-in replaces it. The service worker keeps only the application as its offline copy,
+  never the public page a signed-out browser is given at `/` on a host shared with the site.
 - **Tests.** `tests/server/readinessGateDefects.test.ts` holds one test per fixed defect, each seen to fail on the code
   before its fix; `readinessGate.test.ts` also holds the register to the suite.
 

@@ -88,7 +88,9 @@ export function setSignedInMarker(req: Request, res: Response, token: string) {
  * a request leaves, and a page load sent under a session that has since ended (a reload in another tab, the service
  * worker fetching the app again) can be answered after a newer sign-in stored its cookie; a clear in that answer
  * matches the cookie by name, not by value, and took the new sign-in with it. A dead cookie opens nothing, and the
- * next sign-in replaces it. Returns whether the visitor counts as signed in for the document it is served.
+ * next sign-in replaces it. Returns whether the visitor counts as signed in for the document it is served: a marker
+ * that matches its session is trusted without a lookup, so a session that ended with its marker still in the browser
+ * gets the app, whose first request is refused and clears the marker.
  */
 export function restoreSignedInMarker(req: Request, res: Response): boolean {
   const token = req.cookies?.[SESSION_COOKIE];
