@@ -203,6 +203,40 @@ test('the workbench sorts and filters on the server, with rows without a date la
   assert.equal(paged.body.total, 2, 'the total describes the whole result, not the page');
 });
 
+test('stage sort follows the workflow through cases in the same broad state', async () => {
+  const earlier = await byKey(op.token, 'ULO-2');
+  const later = await byKey(op.token, 'ULO-1');
+  const update = app.ctx.db.prepare('UPDATE work_items SET state = ?, stage = ? WHERE id = ?');
+  try {
+    update.run('in_progress', 'researching', earlier.id);
+    update.run('in_progress', 'submitted', later.id);
+    for (const [direction, expected] of [['asc', [earlier.id, later.id]], ['desc', [later.id, earlier.id]]] as const) {
+      const result = await app.call('GET', `/api/work/items?unit_id=G8&q=ULO-&sort=stage&direction=${direction}`, { token: op.token });
+      assert.deepEqual(result.body.items.map((r: { id: string }) => r.id), expected);
+    }
+  } finally {
+    update.run(earlier.state, earlier.stage, earlier.id);
+    update.run(later.state, later.stage, later.id);
+  }
+});
+
+test('the queue ownership count covers every page of the filtered result', async () => {
+  const row = await byKey(op.token, 'ULO-2');
+  const originalHolder = row.claimed_by ?? null;
+  app.ctx.db.prepare('UPDATE work_items SET claimed_by = ? WHERE id = ?').run(bree.id, row.id);
+  try {
+    const get = (query: string) => app.call('GET', '/api/work/items?unit_id=G8&' + query, { token: bree.token });
+    const all = await get('sort=reference');
+    const page = await get('sort=reference&limit=1');
+    assert.equal(page.body.held_by_me, all.body.items.filter((r: { claimed_by: string | null }) => r.claimed_by === bree.id).length);
+    assert.ok(page.body.held_by_me >= 1);
+    assert.notEqual(page.body.items[0].id, row.id);
+    assert.equal((await get('q=no-such-work-case')).body.held_by_me, 0);
+  } finally {
+    app.ctx.db.prepare('UPDATE work_items SET claimed_by = ? WHERE id = ?').run(originalHolder, row.id);
+  }
+});
+
 test('a saved view is personal unless the author has the authority to share it', async () => {
   const mine = await app.call('POST', '/api/work/views', { token: alex.token, body: { name: 'My open cases', config: { state: 'open' } } });
   assert.equal(mine.status, 201, JSON.stringify(mine.body));

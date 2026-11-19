@@ -9,6 +9,7 @@ import { Button, Input, Select, Badge, EmptyState, Skeleton, Field } from '@/com
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, DueText, PageShell, dueIn } from '@/components/common';
+import { QueryFailure } from '@/components/QueryFailure';
 import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import BulkWorkDialog, { type SelectedWork } from '@/components/BulkWorkDialog';
@@ -36,7 +37,7 @@ const STATE_LABEL: Record<string, string> = Object.fromEntries(STATES.filter((s)
 const COLUMNS = [
   { key: 'reference', label: 'Document', width: 'w-36' },
   { key: 'title', label: 'What it is', width: '' },
-  { key: 'state', label: 'Stage', width: 'w-40' },
+  { key: 'stage', label: 'Stage', width: 'w-40' },
   { key: 'due_date', label: 'Due', width: 'w-28' },
   { key: 'amount', label: 'Amount', width: 'w-28' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
@@ -52,6 +53,12 @@ interface Query {
 }
 
 const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', procedure: '', limit: 200, offset: 0, overdue: false };
+
+function savedQuery(config: Record<string, unknown>): Query {
+  const query = { ...DEFAULT_QUERY, ...config } as Query;
+  if (query.sort === 'state') query.sort = 'stage';
+  return query;
+}
 
 /** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
@@ -139,7 +146,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const list = useQuery({ queryKey: ['work-items', params], queryFn: ({ signal }) => api.listWorkItems(params, { signal }), staleTime: 10_000, placeholderData: keepPreviousData });
   useBackgroundRefresh(['work-items', params], (signal) => api.listWorkItems(params, { signal, background: true }));
   const views = useQuery({ queryKey: ['work-views'], queryFn: api.listWorkViews, staleTime: 60_000 });
-  const rows: any[] = useMemo(() => list.data?.items || [], [list.data]);
+  const rows: any[] = useMemo(() => list.isError ? [] : list.data?.items || [], [list.data, list.isError]);
   const total: number = list.data?.total ?? 0;
   const cursor = useMemo(() => cursorIndex(cursorAt, rows), [cursorAt, rows]);
 
@@ -285,13 +292,13 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const below = Math.max(0, rows.length - first - windowed.length);
 
   const applyView = (config: Record<string, unknown>) => {
-    const next = { ...DEFAULT_QUERY, ...config } as Query;
+    const next = savedQuery(config);
     setQuery(next);
     setSearch(next.q);
   };
   // A view stays selected only while the queue still shows it; once anything changes, picking it again reapplies it.
   const showing = (config: Record<string, unknown>) => {
-    const v = { ...DEFAULT_QUERY, ...config } as Query;
+    const v = savedQuery(config);
     return v.q === search.trim() && (['state', 'active', 'claimed', 'sort', 'direction', 'unit_id', 'procedure', 'overdue'] as const).every((k) => v[k] === query[k]);
   };
   const activeView = views.data?.find((v: any) => v.id === activeViewId && showing(v.config)) ?? null;
@@ -322,14 +329,16 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     finally { setSavingView(false); }
   };
 
-  const heldByMe = rows.filter((r) => r.claimed_by === identity?.user.id).length;
+  const heldByMe: number | undefined = list.data?.held_by_me;
+  const filtered = Boolean(query.q || query.state || query.claimed || query.procedure || query.unit_id || query.overdue);
+  const ownership = heldByMe == null ? '' : heldByMe ? ` You hold ${formatNumber(heldByMe)}.` : ' You hold none of them.';
 
   return (
     <PageShell
       embedded={embedded}
       eyebrow="Work"
       title="Queue"
-      lede={list.isPending ? 'Loading the queue.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. ${heldByMe ? `You hold ${formatNumber(heldByMe)}.` : 'You hold none of them.'}` : 'Nothing in this view.'}
+      lede={list.isPending ? 'Loading the queue.' : list.isError ? 'The latest queue is unavailable.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view.${ownership}` : 'Nothing in this view.'}
       actions={<>
         <Button onClick={() => setImporting(true)} data-tutorial="import-work"><Upload className="h-4 w-4" />Import work</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
@@ -401,15 +410,17 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         </div>
       )}
 
-      {list.isPending ? (
+      {list.isError ? (
+        <QueryFailure error={list.error} what="The queue" onRetry={() => { void list.refetch(); }} />
+      ) : list.isPending ? (
         <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-11" />)}</div>
       ) : rows.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={Inbox}
-            title={query.q || query.state || query.claimed || query.procedure ? 'Nothing matches this view' : 'No work has been brought in yet'}
-            description={query.q || query.state || query.claimed || query.procedure ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
-            action={query.q || query.state || query.claimed || query.procedure
+            title={filtered ? 'Nothing matches this view' : 'No work has been brought in yet'}
+            description={filtered ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
+            action={filtered
               ? <Button onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); }}>Clear the filters</Button>
               : <Button variant="primary" onClick={() => setImporting(true)} data-tutorial="import-work"><Upload className="h-4 w-4" />Import work</Button>}
           />

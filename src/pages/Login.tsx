@@ -313,7 +313,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
         </a>
         <div className="auth-panel-copy">
           <p className="auth-panel-eyebrow">Performance and work management</p>
-          <p className="auth-panel-title">Every action.<br /><span>A clearer picture.</span></p>
+          <p className="auth-panel-title">Show the work<br /><span>behind the brief.</span></p>
           <ul className="auth-panel-points">
             <li><ShieldCheck strokeWidth={1.75} aria-hidden /><span><b>Answerable</b>Every case history is sealed, and every change to a record is attributed.</span></li>
             <li><LockKeyhole strokeWidth={1.75} aria-hidden /><span><b>Private by default</b>Your record is yours; leaders see what you share, for their unit only.</span></li>

@@ -228,3 +228,20 @@ test('KB-03: the queue’s single keys act only in its rows, and not at all once
     await page.request.put('/api/me/prefs', { headers: H, data: { shortcuts: true } });
   }
 });
+
+test('a failed queue read can be retried without presenting an empty queue', async ({ page }) => {
+  const endpoint = '**/api/work/items?**';
+  await page.route(endpoint, (route) => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Service unavailable' }),
+  }));
+  await page.goto('/work/queue');
+  const failure = page.getByRole('alert').filter({ hasText: 'The queue could not load' });
+  await expect(failure).toBeVisible();
+  await expect(page.getByText('No work has been brought in yet')).toHaveCount(0);
+
+  await page.unroute(endpoint);
+  const restored = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/work/items' && response.ok());
+  await failure.getByRole('button', { name: 'Try again' }).click();
+  await restored;
+  await expect(failure).toHaveCount(0);
+});

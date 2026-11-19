@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckCircle2, ChevronRight, CircleDot, Circle, Compass, FileText, Fingerprint, GitBranch,
-  Landmark, Layers3, ListChecks, Lock, Menu, Paperclip, Play, RotateCcw, ShieldCheck, ScrollText, Server, Sparkles, UserRound, Users, WifiOff,
+  Landmark, Layers3, ListChecks, Lock, Menu, Paperclip, Play, RotateCcw, ShieldCheck, ScrollText, Server, UserRound, Users, WifiOff,
 } from 'lucide-react';
 import { FAQS, SITE } from '@/config/site';
 import { TrustBody, TrustHero, trustPageFor, type TrustPage } from '@/pages/public/TrustPages';
@@ -96,43 +96,37 @@ function CaseMock() {
   );
 }
 
-/** The hero: what a Marine actually gets. One sentence in, an entry with its evidence, and a report line that cites it. */
-function RecordMock() {
+/** Native disclosures keep each sample figure tied to its evidence, including on the prerendered page. */
+function BriefPreview() {
+  const entries = [
+    { label: '30 ULOs reconciled', amount: '$1,118.38', evidence: 'ULO report', detail: 'The 30 documents reviewed in DAI total $1,118.38 in reconciled value.' },
+    { label: '1 UMT cleared', amount: '+$2,775.00 proposed', evidence: 'Invoice pair and follow-up UMT report', detail: 'Two invoices supported the proposed adjustment. The follow-up report confirmed the UMT cleared.' },
+    { label: '4 Marines trained', amount: '2 hours', evidence: 'Training roster', detail: 'Four junior Marines attended a two-hour reconciliation class.' },
+  ];
   return (
-    <div className="ps-bezel ps-case ps-record" aria-label="Quick Log, the Record and Report Studio in Vantage, with sample data">
-      <div className="ps-bezel-core">
-        <div className="ps-window-bar" aria-hidden><i /><i /><i /><span>vantage · today</span></div>
-        <div className="ps-record-body">
-          <div className="ps-record-step">
-            <p className="ps-record-label"><span>1</span>Say what you did</p>
-            <div className="ps-record-input"><span>Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday</span><kbd>N</kbd></div>
-            <div className="ps-record-chips"><span>30 ULOs</span><span>$1,118.38 reconciled</span><span>DAI</span><span>Yesterday</span><span className="ps-chip-quiet">Fiscal &amp; Financial</span></div>
-          </div>
-          <div className="ps-record-step">
-            <p className="ps-record-label"><span>2</span>It joins your record, with its evidence</p>
-            <ul className="ps-record-list">
-              <li><b>Reconciled 30 ULOs in DAI</b><small><Paperclip strokeWidth={1.75} aria-hidden />ULO report attached</small><em>$1,118.38</em></li>
-              <li><b>Cleared a 2-Way UMT</b><small><ShieldCheck strokeWidth={1.75} aria-hidden />Verified on the next report</small><em>$2,775.00</em></li>
-              <li><b>Led reconciliation training, 4 Marines</b><small><Users strokeWidth={1.75} aria-hidden />Attendance roster attached</small><em>2 hrs</em></li>
-            </ul>
-          </div>
-          <div className="ps-record-step ps-record-report">
-            <p className="ps-record-label"><span>3</span>FITREP input that cites itself</p>
-            <p className="ps-record-bullet">Reconciled 30 ULOs and cleared a 2-Way UMT, $3,893.38 in all, each verified on the following report<sup>1–2</sup>; trained 4 junior Marines in reconciliation<sup>3</sup>.</p>
-            <p className="ps-record-sources">3 sources · every figure opens to its entry</p>
-          </div>
+    <section className="ps-brief" aria-labelledby="ps-brief-title">
+      <div className="ps-brief-head"><span>Section brief</span><span>Sample data</span></div>
+      <div className="ps-brief-body">
+        <h2 id="ps-brief-title">Reconciliation summary</h2>
+        <p>Select a result to see its supporting record.</p>
+        <div className="ps-brief-entries">
+          {entries.map((entry) => (
+            <details key={entry.label}>
+              <summary><span>{entry.label}</span><strong>{entry.amount}</strong><ChevronRight size={16} aria-hidden /></summary>
+              <div className="ps-brief-source"><strong><Paperclip size={14} aria-hidden />{entry.evidence}</strong><p>{entry.detail}</p></div>
+            </details>
+          ))}
         </div>
+        <div className="ps-brief-draft"><FileText size={18} aria-hidden /><div><strong>Draft evaluation input</strong><p>Reconciled 30 ULOs valued at $1,118.38, verified closure of one UMT, and trained four Marines in reconciliation.</p></div></div>
       </div>
-      <div className="ps-float ps-float-a" aria-hidden><Lock strokeWidth={1.75} />Private until you share it</div>
-      <div className="ps-float ps-float-b" aria-hidden><Sparkles strokeWidth={1.75} />Nothing is saved until you check it</div>
-    </div>
+    </section>
   );
 }
 
 const ROLES: Array<{ icon: typeof UserRound; who: string; title: string; text: string; href: string }> = [
-  { icon: UserRound, who: 'E-1 to E-4', title: 'JEPES input', text: 'Log what you did as it happens. Your record builds the evidence your reporting senior needs.', href: '#product' },
-  { icon: Compass, who: 'E-5 and up', title: 'FITREP input', text: 'Bullets by evaluation area, drafted from entries you can open and check, never from memory.', href: '#product' },
-  { icon: Users, who: 'Section and command leaders', title: 'Workload without a roll call', text: 'Who holds what, what is waiting and what is blocked, from the work itself. People are never labelled.', href: '#product' },
+  { icon: UserRound, who: 'E-1 to E-4', title: 'JEPES input', text: 'Keep the work and supporting evidence together as you prepare input for your command.', href: '?film=record#watch' },
+  { icon: Compass, who: 'E-5 and up', title: 'FITREP input', text: 'Bullets by evaluation area, drafted from entries you can open and check, never from memory.', href: '?film=report-studio#watch' },
+  { icon: Users, who: 'Section and command leaders', title: 'Workload without a roll call', text: 'Who holds what, what is waiting and what is blocked, from the work itself. Open the section dashboard to see the queue.', href: '?film=unit-dashboard#watch' },
   { icon: Landmark, who: 'Financial management analysts', title: 'Balances, read in order', text: 'Open balances diagnosed in lifecycle order, with cited procedures and evidence gates.', href: '#analysts' },
   { icon: Server, who: 'Owners and ISSMs', title: 'Your command, kept apart', text: 'An organization of your own: your people, units and audit trail. Vantage looks in only when you approve.', href: '/security#deployment' },
 ];
@@ -162,7 +156,7 @@ function RoleStrip() {
 }
 
 function SpeedStrip() {
-  const keys: Array<[string[], string]> = [[['N'], 'Log what you did, from any page'], [['⌘', 'K'], 'Find any record, case or reference'], [['G', 'D'], 'Jump to Today, or anywhere'], [['?'], 'Every shortcut']];
+  const keys: Array<[string[], string]> = [[['N'], 'Log what you did, from any page'], [['Ctrl / ⌘', 'K'], 'Find a record, case or reference'], [['G', 'D'], 'Jump to Today, or anywhere'], [['?'], 'Every shortcut']];
   return (
     <div className="ps-speed" data-reveal>
       <div>
@@ -177,15 +171,23 @@ function SpeedStrip() {
 }
 
 function SiteNav() {
+  const menu = useRef<HTMLDetailsElement>(null);
   return (
     <header className="ps-nav-wrap">
       <nav className="ps-nav" aria-label="Public navigation">
         <a href="/" className="ps-brand" aria-label="Vantage home"><img src="/brand/mark-reversed.svg" alt="" width="26" height="26" /><span>VANTAGE</span></a>
         <div className="ps-nav-links"><a href="/#product">Product</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/security">Security</a><a href="/#faq">FAQ</a></div>
         {/* On a phone the links fold into a menu; a <details> needs no script, so it works on the prerendered page too. */}
-        <details className="ps-nav-menu">
+        <details ref={menu} className="ps-nav-menu" onKeyDown={(event) => {
+          if (event.key === 'Escape' && menu.current?.open) {
+            menu.current.open = false;
+            menu.current.querySelector('summary')?.focus();
+          }
+        }}>
           <summary aria-label="Menu"><Menu strokeWidth={1.75} aria-hidden /></summary>
-          <div className="ps-nav-sheet">
+          <div className="ps-nav-sheet" onClick={(event) => {
+            if ((event.target as Element).closest('a') && menu.current) menu.current.open = false;
+          }}>
             <a href="/#product">Product</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/#faq">FAQ</a><a href="/changes">What’s new</a>
             <span aria-hidden />
             <a href="/security">Security</a><a href="/privacy">Privacy</a><a href="/accessibility">Accessibility</a>
@@ -239,7 +241,7 @@ function WorkflowDemo() {
   const sample = samples[selected];
   const stages = ['Capture', 'Record', 'Report'];
   return (
-    <div className="ps-bezel ps-demo" aria-label="Interactive product demonstration">
+    <div id="case-demo" className="ps-bezel ps-demo" aria-label="Interactive product demonstration">
       <div className="ps-bezel-core ps-demo-core">
         <div className="ps-demo-rail">
           <p className="ps-demo-label">Illustrative demo · sample data</p>
@@ -306,7 +308,15 @@ function Landing() {
   const video = videos.find((item) => item.id === activeVideo) || videos[0];
   const player = useRef<HTMLVideoElement | null>(null);
   const chosen = useRef(false);
-  const choose = (id: string) => { chosen.current = true; setActiveVideo(id); };
+  const choose = (id: string) => {
+    chosen.current = true;
+    if (id === activeVideo) void player.current?.play().catch(() => undefined);
+    else setActiveVideo(id);
+  };
+  useEffect(() => {
+    const selected = new URLSearchParams(window.location.search).get('film');
+    if (selected && videos.some((item) => item.id === selected)) setActiveVideo(selected);
+  }, []);
   useEffect(() => { if (chosen.current) player.current?.play().catch(() => undefined); }, [activeVideo]);
   useReveal(root);
   // public.html already carries the page's head; this names the tab when the app shows the page instead.
@@ -323,11 +333,11 @@ function Landing() {
 
         <div id="ps-content" className="ps-container ps-hero">
           <div className="ps-hero-copy">
-            <p className="ps-eyebrow ps-eyebrow-dark">Performance and work management for Marines</p>
-            <h1>Every action.<br /><span>A clearer picture.</span></h1>
-            <p className="ps-lede">Log what you did in one sentence. Vantage keeps it with its evidence, counts it once, and turns your record into JEPES or FITREP input where every line cites its source. Built for Marines and the teams they serve in.</p>
+            <p className="ps-hero-label">Work management for Marine Corps teams</p>
+            <h1>Show the work<br /><span>behind the brief.</span></h1>
+            <p className="ps-lede">Give each open balance an owner. Track the correction through verification, then use the record to brief the section or draft JEPES and FITREP input.</p>
             <div className="ps-actions">
-              <PillLink href="#product">Explore the product</PillLink>
+              <PillLink href="#case-demo">Walk through a case</PillLink>
               {film ? (
                 <a className="ps-ghost ps-watch-cta" href="#watch" onClick={() => setActiveVideo(film.id)}>
                   <span className="ps-watch-dot" aria-hidden><Play strokeWidth={2} /></span>Watch the film<small>{film.length}</small>
@@ -340,41 +350,9 @@ function Landing() {
               <li><ScrollText strokeWidth={1.75} aria-hidden />Every line cites its entry</li>
             </ul>
           </div>
-          <RecordMock />
+          <BriefPreview />
         </div>
       </div>
-
-      {video && (
-        <section className="ps-section ps-container ps-watch" id="watch" aria-labelledby="ps-watch-title">
-          <div className="ps-section-head" data-reveal>
-            <p className="ps-eyebrow">{video.id === 'trailer' ? 'The film' : 'Field guide'}</p>
-            <h2 id="ps-watch-title">{video.title}</h2>
-            <p className="ps-section-lede">Recorded on the real application with demo data. Every name and number on screen is made up.</p>
-          </div>
-          <div className="mission-video-layout ps-video" data-reveal>
-            <div className="ps-bezel ps-player"><div className="ps-bezel-core">
-              <video ref={player} key={video.id} controls playsInline preload="metadata" poster={video.poster} aria-label={video.title}>
-                <source src={video.src} type="video/mp4" />
-                {video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" default={video.voiced === false} />}
-              </video>
-            </div></div>
-            <div className="mission-video-list" aria-label="Choose a film">
-              {videos.map((item) => (
-                <button type="button" key={item.id} aria-pressed={item.id === video.id} onClick={() => choose(item.id)}>
-                  {item.poster ? <img src={item.poster} alt="" loading="lazy" width="96" height="54" /> : <Play strokeWidth={1.75} aria-hidden />}
-                  <span><strong>{item.title}</strong><small>{item.length}</small></span>
-                </button>
-              ))}
-            </div>
-          </div>
-          {video.transcript?.length ? (
-            <details className="ps-transcript" data-reveal>
-              <summary>What the film says</summary>
-              <ol>{video.transcript.map((line, i) => <li key={i}>{line}</li>)}</ol>
-            </details>
-          ) : null}
-        </section>
-      )}
 
       <section className="ps-section ps-container" id="product" aria-labelledby="ps-product-title">
         <div className="ps-section-head" data-reveal>
@@ -424,6 +402,38 @@ function Landing() {
         <div className="ps-demo-wrap" data-reveal><WorkflowDemo /></div>
         <SpeedStrip />
       </section>
+
+      {video && (
+        <section className="ps-section ps-container ps-watch" id="watch" aria-labelledby="ps-watch-title">
+          <div className="ps-section-head" data-reveal>
+            <p className="ps-eyebrow">{video.id === 'trailer' ? 'The film' : 'Field guide'}</p>
+            <h2 id="ps-watch-title">{video.title}</h2>
+            <p className="ps-section-lede">{video.description} All examples use synthetic data.</p>
+          </div>
+          <div className="mission-video-layout ps-video" data-reveal>
+            <div className="ps-bezel ps-player"><div className="ps-bezel-core">
+              <video ref={player} key={video.id} controls playsInline preload="none" poster={video.poster} aria-label={video.title}>
+                <source src={video.src} type="video/mp4" />
+                {video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" default={video.voiced === false} />}
+              </video>
+            </div></div>
+            <div className="mission-video-list" aria-label="Choose a film">
+              {videos.map((item) => (
+                <button type="button" key={item.id} aria-pressed={item.id === video.id} onClick={() => choose(item.id)}>
+                  {item.poster ? <img src={item.poster} alt="" loading="lazy" width="96" height="54" /> : <Play strokeWidth={1.75} aria-hidden />}
+                  <span><strong>{item.title}</strong><small>{item.length}</small></span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {video.transcript?.length ? (
+            <details className="ps-transcript" data-reveal>
+              <summary>What the film says</summary>
+              <ol>{video.transcript.map((line, i) => <li key={i}>{line}</li>)}</ol>
+            </details>
+          ) : null}
+        </section>
+      )}
 
       <RoleStrip />
 

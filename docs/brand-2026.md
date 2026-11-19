@@ -5,17 +5,16 @@
 Vantage should feel like a modern enterprise operating system: disciplined, clear, reliable, and forward-looking. The product may be used in a military environment, but the interface should not look like a recruiting poster or a tactical game. Inside the application, information architecture and decision support come before decoration.
 
 **Brand line:** Performance · Productivity · Readiness  
-**Primary message:** Higher insight. Greater impact.  
-**Supporting message:** Turn possibility into progress.
+**Public message:** Show the work behind the brief.
 
 ## Logo
 
 The primary mark is the flat geometric Vantage `V`. Its geometry and fills are defined once, in `shared/brand.ts`; the in-app logo, `public/mark.svg`, the reversed and monochrome files, the favicon, the app icons and the social card are all generated from that one definition.
 
 - Deep Navy forms the structural V.
-- Summit Teal forms the upper forward chevron.
-- Cobalt Blue forms the central focal point.
-- White negative space separates the three parts.
+- Summit Teal forms the rising stroke.
+- A diagonal gap between the two strokes stays open at favicon size. On dark surfaces, the first stroke is white.
+- Cobalt Blue remains the primary action color in the application.
 - The mark must remain flat color. Do not apply gradients, bevels, chrome, glow, or 3D effects.
 - Use `public/brand/mark-reversed.svg` on Deep Navy and other dark surfaces.
 - Use `public/brand/mark-monochrome.svg` when only one ink color is available.

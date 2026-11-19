@@ -102,7 +102,7 @@ export const CHANGE_FLAGS = ['amount_changed', 'owner_changed', 'status_changed'
 export type ChangeFlag = (typeof CHANGE_FLAGS)[number];
 
 export const STANDING_LABELS: Record<Standing, { label: string; hint: string }> = {
-  new: { label: 'New', hint: 'Open now, and on no earlier report of this series' },
+  new: { label: 'New', hint: 'Open now and first seen after the selected comparison date' },
   still_open: { label: 'Still open', hint: 'Open on both reports' },
   reopened: { label: 'Reopened', hint: 'Open now, not open on the earlier report, but on a report before it' },
   resolved: { label: 'Resolved', hint: 'Open on the earlier report; gone, or closed, now' },
@@ -305,14 +305,18 @@ export function summarize(compared: readonly ComparedRow[], at: { before: string
     const compared2 = at.before;
     const days = daysBetween(compared2, at.after);
     const toResolve = sets.resolved.map((r) => daysToResolve(r.before!, compared2, at.after, facts.firstOpenOn.get(r.key) ?? null)).filter((d): d is number => d != null);
-    const changedBy = centsOf(sets.amount_changed.map((r) => r.after!)) - centsOf(sets.amount_changed.map((r) => r.before!));
+    const amountChanges = sets.amount_changed;
+    const missingAmounts = amountChanges.filter((r) => r.before?.amount_cents == null || r.after?.amount_cents == null).length;
+    // A net change for the whole set exists only when both endpoints of every change are known.
+    const changedBy = missingAmounts ? undefined : after(amountChanges) - before(amountChanges);
     figures.push(
       open('before', 'Open on the earlier report'),
       open('new', STANDING_LABELS.new.label, STANDING_LABELS.new.hint),
       open('still_open', STANDING_LABELS.still_open.label, STANDING_LABELS.still_open.hint),
       open('reopened', STANDING_LABELS.reopened.label, STANDING_LABELS.reopened.hint),
       open('resolved', STANDING_LABELS.resolved.label, `${STANDING_LABELS.resolved.hint}. Valued as the earlier report had it`),
-      { id: 'amount_changed', label: FLAG_LABELS.amount_changed.label, kind: 'count', value: counts.amount_changed, cents: changedBy, drill: 'amount_changed', hint: 'The dollar figure is the net change' },
+      { id: 'amount_changed', label: FLAG_LABELS.amount_changed.label, kind: 'count', value: counts.amount_changed, cents: changedBy, drill: 'amount_changed',
+        hint: missingAmounts ? `Net change unavailable. ${missingAmounts} of ${amountChanges.length} changed rows lack an amount on one report.` : 'The dollar figure is the net change' },
       { id: 'owner_changed', label: FLAG_LABELS.owner_changed.label, kind: 'count', value: counts.owner_changed, cents: after(sets.owner_changed), drill: 'owner_changed', hint: FLAG_LABELS.owner_changed.hint },
       { id: 'status_changed', label: FLAG_LABELS.status_changed.label, kind: 'count', value: counts.status_changed, cents: after(sets.status_changed), drill: 'status_changed', hint: FLAG_LABELS.status_changed.hint },
       { id: 'resolution_rate', label: 'Resolution rate', kind: 'percent', value: counts.before ? round1((counts.resolved / counts.before) * 100) : null, drill: 'resolved', hint: 'Resolved, of those open on the earlier report' },

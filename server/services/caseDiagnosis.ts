@@ -31,15 +31,8 @@ const json = <T>(text: string | null | undefined, fallback: T): T => {
   try { return text ? (JSON.parse(text) as T) : fallback; } catch { return fallback; }
 };
 
-/** The cells the import's column mapping gave a financial meaning. `mappings` caches a job's mapping across rows. */
-function sheetOf(ctx: AppContext, row: WorkItemRow, mappings = new Map<string, Record<string, string>>()): NonNullable<DiagnosisInput['sheet']> {
-  if (!row.import_job_id) return [];
-  let mapping = mappings.get(row.import_job_id);
-  if (!mapping) {
-    const job = ctx.db.prepare('SELECT mapping FROM import_jobs WHERE id = ?').get(row.import_job_id) as { mapping: string } | undefined;
-    mapping = json<Record<string, string>>(job?.mapping, {});
-    mappings.set(row.import_job_id, mapping);
-  }
+/** Only the columns assigned a financial meaning by this row's own import plan. */
+function sheetOf(row: WorkItemRow, mapping: Record<string, string>): NonNullable<DiagnosisInput['sheet']> {
   const data = json<Record<string, string>>(row.data, {});
   const out: NonNullable<DiagnosisInput['sheet']> = [];
   for (const [column, target] of Object.entries(mapping)) {
@@ -86,12 +79,20 @@ function peopleOf(ctx: AppContext, events: EventRow[]): Record<string, string> {
   return Object.fromEntries(rows.map((r) => [r.id, r.name]));
 }
 
-function filenameOf(ctx: AppContext, row: WorkItemRow, files = new Map<string, string | null>()): string | null {
-  if (!row.source_file_id) return null;
-  if (!files.has(row.source_file_id)) {
-    files.set(row.source_file_id, (ctx.db.prepare('SELECT filename FROM source_files WHERE id = ?').get(row.source_file_id) as { filename: string } | undefined)?.filename ?? null);
-  }
-  return files.get(row.source_file_id) ?? null;
+/** Read metadata for the authorized rows on this page. A file may appear in several jobs with different mappings. */
+function sourceMetadata(ctx: AppContext, rows: WorkItemRow[]) {
+  const fileIds = new Set(rows.flatMap((row) => row.source_file_id ? [row.source_file_id] : []));
+  const jobIds = new Set(rows.flatMap((row) => row.import_job_id ? [row.import_job_id] : []));
+  const fileRows = fileIds.size ? ctx.db.prepare('SELECT id, filename FROM source_files WHERE id IN (SELECT value FROM json_each(?))')
+    .all(JSON.stringify([...fileIds])) as Array<{ id: string; filename: string }> : [];
+  const jobRows = jobIds.size ? ctx.db.prepare('SELECT id, mapping FROM import_jobs WHERE id IN (SELECT value FROM json_each(?))')
+    .all(JSON.stringify([...jobIds])) as Array<{ id: string; mapping: string }> : [];
+  const filenames = new Map(fileRows.map((f) => [f.id, f.filename]));
+  const mappings = new Map(jobRows.map((j) => [j.id, json<Record<string, string>>(j.mapping, {})]));
+  return (row: WorkItemRow) => ({
+    item: itemOf(row, row.source_file_id ? filenames.get(row.source_file_id) ?? null : null),
+    sheet: sheetOf(row, (row.import_job_id && mappings.get(row.import_job_id)) || {}),
+  });
 }
 
 function itemOf(row: WorkItemRow, filename: string | null): DiagnosisInput['item'] {
@@ -105,8 +106,7 @@ function itemOf(row: WorkItemRow, filename: string | null): DiagnosisInput['item
 export function diagnosisFor(ctx: AppContext, user: SessionUser, scope: Scope, row: WorkItemRow, events?: EventRow[]): CaseDiagnosis {
   const rows = events ?? eventsFor(ctx, row.id);
   return diagnoseCase({
-    item: itemOf(row, filenameOf(ctx, row)),
-    sheet: sheetOf(ctx, row),
+    ...sourceMetadata(ctx, [row])(row),
     events: caseEventsOf(rows),
     procedure: procedureOf(row).procedure,
     guidance: guidanceForCase(ctx, user, scope, row),
@@ -128,15 +128,13 @@ export function summariesFor(ctx: AppContext, user: SessionUser, rows: WorkItemR
   ).all(JSON.stringify(rows.map((r) => r.id))) as EventRow[];
   const byItem = new Map<string, EventRow[]>();
   for (const e of all) { const list = byItem.get(e.work_item_id); if (list) list.push(e); else byItem.set(e.work_item_id, [e]); }
-  const mappings = new Map<string, Record<string, string>>();
-  const files = new Map<string, string | null>();
+  const inputsFor = sourceMetadata(ctx, rows);
   const today = zonedDay(zoneOf(ctx, user));
   const out: Record<string, DiagnosisSummary> = {};
   for (const row of rows) {
     const events = byItem.get(row.id) || [];
     out[row.id] = summarize(diagnoseCase({
-      item: itemOf(row, filenameOf(ctx, row, files)),
-      sheet: sheetOf(ctx, row, mappings),
+      ...inputsFor(row),
       events: caseEventsOf(events),
       procedure: procedureOf(row).procedure,
       today,

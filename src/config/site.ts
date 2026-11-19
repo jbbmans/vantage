@@ -9,11 +9,11 @@ export const SITE = {
   /** Under 60 characters, so results show it whole. */
   title: 'VANTAGE USMC | Marine Performance & JEPES/FITREP Input',
   /** Under 160 characters for the same reason. */
-  description: 'Vantage helps Marines and their leaders track work, performance records, readiness and goals, and build JEPES and FITREP input from traceable evidence.',
-  imageAlt: 'The Vantage mark beside the words Performance, Productivity, Readiness',
+  description: 'Vantage helps Marine Corps teams assign cases, verify financial corrections, track readiness, and draft JEPES and FITREP input from the work behind each result.',
+  imageAlt: 'Vantage. Show the work behind the brief. Casework, evidence and reporting for Marine Corps teams.',
   disclaimer: 'Vantage is an independent software project. It is not affiliated with, endorsed by or sponsored by the Department of Defense, the Department of the Navy or the U.S. Marine Corps, and it is not an official system of record.',
   /** The date the public page last changed in substance. The sitemap reports it; bump it when the page does. */
-  updated: '2026-09-29',
+  updated: '2026-11-19',
 } as const;
 
 export const FAQS: ReadonlyArray<readonly [string, string]> = [

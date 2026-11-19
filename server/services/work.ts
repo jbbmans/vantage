@@ -13,7 +13,7 @@ import { notify } from './notifications.ts';
 import { whoActs } from './comments.ts';
 import { orgOfUnit } from '../authz/scope.ts';
 import { summariesFor } from './caseDiagnosis.ts';
-import { STATE_TO_STAGE, type Stage } from '../../shared/caseModel.ts';
+import { STAGES, STATE_TO_STAGE, type Stage } from '../../shared/caseModel.ts';
 import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { parse } from '../lib/http.ts';
@@ -102,10 +102,14 @@ export interface ListOptions {
   diagnose?: boolean;
 }
 
-const SORTABLE: Record<string, string> = {
-  due_date: 'due_date', title: 'title', reference: 'reference', amount: 'amount',
-  quantity: 'quantity', state: 'state', updated_at: 'updated_at', natural_key: 'natural_key',
-};
+// Use the same fallback as stageOf for older cases. All expressions come from the application constants.
+const legacyStage = `CASE w.state ${Object.entries(STATE_TO_STAGE).map(([state, stage]) => `WHEN '${state}' THEN '${stage}'`).join(' ')} ELSE 'not_started' END`;
+const effectiveStage = `COALESCE(NULLIF(w.stage, ''), ${legacyStage})`;
+const stageOrder = `CASE ${effectiveStage} ${STAGES.map((stage, index) => `WHEN '${stage}' THEN ${index}`).join(' ')} ELSE ${STAGES.length} END`;
+const SORTABLE = new Map([
+  ['due_date', 'w.due_date'], ['title', 'w.title'], ['reference', 'w.reference'], ['amount', 'w.amount'],
+  ['quantity', 'w.quantity'], ['state', 'w.state'], ['stage', stageOrder], ['updated_at', 'w.updated_at'], ['natural_key', 'w.natural_key'],
+]);
 
 export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts: ListOptions = {}) {
   const readableUnits = scope.unitIds;
@@ -121,7 +125,7 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
 
   if (opts.unitId) { where.push('w.unit_id = ?'); params.push(opts.unitId); }
   if (opts.state) { where.push('w.state = ?'); params.push(opts.state); }
-  if (opts.stage) { where.push('w.stage = ?'); params.push(opts.stage); }
+  if (opts.stage) { where.push(`${effectiveStage} = ?`); params.push(opts.stage); }
   if (opts.active) where.push("w.state NOT IN ('resolved', 'not_applicable')");
   if (opts.projectId) { where.push('w.project_id = ?'); params.push(opts.projectId); }
   if (opts.procedure === 'none') where.push('w.procedure_key IS NULL');
@@ -136,24 +140,26 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
     params.push(needle, needle, needle);
   }
 
-  const column = SORTABLE[String(opts.sort || 'due_date')] || 'due_date';
+  const column = SORTABLE.get(opts.sort ?? '') ?? 'w.due_date';
   const direction = opts.direction === 'desc' ? 'DESC' : 'ASC';
   const limit = Math.min(Math.max(Number(opts.limit) || 100, 1), 500);
   const offset = Math.max(Number(opts.offset) || 0, 0);
 
   const clause = where.join(' AND ');
-  const total = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM work_items w WHERE ${clause}`).get(...params) as { n: number }).n;
+  const counts = ctx.db.prepare(
+    `SELECT COUNT(*) AS total, COUNT(CASE WHEN w.claimed_by = ? THEN 1 END) AS held_by_me FROM work_items w WHERE ${clause}`
+  ).get(user.id, ...params) as { total: number; held_by_me: number };
   // A project is named only to someone who may read it, so a link cannot show a project that has since moved away.
   const project = readableClause(ctx, scope, user.id, 'p', { memberReadable: true });
   const rows = ctx.db.prepare(
     `SELECT w.*, h.first_name || ' ' || h.last_name AS holder_name, hr.abbr AS holder_rank, p.name AS project_name
        FROM work_items w LEFT JOIN users h ON h.id = w.claimed_by LEFT JOIN ranks hr ON hr.id = h.rank_id
        LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL AND ${project.clause}
-      WHERE ${clause} ORDER BY (w.${column} IS NULL), w.${column} ${direction}, w.natural_key ASC LIMIT ? OFFSET ?`
+      WHERE ${clause} ORDER BY (${column} IS NULL), ${column} ${direction}, w.natural_key ASC, w.id ASC LIMIT ? OFFSET ?`
   ).all(...project.params, ...params, limit, offset) as WorkItemRow[];
 
   const readings = opts.diagnose ? summariesFor(ctx, user, rows) : null;
-  return { total, limit, offset, items: rows.map((r) => (readings ? { ...hydrate(r), diagnosis: readings[r.id] ?? null } : hydrate(r))) };
+  return { ...counts, limit, offset, items: rows.map((r) => (readings ? { ...hydrate(r), diagnosis: readings[r.id] ?? null } : hydrate(r))) };
 }
 
 export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id: string): WorkItemDetail {

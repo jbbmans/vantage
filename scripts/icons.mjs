@@ -61,17 +61,14 @@ writeFileSync(out('icon-maskable-512.png'), await png(sized(maskable, 512), 512,
 writeFileSync(out('brand/email-mark.png'), await png(sized(svgs['brand/mark-reversed.svg'], 108), 108, 108));
 
 // The social card: what a shared link shows in Messages, Teams, Slack, LinkedIn and search.
-const card = `<div style="width:1200px;height:630px;box-sizing:border-box;position:relative;overflow:hidden;background:${BRAND.navy};color:#fff;font-family:Geist,system-ui,sans-serif;display:flex;align-items:center;padding:0 96px">
-  <div style="display:flex;align-items:center;gap:60px">
-    ${sized(svgs['brand/mark-reversed.svg'], 232)}
-    <div>
-      <div style="font-size:120px;font-weight:700;letter-spacing:0.06em;line-height:1">VANTAGE</div>
-      <div style="margin-top:22px;font-size:34px;font-weight:500;color:#DDE9F6">Performance <span style="color:${BRAND.teal}">·</span> Productivity <span style="color:${BRAND.teal}">·</span> Readiness</div>
-      <div style="margin-top:30px;font-size:26px;color:#A9C0D8;max-width:640px;line-height:1.35">Work, records and readiness for Marine Corps teams, every figure traced to its source.</div>
-    </div>
-  </div>
-  <div style="position:absolute;left:96px;bottom:44px;font-size:22px;letter-spacing:0.08em;color:#8FA9C4">vantageusmc.com</div>
-  <div style="position:absolute;left:0;right:0;bottom:0;height:12px;display:flex"><div style="flex:62;background:${BRAND.teal}"></div><div style="flex:38;background:${BRAND.cobalt}"></div></div>
+const card = `<div style="width:1200px;height:630px;box-sizing:border-box;position:relative;overflow:hidden;background:#0a203b;color:#fff;font-family:Geist,system-ui,sans-serif">
+  <div style="position:absolute;inset:0 0 0 auto;width:340px;background:#102e4d;border-left:1px solid #315069"></div>
+  <div style="position:absolute;left:70px;top:52px;display:flex;align-items:center;gap:16px;font-size:26px;letter-spacing:.13em;font-weight:700">${sized(svgs['brand/mark-reversed.svg'], 42)}VANTAGE</div>
+  <div style="position:absolute;left:70px;top:181px;font-size:83px;font-weight:600;line-height:1.02;letter-spacing:-.053em">Show the work<br><span style="color:#97e3d7">behind the brief.</span></div>
+  <div style="position:absolute;left:73px;top:399px;font-size:28px;line-height:1.35;max-width:710px;color:#d4e0ed">Casework, evidence and reporting<br>for Marine Corps teams.</div>
+  <div style="position:absolute;left:72px;bottom:45px;font-size:21px;color:#c0cedc">vantageusmc.com</div>
+  <div style="position:absolute;right:48px;top:184px">${sized(svgs['brand/mark-reversed.svg'], 244)}</div>
+  <div style="position:absolute;left:0;bottom:0;height:7px;width:100%;background:${BRAND.teal}"></div>
 </div>`;
 writeFileSync(out('og.png'), await png(card, 1200, 630));
 

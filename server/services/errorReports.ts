@@ -133,18 +133,6 @@ interface ReadReport {
   owners: { named: number; matched: number };
 }
 
-/** An amount as whole cents. A spreadsheet's float (1234.5600000001) is rounded to the cent, as it was typed. */
-function centsFrom(text: string): number | null {
-  const parsed = parseMoney(text);
-  if (parsed.ok) return parsed.cents;
-  const plain = text.replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1');
-  if (/^-?\d*\.\d{3,}$/.test(plain)) {
-    const n = Math.round(Number(plain) * 100);
-    return Number.isSafeInteger(n) ? n : null;
-  }
-  return null;
-}
-
 function daysFrom(text: string): number | null {
   const plain = text.replace(/[,\s]/g, '').replace(/days?$/i, '');
   if (!/^\d+(\.\d+)?$/.test(plain)) return null;
@@ -228,9 +216,11 @@ function readReport(ctx: AppContext, user: SessionUser, scope: Scope, plan: Fili
       return value ? value.slice(0, max) : null;
     };
     const status = cell('status', 80);
-    const amountText = cell('amount', 60);
-    const amount = amountText ? centsFrom(amountText) : null;
-    if (amountText && amount == null) notes.push({ source_row: r.source_row, value: amountText, reason: 'The amount on this row is not a dollar figure Vantage can read. It was filed without one.' });
+    const amountColumn = roles.get('amount');
+    const amountText = amountColumn ? (r.data[amountColumn] ?? '').trim() : '';
+    const parsed = amountText.length > 60 ? { ok: false as const, error: 'The amount is too long.' } : parseMoney(amountText);
+    const amount = parsed.ok ? parsed.cents : null;
+    if (amountText && !parsed.ok) notes.push({ source_row: r.source_row, value: amountText.slice(0, 60), reason: `Check the amount. ${parsed.error} The original cell is retained and this row has no dollar value.` });
     const openedText = cell('opened', 40);
     const opened = openedText ? parseDate(openedText) : null;
     if (openedText && !opened) notes.push({ source_row: r.source_row, value: openedText, reason: 'The opened date on this row is not a date Vantage can read. It was filed without one.' });
