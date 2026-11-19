@@ -45,6 +45,9 @@ migration.
 - **Found by the review of this diff.** A Unit Instance trail's search does not look in the words of an entry that
   carries ten digits in a row. A restore that moves the backup's keys to the current secret is in the trail as a
   rotation. A browser backup that fails before it leaves takes its copy with it.
+- **Found by the browser suite.** A page load sent under a session that had just ended, and answered after the person
+  signed in again, no longer signs them straight back out: a document never clears the session cookie now. A dead one
+  opens nothing and the next sign-in replaces it.
 - **Tests.** `tests/server/readinessGateDefects.test.ts` holds one test per fixed defect, each seen to fail on the code
   before its fix; `readinessGate.test.ts` also holds the register to the suite.
 

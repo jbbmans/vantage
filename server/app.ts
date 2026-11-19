@@ -9,7 +9,6 @@ import { openDatabase, metaSet, metaGet } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
-import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
 import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
@@ -498,8 +497,9 @@ export function createApp(ctx: AppContext) {
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       // A page can clear the signed-in marker just after a newer sign-in set it; a document served to a live session
-      // puts it back, so the page loads signed in (routes/auth.ts).
-      restoreSignedInMarker(req, res);
+      // puts it back, so the page loads signed in. A dead session cookie is left in place but counts for nothing here
+      // (routes/auth.ts).
+      const signedIn = restoreSignedInMarker(req, res);
       const faces = facesOf(res);
       const path = req.path;
       const query = req.originalUrl.slice(req.path.length);
@@ -529,7 +529,6 @@ export function createApp(ctx: AppContext) {
       // for a signed-out visitor to a set-up instance with accounts (first-time setup and the demo are the app's).
       if (publicRoutes.has(path)) {
         if (faces.has('site')) {
-          const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
           const servePublic = path !== '/' || !faces.has('app') || (!signedIn && config.accessMode === 'accounts' && instanceSetUp());
           const document = trustPages.get(path) ?? publicPage;
           if (!publicSite) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -543,7 +542,6 @@ export function createApp(ctx: AppContext) {
       if (!publicRoutes.has(path) && !isAppPath(path)) {
         // Somebody signed in who follows a bad link keeps the app around them: the shell, answered 404, shows its
         // own "no page here" with the navigation still there. A file-like path, or anyone else, gets the plain page.
-        const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
         if (signedIn && faces.has('app') && !/\.[a-z0-9]{1,8}$/i.test(path)) return res.status(404).type('html').send(shell);
         return notFound(res);
       }

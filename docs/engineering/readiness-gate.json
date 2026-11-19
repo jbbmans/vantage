@@ -1951,6 +1951,20 @@
         }
       ],
       "note": "Found by the code review of this gate’s own diff. The copy and its private directory go on any failure before the download begins."
+    },
+    {
+      "id": "stale-page-load-clears-new-sign-in",
+      "title": "A page load sent under a session that had just ended, and answered after a newer sign-in, cleared the new sign-in’s cookie, so the person was signed out at once",
+      "severity": "medium",
+      "area": "Identity and sessions",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/auth.test.ts",
+          "test": "a page load sent under an ended session and answered after a newer sign-in leaves that sign-in in place"
+        }
+      ],
+      "note": "Found by the full browser suite on 080fed6: spec 33’s Unit Auditor test lost a fresh sign-in after a role grant ended the old one (about 2 sign-ins in 600 under load). The clear came from the document handler (8db5f10) and the service worker’s fetch of / (031d286), both older than this branch. A document no longer clears the session cookie; a dead cookie opens nothing and counts as signed out."
     }
   ],
   "external": [

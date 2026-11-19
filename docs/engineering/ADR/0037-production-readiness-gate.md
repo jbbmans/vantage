@@ -100,6 +100,12 @@ code before its fix. The defects, and the rules they now hold to:
 The code review of this Task's own diff found four of these (the card, the trail's words, the restore's rotation and
 the backup's copy); the register marks them.
 
+The full browser suite found one more, older than this branch. A page load sent under a session that had just ended (a
+role grant ends the holder's sessions) and answered after the person signed in again cleared the new sign-in's cookie:
+a clear matches a cookie by name, not by value. A document no longer clears the session cookie. A dead cookie opens
+nothing, counts as signed out when the document is chosen, and the next sign-in replaces it. The service worker's
+fetch of `/` was the usual sender; another tab's reload would do the same.
+
 ## Consequences
 
 - A gate claim is as strong as the test it cites, and no stronger: the register can be read against the suite.

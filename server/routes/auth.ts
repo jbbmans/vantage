@@ -83,14 +83,23 @@ export function setSignedInMarker(req: Request, res: Response, token: string) {
  * A page clears the marker when a request it sent comes back 401, and a newer sign-in may have set it a moment before:
  * cookie writes keep no order, and a page cannot make its clearing conditional. A document served to a session that
  * still stands puts the marker back, so the page it loads is signed in. Costs a lookup only when the marker is wrong.
+ *
+ * The same holds the other way for the session cookie, so a document never clears it. A browser attaches cookies when
+ * a request leaves, and a page load sent under a session that has since ended (a reload in another tab, the service
+ * worker fetching the app again) can be answered after a newer sign-in stored its cookie; a clear in that answer
+ * matches the cookie by name, not by value, and took the new sign-in with it. A dead cookie opens nothing, and the
+ * next sign-in replaces it. Returns whether the visitor counts as signed in for the document it is served.
  */
-export function restoreSignedInMarker(req: Request, res: Response) {
+export function restoreSignedInMarker(req: Request, res: Response): boolean {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (typeof token !== 'string' || !token || req.cookies?.[SIGNED_IN_COOKIE] === signedInMarker(token)) return;
-  // Read as any request reads it, expiry included, without counting as use: a session that idled out gets no marker,
-  // and its cookie goes, so the next page asks nothing of it.
-  if (resolveSession(req.ctx, token, { touch: false })) setSignedInMarker(req, res, token);
-  else res.clearCookie(SESSION_COOKIE, { path: '/' });
+  const marker = req.cookies?.[SIGNED_IN_COOKIE];
+  if (typeof token !== 'string' || !token) return Boolean(marker);
+  if (marker === signedInMarker(token)) return true;
+  // Read as any request reads it, expiry included, without counting as use: a session that idled out ends here and
+  // gets no marker, so the page asks nothing of it.
+  if (!resolveSession(req.ctx, token, { touch: false })) return false;
+  setSignedInMarker(req, res, token);
+  return true;
 }
 
 /** A hash made the old way is replaced while the password is in hand, so the instance moves to PBKDF2 as people sign in. */

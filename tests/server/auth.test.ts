@@ -6,7 +6,7 @@ import { resetLimiters } from '../../server/auth/limiter.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../../server/config.ts';
-import { sessionDigest } from '../../server/auth/sessions.ts';
+import { invalidateUserSessions, sessionDigest } from '../../server/auth/sessions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -90,13 +90,54 @@ test('a document served to a live session restores a signed-in marker a page cle
   await signOutCookies(live);
   assert.equal(markerOf(await doc(`vantage_session=${live.vantage_session}`)), undefined, 'an ended session gets none');
 
-  // A session that idled out still has its row until a request ends it; a page load gives it no marker either, ends it,
-  // and clears its cookie, without touching it.
+  // A session that idled out still has its row until a request ends it; a page load gives it no marker either and ends
+  // it, without touching it. Its cookie is left alone: a newer sign-in's may have replaced it (the next test).
   const idle = await signInCookies();
   app.ctx.db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), sessionDigest(idle.vantage_session));
   const res = await doc(`vantage_session=${idle.vantage_session}`);
   assert.equal(markerOf(res), undefined, 'an idled-out session gets no marker');
-  assert.ok(res.headers.getSetCookie().some((c) => /^vantage_session=;/.test(c)), 'its cookie is cleared');
+  assert.ok(!res.headers.getSetCookie().some((c) => c.startsWith('vantage_session=')), 'its cookie is left alone');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(sessionDigest(idle.vantage_session)), undefined, 'and the session is over');
+});
+
+/** A browser's jar, as far as these cookies go: each answer's Set-Cookie applies in the order answers arrive, and a clear (empty or 1970) deletes by name, whatever value is held. */
+const applyCookies = (jar: Map<string, string>, res: Response) => {
+  for (const line of res.headers.getSetCookie()) {
+    const [pair, ...attrs] = line.split(';');
+    const name = pair.slice(0, pair.indexOf('='));
+    const value = pair.slice(pair.indexOf('=') + 1);
+    if (!value || attrs.some((a) => /^\s*(expires=thu, 01 jan 1970|max-age=0)/i.test(a))) jar.delete(name);
+    else jar.set(name, value);
+  }
+};
+const jarHeader = (jar: Map<string, string>) => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+
+test('a page load sent under an ended session and answered after a newer sign-in leaves that sign-in in place', { skip: !existsSync(join(PROJECT_ROOT, 'dist/index.html')) && 'needs npm run build' }, async () => {
+  const jar = new Map<string, string>();
+  const post = (path: string, body: object) => fetch(`${app.base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-vantage-client': '1' }, body: JSON.stringify(body) });
+  const me = () => fetch(`${app.base}/api/me`, { headers: { cookie: jarHeader(jar) } });
+  const reg = await post('/api/auth/register', { username: 'racer', password: PASSWORD, first_name: 'Race', last_name: 'Marine' });
+  assert.equal(reg.status, 200, await reg.clone().text());
+  applyCookies(jar, reg);
+  // A role grant ends the person's sessions (routes/org.ts, ADR-0035). The open page's next request is a 401, and it
+  // clears the marker it can reach (src/lib/api.ts); the session cookie is httpOnly and stays.
+  invalidateUserSessions(app.ctx, ((await (await me()).json()) as { user: { id: string } }).user.id);
+  assert.equal((await me()).status, 401);
+  jar.delete('vantage_signed_in');
+  // A page load leaves now with these cookies (the service worker fetching '/', a reload in another tab)...
+  const stale = jarHeader(jar);
+  // ...the person signs in again and the new session's cookies land...
+  const login = await post('/api/auth/login', { username: 'racer', password: PASSWORD });
+  assert.equal(login.status, 200);
+  applyCookies(jar, login);
+  const fresh = jar.get('vantage_session');
+  // ...and the page load is answered after that, so its Set-Cookie lands last.
+  const page = await fetch(`${app.base}/`, { headers: { cookie: stale } });
+  applyCookies(jar, page);
+  assert.equal(jar.get('vantage_session'), fresh, 'the new sign-in keeps its cookie');
+  assert.equal((await me()).status, 200, 'and the person is still signed in');
+  // The dead cookie that page load carried counted for nothing: a signed-out visitor to the shared host gets the public page.
+  assert.match(await page.text(), /"@type":\s*"WebSite"/);
 });
 
 test('self-registration creates an unattached account and can be disabled', async () => {
