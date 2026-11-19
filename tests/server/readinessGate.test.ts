@@ -2,6 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
+import { readFileSync } from 'node:fs';
+import { SUMMARY_FILE, gateProblems, loadRegister, renderGate, verdictOf, type GateRegister } from '../../scripts/readiness-gate.ts';
 
 /**
  * Task 28, the production readiness gate: the six representative roles in one Unit Instance, each tried against what
@@ -229,7 +231,7 @@ test('duty: the Marine submits, a reviewer decides, nobody their own, and a late
   assert.ok([403, 404].includes((await decide(snco, own.body)).status), 'nobody approves their own duty without a role naming it');
 });
 
-test('counseling: its counselor and its Marine draw the NAVMC 2795 worksheet; nobody else reaches it', async () => {
+test('counseling: its counselor, its Marine and the unit’s leader draw the NAVMC 2795 worksheet; nobody outside the unit’s chain reaches it', async () => {
   const c = await made(supervisor.token, '/api/records/counselings', {
     user_id: marine.id, type: 'quarterly', date: '2026-10-05', summary: 'Discussed the reconciliation backlog.', strengths: 'Owned the clean-up.',
     improvements: 'Brief the section chief earlier.', goals_set: 'Clear the backlog by month end.', follow_up_date: '2026-11-05', visibility: 'unit', unit_id: 'FISCAL', stage: 'draft',
@@ -237,7 +239,7 @@ test('counseling: its counselor and its Marine draw the NAVMC 2795 worksheet; no
   const fin = await post(supervisor.token, `/api/records/counselings/${c.id}/finalize`, { version: c.version });
   assert.equal(fin.status, 200, JSON.stringify(fin.body));
   const pdf = (who: Person) => app.call('GET', `/api/records/counselings/${c.id}/export?format=pdf`, { token: who.token, binary: true });
-  for (const [name, who] of [['the counselor', supervisor], ['the Marine', marine]] as const) {
+  for (const [name, who] of [['the counselor', supervisor], ['the Marine', marine], ['the unit’s leader', leader]] as const) {
     const res = await pdf(who);
     assert.equal(res.status, 200, `${name} draws the worksheet`);
     assert.equal(res.buffer!.subarray(0, 5).toString('latin1'), '%PDF-', `${name}’s worksheet is a PDF`);
@@ -247,7 +249,7 @@ test('counseling: its counselor and its Marine draw the NAVMC 2795 worksheet; no
     const res = await pdf(who);
     assert.ok([403, 404].includes(res.status), `${name} draws the worksheet: ${res.status}`);
   }
-  assert.equal(auditCount('export_record', c.id), 2, 'each worksheet drawn is on the record, refusals drew none');
+  assert.equal(auditCount('export_record', c.id), 3, 'each worksheet drawn is on the record, refusals drew none');
 });
 
 test('exports: the Marine takes everything of theirs, an SNCO the unit’s shared work, and nobody else’s private entries or another unit', async () => {
@@ -305,4 +307,38 @@ test('report PDF: the Marine draws their own; another Marine’s needs their rec
   }
   assert.ok([403, 404].includes((await pdf(g1lead, marine.id)).status), 'nor another Unit Instance');
   assert.ok([403, 404].includes((await pdf(leader, budgetMarine.id)).status), 'nor the unit beside theirs');
+});
+
+// ——— The register: what the gate claims is what its tests and checks show, and the verdict is computed, never written ———
+
+test('the gate register names only tests that exist, backs every claim, and READINESS_GATE.md is drawn from it', () => {
+  const register = loadRegister();
+  assert.deepEqual(gateProblems(register), []);
+  assert.equal(readFileSync(SUMMARY_FILE, 'utf8'), renderGate(register), 'run node scripts/readiness-gate.ts --write after editing the register');
+});
+
+test('the verdict: an open critical or high defect, an item not shown, or a required check short of a pass fails the engineering gate; operational release is never decided here', () => {
+  const base: GateRegister = {
+    format: 1, task: 'probe', candidate: { base: 'x', branch: 'y', runtime: 'z', note: 'n' },
+    items: [{ id: 'one', title: 'One', source: 's', roles: ['Marine'], status: 'proven', evidence: [{ file: 'tests/server/readinessGate.test.ts', test: 'escalation: nobody raises themselves' }] }],
+    defects: [{ id: 'd', title: 'D', severity: 'medium', area: 'a', status: 'open', evidence: [] }],
+    external: [{ id: 'x', title: 'X', owner: 'o', source: 's' }],
+    checks: [{ id: 'c', title: 'C', command: 'c', required: true, result: 'pass', on: 'abc', detail: '' }],
+  };
+  const clean = verdictOf(base);
+  assert.equal(clean.engineering, 'pass', 'an open medium does not fail it');
+  assert.equal(clean.operational, 'not ready');
+  assert.deepEqual(clean.waitingOn, ['X (o)']);
+  for (const severity of ['critical', 'high'] as const) {
+    assert.equal(verdictOf({ ...base, defects: [{ ...base.defects[0], severity }] }).engineering, 'fail', `an open ${severity} defect fails it`);
+    assert.equal(verdictOf({ ...base, defects: [{ ...base.defects[0], severity, status: 'fixed', evidence: base.items[0].evidence }] }).engineering, 'pass');
+    assert.ok(gateProblems({ ...base, defects: [{ ...base.defects[0], severity, status: 'accepted', owner: 'someone' }] }).some((p) => p.includes('cannot be accepted')), `a ${severity} defect cannot be accepted away`);
+  }
+  assert.equal(verdictOf({ ...base, items: [{ ...base.items[0], status: 'open', note: 'n' }] }).engineering, 'fail', 'an item not shown fails it');
+  for (const result of ['fail', 'cancelled', 'not-run'] as const) {
+    assert.equal(verdictOf({ ...base, checks: [{ ...base.checks[0], result }] }).engineering, 'fail', `a required check ${result} fails it`);
+    assert.equal(verdictOf({ ...base, checks: [{ ...base.checks[0], result, required: false }] }).engineering, 'pass');
+  }
+  assert.ok(gateProblems({ ...base, items: [{ ...base.items[0], evidence: [{ file: 'tests/server/readinessGate.test.ts', test: `no test is called this ${Date.now()}` }] }] }).some((p) => p.includes('no test called')), 'a cited test must exist');
+  assert.ok(gateProblems({ ...base, defects: [{ ...base.defects[0], status: 'fixed' }] }).some((p) => p.includes('regression test')), 'a fix names its test');
 });
