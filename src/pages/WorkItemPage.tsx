@@ -328,7 +328,7 @@ function ApplyProcedure({ itemId, current, onDone }: { itemId: string; current?:
           {suggested && <p className="mt-2 flex items-center gap-1.5 text-xs text-accent"><Sparkles className="h-3.5 w-3.5" aria-hidden />Suggested: {suggested.title}. {suggestion.data!.why}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select className="w-full sm:w-96" value={key} onValueChange={setChoice} placeholder="Choose a procedure"
-              options={PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short}: ${p.title}` }))} />
+              options={PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.title }))} />
             <Button variant="primary" loading={busy} disabled={!key} onClick={apply}>{confirming ? 'Confirm' : 'Apply'}</Button>
           </div>
           {key && <p className="mt-2 text-2xs text-ink-3">{AUTHORITY_LABEL[PROCEDURES[key].authority]} · v{PROCEDURES[key].version}. The case is pinned to this version.</p>}

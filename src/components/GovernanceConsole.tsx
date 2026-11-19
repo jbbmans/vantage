@@ -374,7 +374,7 @@ export function PrivacyConsole({ demo = false, orgId }: { demo?: boolean; orgId?
             {data.tables.map((t: any) => (
               <tr key={t.table} className="cursor-pointer" onClick={() => setOpen(open === t.table ? null : t.table)}>
                 <td className="font-medium text-ink">{t.table}</td>
-                <td className="fig text-right text-xs">{t.rows == null || t.rows < 0 ? NO_VALUE : t.rows.toLocaleString()}</td>
+                <td className="fig text-right text-xs">{t.rows == null ? NO_VALUE : t.rows < 0 ? 'Service-wide' : t.rows.toLocaleString()}</td>
                 <td className="text-xs text-ink-2">{t.purpose || <span className="text-warn">not declared</span>}</td>
                 <td className="text-xs">{t.retention ? `${t.retention.retain_days}d ${t.retention.disposition}${t.retention.enabled ? '' : ' (off)'}` : <span className="text-ink-3">none</span>}</td>
                 <td>{t.unclassified.length || t.stale.length ? <Badge tone="warn">{t.unclassified.length + t.stale.length}</Badge> : <Badge tone="good">{NO_VALUE}</Badge>}</td>

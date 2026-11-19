@@ -340,8 +340,8 @@ export function unitConfiguration(ctx: AppContext, orgId: string) {
 }
 
 /**
- * What Vantage decides for every Unit Instance, shown to Unit Managers read-only so they know where their settings stop
- *. Configuration only: no secret, no host name, nothing about another Unit Instance.
+ * What Vantage decides for every Unit Instance, shown to Unit Managers read-only so they know where their settings
+ * stop. Configuration only: no secret, no host name, nothing about another Unit Instance.
  */
 export function enterpriseControls(ctx: AppContext) {
   const { config, runtime } = ctx;

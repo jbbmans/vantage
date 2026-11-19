@@ -33,7 +33,7 @@ const FIELD_OPTIONS = [
 const PROCEDURE_OPTIONS = [
   { value: 'none', label: 'None: import the rows as plain work' },
   { value: 'auto', label: 'Choose per row from its figures and text' },
-  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short}: ${p.title}` })),
+  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.title })),
 ];
 
 type Step = 'file' | 'sheet' | 'mapping' | 'preview' | 'done';

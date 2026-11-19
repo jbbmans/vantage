@@ -300,7 +300,7 @@ function MethodsTab() {
               <Fact label="Systems" value={m.systems.join(' · ')} />
               <Fact label="Tool" value={m.tool} />
               <Fact label="Accounting link" value={m.keyLink} />
-              <Fact label="Identifier" value={`${m.identifier.id} (${m.identifier.generator})`} hint={m.identifier.owner} />
+              <Fact label="Identifier" value={`${m.identifier.id}, from the ${m.identifier.generator}`} hint={m.identifier.owner} />
             </dl>
             {m.critical && <div className="mt-4"><Note tone="warn">{m.critical}</Note></div>}
           </section>

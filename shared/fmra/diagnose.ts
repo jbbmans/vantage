@@ -6,7 +6,6 @@ import {
   type NormalKey, type Cause,
 } from './conditions.ts';
 import { WORK_RESPONSIBILITY, responsibilityName, type WorkResponsibility } from './roles.ts';
-import { NO_VALUE } from '../metrics.ts';
 
 export interface BalanceInput {
   method?: MethodKey | null;
@@ -73,7 +72,8 @@ export type DiagnosisResult = Diagnosis | { ok: false; error: string };
 const PROCEDURE_FOR: Record<NormalKey, string> = { ocmt: 'ocmt_research', udou: 'udou_research', dou: 'dou_research', oto: 'oto_research' };
 
 const shown = (v: number | null | undefined): v is number => v !== null && v !== undefined;
-const amt = (v: number | null | undefined) => (shown(v) ? formatCents(v) : NO_VALUE);
+/** A figure the report does not show is not a zero, so the text says it is not shown. */
+const amt = (v: number | null | undefined) => (shown(v) ? formatCents(v) : 'not shown');
 
 export function diagnose(input: BalanceInput): DiagnosisResult {
   const { commitment: c, obligation: o, delivered: d, paid: p } = input;

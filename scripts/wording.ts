@@ -20,7 +20,10 @@ export const BUDGET_FILE = join(ROOT, 'scripts', 'wording-budget.json');
 export type RuleId = 'em-dash' | 'ai-phrase' | 'process-ref';
 export const RULE_IDS: readonly RuleId[] = ['em-dash', 'ai-phrase', 'process-ref'];
 
-/** Stock phrases. Matched as whole words, any case. Product words such as "AI", "assist" and "unlock" are not here. */
+/**
+ * Stock phrases. Matched as whole words, any case, with either apostrophe, and across a line break or a comment's
+ * continuation marker. Product words such as "AI", "assist" and "unlock" are not here.
+ */
 const AI_PHRASES = [
   'delve', 'delves', 'delved', 'delving', 'seamless', 'seamlessly', 'leverage', 'leverages', 'leveraged', 'leveraging',
   'utilize', 'utilizes', 'utilized', 'utilizing', 'utilization', 'streamline', 'streamlines', 'streamlined',
@@ -37,16 +40,19 @@ const AI_PHRASES = [
   'large language model',
 ];
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** One phrase as a pattern: either apostrophe, and any run of space between its words, even a wrapped comment line. */
+const phrase = (s: string) => escape(s).replace(/'/g, "['\u2019]").replace(/ /g, String.raw`\s+(?:(?:\/\/+|\*|#|--)\s*)?`);
 
 export const RULES: Record<RuleId, { what: string; patterns: readonly RegExp[]; hint: string }> = {
   'em-dash': {
     what: 'an em dash',
-    patterns: [/\u2014/g],
+    patterns: [/\u2014/g, /&(?:mdash|#0*8212|#x0*2014);/gi, /\\0*2014(?![0-9a-f])/gi],
     hint: 'Use a comma, a colon, parentheses or a second sentence. Code that has to recognise one writes \\u2014.',
   },
   'ai-phrase': {
     what: 'a stock phrase',
-    patterns: [new RegExp(`(?<![\\w'-])(?:${AI_PHRASES.map(escape).join('|')})(?![\\w'-])`, 'gi')],
+    // An apostrophe joins a word only when a letter is on both sides, so the quote mark of a string is a boundary.
+    patterns: [new RegExp(`(?<![\\w-])(?<!\\w['\u2019])(?:${AI_PHRASES.map(phrase).join('|')})(?![\\w-])(?!['\u2019]\\w)`, 'gi')],
     hint: 'Say it plainly, in the words the reader uses.',
   },
   'process-ref': {
@@ -55,7 +61,7 @@ export const RULES: Record<RuleId, { what: string; patterns: readonly RegExp[]; 
       /\bTasks? \d+(?:-\d+)?\b/g,
       /\bVANTAGE_CLAUDE_MASTER\b|\bCLAUDE_MASTER\b/g,
       /\b(?:Claude|Anthropic|Codex|ChatGPT|Copilot)\b/gi,
-      /\bper John\b|\bJohn's (?:decision|card|answer|choice|call|instruction|word|request)s?\b/g,
+      /\bper John\b|\bJohn['\u2019]s (?:\w+ ){0,2}(?:decision|card|answer|choice|call|instruction|word|request)s?\b/g,
       /(?:\(|; )John[,;:)]|\bJohn (?:asked|said|chose|decided|supplied|wrote|wants|wanted|approved|picked)\b|\bas John (?:asked|said|wanted)\b/g,
     ],
     hint: 'Cite the ADR or the requirement, not the task, the planning document, a tool, or who decided.',
@@ -71,10 +77,9 @@ export const EXEMPT: Record<string, { rules: readonly RuleId[]; why: string }> =
   'film/package-lock.json': { rules: RULE_IDS, why: 'written by npm' },
   'scripts/wording.ts': { rules: ['ai-phrase', 'process-ref'], why: 'the rules themselves' },
   'tests/server/wording.test.ts': { rules: ['ai-phrase', 'process-ref'], why: 'the rules are tested on these words' },
-  'scripts/commit-identity.ts': { rules: ['ai-phrase', 'process-ref'], why: 'names the tools a commit may not carry' },
-  'tests/server/commitIdentity.test.ts': { rules: ['ai-phrase', 'process-ref'], why: 'fixtures spell out the trailers it refuses' },
+  'scripts/commit-identity.ts': { rules: ['process-ref'], why: 'names the tools a commit may not carry' },
+  'tests/server/commitIdentity.test.ts': { rules: ['process-ref'], why: 'fixtures spell out the trailers it refuses' },
   'shared/writer/lexicon.ts': { rules: ['ai-phrase'], why: 'the words the bullet writer replaces or removes' },
-  'shared/bullets.ts': { rules: ['ai-phrase'], why: 'the phrases the bullet writer shortens' },
   'tests/server/writer.test.ts': { rules: ['ai-phrase'], why: 'entries that use the words the writer removes' },
 };
 

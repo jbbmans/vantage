@@ -922,7 +922,7 @@ export function inventoryMarkdown(inv: Inventory): string {
     lines.push(`- **Purpose:** ${t.purpose ?? '_not declared_'}`);
     lines.push(`- **Authority:** ${t.authority ?? '_not declared_'}`);
     lines.push(`- **Who can see it:** ${t.access ?? '_not declared_'}`);
-    lines.push(`- **Retention:** ${t.retention ? `${t.retention.retain_days} days, then ${t.retention.disposition}${t.retention.enabled ? '' : ' (schedule not enabled)'}${t.retention.authority ? ` (${t.retention.authority})` : ''}` : '_no schedule set_'}`);
+    lines.push(`- **Retention:** ${t.retention ? `${t.retention.retain_days} days, then ${t.retention.disposition}${t.retention.authority ? `, under ${t.retention.authority}` : ''}${t.retention.enabled ? '' : ' (schedule not enabled)'}` : '_no schedule set_'}`);
     const sensitive = t.columns.filter((c) => SENSITIVE.includes(c.category as PiiCategory));
     if (sensitive.length) {
       lines.push('', '| Column | Category |', '| --- | --- |');
