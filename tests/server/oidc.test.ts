@@ -223,6 +223,40 @@ test('a first sign-in found by its address takes the account alone: a password, 
   } finally { await app.close(); await idp.close(); }
 });
 
+test('where cards sign in too, an account found by its address that carries an EDIPI is taken only by a sign-in asserting that EDIPI', async () => {
+  resetOidcCache();
+  const idp = await provider();
+  const app = await startApp(env(idp.issuer, { CAC_MODE: 'proxy', CAC_PROXY_SECRET: 'x'.repeat(40), VANTAGE_OIDC_EDIPI_CLAIM: 'edipi', VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' }));
+  const db = app.ctx.db;
+  try {
+    await app.setupOperator();
+    // An account with someone else's address on it, and a card on it, as a card sign-in or a Unit Manager's link puts one.
+    const planted = await app.register('mallory', { email: 'jordan.avery@example.mil', first_name: 'Jordan', last_name: 'Avery' });
+    db.prepare("UPDATE users SET edipi = '1234567890' WHERE id = ?").run(planted.id);
+    const subjectOf = () => (db.prepare('SELECT oidc_subject FROM users WHERE id = ?').get(planted.id) as { oidc_subject: string | null }).oidc_subject;
+
+    // The person who holds the address signs in without the provider asserting that EDIPI: nothing is linked or opened.
+    const refused = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true }));
+    assert.equal(refused.callback!.headers.get('location'), '/login?sso_error=oidc_card_bound');
+    assert.equal(sessionCookie(refused.callback!), false);
+    assert.equal(subjectOf(), null);
+    resetLimiters();
+    assert.equal((await app.login('mallory')).status, 200, 'the account is as it was');
+    const rejected = db.prepare("SELECT detail FROM audit_log WHERE action = 'oidc_rejected' ORDER BY seq DESC LIMIT 1").get() as { detail: string };
+    assert.match(rejected.detail, /^oidc_card_bound/);
+    // Another DoD ID asserted is refused the same way.
+    const other = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true, edipi: '1098765432' }));
+    assert.equal(other.callback!.headers.get('location'), '/login?sso_error=oidc_card_bound');
+    assert.equal(subjectOf(), null);
+
+    // The card's own holder, asserted by the provider, takes it, and the card stays theirs.
+    const owner = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'subject-avery', email: 'jordan.avery@example.mil', email_verified: true, edipi: '1234567890' }));
+    assert.equal(sessionCookie(owner.callback!), true);
+    assert.equal(subjectOf(), 'subject-avery');
+    assert.equal((db.prepare('SELECT edipi FROM users WHERE id = ?').get(planted.id) as { edipi: string }).edipi, '1234567890');
+  } finally { await app.close(); await idp.close(); }
+});
+
 test('exclusive organization sign-in turns passwords and self-registration off; the notice is accepted before leaving', async () => {
   resetOidcCache();
   const idp = await provider();

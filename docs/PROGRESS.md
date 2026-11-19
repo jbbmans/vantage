@@ -34,13 +34,17 @@ migration.
   sessions, each counted in the `oidc_linked` audit entry. Before, someone who put another person's address on an
   account kept a way into the account that person then used, and a Unit Manager's own import counted as "proven".
   **Behaviour change:** someone who had a password and links this way sets a new one by reset, where the instance
-  still takes passwords.
+  still takes passwords. Where cards sign in too, an account that carries an EDIPI is linked only when the provider
+  asserts the same EDIPI (`VANTAGE_OIDC_EDIPI_CLAIM`); otherwise the sign-in is refused and the person uses their card.
 - **Within a unit.** A goal's contributors are listed only to those who may open them. A counselor who no longer
   counsels the Marine can no longer edit, bin or restore a counseling draft (ADR-0027 §2-3).
 - **Lists cut at their cap.** A whole record list keeps the reader's own entries first (for tasks, their open work
   first), in the table's order, and answers `X-Vantage-Rows: shown/total`. A CSV says it was cut, as a workbook's sheet
   does, so intake warns before a report is filed. The pages do not yet say so in words.
 - **Access log.** After Load older, focus waits for the first new row instead of a fixed frame.
+- **Found by the review of this diff.** A Unit Instance trail's search does not look in the words of an entry that
+  carries ten digits in a row. A restore that moves the backup's keys to the current secret is in the trail as a
+  rotation. A browser backup that fails before it leaves takes its copy with it.
 - **Tests.** `tests/server/readinessGateDefects.test.ts` holds one test per fixed defect, each seen to fail on the code
   before its fix; `readinessGate.test.ts` also holds the register to the suite.
 

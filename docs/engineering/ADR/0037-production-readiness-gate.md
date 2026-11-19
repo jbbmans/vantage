@@ -64,14 +64,16 @@ code before its fix. The defects, and the rules they now hold to:
   dashboard does). A unit export also needs View shared records. A unit report, or a brief, leaves as a file only with
   the export permission in every unit it reads.
 - **EDIPIs.** A Unit Instance's audit trail never shows, matches or exports an EDIPI (its readers include roles that
-  may never see one, ADR-0012). A personal export names other people by rank and name where their username is a card's
+  may never see one, ADR-0012). Its search does not look in the words of an entry that carries ten digits in a row, so
+  no guess at an EDIPI, or part of one, is confirmed by which entries come back. A personal export names other people by rank and name where their username is a card's
   EDIPI, and gives the Marine their own sign-in addresses only, never those of people who acted on them.
 - **The service archive** (`POST /api/platform/import`) is refused when it comes from a newer build, holds no audit
   trail, or holds one that does not verify, and is taken only by a fresh instance (one account, one Unit Instance, no
   records). An archive sealed under another secret is refused before anything is replaced.
 - **Recovery and keys.** The audit log's append-only triggers are put in place on every start, including for a
-  database copied without them. A restore across a secret change seals the stored secrets again, and a rotation is in
-  the trail. A settings change refused for its metrics changes nothing. The database directory is `0700` and the file
+  database copied without them. A restore across a secret change seals the stored secrets again, and the rotation is
+  in the trail, whether a start or the restore made it. A browser backup that fails before it leaves takes its copy with
+  it. A settings change refused for its metrics changes nothing. The database directory is `0700` and the file
   `0600`, and browser backups are drawn in a private directory.
 - **Organization sign-in linking an account.** A first sign-in that finds its account by address or EDIPI
   (`VANTAGE_OIDC_LINK`) makes the account the signed-in person's alone, in one transaction before their session opens:
@@ -79,7 +81,10 @@ code before its fix. The defects, and the rules they now hold to:
   codes, unused links and sessions end, each counted in the `oidc_linked` entry. Without that, whoever put a person's
   address on an account (by self-registration, an invitation or a profile edit) kept a way into the account that person
   then used, and a Unit Manager's import became "proven" (ADR-0035) while its opener still held its password. Someone
-  who had a password and links this way sets a new one by reset where the instance still takes passwords.
+  who had a password and links this way sets a new one by reset where the instance still takes passwords. A card is the
+  one way in the server cannot end, since its holder carries it: where the instance takes cards, an account found by
+  address that carries an EDIPI is linked only by a sign-in asserting the same EDIPI, and otherwise refused
+  (`oidc_card_bound`) with nothing changed.
 - **Within a unit.** A goal's contributors are listed only where the reader may open the source (`canRead`). Editing,
   binning and restoring a counseling draft take what sharing and finalizing take: a counselor who no longer counsels
   the Marine reads what they wrote but no longer moves it (ADR-0027 §2-3).
@@ -91,6 +96,9 @@ code before its fix. The defects, and the rules they now hold to:
   another parent says where it sat before. Signing out forgets the recently
   opened list in both storages. A counseling copy that prints an EDIPI always carries the PII notice. An assignee's
   export leaves out a task its owner binned.
+
+The code review of this Task's own diff found four of these (the card, the trail's words, the restore's rotation and
+the backup's copy); the register marks them.
 
 ## Consequences
 

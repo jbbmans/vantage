@@ -48,8 +48,12 @@ const CAC_USERNAME_GLOB = "'edipi-[0-9]*'";
 
 /** Ten digits standing alone: how an EDIPI appears in an entry's words. */
 const EDIPI_IN_WORDS = /(?<!\d)\d{10}(?!\d)/g;
-/** The actions whose words name an EDIPI in full: linking a card in the Unit Instance's personnel (ADR-0012). */
-const EDIPI_WORDS_ACTIONS = ['personnel_link'];
+/**
+ * Ten digits in a row in an entry's words, as SQLite's GLOB says it. On a trail that hides EDIPIs, the search does not
+ * look in the words of an entry that carries one, whatever its action, so no guess at an EDIPI (or part of one) is
+ * confirmed by which entries come back. Such an entry is still found by its action, people, entity and address.
+ */
+const TEN_DIGITS_GLOB = `'*${'[0-9]'.repeat(10)}*'`;
 
 /**
  * An entry as a reader who never sees an EDIPI reads it: a roster entry, which the MCTFS feed keys by EDIPI, and any
@@ -86,11 +90,11 @@ function filterSql(trail: AuditTrail, q: Omit<AuditQuery, 'limit'>) {
   if (q.q) {
     const like = `%${q.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
     const people = trail.names ? ['u', 's'].map((p) => `lower(coalesce(${p}.first_name || ' ' || ${p}.last_name, '')) LIKE ? ESCAPE '\\'`) : [];
-    // A trail that hides EDIPIs never matches one either: not a roster entry's, nor the number a card link's words carry.
-    const words = trail.hideCacUsernames ? `(lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' AND al.action NOT IN (${EDIPI_WORDS_ACTIONS.map(() => '?').join(', ')}))` : `lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\'`;
+    // A trail that hides EDIPIs never matches one either: not a roster entry's, nor one an entry's words carry.
+    const words = trail.hideCacUsernames ? `(lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' AND coalesce(al.detail, '') NOT GLOB ${TEN_DIGITS_GLOB})` : `lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\'`;
     const entity = trail.hideCacUsernames ? "(al.entity_id = ? AND al.entity IS NOT 'personnel_roster')" : 'al.entity_id = ?';
     where.push(`(lower(al.action) LIKE ? ESCAPE '\\' OR ${words} OR lower(coalesce(${username('u')}, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('s')}, '')) LIKE ? ESCAPE '\\'${people.map((p) => ` OR ${p}`).join('')} OR ${entity} OR al.ip = ?)`);
-    params.push(like, like, ...(trail.hideCacUsernames ? EDIPI_WORDS_ACTIONS : []), like, like, ...people.map(() => like), q.q, q.q);
+    params.push(like, like, like, like, ...people.map(() => like), q.q, q.q);
   }
   return { where: where.join(' AND '), params, username };
 }

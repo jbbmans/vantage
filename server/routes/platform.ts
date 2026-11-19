@@ -822,22 +822,26 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   const dir = mkdtempSync(join(tmpdir(), 'vantage-backup-'));
   const dest = join(dir, `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   const discard = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } };
-  try { await ctx.db.backup(dest); } catch (e) { discard(); throw e; }
-  chmodSync(dest, 0o600);
-  // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
-  try { freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data'); }
-  catch (e) { discard(); throw e; }
-  // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
-  const copy = new Database(dest, { fileMustExist: true });
-  copy.pragma('journal_mode = DELETE');
-  const seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
-  copy.close();
-  const bytes = statSync(dest).size;
-  ctx.db.transaction(() => {
-    recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
-    audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
-  })();
-  announce();
+  // Whatever fails before the file leaves, the copy goes with the directory it was drawn in.
+  try {
+    await ctx.db.backup(dest);
+    chmodSync(dest, 0o600);
+    // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
+    freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
+    // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
+    const copy = new Database(dest, { fileMustExist: true });
+    let seq: number | null;
+    try {
+      copy.pragma('journal_mode = DELETE');
+      seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
+    } finally { copy.close(); }
+    const bytes = statSync(dest).size;
+    ctx.db.transaction(() => {
+      recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
+      audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
+    })();
+    announce();
+  } catch (e) { discard(); throw e; }
   res.download(dest, `vantage-backup-${stamp}.db`, discard);
 }));
 

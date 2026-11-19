@@ -56,6 +56,12 @@ export interface RestoreRecord {
   finding?: 'other_database' | 'missing_entry' | 'different_entry';
   /** The copy of the replaced database the restore kept, by file name. */
   safetyCopy: string | null;
+  /**
+   * A restore under a VANTAGE_SECRET other than the one the backup was sealed under moves its keys to the current one:
+   * whether the audit chain key was wrapped again, and how many stored secrets were sealed again. The next start puts
+   * it in the trail as the key rotation it is, since that start finds nothing left to rotate.
+   */
+  rotated?: { chainKey: boolean; resealed: number } | null;
   audited: boolean;
 }
 

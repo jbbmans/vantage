@@ -52,6 +52,7 @@ interface Status {
 const SSO_ERRORS: Record<string, string> = {
   oidc_unlinked: 'Your organization account is not linked to a Vantage account here. Ask your unit leader or Vantage support to add you, then sign in again.',
   oidc_conflict: 'That Vantage account is already linked to a different organization account. Ask Vantage support to check it.',
+  oidc_card_bound: 'That Vantage account also signs in with a card, and your organization did not confirm the same DoD ID. Sign in with your card, or ask Vantage support to check it.',
   oidc_inactive: 'That Vantage account is turned off. Ask your unit leader or Vantage support.',
   oidc_denied: 'Your organization did not sign you in. Try again, or ask your help desk.',
   oidc_expired: 'The sign-in took too long. Try again.',

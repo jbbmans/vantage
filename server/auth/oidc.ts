@@ -236,6 +236,8 @@ export interface LinkEnded { by: 'email' | 'edipi'; password: boolean; passkeys:
  * person the provider vouches for takes the account alone: its password, passkeys, second factor, unused reset and
  * confirmation links and every session end, with the authentication epoch, before their own session opens. Whoever
  * opened or held it keeps no way in, and an account its opener held is proven only once nobody but its person holds it.
+ * A card is the one way in this cannot end, since its holder carries it: where the instance takes cards, an account
+ * found by address that carries an EDIPI is taken only by a sign-in that asserts the same EDIPI (cardStillOpens).
  */
 function endOtherWaysIn(ctx: AppContext, userId: string, by: LinkEnded['by']): LinkEnded {
   const { db } = ctx;
@@ -247,6 +249,17 @@ function endOtherWaysIn(ctx: AppContext, userId: string, by: LinkEnded['by']): L
   const links = db.prepare('UPDATE tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(at, userId).changes;
   const sessions = invalidateUserSessions(ctx, userId);
   return { by, password: Boolean(user.password_hash), passkeys, secondFactor: Boolean(user.totp_enabled || user.totp_secret || codes), links, sessions };
+}
+
+/**
+ * Whether a card would still open an account found by address: the instance takes cards and the account carries an
+ * EDIPI this sign-in does not assert. Whoever put the address there may hold that card, so the link is refused, and the
+ * person signs in with their card or asks for the EDIPI claim (VANTAGE_OIDC_EDIPI_CLAIM) to be sent.
+ */
+function cardStillOpens(ctx: AppContext, userId: string, asserted: string): boolean {
+  if (ctx.config.cac.mode === 'off') return false;
+  const held = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(userId) as { edipi: string | null }).edipi;
+  return Boolean(held) && held !== asserted;
 }
 
 export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userId: string; linked: boolean; provisioned: boolean; ended?: LinkEnded } {
@@ -273,6 +286,9 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
     const id = candidate.id;
     const ended = db.transaction(() => {
       // Tied only if nobody tied it in the meantime: two first sign-ins for one address cannot both take it.
+      if (by === 'email' && cardStillOpens(ctx, id, edipi)) {
+        throw new OidcError('That Vantage account also signs in with a card, and your organization did not send the same DoD ID. Sign in with your card, or ask your administrator.', 'oidc_card_bound');
+      }
       if (!db.prepare('UPDATE users SET oidc_issuer = ?, oidc_subject = ?, updated_at = ? WHERE id = ? AND oidc_subject IS NULL').run(claims.iss, claims.sub, now(), id).changes) {
         throw new OidcError('That Vantage account is already linked to a different sign-in. Ask your administrator.', 'oidc_conflict');
       }

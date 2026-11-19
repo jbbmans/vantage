@@ -80,6 +80,7 @@ export function keepFocusClear(): () => void {
  */
 export function useFocusWhenShown(): (id: string) => void {
   const [pending, setPending] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs after every render until the row is drawn, then stops
   useEffect(() => {
     if (!pending) return;
     const el = document.getElementById(pending);

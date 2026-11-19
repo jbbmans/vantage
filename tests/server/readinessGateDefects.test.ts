@@ -4,7 +4,7 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -13,7 +13,7 @@ import { startApp, enroll, today, mockGenAi, PASSWORD, type TestApp } from './he
 import { PERMISSIONS } from '../../shared/permissions.ts';
 import { SCHEMA_VERSION, openDatabase } from '../../server/db/index.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
-import { verifyAuditChain } from '../../server/services/audit.ts';
+import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
 
@@ -318,6 +318,8 @@ test('the Unit Instance audit trail never shows, matches or exports an EDIPI, wh
     const feed = (rows: string, extra = '') => local.call('POST', `/api/orgs/G8/personnel/sync?source=MCTFS&apply=1${extra}`, { token: lead.token, raw: Buffer.from(`DoD ID,Last,First,Grade,PMOS,Status\n${rows}`), headers: { 'content-type': 'text/plain' } });
     assert.equal((await feed('9876543210,Marine,Rivera,Cpl,0311,Active\n5550001111,Nobody,Pat,LCpl,0311,Active')).status, 200);
     assert.equal((await feed('9876543210,Marine,Rivera,Sgt,0311,Active\n5550001111,Nobody,Pat,LCpl,0311,Separated', '&confirm_separations=1')).status, 200);
+    // Words of any other action that carry an EDIPI, as a note someone typed might.
+    audit(local.ctx, { actor_id: lead.id, action: 'unit_settings_updated', org_id: 'G8', subject_id: rivera.id, detail: 'Rivera moved; card 9876543210 noted' });
 
     const page = await local.call('GET', '/api/orgs/G8/audit', { token });
     assert.equal(page.status, 200, JSON.stringify(page.body));
@@ -326,11 +328,18 @@ test('the Unit Instance audit trail never shows, matches or exports an EDIPI, wh
     for (const a of ['personnel_link', 'personnel_sync_update', 'personnel_separated']) assert.ok(actions.has(a), `the trail holds ${a}`);
     assert.deepEqual(rows.filter((r) => EDIPI_RUN.test(String(r.entity_id ?? '')) || EDIPI_RUN.test(String(r.detail ?? ''))).map((r) => r.action), [], 'no entry shows an EDIPI');
     assert.match(String(rows.find((r) => r.action === 'personnel_link')!.detail), /••••••3210/, 'a linked card shows as the screen masks it');
-    for (const q of ['9876543210', '5550001111']) {
+    assert.match(String(rows.find((r) => r.action === 'unit_settings_updated')!.detail), /card ••••••3210 noted/);
+    // Nor is a whole EDIPI, or part of one, confirmed by which entries a search brings back.
+    for (const q of ['9876543210', '5550001111', '98765', '43210']) {
       const search = await local.call('GET', `/api/orgs/G8/audit?q=${q}`, { token });
       assert.equal(search.status, 200);
       assert.deepEqual(search.body.rows, [], `a search for ${q} matches nothing`);
     }
+    // The entries are still found by what they are: a card link by the person's name, the note by its action.
+    const byName = await local.call('GET', `/api/orgs/G8/audit?q=${encodeURIComponent('rivera')}`, { token });
+    assert.ok((byName.body.rows as Array<{ action: string }>).some((r) => r.action === 'personnel_link'), 'a card link is found by the Marine’s name');
+    const byAction = await local.call('GET', '/api/orgs/G8/audit?q=unit_settings_updated', { token });
+    assert.equal(byAction.body.rows.length, 1);
     const csv = await local.call('GET', '/api/orgs/G8/audit/export?format=csv', { token });
     assert.equal(csv.status, 200);
     assert.ok(!/9876543210|5550001111/.test(csv.text), 'nor does the downloaded trail carry one');
@@ -539,7 +548,39 @@ test('a restore across a secret change seals the stored secrets again, so the se
       const sealed = (db.prepare('SELECT totp_secret FROM users WHERE id = ?').get(lead.id) as { totp_secret: string }).totp_secret;
       assert.equal(decryptSecret(NEW, sealed), 'JBSWY3DPEHPK3PXP', 'the authenticator opens under the current secret alone');
     } finally { db.close(); }
+    // The service starts under the current secret alone, and the trail holds the rotation the restore made.
+    const ctx = createContext(loadConfig({ NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: path, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_PUBLIC_URL: 'http://localhost:5173', VANTAGE_SECRET: NEW } as NodeJS.ProcessEnv));
+    try {
+      const rotations = ctx.db.prepare("SELECT actor_id, detail FROM audit_log WHERE action = 'secret_rotated'").all() as Array<{ actor_id: string | null; detail: string }>;
+      assert.equal(rotations.length, 1, JSON.stringify(rotations));
+      assert.equal(rotations[0].actor_id, lead.id, 'by the Lead Vantage Administrator who authorized the restore');
+      assert.match(rotations[0].detail, /^VANTAGE_SECRET changed with the restore: the audit chain key wrapped under it, [1-9]\d* stored secrets? sealed again$/);
+      assert.equal(verifyAuditChain(ctx).ok, true);
+    } finally { ctx.db.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a browser backup that fails before it leaves takes its copy with it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-backup-'));
+  const scratch = join(dir, 'tmp');
+  mkdirSync(scratch);
+  const previous = process.env.TMPDIR;
+  const app = await startApp({ VANTAGE_DB: join(dir, 'vantage.db') });
+  try {
+    const lead = await app.setupOperator();
+    process.env.TMPDIR = scratch;
+    // The trail refuses the backup's entry, as a locked or full database would, after the copy is drawn.
+    app.ctx.db.exec("CREATE TEMP TRIGGER gate_refuse_backup BEFORE INSERT ON audit_log WHEN NEW.action = 'backup' BEGIN SELECT RAISE(ABORT, 'refused for the gate'); END");
+    const refused = await app.call('GET', '/api/platform/backup', { token: lead.token, binary: true });
+    assert.equal(refused.status, 500);
+    assert.deepEqual(readdirSync(scratch), [], 'no copy of the database is left where it was drawn');
+    app.ctx.db.exec('DROP TRIGGER gate_refuse_backup');
+    assert.equal((await app.call('GET', '/api/platform/backup', { token: lead.token, binary: true })).status, 200, 'and the next one leaves');
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous;
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the database, its write-ahead log and its directory are the service’s alone, whatever the umask', () => {
