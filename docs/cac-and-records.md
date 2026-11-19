@@ -137,7 +137,7 @@ password and MFA), and is sent back already signed in. Vantage never sees their 
 | `VANTAGE_OIDC_CLIENT_SECRET` | The client secret, if the registration is a confidential client. |
 | `VANTAGE_OIDC_SCOPES` | Default `openid profile email`. |
 | `VANTAGE_OIDC_LABEL` | The button text. Defaults to "Sign in with Microsoft" for Entra ID, otherwise "Sign in with your organization". |
-| `VANTAGE_OIDC_LINK` | How a first sign-in finds its account: `email` (default), `edipi`, or `none` (only accounts already linked). |
+| `VANTAGE_OIDC_LINK` | How a first sign-in finds its account: `email` (default), `edipi`, or `none` (only accounts already linked). An account found by its address or EDIPI becomes the signed-in person's alone: its password, passkeys, second factor, unused links and sessions end, since Vantage never proved who set them up (ADR-0037). |
 | `VANTAGE_OIDC_EDIPI_CLAIM` | The claim that carries the EDIPI. Required with `VANTAGE_OIDC_LINK=edipi`. |
 | `VANTAGE_OIDC_TRUST_EMAIL` | Treat the provider's address as verified even without `email_verified`. On by default for Entra ID, whose tenant controls its users' addresses. |
 | `VANTAGE_OIDC_AUTO_PROVISION` | Create the account on first sign-in for someone the personnel roster lists as active (needs the EDIPI claim). |

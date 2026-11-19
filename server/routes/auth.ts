@@ -580,7 +580,12 @@ authRouter.get('/oidc/callback', wrap(async (req, res) => {
   try {
     const done = await completeSignIn(ctx, { code: q.code, state: q.state, error: q.error, error_description: q.error_description }, { browser, face: oidcFace(res) });
     const account = resolveOidcAccount(ctx, done.claims);
-    if (account.linked) audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}`.slice(0, 300) });
+    if (account.linked) {
+      const e = account.ended;
+      const ended = e ? [e.password && 'its password', e.passkeys && `${e.passkeys} passkey${e.passkeys === 1 ? '' : 's'}`, e.secondFactor && 'its second factor', e.links && `${e.links} unused link${e.links === 1 ? '' : 's'}`, e.sessions && `${e.sessions} session${e.sessions === 1 ? '' : 's'}`].filter(Boolean) : [];
+      const how = e ? `; found by its ${e.by === 'edipi' ? 'EDIPI' : 'address'}, so every other way in ended${ended.length ? `: ${ended.join(', ')}` : ''}` : '';
+      audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}${how}`.slice(0, 300) });
+    }
     const user = ctx.db.prepare('SELECT id, must_change_password, auth_epoch FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number; auth_epoch: number } | undefined;
     if (!user) throw new OidcError('That account is not active.', 'oidc_inactive');
     // The enterprise provider asserting the EDIPI the account carries proves it, as the card does (ADR-0009).

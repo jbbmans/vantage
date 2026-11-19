@@ -4,6 +4,7 @@ import { encryptSecret, decryptSecret, safeEqual, sha256 } from '../lib/crypto.t
 import { secretsOf } from '../lib/keys.ts';
 import { newId, now } from '../lib/ids.ts';
 import { rosterVouching, seatFromRoster } from '../services/personnel.ts';
+import { invalidateUserSessions } from './sessions.ts';
 
 /**
  * Sign-in through the organization's identity provider over OpenID Connect: Microsoft Entra ID in GCC High or DoD,
@@ -225,7 +226,30 @@ export function emailOf(claims: OidcClaims): string | null {
  * the organization's own tenant, which owns its addresses) or the EDIPI; with roster provisioning on, a Marine on the
  * roster who has no account yet gets one.
  */
-export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userId: string; linked: boolean; provisioned: boolean } {
+/** What a first sign-in that found its account by a matching claim ended on it (endOtherWaysIn). */
+export interface LinkEnded { by: 'email' | 'edipi'; password: boolean; passkeys: number; secondFactor: boolean; links: number; sessions: number }
+
+/**
+ * A first sign-in found its account by a matching address or EDIPI, not by an earlier sign-in of its own. Vantage never
+ * proved who set that address, or who chose the account's password or passkeys: a self-registration, an invitation's
+ * accepter, a profile edit or an import may have put the person's address on an account someone else holds. So the
+ * person the provider vouches for takes the account alone: its password, passkeys, second factor, unused reset and
+ * confirmation links and every session end, with the authentication epoch, before their own session opens. Whoever
+ * opened or held it keeps no way in, and an account its opener held is proven only once nobody but its person holds it.
+ */
+function endOtherWaysIn(ctx: AppContext, userId: string, by: LinkEnded['by']): LinkEnded {
+  const { db } = ctx;
+  const at = now();
+  const user = db.prepare('SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = ?').get(userId) as { password_hash: string; totp_enabled: number; totp_secret: string | null };
+  db.prepare("UPDATE users SET password_hash = '', must_change_password = 0, totp_enabled = 0, totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?").run(at, userId);
+  const codes = db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(userId).changes;
+  const passkeys = db.prepare('DELETE FROM passkeys WHERE user_id = ?').run(userId).changes;
+  const links = db.prepare('UPDATE tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(at, userId).changes;
+  const sessions = invalidateUserSessions(ctx, userId);
+  return { by, password: Boolean(user.password_hash), passkeys, secondFactor: Boolean(user.totp_enabled || user.totp_secret || codes), links, sessions };
+}
+
+export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userId: string; linked: boolean; provisioned: boolean; ended?: LinkEnded } {
   const { db } = ctx;
   const cfg = ctx.config.oidc;
   const known = db.prepare('SELECT id, active FROM users WHERE oidc_issuer = ? AND oidc_subject = ?').get(claims.iss, claims.sub) as { id: string; active: number } | undefined;
@@ -235,6 +259,7 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
   }
   const edipi = cfg.edipiClaim ? String(claims[cfg.edipiClaim] ?? '').trim() : '';
   let candidate: { id: string; active: number; oidc_subject: string | null } | undefined;
+  const by = cfg.linkBy === 'edipi' ? 'edipi' : 'email';
   if (cfg.linkBy === 'email' && (claims.email_verified === true || cfg.trustProviderEmail)) {
     const email = emailOf(claims);
     if (email) candidate = db.prepare('SELECT id, active, oidc_subject FROM users WHERE email = ? COLLATE NOCASE').get(email) as typeof candidate;
@@ -245,8 +270,15 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
     if (!candidate.active) throw new OidcError('That account is not active.', 'oidc_inactive');
     // An account already tied to another identity is not re-tied by a matching address.
     if (candidate.oidc_subject) throw new OidcError('That Vantage account is already linked to a different sign-in. Ask your administrator.', 'oidc_conflict');
-    db.prepare('UPDATE users SET oidc_issuer = ?, oidc_subject = ?, updated_at = ? WHERE id = ?').run(claims.iss, claims.sub, now(), candidate.id);
-    return { userId: candidate.id, linked: true, provisioned: false };
+    const id = candidate.id;
+    const ended = db.transaction(() => {
+      // Tied only if nobody tied it in the meantime: two first sign-ins for one address cannot both take it.
+      if (!db.prepare('UPDATE users SET oidc_issuer = ?, oidc_subject = ?, updated_at = ? WHERE id = ? AND oidc_subject IS NULL').run(claims.iss, claims.sub, now(), id).changes) {
+        throw new OidcError('That Vantage account is already linked to a different sign-in. Ask your administrator.', 'oidc_conflict');
+      }
+      return endOtherWaysIn(ctx, id, by);
+    }).immediate();
+    return { userId: id, linked: true, provisioned: false, ended };
   }
   if (cfg.autoProvisionFromRoster && /^\d{10}$/.test(edipi)) {
     // During maintenance nobody new is made from the roster, as with a card or registration (ADR-0011).
