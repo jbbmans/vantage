@@ -225,8 +225,11 @@ test('the window must be two real days in order, or the request is refused with 
   assert.equal(drillBackwards.status, 400);
   const year = await app.call('GET', `/api/metrics?from=${day(-364)}&to=${day(0)}`, { token: op.token });
   assert.equal(year.status, 200, JSON.stringify(year.body));
-  // All time, as the period picker sends it, still answers.
-  const allTime = await app.call('GET', `/api/metrics?from=1970-01-01&to=${day(0)}`, { token: op.token });
+  // All time is a preset the page names, so it still answers; as one long custom range it is past the two-year limit.
+  const allTime = await app.call('GET', '/api/metrics?period=all', { token: op.token });
   assert.equal(allTime.status, 200, JSON.stringify(allTime.body));
   assert.ok(allTime.body.monthly.every((m: any) => m.points.length <= 240));
+  const allAsDays = await app.call('GET', `/api/metrics?from=1970-01-01&to=${day(0)}`, { token: op.token });
+  assert.equal(allAsDays.status, 400);
+  assert.ok(allAsDays.body.fieldErrors?.to, JSON.stringify(allAsDays.body));
 });

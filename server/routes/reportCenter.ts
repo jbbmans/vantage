@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import { REPORT_FILE_FORMATS, REPORT_TYPES, reportQuerySchema } from '../../shared/reportCatalog.ts';
 import { deleteDefinition, exportReport, listDefinitions, runReport, saveDefinition } from '../services/reportCenter.ts';
 
@@ -19,11 +20,13 @@ const exportSchema = reportQuerySchema.extend({ format: z.enum(REPORT_FILE_FORMA
 
 reportCenterRouter.get('/run', wrap((req, res) => {
   const { purpose, ...q } = parse(runSchema, req.query);
+  checkRange(q);
   res.json(runReport(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, purpose, clientIp(req)));
 }));
 
 reportCenterRouter.get('/export', wrap(async (req, res) => {
   const { format, ...q } = parse(exportSchema, req.query);
+  checkRange(q);
   // A response closed before it ended is a reader who left: their export is skipped or dropped, never audited as sent.
   let gone = false;
   res.on('close', () => { if (!res.writableEnded) gone = true; });

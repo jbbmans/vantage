@@ -1,6 +1,35 @@
 # Progress
 
-_Updated 2026-11-19_
+_Updated 2026-11-20_
+
+## What changed (2026-11-20: custom date ranges, part 1)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2 item 12, part 1, from `9ab75ae` ([ADR-0038](engineering/ADR/0038-custom-date-ranges.md)). No migration.
+
+- **One range rule** (`shared/dateRange.ts`): two real days from 1940 to 2100, both or neither, in order, at most 731
+  days with both ends counted. The server's 400 and the picker use the same words.
+- **Every records endpoint checks it** (`server/lib/dateRange.ts`): the `/reports` family, `/metrics` and its
+  contributors, record summary, contributions, workload, timeline, the duty list, records lists, the report center,
+  both audit trails and their exports, and the unit dashboard, overview, analytics and drill. A bad day, a backwards
+  range, a single day and 732 days are a 400 naming the field; `2026-02-30` no longer rolls into March and a word for a
+  day no longer gives a 500.
+- **Fixed in the family:** `/reports/delta` reads the days given, `/reports/csv` honours them with All time, and a
+  single day is refused rather than dropped. `/metrics` takes `period`, so All time is asked for by name.
+- **Custom dates on five pages:** Records, Analysis, the Report library, Duty and Today's outcomes, through
+  `DateRangePicker` and `usePeriodParam` (period, from and to written in one URL change). The range reaches every
+  request, export, PDF and Print or file on those pages and survives a reload. Presets still save as preferences; a
+  custom range never does. Links with days that break the rule show the usual period and say why.
+- **Callers fixed:** Timeline and the audit trails send a window only with both days; Getting started reads
+  `personal.any_activity` instead of a 26-year summary.
+- **Review fixes:** All time on `/metrics` runs through tomorrow on the reader's zone, as the rolling periods do; a
+  day field says what is wrong once it is left, not at each keystroke of a date being typed; Duty shows its filters
+  when a link's days were not used, so it can say why.
+- **Tests:** `tests/server/dateRanges.test.ts` (the rule, the URL helpers, every endpoint in one table, delta and CSV,
+  saved definitions) and `tests/browser/58-date-ranges.spec.ts` (each page, reload, requests and files, keyboard only,
+  axe at 320, 768 and 1280 px in light and dark). Specs 32 and 38 now set both days.
+- **Next:** part 2, the window selectors and the export dates.
 
 ## What changed (2026-11-19: Task 28, the final production readiness gate)
 

@@ -269,6 +269,16 @@ export const HELP: HelpSection[] = [
         ],
         also: ['my report', 'read', 'edit'],
       },
+      {
+        id: 'custom-dates',
+        q: 'Can I choose my own dates?',
+        a: [
+          'Yes. On Records, Analysis, the Report library, Duty and Today, open Period and choose Custom dates, then set From and To. The page uses the two days as soon as both are set (the Report library when you run the report), and its exports, PDFs and Print or file use them too.',
+          'A range runs from the first day to the last, both counted, and can be up to 731 days. If the last day is before the first, the field says so when you leave it, and the page keeps the range it had.',
+          'The dates are in the page’s address, so a bookmark or a link you send opens on the same days. On Records, Analysis and Today a period such as Last 90 days is remembered as your choice; custom dates are not, so those pages open on your usual period next time.',
+        ],
+        also: ['date range', 'from', 'to', 'custom', 'period', 'dates'],
+      },
     ],
   },
   {

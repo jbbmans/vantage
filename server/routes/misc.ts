@@ -6,7 +6,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { freshAuthority } from '../auth/fresh.ts';
 import { sameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
-import { buildReport, trackOf } from '../services/reports.ts';
+import { buildReport, periodBounds, trackOf } from '../services/reports.ts';
 import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
@@ -14,6 +14,8 @@ import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
 import { DEFAULT_PERIOD, dayKey, previousRange, rangeForPeriod } from '../../shared/metrics.ts';
+import { rangeOfDays } from '../../shared/dateRange.ts';
+import { checkRange, periodField, rangeFields } from '../lib/dateRange.ts';
 import { areasFor } from '../../shared/evaluation.ts';
 import { plain } from '../../shared/writer/realize.ts';
 import { isoDate } from '../../shared/schemas.ts';
@@ -25,7 +27,7 @@ import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyStaff } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
-import { isoDay, zonedNow } from '../lib/clock.ts';
+import { zonedDay, zonedNow } from '../lib/clock.ts';
 import { listItems } from '../services/work.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { lookupCourse } from '../services/courses.ts';
@@ -41,7 +43,7 @@ miscRouter.post('/events', wrap((req, res) => {
 }));
 
 const reportQuery = z.object({
-  period: z.string().max(20).default(DEFAULT_PERIOD), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  period: periodField.default(DEFAULT_PERIOD), ...rangeFields,
   user_id: z.string().max(64).optional(), unit_id: z.string().max(64).optional(), style: z.enum(['jepes', 'fitrep', 'resume']).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(), track: z.enum(['jepes', 'fitrep']).optional(),
   // How the narrative was written on screen, so the PDF says the same: wording, pins, exclusions, density, length,
@@ -61,7 +63,10 @@ const withEdits = <T extends { text: string; length: number; limit: number; fits
 };
 
 function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
-  const q = parse(reportQuery, req.query);
+  const parsed = parse(reportQuery, req.query);
+  // Both days or neither, real ones, in order, two years at most (ADR-0038). Two days win over a preset, as links send them.
+  const range = checkRange(parsed);
+  const q = { ...parsed, from: range?.from, to: range?.to };
   const scope = scopeFor(req.ctx, req.user, req);
   let userId = req.user.id;
   let unitId: string | null = null;
@@ -170,10 +175,10 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   res.send(text);
 }));
 
-// A window is two real days, the second not before the first. isoDate keeps both between 1940 and 2100, which holds
-// All time as the pages ask for it (1970-01-01 to today) and refuses a window that only costs the server.
+// A window is a preset by name, or two real days in order and two years at most (ADR-0038). All time is asked for by
+// name, so it is never one long custom range.
 const metricsQuery = z.object({
-  from: isoDate.optional(), to: isoDate.optional(),
+  period: periodField.optional(), ...rangeFields,
   unit_id: z.string().max(64).optional(), user_id: z.string().max(64).optional(),
   scope: z.enum(['me', 'all']).default('me'),
   aggregation: z.enum(['sum', 'max', 'min', 'average', 'latest', 'distinct']).optional(),
@@ -182,16 +187,18 @@ const metricsQuery = z.object({
 
 function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const q = parse(metricsQuery, req.query);
+  const range = checkRange(q);
   const scope = scopeFor(req.ctx, req.user, req);
-  const fallback = defaultPeriod(req.ctx);
   if (q.unit_id && !can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id)) throw forbidden('You cannot see that unit\'s figures.');
   if (q.user_id && q.user_id !== req.user.id && !detailUnitsFor(req.ctx, scope, q.user_id).length) throw forbidden('You cannot see that Marine\'s figures.');
   const filters: Record<string, string | null> = {};
   if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
   if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
-  const from = q.from || fallback.from;
-  const to = q.to || fallback.to;
-  if (to < from) throw badRequest('The window ends before it starts.', { fieldErrors: { to: 'Must be on or after the start.' } });
+  const zone = zoneOf(req.ctx, req.user);
+  const named = q.period ? periodBounds(q.period, null, null, zone) : null;
+  // All time runs through tomorrow, as the rolling periods do: a reader east of the instance's clock dates today's work
+  // a day ahead of it, and that work is in All time too.
+  const { from, to } = range ?? (named ? (q.period === 'all' ? { from: named.from, to: zonedDay(zone, 1) } : named) : defaultPeriod(req.ctx));
   return {
     scope,
     opts: {
@@ -229,7 +236,8 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const { q, userId, unitId } = reportTarget(req);
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
-  const range = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
+  // The days asked for, or the preset's on the reader's clock; the period before is as long (previousRange).
+  const range = q.from && q.to ? rangeOfDays(q.from, q.to) : rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
   // Only the two periods compared are read: an entry or a course with a day in either, as comparePeriods counts them.
   const span = (table: 'activities' | 'trainings') => periodClause(table, table, dayKey(previousRange(range).start), dayKey(range.end));
   const [a, t] = [span('activities'), span('trainings')];
@@ -281,11 +289,12 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   if (userId !== req.user.id && !(unitId && can(scopeFor(req.ctx, req.user, req), PERMISSIONS.EXPORT_DATA, unitId))) throw forbidden('Exporting another Marine’s records needs the unit’s export permission.');
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
-  // Every entry with a day in the period, one that began before it and ran into it included (ADR-0018).
-  const bounds = q.period === 'all' ? null : (() => { const r = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user))); return { from: q.from || isoDay(r.start), to: q.to || isoDay(r.end) }; })();
+  // Every entry with a day in the period, one that began before it and ran into it included (ADR-0018). All time with
+  // no days given is every entry, undated ones too.
+  const bounds = q.period === 'all' && !q.from ? null : periodBounds(q.period, q.from, q.to, zoneOf(req.ctx, req.user));
   const period = periodClause('activities', 'activities', bounds?.from, bounds?.to);
   const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${period.sql} ORDER BY date DESC`).all(...params, ...period.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
-  audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows; ${bounds ? bounds.label : 'All time'}`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="vantage-activities-${now().slice(0, 10)}.csv"`);
   res.send(`\uFEFF${rowsToCsv(rows.map(activityToCsvRow), ACTIVITY_CSV_COLUMNS.map((c) => c.header))}`);

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AppContext } from '../context.ts';
 import { AUDIT_CATEGORIES, auditActionsIn, auditCategoryOf } from '../../shared/auditCatalog.ts';
 import { maskEdipi } from '../../shared/counseling.ts';
+import { checkRange, rangeDay } from '../lib/dateRange.ts';
 
 /**
  * Reading one audit trail a page at a time: the platform's own (ADR-0011) or a Unit Instance's (ADR-0012). Each is
@@ -17,8 +18,9 @@ export const auditQuery = z.object({
   action: z.string().trim().max(60).optional(),
   /** User activity, unit administration or enterprise administration (ADR-0013). */
   category: z.enum(AUDIT_CATEGORIES).optional(),
-  from: auditDay.optional(),
-  to: auditDay.optional(),
+  /** UTC days, both or neither, checked by the one range rule (ADR-0038) when the trail is read. */
+  from: rangeDay,
+  to: rangeDay,
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
@@ -83,8 +85,11 @@ function filterSql(trail: AuditTrail, q: Omit<AuditQuery, 'limit'>) {
     where.push(`(al.category = ? OR (al.category IS NULL AND al.action IN (${actions.map(() => '?').join(', ')})))`);
     params.push(q.category, ...actions);
   }
-  if (q.from) { where.push('al.at >= ?'); params.push(`${q.from}T00:00:00.000Z`); }
-  if (q.to) { where.push('al.at < ?'); params.push(new Date(Date.parse(`${q.to}T00:00:00.000Z`) + 86_400_000).toISOString()); }
+  const range = checkRange(q);
+  if (range) {
+    where.push('al.at >= ?', 'al.at < ?');
+    params.push(`${range.from}T00:00:00.000Z`, new Date(Date.parse(`${range.to}T00:00:00.000Z`) + 86_400_000).toISOString());
+  }
   if (q.before) { where.push('al.seq < ?'); params.push(q.before); }
   const username = (p: 'u' | 's') => (trail.hideCacUsernames ? `CASE WHEN ${p}.username GLOB ${CAC_USERNAME_GLOB} THEN NULL ELSE ${p}.username END` : `${p}.username`);
   if (q.q) {

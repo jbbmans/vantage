@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_KINDS } from '../../shared/recordKinds.ts';
-import { badRequest } from '../lib/errors.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import { OPEN_END } from '../../shared/timeframe.ts';
 
 /**
@@ -53,12 +53,12 @@ const HREF: Record<keyof typeof SOURCES, (id: string) => string> = {
 
 interface Item { kind: string; source: keyof typeof SOURCES; id: string; day: string; last_day: string; end_date: string | null; ongoing: number; title: string; detail: string | null; status: string | null; created_at: string; from_work: number }
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export function recordTimeline(ctx: AppContext, user: SessionUser, query: Record<string, unknown>) {
-  const from = typeof query.from === 'string' && query.from ? query.from : null;
-  const to = typeof query.to === 'string' && query.to ? query.to : null;
-  if ((from && !DAY.test(from)) || (to && !DAY.test(to)) || (from && to && from > to)) throw badRequest('Use a valid from/to window.');
+  // Both days or neither, by the one rule (ADR-0038); neither is the whole record.
+  const range = checkRange(query);
+  const from = range?.from ?? null;
+  const to = range?.to ?? null;
   const limit = Math.trunc(Math.min(Math.max(Number(query.limit) || 200, 1), 500));
   // One kind's newest entries, not the newest of everything filtered afterwards; the counts stay every kind's, for the filters.
   const kind = typeof query.kind === 'string' && query.kind && query.kind !== 'all' ? query.kind : null;

@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives';
-import { PERIOD_OPTIONS, formatDate, formatDollars } from '../../shared/metrics';
+import { Badge, PageHeader, type Tone } from '@/components/ui/primitives';
+import { formatDate, formatDollars } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
 import { humanize, cn, useOverflow } from '@/lib/utils';
@@ -36,11 +36,6 @@ export function DueText({ value, done, prefix = 'Due ' }: { value?: string | nul
 
 export const Money = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatDollars(value)}</span>;
 export const CategoryDot = ({ category }: { category?: string | null }) => { const cfg = useMetrics(); return <span className="badge-dot" style={{ backgroundColor: categoryColor(category, cfg) }} aria-hidden />; };
-
-/** The period choice. A Field's hint reaches it through aria-describedby, so a screen reader hears it on focus. */
-export function PeriodSelect({ value, onChange, className, includeAll = true, placeholder, 'aria-describedby': describedBy }: { value: string; onChange: (v: string) => void; className?: string; includeAll?: boolean; placeholder?: string; 'aria-describedby'?: string }) {
-  return <Select aria-label="Period" aria-describedby={describedBy} placeholder={placeholder} className={className} value={value} onValueChange={onChange} options={PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all').map((p) => ({ value: p.value, label: p.label }))} />;
-}
 
 export function PageShell({ embedded, eyebrow, title, lede, actions, children }: { embedded?: boolean; eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
   if (embedded) {

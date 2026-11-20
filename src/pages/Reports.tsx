@@ -5,13 +5,18 @@ import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Pr
 import { Button, Select, Panel, Segmented, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
-import { PeriodSelect, DateText, PageShell, useParam } from '@/components/common';
+import { DateText, PageShell } from '@/components/common';
+import DateRangePicker from '@/components/DateRangePicker';
+import { QueryFailure } from '@/components/QueryFailure';
 import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { packageToText } from '../../shared/bullets';
 import { comparisonToText, type Comparison, type Movement } from '../../shared/delta';
-import { DEFAULT_PERIOD, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
+import { DEFAULT_PERIOD, formatDollars, formatNumber } from '../../shared/metrics';
+import { CUSTOM_PERIOD } from '../../shared/dateRange';
+import { usePeriodParam } from '@/lib/usePeriodParam';
+import { metricsPeriod, periodQuery } from '@/lib/periodParams';
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
@@ -32,21 +37,22 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subjectId = params.get('user') || '';
   const unitParam = params.get('unit') || '';
   const { data: team } = useTeam(Boolean(identity?.canLead));
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
+  const range = usePeriodParam(prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
+  const { period, from, to, custom } = range;
   const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [track, setTrack] = useState<Track | ''>('');
   const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');
   const [limit, setLimit] = useState(8);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
-  const q = { period, style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
+  const q = { ...periodQuery({ period, from, to, custom }), style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
   // Reading a Marine's or a unit's report is audited and rebuilt from every entry in the period, so it is read when asked
   // for, not again on every focus; an edit to a record invalidates it.
   const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q), ...AUDITED_READ });
-  const { data: delta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta', ...AUDITED_READ });
-  const metricParams = useMemo(() => {
-    const r = rangeForPeriod(period);
-    return { from: dayKey(r.start), to: dayKey(r.end), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' };
-  }, [period, subjectId, unitParam]);
+  const { data: delta, error: deltaError, refetch: refetchDelta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta', ...AUDITED_READ });
+  const metricParams = useMemo(
+    () => ({ ...metricsPeriod({ period, from, to, custom }), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' }),
+    [period, from, to, custom, subjectId, unitParam],
+  );
   const reportMetrics = useMetricsReport(metricParams);
   const subject = subjectId ? (team?.roster || []).find((r) => r.id === subjectId) : null;
   const effectiveTrack: Track = report?.track || myTrack;
@@ -69,7 +75,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
         ? `MRO worksheet input built from ${subject ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
         : `Billet accomplishments and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
       actions={<>
-        <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: 'individual', period, ...(track ? { track } : {}), ...(subjectId ? { subject: 'member', user_id: subjectId, ...(unitParam ? { unit_id: unitParam } : {}) } : { subject: 'self' }) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>
+        <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: 'individual', ...periodQuery({ period, from, to, custom }), ...(track ? { track } : {}), ...(subjectId ? { subject: 'member', user_id: subjectId, ...(unitParam ? { unit_id: unitParam } : {}) } : { subject: 'self' }) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />Export activities</Button>
         <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Export analysis PDF</Button>
         <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export {meta.inputName} PDF</Button>
@@ -77,7 +83,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
     >
 
       <div className="card mb-4 flex flex-wrap items-center gap-2 p-3">
-        <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-44" />
+        <DateRangePicker value={range} ignored={range.ignored} className="w-44" onChange={(next) => { range.set(next); if (next.period !== CUSTOM_PERIOD) savePrefs.mutate({ reportPeriod: next.period }); }} />
         <Select aria-label="Evaluation system" className="w-auto min-w-[10rem]" value={track || 'auto'} onValueChange={(v) => setTrack(v === 'auto' ? '' : (v as Track))} options={[{ value: 'auto', label: `By rank (${meta.name})` }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} />
         <Select aria-label="Bullet style" className="w-36" value={style} onValueChange={(v) => setStyle(v as never)} options={[{ value: 'jepes', label: 'JEPES style' }, { value: 'fitrep', label: 'FITREP style' }, { value: 'resume', label: 'Résumé style' }]} />
         <Select aria-label="Bullets per area" className="w-40" value={String(limit)} onValueChange={(v) => setLimit(Number(v))} options={[4, 8, 12, 20].map((n) => ({ value: String(n), label: `${n} per area` }))} />
@@ -140,7 +146,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
 
           {view === 'analysis' && <ReportAnalysis q={q} areaLabel={meta.areaLabel} onDownload={() => download('analysis')} />}
 
-          {view === 'delta' && (!delta ? <Skeleton className="h-64" /> : (
+          {view === 'delta' && (deltaError ? <QueryFailure error={deltaError} onRetry={() => refetchDelta()} what="The comparison" /> : !delta ? <Skeleton className="h-64" /> : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <Panel className="lg:col-span-2" title={`${delta.label.current} vs ${delta.label.prior}`} action={<Button size="sm" variant="ghost" onClick={() => copy(comparisonToText(delta, meta.inputName), 'Comparison')}><Copy className="h-3.5 w-3.5" />Copy</Button>}>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

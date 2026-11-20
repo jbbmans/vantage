@@ -342,7 +342,11 @@ test('the platform audit trail filters, pages and exports on the server, and an 
   assert.ok((await get(staff.auditor!.token, '/api/platform/audit?action=login')).body.rows.every((r: { action: string }) => r.action === 'login'));
   assert.ok((await get(staff.auditor!.token, '/api/platform/audit?q=maintenance')).body.rows.some((r: { action: string }) => r.action === 'maintenance_on'));
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-  assert.equal((await get(staff.auditor!.token, `/api/platform/audit?from=${tomorrow}`)).body.rows.length, 0);
+  assert.equal((await get(staff.auditor!.token, `/api/platform/audit?from=${tomorrow}&to=${tomorrow}`)).body.rows.length, 0);
+  // Both days or neither (ADR-0038): one alone is refused with the missing one named, not read as open-ended.
+  const oneSided = await get(staff.auditor!.token, `/api/platform/audit?from=${tomorrow}`);
+  assert.equal(oneSided.status, 400);
+  assert.ok(oneSided.body.fieldErrors?.to, JSON.stringify(oneSided.body));
   assert.equal((await get(staff.auditor!.token, '/api/platform/audit?from=2026-13-45x')).status, 400);
   assert.equal((await get(staff.auditor!.token, '/api/platform/audit?to=2026-02-30')).status, 400, 'a day that does not exist is refused, not a server error');
   // Nothing an organization does internally is in the platform trail.

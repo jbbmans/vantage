@@ -231,9 +231,6 @@ export const monthOf = (day: string | null | undefined, from: string) => {
   return d.slice(0, 7);
 };
 
-/** The longest window the analytics read, so a request cannot ask for a decade of months. */
-export const ANALYTICS_MAX_DAYS = 731;
-
 // What crosses the wire
 
 export interface AnalyticsResponse {

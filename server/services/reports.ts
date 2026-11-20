@@ -1,7 +1,8 @@
 import type { AppContext } from '../context.ts';
 import { composeNarrative } from '../../shared/narrative.ts';
 import { buildPackage, type BulletStyle } from '../../shared/bullets.ts';
-import { aggregateMetrics, rangeForPeriod, formatDTG, type PeriodKey } from '../../shared/metrics.ts';
+import { aggregateMetrics, rangeForPeriod, type PeriodKey } from '../../shared/metrics.ts';
+import { rangeLabel } from '../../shared/dateRange.ts';
 import { narrativeConfig, areasFor, areaAmong, trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { periodClause } from './timeframes.ts';
 import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
@@ -11,8 +12,12 @@ import { worksheetBlocks } from '../../shared/writer/worksheet.ts';
 
 export interface ReportScope { userId: string; unitId?: string | null }
 
+/**
+ * The days a request covers, once checkRange has passed them (ADR-0038): two days given win over the period, as a link
+ * that carries them means; otherwise the preset's days on the given clock.
+ */
 export function periodBounds(period: string, from?: string | null, to?: string | null, timezone = 'UTC') {
-  if (from && to) return { from, to, label: `${formatDTG(from)} to ${formatDTG(to)}` };
+  if (from && to) return { from, to, label: rangeLabel(from, to) };
   const range = rangeForPeriod(period as PeriodKey, zonedNow(timezone));
   return { from: isoDay(range.start), to: isoDay(range.end), label: range.label };
 }

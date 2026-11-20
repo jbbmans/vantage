@@ -88,11 +88,10 @@ test('picking up work is not an accomplishment: a claim produces no measured out
     const list = await fresh.call('GET', '/api/work/items?unit_id=G8', { token: owner.token });
     const target = list.body.items[0];
 
-    const day = today();
-    const before = await fresh.call('GET', `/api/metrics?from=2000-01-01&to=${day}`, { token: owner.token });
+    const before = await fresh.call('GET', '/api/metrics?period=all', { token: owner.token });
     await fresh.call('POST', `/api/work/items/${target.id}/claim`, { token: owner.token, body: { version: target.version } });
     await fresh.call('PATCH', `/api/work/items/${target.id}`, { token: owner.token, body: { state: 'waiting' } });
-    const after = await fresh.call('GET', `/api/metrics?from=2000-01-01&to=${day}`, { token: owner.token });
+    const after = await fresh.call('GET', '/api/metrics?period=all', { token: owner.token });
 
     assert.deepEqual(after.body.headline, before.body.headline, 'claiming and re-stating work changed no figure');
     assert.deepEqual(after.body.headline, [], 'and there is nothing to show yet, because nothing was delivered');
@@ -122,7 +121,7 @@ test('a recorded action can draft the personal record of the work, once', async 
     assert.equal(retry.body.replayed, true);
     assert.equal(retry.body.activity_id, first.body.activity_id);
 
-    const metrics = await fresh.call('GET', `/api/metrics?from=2000-01-01&to=${day}`, { token: owner.token });
+    const metrics = await fresh.call('GET', '/api/metrics?period=all', { token: owner.token });
     const money = metrics.body.headline.find((t: any) => t.metricId === 'money:saved');
     assert.equal(money.value, 1000, 'the outcome is counted once, not twice');
     assert.equal(money.outcomes, 1);
