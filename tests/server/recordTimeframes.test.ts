@@ -12,7 +12,7 @@ import { runDisposition, saveSchedule } from '../../server/services/retention.ts
 import { REDACTED } from '../../shared/constants.ts';
 
 /**
- * Task 12: records take a timeframe (ADR-0018). A start, an end, optional times and "ongoing"; nothing ends before it
+ * Records take a timeframe (ADR-0018). A start, an end, optional times and "ongoing"; nothing ends before it
  * starts, whoever writes it; and every reader picks records by one rule, counting each once.
  */
 

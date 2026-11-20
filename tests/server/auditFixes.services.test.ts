@@ -39,8 +39,8 @@ test('B1: adjacent encoded-words join without the folding space, even when a cha
 });
 
 test('B2: raw 8-bit UTF-8 header values decode as UTF-8, and latin1 bytes still read as latin1', () => {
-  const parsed = parseEml(eml(['From: "Rémi Dupont" <rd@b.mil>', 'Subject: Réconciliation — FY27']));
-  assert.equal(parsed.subject, 'Réconciliation — FY27');
+  const parsed = parseEml(eml(['From: "Rémi Dupont" <rd@b.mil>', 'Subject: Réconciliation \u2014 FY27']));
+  assert.equal(parsed.subject, 'Réconciliation \u2014 FY27');
   assert.deepEqual(parsed.from, { name: 'Rémi Dupont', email: 'rd@b.mil' });
   const latin1 = parseEml(Buffer.from('From: a@b.mil\r\nSubject: caf\xe9\r\n\r\nbody\r\n', 'latin1'));
   assert.equal(latin1.subject, 'café');

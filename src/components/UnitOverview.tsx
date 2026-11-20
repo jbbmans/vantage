@@ -5,7 +5,7 @@ import { Building2, Target, Users, ArrowRight, EyeOff } from 'lucide-react';
 import { Panel, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
 import { useIdentity } from '@/lib/queries';
 import { useView } from '@/lib/view';
-import { formatDate, formatDollars } from '../../shared/metrics';
+import { formatDate, formatDollars, NO_VALUE } from '../../shared/metrics';
 import { cn, formatRange } from '@/lib/utils';
 import { CountUp } from '@/components/ui/motion';
 import * as api from '@/lib/api';
@@ -89,8 +89,8 @@ export function UnitPulse({ unitId }: { unitId: string }) {
       </div>
       <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Marines" value={<CountUp value={t.members} />} hint={whole ? `across ${t.teams} teams` : 'on the roster'} />
-        <Stat label="Contributors" value={t.withheld ? '—' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% shared work, last 90 days`} />
-        <Stat label="Value recorded" value={t.withheld || t.dollars == null ? '—' : <CountUp value={t.dollars} format={formatDollars} />} hint="headline value types" />
+        <Stat label="Contributors" value={t.withheld ? 'Withheld' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% shared work, last 90 days`} />
+        <Stat label="Value recorded" value={t.withheld ? 'Withheld' : t.dollars == null ? NO_VALUE : <CountUp value={t.dollars} format={formatDollars} />} hint="headline value types" />
         <Stat label="Unit goals" value={<CountUp value={data.goals.filter((g) => g.status === 'active').length} />} hint="active now" />
       </div>
       {whole && <div className="mt-4"><TeamStrip data={data} /></div>}
@@ -115,8 +115,8 @@ export function UnitOverviewPanel({ unitId }: { unitId: string }) {
     <div className="space-y-4">
       <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Marines" value={<CountUp value={t.members} />} hint={whole ? `across ${t.teams} teams` : 'on the roster'} />
-        <Stat label="Contributors" value={t.withheld ? '—' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% of the roster, ${formatRange(data.window.from, data.window.to)}`} />
-        <Stat label="Value recorded" value={t.withheld || t.dollars == null ? '—' : <CountUp value={t.dollars} format={formatDollars} />} hint="headline value types" />
+        <Stat label="Contributors" value={t.withheld ? 'Withheld' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% of the roster, ${formatRange(data.window.from, data.window.to)}`} />
+        <Stat label="Value recorded" value={t.withheld ? 'Withheld' : t.dollars == null ? NO_VALUE : <CountUp value={t.dollars} format={formatDollars} />} hint="headline value types" />
         <Stat label="Unit goals" value={<CountUp value={data.goals.filter((g) => g.status === 'active').length} />} hint={`${data.goals.filter((g) => g.status === 'achieved').length} achieved`} />
       </div>
       {t.withheld && <p className="text-xs text-ink-3"><Withheld min={data.minimum_contributors} /> Leaders of this unit see the full figures.</p>}

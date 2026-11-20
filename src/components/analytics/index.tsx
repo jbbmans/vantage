@@ -7,13 +7,13 @@ import { Dialog } from '@/components/ui/Dialog';
 import { QueryFailure } from '@/components/QueryFailure';
 import { ScrollRegion } from '@/components/common';
 import { cn } from '@/lib/utils';
-import { formatDate, formatNumber } from '../../../shared/metrics';
+import { formatDate, formatNumber, NO_VALUE } from '../../../shared/metrics';
 import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
 
 export { counted, formatFigure, summaryOf };
 
 /**
- * The analytics kit (Task 21, ADR-0028): KPI tiles, bars, columns over time and a rate, each in a frame that asks its
+ * The analytics kit (ADR-0028): KPI tiles, bars, columns over time and a rate, each in a frame that asks its
  * question, says what it shows in a sentence, switches to a table of the same figures, and prints with that table.
  * Every bar that counts something is a button that lists the records behind it. Drawn in HTML on the theme's tokens, so
  * it reads in both themes and every palette, prints in colour, and needs no chart library.
@@ -177,7 +177,7 @@ export function RateMeter({ visual, onDrill }: { visual: Visual; onDrill?: OnDri
   return (
     <div className="min-w-0">
       <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className="stat-value">{r.percent == null ? '—' : `${r.percent}%`}</span>
+        <span className="stat-value">{r.percent == null ? NO_VALUE : `${r.percent}%`}</span>
         <span className="text-sm text-ink-3">{r.of ? `${formatNumber(r.done)} of ${counted(r.of, visual.noun)}` : 'Nothing to count'}</span>
       </p>
       <div className="chart-bar-track mt-3 h-2.5" aria-hidden>{r.percent ? <span className="chart-ink block h-full" style={{ width: `${r.percent}%`, background: TONE.accent }} /> : null}</div>

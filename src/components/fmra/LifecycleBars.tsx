@@ -1,5 +1,6 @@
 import { formatCents } from '../../../shared/money';
 import { cn } from '@/lib/utils';
+import { NO_VALUE } from '../../../shared/metrics';
 
 export interface Figures { commitment: number | null; obligation: number | null; delivered: number | null; paid: number | null }
 
@@ -30,6 +31,15 @@ export default function LifecycleBars({ figures, travel = false, compact = false
     return gap > 0 ? { cents: gap, label: ['', 'OCMT', 'UDOU', 'DOU'][i] } : null;
   };
   const shownGap = (i: number) => (quiz ? null : gapOf(i));
+  // What the screen-reader table says is open: hidden while the reader works it out, unknown when the phase it is
+  // measured from is not shown, and none only when there is nothing open.
+  const openText = (i: number) => {
+    if (quiz) return 'Hidden until you answer';
+    const g = gapOf(i);
+    if (g) return `${g.label} ${formatCents(g.cents)}`;
+    const from = travel ? (i === 3 ? 1 : -1) : i - 1;
+    return from >= 0 && values[from] == null ? `Unknown (${ROWS[from].label.toLowerCase()} not shown)` : NO_VALUE;
+  };
   const summary = ROWS.map((r, i) => `${r.label} ${values[i] == null ? 'not shown' : formatCents(values[i]!)}`).join(', ');
 
   if (decorative) {
@@ -86,7 +96,7 @@ export default function LifecycleBars({ figures, travel = false, compact = false
           <caption>Lifecycle figures</caption>
           <thead><tr><th>Phase</th><th>Amount</th><th>Open from the phase before</th></tr></thead>
           <tbody>
-            {ROWS.map((r, i) => { const g = shownGap(i); return <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{g ? `${g.label} ${formatCents(g.cents)}` : '—'}</td></tr>; })}
+            {ROWS.map((r, i) => <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{openText(i)}</td></tr>)}
           </tbody>
         </table>
       </div>

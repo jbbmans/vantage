@@ -2,7 +2,7 @@ import { test, expect, request as playwrightRequest, type Page } from '@playwrig
 import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
-// Task 10 (ADR-0016): the specification's UX definition of done, walked as a new Marine and as a unit leader would.
+// The UX definition of done (ADR-0016), walked as a new Marine and as a unit leader would.
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
 test.beforeEach(async ({ request }) => { await ensureSetup(request); });

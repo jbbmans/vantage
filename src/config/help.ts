@@ -27,7 +27,7 @@ export const HELP: HelpSection[] = [
         q: 'What is Vantage actually for?',
         a: [
           'Every evaluation you will ever get is written from whatever is in front of the writer at the time. Vantage keeps the evidence: dated, quantified work with an outcome attached.',
-          'The whole design follows one idea — using Vantage to do the work should automatically create the useful record of that work. If you are logging things purely so they are logged, something is wrong with how it is set up.',
+          'The whole design follows one idea: using Vantage to do the work should automatically create the useful record of that work. If you are logging things purely so they are logged, something is wrong with how it is set up.',
         ],
         also: ['purpose', 'why', 'point'],
       },
@@ -256,7 +256,7 @@ export const HELP: HelpSection[] = [
         id: 'summing',
         q: 'Why will it not add these two numbers together?',
         a: [
-          'Because they are not the same unit. Vantage never sums across unlike units — twelve MIPRs and thirty ULOs are forty-two of nothing.',
+          'Because they are not the same unit. Vantage never sums across unlike units: twelve MIPRs and thirty ULOs are forty-two of nothing.',
           'The same rule applies to typed value: headline totals sum the types the deployment marks as summable, and anything else is reported on its own line. Funds that crossed your desk are not funds you moved.',
         ],
         also: ['total', 'sum', 'add', 'units', 'dollars'],
@@ -336,7 +336,7 @@ export const HELP: HelpSection[] = [
         id: 'passkey',
         q: 'What is a passkey and should I add one?',
         a: [
-          'Yes, add one. Settings → Security. Face ID, Windows Hello or a hardware key then signs you in without typing anything, and it cannot be phished — there is no code for anyone to talk you into reading out.',
+          'Yes, add one. Settings → Security. Face ID, Windows Hello or a hardware key then signs you in without typing anything, and it cannot be phished: there is no code for anyone to talk you into reading out.',
         ],
         also: ['webauthn', 'face id', 'fingerprint', 'yubikey'],
       },
@@ -414,7 +414,7 @@ export const HELP: HelpSection[] = [
         q: 'Can people sign in with a CAC?',
         a: [
           'Yes, and it is off until Vantage staff turn it on, because it needs mTLS terminated in front of the application.',
-          'Identity comes from the certificate with EDIPI as the only join key — no name matching, because two Marines share a name and nobody shares a DoD ID.',
+          'Identity comes from the certificate with EDIPI as the only join key. There is no name matching, because two Marines share a name and nobody shares a DoD ID.',
         ],
         also: ['piv', 'smart card', 'certificate', 'edipi'],
       },

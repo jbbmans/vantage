@@ -1,5 +1,5 @@
 /**
- * Files on records, and what a file on a training is evidence of (VANTAGE_CLAUDE_MASTER Task 19, ADR-0025). A training
+ * Files on records, and what a file on a training is evidence of (ADR-0025). A training
  * holds its evidence as files: the certificate, the transcript, the completion or qualification document, the roster.
  * Each file says what it is and, in a line, what it shows, beside its name, its type, who added it and when.
  *

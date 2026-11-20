@@ -1,5 +1,5 @@
 /**
- * Course lookup and what a training's course values are verified by (Task 22, ADR-0029).
+ * Course lookup and what a training's course values are verified by (ADR-0029).
  *
  * A course code is looked up only in the current catalogs of approved sources that are not withdrawn
  * (courseCatalog.ts loads them). Vantage fetches nothing from anywhere. Whether a training's values are verified is

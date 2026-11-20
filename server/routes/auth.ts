@@ -664,7 +664,7 @@ authRouter.post('/cac', wrap((req, res) => {
   }
   audit(ctx, {
     actor_id: row.id, action: 'cac_verified', ip,
-    detail: `edipi=${identity.edipi} cn=${identity.commonName ?? '—'} issuer=${identity.issuer ?? '—'} serial=${identity.serial ?? '—'}`,
+    detail: `edipi=${identity.edipi} cn=${identity.commonName ?? '(none)'} issuer=${identity.issuer ?? '(none)'} serial=${identity.serial ?? '(none)'}`,
   });
   // The card proved the EDIPI the account carries; from here only Vantage support moves it (ADR-0009).
   markEdipiVerified(ctx, row.id, identity.edipi);
@@ -704,6 +704,6 @@ authRouter.post('/cac/step-up', requireAuth, wrap((req, res) => {
   markEdipiVerified(ctx, req.user.id, identity.edipi);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'cac' }, { id: req.user.id });
-  audit(ctx, { actor_id: req.user.id, action: 'cac_step_up', subject_id: req.user.id, ip, detail: `edipi=${identity.edipi} issuer=${identity.issuer ?? '—'} serial=${identity.serial ?? '—'}` });
+  audit(ctx, { actor_id: req.user.id, action: 'cac_step_up', subject_id: req.user.id, ip, detail: `edipi=${identity.edipi} issuer=${identity.issuer ?? '(none)'} serial=${identity.serial ?? '(none)'}` });
   res.json({ ok: true, until });
 }));

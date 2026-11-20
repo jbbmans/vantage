@@ -72,7 +72,8 @@ export type DiagnosisResult = Diagnosis | { ok: false; error: string };
 const PROCEDURE_FOR: Record<NormalKey, string> = { ocmt: 'ocmt_research', udou: 'udou_research', dou: 'dou_research', oto: 'oto_research' };
 
 const shown = (v: number | null | undefined): v is number => v !== null && v !== undefined;
-const amt = (v: number | null | undefined) => (shown(v) ? formatCents(v) : '—');
+/** A figure the report does not show is not a zero, so the text says it is not shown. */
+const amt = (v: number | null | undefined) => (shown(v) ? formatCents(v) : 'not shown');
 
 export function diagnose(input: BalanceInput): DiagnosisResult {
   const { commitment: c, obligation: o, delivered: d, paid: p } = input;
@@ -224,8 +225,8 @@ function observedText(i: BalanceInput, travel: boolean) {
 
 function meaningText(findings: Finding[], anomalies: Anomaly[], complete: boolean) {
   if (complete) return 'Every phase shown is covered by the next one: nothing is open between commitment and payment in these figures.';
-  const bits = findings.map((f) => `${f.abbr} ${f.pattern === 'full' ? '(full)' : '(partial)'} — ${formatCents(f.residualCents)} open: ${f.whatIsOpen.charAt(0).toLowerCase()}${f.whatIsOpen.slice(1).replace(/\.$/, '')}`);
-  const odd = anomalies.map((a) => `${a.title.toLowerCase()} — an abnormal pattern that needs research`);
+  const bits = findings.map((f) => `${f.abbr} ${f.pattern === 'full' ? '(full)' : '(partial)'}, ${formatCents(f.residualCents)} open: ${f.whatIsOpen.charAt(0).toLowerCase()}${f.whatIsOpen.slice(1).replace(/\.$/, '')}`);
+  const odd = anomalies.map((a) => `${a.title.toLowerCase()}, an abnormal pattern that needs research`);
   return [...bits, ...odd].join('; ') + '.';
 }
 

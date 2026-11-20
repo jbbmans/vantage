@@ -3,15 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, ShieldCheck, Users } from 'lucide-react';
 import { Panel, Stat, Select, Skeleton, Badge, EmptyState, Progress } from '@/components/ui/primitives';
 import * as api from '@/lib/api';
-import { formatNumber } from '../../shared/metrics';
+import { formatNumber, NO_VALUE } from '../../shared/metrics';
 import { formatRange } from '@/lib/utils';
 
 interface Distribution { count: number; median: number | null; p90: number | null; total: number }
 interface Bucket { key: string; events: number; people: number }
 
-const ms = (v: number | null) => (v == null ? '—' : v >= 60_000 ? `${Math.round(v / 60_000)} min` : `${Math.round(v / 1000)} s`);
-const minutes = (v: number | null) => (v == null ? '—' : `${Math.round(v)} min`);
-const pct = (v: number | null) => (v == null ? '—' : `${v}%`);
+const ms = (v: number | null) => (v == null ? NO_VALUE : v >= 60_000 ? `${Math.round(v / 60_000)} min` : `${Math.round(v / 1000)} s`);
+const minutes = (v: number | null) => (v == null ? NO_VALUE : `${Math.round(v)} min`);
+const pct = (v: number | null) => (v == null ? NO_VALUE : `${v}%`);
 const label = (key: string) => key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 function Buckets({ items, withheldCount, empty }: { items: Bucket[]; withheldCount?: number; empty: string }) {
@@ -139,7 +139,7 @@ export default function UsageConsole() {
           <Row label="Remote images blocked" value={formatNumber(r.correspondence.blockedRemoteImages)} />
           <Row label="Runnable content removed" value={formatNumber(r.correspondence.blockedActiveContent)} />
           <Row label="Documents linked to a thread" value={formatNumber(r.correspondence.linked)} />
-          <Row label="Days to a reply, median" value={r.correspondence.daysToResponse.median == null ? '—' : `${Math.round(r.correspondence.daysToResponse.median)}`} />
+          <Row label="Days to a reply, median" value={r.correspondence.daysToResponse.median == null ? NO_VALUE : `${Math.round(r.correspondence.daysToResponse.median)}`} />
           <div className="mt-3"><Buckets items={r.correspondence.states} withheldCount={r.correspondence.statesWithheld} empty="No thread moved in this period." /></div>
         </Panel>
 
@@ -150,7 +150,7 @@ export default function UsageConsole() {
           <Row label="Report revisions saved" value={formatNumber(r.goalsAndReports.revisions)} />
           <Row label="Saves refused for a changed source" value={formatNumber(r.goalsAndReports.staleRejections)} />
           <Row label="Revisions exported" value={formatNumber(r.goalsAndReports.exports)} />
-          <Row label="Records cited per revision, median" value={r.goalsAndReports.sourcesPerRevision.median ?? '—'} />
+          <Row label="Records cited per revision, median" value={r.goalsAndReports.sourcesPerRevision.median ?? NO_VALUE} />
         </Panel>
 
         <Panel title="AI" subtitle="What was asked for and what it cost; never a prompt, never a draft">

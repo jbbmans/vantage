@@ -231,14 +231,16 @@ export function formatDollarsExact(n: number | null | undefined, symbol = curren
   return `${n < 0 ? '-' : ''}${symbol}${exact2.format(Math.abs(n))}`;
 }
 
+/** What a screen, a print or a PDF shows where there is no value. */
+export const NO_VALUE = 'None';
 
 export function formatDate(value: unknown, pattern = 'dd MMM yy'): string {
   const d = toDate(value);
-  return d ? format(d, pattern) : '—';
+  return d ? format(d, pattern) : NO_VALUE;
 }
 
 export function formatDTG(value: unknown): string {
   const d = toDate(value);
-  return d ? format(d, 'dd MMM yy').toUpperCase() : '—';
+  return d ? format(d, 'dd MMM yy').toUpperCase() : NO_VALUE;
 }
 

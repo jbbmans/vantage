@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { can, useIdentity } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
-import { formatNumber } from '../../shared/metrics';
+import { formatNumber, NO_VALUE } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
@@ -33,7 +33,7 @@ const FIELD_OPTIONS = [
 const PROCEDURE_OPTIONS = [
   { value: 'none', label: 'None: import the rows as plain work' },
   { value: 'auto', label: 'Choose per row from its figures and text' },
-  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short}: ${p.title}` })),
+  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.title })),
 ];
 
 type Step = 'file' | 'sheet' | 'mapping' | 'preview' | 'done';
@@ -282,7 +282,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
                         options={FIELD_OPTIONS}
                       />
                     </td>
-                    <td className="px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || '—'}</td>
+                    <td className="px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || NO_VALUE}</td>
                   </tr>
                 ))}
               </tbody>

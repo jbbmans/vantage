@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, instanceDay, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Financial error reports (Task 15, ADR-0021). A leader files a ULO report from a CSV, says which column identifies an
+ * Financial error reports (ADR-0021). A leader files a ULO report from a CSV, says which column identifies an
  * error and which statuses close one, files the next week's, and reads what changed: each figure and each line of a
  * group opens the rows it counts, with the file and row each came from. A report filed in error is withdrawn with a
  * reason and stays listed. The comparison prints from the report library, and the Unit Manager keeps the Unit
@@ -156,7 +156,7 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(page.getByRole('button', { name: /^Open: 3, \$950\.00\. Show the rows$/})).toBeVisible();
   await expect(page.getByRole('button', { name: /^Resolution rate: 50%/ })).toBeVisible();
   await expect(page.getByText('The oldest is 60 days old')).toBeVisible();
-  // The series' trend, headed by its question (the analytics kit, Task 21): a column for each report, with how many were open.
+  // The series' trend, headed by its question (the analytics kit): a column for each report, with how many were open.
   const trend = page.getByRole('figure', { name: 'How many errors were open on each ULO report?' });
   await expect(trend.getByRole('img', { name: `${shown(day(7)).slice(0, 6)}: 2` })).toBeVisible();
   await expect(trend.getByRole('img', { name: `${shown(day(0)).slice(0, 6)}: 3` })).toBeVisible();

@@ -7,6 +7,7 @@ import { withSudo } from '@/components/SudoDialog';
 import * as api from '@/lib/api';
 import { copyToClipboard, timeAgo } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { NO_VALUE } from '../../shared/metrics';
 
 interface Setup {
   provider: string; from: string; domain: string; replyTo: string | null; helo: string | null;
@@ -156,10 +157,10 @@ export default function EmailConsole() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="The sending server" subtitle={path ? `checked ${timeAgo(path.checkedAt)}` : 'not checked yet'}>
           <dl className="grid grid-cols-[9rem_minmax(0,1fr)] gap-y-2 text-sm">
-            <dt className="text-ink-3">Port 25</dt><dd>{!path ? '—' : path.open ? <Badge tone="good">Open</Badge> : <Badge tone="bad">Unavailable</Badge>}</dd>
-            <dt className="text-ink-3">Sends from</dt><dd className="fig text-ink">{path?.ip || '—'}</dd>
-            <dt className="text-ink-3">Reverse name</dt><dd className="break-all text-ink">{path?.ptr || '—'}{path?.ptr && <span className="ml-1 text-2xs text-ink-3">{path.forwardConfirmed ? '(confirmed both ways)' : '(does not point back)'}</span>}</dd>
-            <dt className="text-ink-3">Greets as</dt><dd className="break-all text-ink">{view.helo || '—'}</dd>
+            <dt className="text-ink-3">Port 25</dt><dd>{!path ? 'Not checked' : path.open ? <Badge tone="good">Open</Badge> : <Badge tone="bad">Unavailable</Badge>}</dd>
+            <dt className="text-ink-3">Sends from</dt><dd className="fig text-ink">{!path ? 'Not checked' : path.ip || NO_VALUE}</dd>
+            <dt className="text-ink-3">Reverse name</dt><dd className="break-all text-ink">{!path ? 'Not checked' : path.ptr || NO_VALUE}{path?.ptr && <span className="ml-1 text-2xs text-ink-3">{path.forwardConfirmed ? '(confirmed both ways)' : '(does not point back)'}</span>}</dd>
+            <dt className="text-ink-3">Greets as</dt><dd className="break-all text-ink">{view.helo || NO_VALUE}</dd>
             <dt className="text-ink-3">Waiting to retry</dt><dd className="fig text-ink">{view.queue.waiting}</dd>
           </dl>
           <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><Server className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A host may send from more than one address. Put every outbound address it lists in the SPF record. Receivers also check that the address’s reverse name points back to it, which only the host can set.</p>

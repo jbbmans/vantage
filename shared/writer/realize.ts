@@ -86,7 +86,7 @@ const has = (text: string, part: string) => text.toLowerCase().includes(part.toL
 
 /** Plain characters, so the text pastes into any form: straight quotes, hyphens, no ellipsis glyph. */
 export function plain(text: string): string {
-  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/\u00a0/g, ' ')
+  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–\u2014]/g, '-').replace(/…/g, '...').replace(/\u00a0/g, ' ')
     // Accents to plain letters ("résumé" → "resume"); symbols and emoji, which a form may refuse, go.
     .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e\n]/g, '').replace(/ {2,}/g, ' ');
 }

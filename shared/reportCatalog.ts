@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
+import { NO_VALUE, PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
 
 /**
- * The reports Vantage prints and files (Task 14, ADR-0020): what each answers, whom it may be about, the filters it
+ * The reports Vantage prints and files (ADR-0020): what each answers, whom it may be about, the filters it
  * takes and the formats it comes in, and the one document every format is drawn from. The screen, the print page, the
  * PDF, the CSV, the workbook and the JSON all read a ReportDocument, so they never say different things.
  */
@@ -126,7 +126,7 @@ export const CASE_STATES = [
   { value: 'resolved', label: 'Resolved and not applicable' },
 ] as const;
 
-// ——— Custom reports: a dataset, its columns, how it groups and sorts ———
+// Custom reports: a dataset, its columns, how it groups and sorts
 
 export type ColumnKind = 'text' | 'number' | 'money' | 'date' | 'hours' | 'percent' | 'flag';
 
@@ -231,7 +231,7 @@ export const REPORT_ROW_LIMIT = 5000;
 /** A report with a table wider than this prints landscape, on paper as in the PDF. */
 export const LANDSCAPE_COLUMNS = 8;
 
-// ——— The filters, as the route reads them and the library writes them ———
+// The filters, as the route reads them and the library writes them
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-10-29.').refine(isCalendarDay, 'Use a date on the calendar, like 2026-10-29.');
 const id = z.string().trim().max(64);
@@ -264,7 +264,7 @@ export type ReportQuery = z.infer<typeof reportQuerySchema>;
 /** The query keys a saved report keeps: its filters, never the format it was last downloaded in. */
 export const REPORT_PARAM_KEYS = Object.keys(reportQuerySchema.shape).filter((k) => k !== 'type') as Array<Exclude<keyof ReportQuery, 'type'>>;
 
-// ——— The document ———
+// The document
 
 export type Cell = string | number | null;
 
@@ -282,7 +282,7 @@ export interface ReportTable {
 /** Bars drawn from a table in the same section: the table is the chart's accessible alternative, and its source. */
 export interface ReportChart {
   title: string; kind: Extract<ColumnKind, 'number' | 'money' | 'hours' | 'percent'>; bars: Array<{ label: string; value: number }>;
-  /** The table in the same section that holds these figures in full, and its column each bar draws (Task 21). */
+  /** The table in the same section that holds these figures in full, and its column each bar draws. */
   table: string; column: string;
   /** Columns up for a figure over time (months, weeks, reports); bars across otherwise. */
   shape?: 'bars' | 'columns';
@@ -340,8 +340,6 @@ export interface ReportDocument {
 }
 
 export { DEFAULT_REPORT_MARKING } from './reportMarking.ts';
-
-const NO_VALUE = '—';
 
 /** A value as a printed table shows it. Files keep the raw value. */
 export function formatCell(value: Cell | undefined, kind: ColumnKind = 'text', currency = '$'): string {

@@ -1,7 +1,7 @@
 import type { DutyStatus } from './duty.ts';
 
 /**
- * Reviewing duty (VANTAGE_CLAUDE_MASTER Task 18, ADR-0024). A duty is submitted, waits for review, and is approved,
+ * Reviewing duty (ADR-0024). A duty is submitted, waits for review, and is approved,
  * returned for correction or rejected. Only approved duty counts, at its approved points: the points its scoring version
  * gave it (calculated points, ADR-0023), unless someone with the authority to override them set others and said why.
  *

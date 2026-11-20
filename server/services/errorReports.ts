@@ -18,7 +18,7 @@ import {
 } from '../../shared/errorReports.ts';
 
 /**
- * Financial error reports (Task 15, ADR-0021). A unit files the error reports it is sent (unliquidated obligations, open
+ * Financial error reports (ADR-0021). A unit files the error reports it is sent (unliquidated obligations, open
  * commitments, unmatched transactions, invoices on hold, sync errors, and its own kinds): each upload, read through the
  * intake's own upload, scan, reader and identifier rules, becomes a snapshot of what that report said on the day it
  * stands on, kept as filed. A unit and a type make a series; any two of its reports compare, and every figure opens the
@@ -118,7 +118,7 @@ function seriesOf(ctx: AppContext, unitId: string, typeId: string): SeriesReport
 }
 const live = <T extends { withdrawn_at: string | null }>(list: readonly T[]) => list.filter((s) => !s.withdrawn_at);
 
-// ——— Reading a report from its file ———
+// Reading a report from its file
 
 export interface ReadRow extends SnapshotRow { data: Record<string, string> }
 
@@ -415,7 +415,7 @@ export function lastLayout(ctx: AppContext, scope: Scope, unitId: string, typeId
   };
 }
 
-// ——— The unit's error reports ———
+// The unit's error reports
 
 /** The unit's series and those of the units beneath it, each with its latest figures and the report before it. */
 export function errorReportsOverview(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, ip?: string): ErrorReportsOverview {
@@ -494,7 +494,7 @@ export function reportChoices(ctx: AppContext, scope: Scope, unitId: string): Er
   };
 }
 
-// ——— A comparison, and the rows behind each figure ———
+// A comparison, and the rows behind each figure
 
 export interface ComparisonQuery { unit_id: string; type_id: string; snapshot?: string | null; against?: string | null }
 

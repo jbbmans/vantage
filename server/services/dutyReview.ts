@@ -17,7 +17,7 @@ import { closeRequests } from './comments.ts';
 import { isAnonymizedDuty, withDutyNames } from './duties.ts';
 
 /**
- * Reviewing duty (Task 18, ADR-0024): a duty is submitted, waits for review, and is approved, returned or rejected. Only
+ * Reviewing duty (ADR-0024): a duty is submitted, waits for review, and is approved, returned or rejected. Only
  * approved duty counts, at its approved points. This is what decides a duty and what keeps the history of it; who may do
  * what is one rule (shared/dutyReview.ts dutyReviewOptions over server/authz/records.ts dutyReviewAuthority), enforced
  * here and sent with every duty a reader is given.

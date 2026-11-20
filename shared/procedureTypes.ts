@@ -16,7 +16,7 @@ export const AUTHORITY_LABEL: Record<Authority, string> = {
 };
 
 /**
- * The order sources are weighed in when they speak to the same question (VANTAGE_CLAUDE_MASTER Task 16, ADR-0022):
+ * The order sources are weighed in when they speak to the same question (ADR-0022):
  * official policy, official system guidance, an approved command SOP, a validated SME workflow, a validated historical
  * case, then inference. Two authorities Vantage already carried sit between those six without a number of their own: the
  * FMRAC training reference ranks below a validated SME workflow, since it is not verified against current policy, and an
@@ -27,7 +27,7 @@ export interface ProvenanceTier {
   authority: Authority;
   /** 1 is weighed first. */
   rank: number;
-  /** The specification's tier, 1 to 6, or null for the two that sit between tiers. */
+  /** The provenance tier, 1 to 6, or null for the two that sit between tiers. */
   tier: 1 | 2 | 3 | 4 | 5 | 6 | null;
   label: string;
   /** What a reader should keep in mind about this kind of source. */

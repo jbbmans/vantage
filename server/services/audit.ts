@@ -166,7 +166,7 @@ export function recentChainCheck(ctx: AppContext, maxAgeMs = 60_000): ChainCheck
   return { ...result, checkedAt: new Date(chainChecks.get(ctx)!.at).toISOString() };
 }
 
-// ——— Anchors: the chain's head, kept outside the server (ADR-0013) ———
+// Anchors: the chain's head, kept outside the server (ADR-0013)
 
 /** The newest entry of the chain and how many entries it holds. Null for an empty log. */
 export interface AuditHead { seq: number; hash: string; count: number }

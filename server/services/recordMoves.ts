@@ -21,7 +21,7 @@ import { moveNotices } from './notifications.ts';
 /**
  * Moving an entry between record types (ADR-0015). An activity that was really an award received or a course completed
  * moves to its own record, and back. Only its owner moves it; nothing moves on its own, and an upgrade moves nothing
- * (John's decision of 2026-10-17: each Marine confirms). One transaction creates the entry in its new type, carries its
+ * (each Marine confirms). One transaction creates the entry in its new type, carries its
  * files and comments across, removes it from the old type, and keeps the row as it stood in record_lineage, from which
  * an undo puts it back exactly.
  */

@@ -341,7 +341,7 @@ CREATE TABLE IF NOT EXISTS trainings (
   deleted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  -- The course code its person entered and the CEUs it earned (Task 22, ADR-0029, migration 036). What of it an approved
+  -- The course code its person entered and the CEUs it earned (ADR-0029, migration 036). What of it an approved
   -- source's catalog verifies is the server's to work out on every write, never a request's or a file's: the catalog
   -- entry it was checked against, which of its values matched that entry (a JSON list of code, title, provider, hours
   -- and ceus) and when. Anything else filled in is manual. Its index (idx_trainings_course_entry) is migration 036's.
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS counselings (
   deleted_at      TEXT,
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  -- Its workflow (Task 20, ADR-0027, migration 035). A counseling a leader writes for a Marine is a draft, its counselor's
+  -- Its workflow (ADR-0027, migration 035). A counseling a leader writes for a Marine is a draft, its counselor's
   -- alone; shared for review, its counselor's and its Marine's; or final. A Marine's own notes, and everything written
   -- before 035, are final.
   stage           TEXT NOT NULL DEFAULT 'final' CHECK (stage IN ('draft', 'review', 'final')),
@@ -419,7 +419,7 @@ CREATE INDEX IF NOT EXISTS idx_counselings_user ON counselings(user_id);
 CREATE INDEX IF NOT EXISTS idx_counselings_counselor ON counselings(counselor_id);
 CREATE INDEX IF NOT EXISTS idx_counselings_unit ON counselings(unit_id, visibility);
 
--- A counseling's amendment history (Task 20, ADR-0027): what a final counseling said before each amendment, with who
+-- A counseling's amendment history (ADR-0027): what a final counseling said before each amendment, with who
 -- amended it, when, why, which fields changed, and whether its Marine had acknowledged what was replaced. Written with
 -- the amendment it records and kept as written; only its words are ever changed, to the retention notice when a
 -- schedule anonymizes the counseling. It goes when its counseling is destroyed.
@@ -504,7 +504,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   dedupe_key TEXT,
   read_at    TEXT,
   created_at TEXT NOT NULL,
-  -- What a notice is about (Task 24, ADR-0031, migration 038): its Unit Instance, the record or work case it names (so it
+  -- What a notice is about (ADR-0031, migration 038): its Unit Instance, the record or work case it names (so it
   -- is checked again when read, follows the record when it moves and goes when it is destroyed), who acted, and how many
   -- events one unread notice stands for when its kind coalesces (shared/notifications.ts). A coalescing notice names a
   -- record and has no dedupe key. Its indexes (idx_notifications_coalesce, _entity, _created) are migration 038's.
@@ -970,7 +970,7 @@ CREATE TABLE IF NOT EXISTS comments (
   edited_at    TEXT,
   deleted_at   TEXT,
   created_at   TEXT NOT NULL,
-  -- Workflow messages (Task 24, ADR-0031, migration 038). A comment, a request (a question or a review request) to one
+  -- Workflow messages (ADR-0031, migration 038). A comment, a request (a question or a review request) to one
   -- named person, the answer to one, or the note an assignment carries. A request stands open until it is answered,
   -- withdrawn or closed by its workflow; an answer is on its request's record (comments_reply_same_record). A comment said
   -- on a counseling before it was final stays between its counselor and its Marine (private). Its index
@@ -1385,7 +1385,7 @@ CREATE TABLE IF NOT EXISTS training_requirements (
 CREATE INDEX IF NOT EXISTS idx_training_requirements_org ON training_requirements(org_id, active);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_training_requirements_title ON training_requirements(org_id, COALESCE(unit_id, ''), lower(title)) WHERE active = 1;
 
--- How a Unit Instance scores duty (Task 18, ADR-0012): a version with the day it takes effect, published once and never
+-- How a Unit Instance scores duty (ADR-0012): a version with the day it takes effect, published once and never
 -- changed. A duty is scored under the version in force on its day, so a new version never rescores earlier duty. A
 -- version that has not taken effect may be withdrawn, and stays on the record as withdrawn. `policy` is the JSON of
 -- shared/dutyScoring.ts ScoringPolicyContent: rules by duty type id, multipliers by condition, and how they combine.
@@ -1419,14 +1419,14 @@ CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_order BEFORE INSERT ON duty_s
     AND ((p.version < NEW.version AND p.effective_from >= NEW.effective_from) OR (p.version > NEW.version AND p.effective_from <= NEW.effective_from)))
 BEGIN SELECT RAISE(ABORT, 'duty scoring versions take effect in order: a new version takes effect after every version not withdrawn'); END;
 
--- A duty a Marine stood (Task 17, ADR-0023): one of its Unit Instance's duty types, in one of its units, from a start day
+-- A duty a Marine stood (ADR-0023): one of its Unit Instance's duty types, in one of its units, from a start day
 -- and time to an end day and time. Duty is stood for a unit, so it is never a private note. Its hours, duty days,
 -- overnight and multi-day are worked out by the server from its start and end; its conditions are the scoring conditions
 -- it was stood under (weekend and overnight worked out, the rest claimed by whoever recorded it). It is scored under the
 -- version in force on its first day, kept with it (scoring_policy_id, scoring_version, calculated_points and how they
 -- were reached, scoring_basis), so a later version never rescores it. recorded_by is whoever submitted it: the Marine,
--- or a leader recording it for them. A duty is recorded as pending and counts once a reviewer approves it (Task 18,
--- ADR-0024): the review columns hold the decision in force, the checks below keep it whole, and duty_reviews holds every
+-- or a leader recording it for them. A duty is recorded as pending and counts once a reviewer approves it
+-- (ADR-0024): the review columns hold the decision in force, the checks below keep it whole, and duty_reviews holds every
 -- decision there has been. The unit, type and version are one Unit Instance's (instanceBoundaryTriggers).
 CREATE TABLE IF NOT EXISTS duties (
   id                TEXT PRIMARY KEY,
@@ -1462,7 +1462,7 @@ CREATE TABLE IF NOT EXISTS duties (
   deleted_at        TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
-  -- Approved points set apart from the calculated ones (Task 18, ADR-0024): why, by whom and when. Whole or absent, and
+  -- Approved points set apart from the calculated ones (ADR-0024): why, by whom and when. Whole or absent, and
   -- only on an approved duty. Last in the table, where migration 032 adds the three to a database that had the table
   -- before them, with the same check.
   points_override_reason TEXT,
@@ -1481,7 +1481,7 @@ CREATE INDEX IF NOT EXISTS idx_duties_type ON duties(duty_type_id);
 CREATE INDEX IF NOT EXISTS idx_duties_recorder ON duties(recorded_by);
 CREATE INDEX IF NOT EXISTS idx_duties_review ON duties(unit_id, approval_status, submitted_at);
 
--- A duty's review history (Task 18, ADR-0024): each decision, each change to its approved points and each time it went
+-- A duty's review history (ADR-0024): each decision, each change to its approved points and each time it went
 -- back for review, with who did it, when, why, and the points as they stood: what the scoring gave and what counted
 -- after. Written with the change it records and kept as written; only its reason is ever changed, to the retention
 -- notice when a schedule anonymizes the duty. It goes when its duty is destroyed.
@@ -1743,7 +1743,7 @@ CREATE TRIGGER IF NOT EXISTS case_guidance_append_only_delete BEFORE DELETE ON c
 FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
 BEGIN SELECT RAISE(ABORT, 'guidance on file is never removed: retire it'); END;
 
--- Approved authoritative sources of course details (Task 22, ADR-0029, migration 036). A Vantage Administrator registers
+-- Approved authoritative sources of course details (ADR-0029, migration 036). A Vantage Administrator registers
 -- one with the authorization that approves it for Vantage, and loads the catalog it publishes; Vantage fetches nothing
 -- and keeps no course list of its own. Service-wide: a course is the same course in every Unit Instance. Never edited or
 -- removed: a source is withdrawn with a reason, and from then on nothing is verified against it.

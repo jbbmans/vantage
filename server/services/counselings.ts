@@ -18,7 +18,7 @@ import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 
 /**
- * Counseling as structured data (Task 20, ADR-0027): a counseling a leader writes for a Marine is drafted, may be shared
+ * Counseling as structured data (ADR-0027): a counseling a leader writes for a Marine is drafted, may be shared
  * with that Marine to review, is finalized, and afterwards changes only by an amendment that keeps what it replaced. The
  * Marine acknowledges the text as it stands, and the acknowledgement is bound to the version they read. Its worksheet
  * (NAVMC 2795 layout) is built here from what is stored, never stored itself.

@@ -24,7 +24,7 @@ import {
 } from '../../shared/unitAnalytics.ts';
 
 /**
- * A unit's analytics (Task 21, ADR-0028): casework, duty, training and personnel, each a set of visuals drawn from the
+ * A unit's analytics (ADR-0028): casework, duty, training and personnel, each a set of visuals drawn from the
  * records of the unit and the units beneath it that the reader may read, and the records behind any one figure.
  *
  * Who may read them is decided before anything is read: viewing the unit's shared records. The units beneath it are read
@@ -90,7 +90,7 @@ const sourceNote = (r: Reading) => {
 };
 const NO_DETAIL = 'Figures by Marine are left out: they need opening member records in this unit.';
 
-// ——— Casework ———
+// Casework
 
 const OPEN_STAGES = STAGES.filter((s) => !CLOSED_STAGES.has(s));
 
@@ -181,7 +181,7 @@ function buildWork(r: Reading): Built {
   };
 }
 
-// ——— Duty ———
+// Duty
 
 interface DutyRow {
   id: string; user_id: string; unit_id: string; duty_type_id: string; title: string | null; location: string | null; notes: string | null;
@@ -289,7 +289,7 @@ function buildDuty(r: Reading): Built {
   };
 }
 
-// ——— Training ———
+// Training
 
 const STANDING_SERIES = [
   { key: 'met', label: 'Met', tone: 'good' as const }, { key: 'due_soon', label: 'Due soon', tone: 'warn' as const },
@@ -402,7 +402,7 @@ function buildTraining(r: Reading): Built {
   };
 }
 
-// ——— Personnel ———
+// Personnel
 
 function buildPersonnel(r: Reading): Built {
   // The roster as the Roster page and the personnel report read it (ADR-0017), so its count is theirs: each Marine

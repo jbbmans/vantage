@@ -1,8 +1,8 @@
 /**
- * The automatic financial case diagnoser (VANTAGE_CLAUDE_MASTER Task 16, ADR-0022).
+ * The automatic financial case diagnoser (ADR-0022).
  *
  * It reads one case as a whole: what the import brought in, what people recorded, the procedure the case follows, the
- * guidance a command and the service put on file, and the error reports that list it. It answers, in the specification's
+ * guidance a command and the service put on file, and the error reports that list it. It answers, in a fixed
  * order, issue type, probable cause, missing information, research, systems, calculations, corrective action, approvals,
  * verification and resolution criteria. Every statement carries one of five labels (Known fact, Derived value,
  * Recommendation, Unknown, Human decision required), and every recommendation carries its source and that source's rank
@@ -113,7 +113,7 @@ export interface GuidanceEntry {
   case?: { id: string; title: string } | null;
 }
 
-/** An error report filed for the case's unit that lists it (Task 15), for a reader of that unit's reports. */
+/** An error report filed for the case's unit that lists it, for a reader of that unit's reports. */
 export interface ReportFact {
   report: string;
   latest_as_of: string;
@@ -330,7 +330,7 @@ function read(input: DiagnosisInput): Reading {
     const cell = sheet.get(f.key);
     if (!cell) continue;
     const raw = cell.value.trim();
-    const parsed = raw && !/^[-–—]$/.test(raw) ? parseMoney(raw) : null;
+    const parsed = raw && !/^[-–\u2014]$/.test(raw) ? parseMoney(raw) : null;
     figures[f.key] = { label: f.label, cents: parsed?.ok ? parsed.cents : null, shown: Boolean(parsed?.ok), from: `${importedFrom(input)}, column “${cell.column}”`, evidence: [] };
   }
 
@@ -492,7 +492,7 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
         // until someone records the field, which replaces it.
         const cell = e || figure ? null
           : field.key === 'purchase_method' ? r.method
-            : input.sheet?.find((c) => c.field === field.key && c.value.trim() && !/^[-–—]$/.test(c.value.trim()));
+            : input.sheet?.find((c) => c.field === field.key && c.value.trim() && !/^[-–\u2014]$/.test(c.value.trim()));
         if (e || fromSheet || cell) continue;
         if (field.optional) { optional.push(field.label); continue; }
         missing.push(unknown(`${field.label}: not recorded.`, `${step.title}${step.help.system ? ` · ${step.help.system}` : ''}.`));

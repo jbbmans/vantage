@@ -96,7 +96,7 @@ export interface Award extends BaseRecord {
   recorder_name?: string;
 }
 
-/** A duty a Marine stood (Task 17, ADR-0023): its length and score are worked out by the server, never entered. */
+/** A duty a Marine stood (ADR-0023): its length and score are worked out by the server, never entered. */
 export interface Duty extends BaseRecord {
   duty_type_id: string; title: string | null; location: string | null;
   date: string; start_time: string; end_date: string; end_time: string;

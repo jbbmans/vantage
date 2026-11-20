@@ -20,6 +20,7 @@ import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 import { DATA_TRANSFERS } from '../../shared/dataTransfer';
 import { DEFAULT_REPORT_MARKING } from '../../shared/reportMarking';
+import { NO_VALUE } from '../../shared/metrics';
 
 /** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
@@ -29,7 +30,7 @@ export function Overview() {
   const toast = useToast();
   if (isPending) return <Skeleton className="h-64" />;
   if (error || !data) return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={() => refetch()}>Retry</Button>} /></div>;
-  const mb = (n: number | null) => (n == null ? '—' : `${(n / 1_048_576).toFixed(1)} MB`);
+  const mb = (n: number | null) => (n == null ? NO_VALUE : `${(n / 1_048_576).toFixed(1)} MB`);
   return (
     <div className="space-y-4">
       {data.health && <HealthStrip health={data.health} />}
@@ -395,7 +396,7 @@ export function DataAdmin() {
             : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
           {backups.history.length > 0 && (
             <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
-              {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? '—'}</td></tr>)}
+              {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? NO_VALUE}</td></tr>)}
             </Table>
           )}
         </Panel>
@@ -418,8 +419,8 @@ export function DataAdmin() {
               <tr key={r.id}>
                 <td className="fig text-xs">{formatStamp(r.at)}</td>
                 <td className="text-xs">{r.method === 'detected' ? <Badge tone="warn">{RESTORE_HOW.detected}</Badge> : RESTORE_HOW[r.method]}</td>
-                <td className="fig text-xs">{r.restored.at ? formatStamp(r.restored.at) : '—'}{r.restored.seq ? <span className="block text-2xs text-ink-3">entry {r.restored.seq}</span> : null}</td>
-                <td className="fig text-right text-xs">{r.lost ? `${r.method === 'detected' ? 'at least ' : ''}${r.lost.entries}` : '—'}{r.undone?.count ? <span className="block text-2xs text-warn">{r.undone.count} to review</span> : null}</td>
+                <td className="fig text-xs">{r.restored.at ? formatStamp(r.restored.at) : NO_VALUE}{r.restored.seq ? <span className="block text-2xs text-ink-3">entry {r.restored.seq}</span> : null}</td>
+                <td className="fig text-right text-xs">{r.lost ? `${r.method === 'detected' ? 'at least ' : ''}${r.lost.entries}` : NO_VALUE}{r.undone?.count ? <span className="block text-2xs text-warn">{r.undone.count} to review</span> : null}</td>
                 <td className="text-xs">{r.by ? `${r.by.name} (${r.by.username})` : <span className="text-ink-3">nobody</span>}</td>
                 <td className="text-right"><Button size="sm" variant="ghost" onClick={() => setOpenRestore(r.id)}>Details</Button></td>
               </tr>
@@ -470,7 +471,7 @@ function RestoreDetail({ restore: r, usernames }: { restore: RestoreView; userna
           <h3 className="text-xs font-semibold text-ink-2">Account, authority and hold changes undone</h3>
           <p className="text-xs text-ink-3">Each is as the backup had it again; make again the ones that still should be.{r.undone.count > r.undone.entries.length ? ` The first ${r.undone.entries.length} of ${r.undone.count}.` : ''}</p>
           <Table label="Account, authority and hold changes undone" className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
-            {r.undone.entries.map((e) => <tr key={e.seq}><td className="fig text-xs">{formatStamp(e.at)}</td><td className="text-xs">{humanize(e.action)}</td><td className="mono text-2xs">{e.subject_id ? usernames[e.subject_id] ?? (e.subject_username ? `${e.subject_username} (gone with the restore)` : 'an account since removed') : '—'}</td></tr>)}
+            {r.undone.entries.map((e) => <tr key={e.seq}><td className="fig text-xs">{formatStamp(e.at)}</td><td className="text-xs">{humanize(e.action)}</td><td className="mono text-2xs">{e.subject_id ? usernames[e.subject_id] ?? (e.subject_username ? `${e.subject_username} (gone with the restore)` : 'an account since removed') : NO_VALUE}</td></tr>)}
           </Table>
         </div>
       )}

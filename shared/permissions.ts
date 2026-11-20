@@ -52,10 +52,10 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((a, b) => a | b, 0);
 /**
- * Permissions that count only when a role the person holds names them (ADR-0024 §2; John, "role only"): leading a unit
+ * Permissions that count only when a role the person holds names them (ADR-0024 §2): leading a unit
  * and full unit authority do not include them, and nobody grants one to themselves. A role names one when it is made,
  * never afterwards, and it counts for a holder only when someone else granted them the role. Approving your own duty is
- * the one there is: the specification asks for explicit self-approval authority.
+ * the one there is: it takes explicit self-approval authority.
  */
 export const NAMED_ONLY_BITS = PERMISSIONS.APPROVE_OWN_DUTY;
 /**
@@ -126,7 +126,7 @@ export const ORG_ROLES: Record<OrgRole, { label: string; description: string; pe
 export const ORG_ROLE_KEYS = Object.keys(ORG_ROLES) as OrgRole[];
 
 /**
- * The Unit Manager (VANTAGE_CLAUDE_MASTER §9): a unit-scoped administrator of the Unit Instances they are assigned to. Lead
+ * The Unit Manager: a unit-scoped administrator of the Unit Instances they are assigned to. Lead
  * Unit Managers and Unit Managers both are; Records Officers and Unit Auditors hold Unit Instance roles but are not.
  */
 export const UNIT_MANAGER_ROLES = ['owner', 'admin'] as const satisfies readonly OrgRole[];
@@ -181,7 +181,7 @@ export const PLATFORM_ROLES: Record<PlatformRole, { label: string; description: 
 export const PLATFORM_ROLE_KEYS = Object.keys(PLATFORM_ROLES) as PlatformRole[];
 
 /**
- * The Vantage Administrator (VANTAGE_CLAUDE_MASTER §9): the people who run the platform. Everyone holding a platform role
+ * The Vantage Administrator: the people who run the platform. Everyone holding a platform role
  * is Vantage staff; Lead Vantage Administrators and Vantage Administrators are its administrators.
  */
 export const VANTAGE_ADMINISTRATOR_ROLES = ['owner', 'admin'] as const satisfies readonly PlatformRole[];

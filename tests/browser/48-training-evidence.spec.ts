@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { confirmSudoIfAsked, ensureSetup, joinUnit, loginAs, logout, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Training evidence (Task 19, ADR-0025). A training holds its evidence as files: each says what it is, and in a line
+ * Training evidence (ADR-0025). A training holds its evidence as files: each says what it is, and in a line
  * what it shows, beside its name, its type, who added it and when. The Marine adds, corrects and removes their own;
  * whoever reads the unit's shared records opens a shared training's evidence from the Marine's page, and only someone
  * who may correct the record changes it. Every view reads cleanly to assistive technology and fits a phone.

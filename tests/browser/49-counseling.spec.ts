@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { confirmSudoIfAsked, ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Counseling (Task 20, ADR-0027). A counselor drafts a counseling only they see, may share it with its Marine for review,
+ * Counseling (ADR-0027). A counselor drafts a counseling only they see, may share it with its Marine for review,
  * and finalizes it; its Marine reads it, answers in its comments and acknowledges it. A final counseling changes only by
  * amendment, which keeps what it said before and asks the Marine to acknowledge the new text. It prints as the COUNSELING
  * WORKSHEET itself (ADR-0033), on a page without the app around it, and downloads as a fillable PDF of the same form; each
@@ -44,7 +44,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   const id = await marine(page, lead.page);
   const summary = `Discussed the GTCC delinquency report ${unique('s')}`;
 
-  // ——— The counselor writes a draft: only they see it ———
+  // The counselor writes a draft: only they see it
   await lead.page.goto(`/team/${id}?tab=counseling`);
   await lead.page.getByRole('button', { name: 'New counseling' }).first().click();
   const form = lead.page.getByRole('dialog', { name: /New counseling for Marine/ });
@@ -65,7 +65,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await expect(page.getByRole('heading', { name: 'Counseling', exact: true })).toBeVisible();
   await expect(page.getByText(summary)).toHaveCount(0);
 
-  // ——— Shared for review: the Marine reads it and answers in its comments, but cannot acknowledge a draft ———
+  // Shared for review: the Marine reads it and answers in its comments, but cannot acknowledge a draft
   await card.getByRole('button', { name: 'Share with Marine' }).click();
   await toast(lead.page, 'Shared with the Marine for review.');
   await expect(card.getByText('Shared for review', { exact: true })).toBeVisible();
@@ -84,7 +84,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   expect(await axe(page), 'a counseling shared for review').toEqual([]);
   await page.keyboard.press('Escape');
 
-  // ——— Finalized, after saying what that means; then the Marine acknowledges what they read ———
+  // Finalized, after saying what that means; then the Marine acknowledges what they read
   await card.getByRole('button', { name: 'Finalize' }).click();
   const ask = lead.page.getByRole('dialog', { name: 'Finalize this counseling?' });
   await expect(ask).toContainText('change only by amendment');
@@ -119,7 +119,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await page.keyboard.press('Escape');
   await expect(row.getByText('Acknowledged', { exact: true })).toBeVisible();
 
-  // ——— Amended: what changed and why is kept; the Marine acknowledges the new text ———
+  // Amended: what changed and why is kept; the Marine acknowledges the new text
   await lead.page.reload();
   await card.getByRole('button', { name: 'Amend…' }).click();
   const amend = lead.page.getByRole('dialog', { name: 'Amend counseling' });
@@ -149,7 +149,7 @@ test('a counselor drafts, shares, finalizes and amends a counseling; its Marine 
   await view.getByRole('button', { name: 'Acknowledge' }).click();
   await toast(page, 'Acknowledged.');
 
-  // ——— Print opens the worksheet laid out for paper, in its own tab, without the app around it ———
+  // Print opens the worksheet laid out for paper, in its own tab, without the app around it
   const opened = page.context().waitForEvent('page');
   await view.getByRole('button', { name: 'Print' }).click();
   const printed = await opened;

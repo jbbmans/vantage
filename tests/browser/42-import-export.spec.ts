@@ -4,7 +4,7 @@ import { ensureSetup, confirmSudoIfAsked, registerAs, unique } from './fixtures'
 import { writeWorkbook } from '../../server/lib/workbook.ts';
 
 /**
- * Import, export and download (Task 13, ADR-0019). A workbook comes in through a review that says what each row is and
+ * Import, export and download (ADR-0019). A workbook comes in through a review that says what each row is and
  * where it goes: awards as awards, courses as training, duty as duty and never an Activity. A row that only reads
  * like an award is offered as one and goes in as one only when its owner says so. A row that cannot be read is fixed on
  * the review. The import can be undone. A person exports the categories they choose, and downloads one record from its

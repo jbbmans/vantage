@@ -15,7 +15,7 @@ import {
 import { STANDARD_ERROR_REPORT_TYPES, errorTypeCode, type ErrorReportType } from '../../shared/errorReports.ts';
 
 /**
- * A Unit Instance's own configuration (VANTAGE_CLAUDE_MASTER §19, ADR-0012): the billets it staffs, the duty it stands,
+ * A Unit Instance's own configuration (ADR-0012): the billets it staffs, the duty it stands,
  * the training it requires, the financial error reports it files (ADR-0021), how long a claim on its work holds, and the
  * period its reports open on. Unit Managers keep
  * it in the Unit Manager console. None of it is a Marine's record, and none of it reaches a sign-in, security or audit
@@ -66,7 +66,7 @@ function rowOf<T>(ctx: AppContext, kind: Kind, orgId: string, id: string): T {
 function changes(before: object, after: object): string {
   const b = before as Record<string, unknown>;
   const a = after as Record<string, unknown>;
-  return Object.keys(a).filter((k) => (b[k] ?? null) !== (a[k] ?? null)).map((k) => `${k}: ${b[k] ?? '—'} → ${a[k] ?? '—'}`).join('; ');
+  return Object.keys(a).filter((k) => (b[k] ?? null) !== (a[k] ?? null)).map((k) => `${k}: ${b[k] ?? '(none)'} → ${a[k] ?? '(none)'}`).join('; ');
 }
 
 const lifecycle = (before: { active: number } | null, after: { active: number }) =>
@@ -76,7 +76,7 @@ function record(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string, 
   audit(ctx, { actor_id: actor.id, action: `${kind}_${action}`, entity: TABLE[kind], entity_id: row.id, org_id: orgId, unit_id: row.unit_id ?? null, detail, ip });
 }
 
-// ——— Billets ———
+// Billets
 
 export interface BilletInput { unit_id?: string | null; title?: string; code?: string | null; description?: string | null; active?: boolean }
 
@@ -116,7 +116,7 @@ export function saveBillet(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgI
   return row;
 }
 
-// ——— Duty types ———
+// Duty types
 
 export interface DutyTypeInput { code?: string; name?: string; description?: string | null; active?: boolean }
 
@@ -153,7 +153,7 @@ export function saveDutyType(ctx: AppContext, actor: Pick<SessionUser, 'id'>, or
 }
 
 /**
- * The specification's starting list (Task 17), less what the Unit Instance already has by code or by name, retired ones
+ * The standard starting list, less what the Unit Instance already has by code or by name, retired ones
  * included: a "Barracks Duty" added by hand keeps its own code and is not added again.
  */
 export function addStandardDutyTypes(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string, ip?: string): { added: string[] } {
@@ -172,7 +172,7 @@ export function addStandardDutyTypes(ctx: AppContext, actor: Pick<SessionUser, '
   return { added };
 }
 
-// ——— Financial error report types (ADR-0021) ———
+// Financial error report types (ADR-0021)
 
 export interface ErrorReportTypeInput { code?: string; name?: string; description?: string | null; active?: boolean }
 
@@ -206,7 +206,7 @@ export function saveErrorReportType(ctx: AppContext, actor: Pick<SessionUser, 'i
 }
 
 /**
- * The specification's reports (Task 15) a Unit Instance does not have yet, by code or by name, retired ones included. A
+ * The standard reports a Unit Instance does not have yet, by code or by name, retired ones included. A
  * Unit Manager adds them from the console; a Unit Instance that has none at all is given them the first time its error
  * reports are opened (errorReportTypesOf), with no one named as having added them.
  */
@@ -238,7 +238,7 @@ export function errorReportTypesOf(ctx: AppContext, orgId: string): ErrorReportT
   return listErrorReportTypes(ctx, orgId);
 }
 
-// ——— Training requirements ———
+// Training requirements
 
 export interface TrainingRequirementInput {
   unit_id?: string | null; title?: string; type?: TrainingRequirementType; course_code?: string | null; interval_months?: number | null; description?: string | null; active?: boolean;
@@ -284,7 +284,7 @@ export function saveTrainingRequirement(ctx: AppContext, actor: Pick<SessionUser
   return row;
 }
 
-// ——— Work settings and report defaults ———
+// Work settings and report defaults
 
 export const unitSettingsOf = (ctx: AppContext, orgId: string): UnitSettings => {
   const org = getOrg(ctx, orgId);
@@ -323,7 +323,7 @@ export function updateUnitSettings(ctx: AppContext, actor: Pick<SessionUser, 'id
   return after;
 }
 
-// ——— Everything, for the console ———
+// Everything, for the console
 
 export function unitConfiguration(ctx: AppContext, orgId: string) {
   return {
@@ -340,8 +340,8 @@ export function unitConfiguration(ctx: AppContext, orgId: string) {
 }
 
 /**
- * What Vantage decides for every Unit Instance, shown to Unit Managers read-only so they know where their settings stop
- * (VANTAGE_CLAUDE_MASTER §19). Configuration only: no secret, no host name, nothing about another Unit Instance.
+ * What Vantage decides for every Unit Instance, shown to Unit Managers read-only so they know where their settings
+ * stop. Configuration only: no secret, no host name, nothing about another Unit Instance.
  */
 export function enterpriseControls(ctx: AppContext) {
   const { config, runtime } = ctx;
@@ -360,7 +360,7 @@ export function enterpriseControls(ctx: AppContext) {
   };
 }
 
-// ——— Export and import ———
+// Export and import
 
 export interface UnitConfigurationFile {
   format: typeof UNIT_CONFIG_FORMAT;

@@ -8,7 +8,7 @@ import { useTutorials } from '@/lib/tutorialContext';
 import { hasParam, onPage } from '@/lib/tutorialPaths';
 import { cn } from '@/lib/utils';
 
-// ——— "Show me": find the control a step is about, bring it into view and outline it ———
+// "Show me": find the control a step is about, bring it into view and outline it
 
 const shown = (el: Element) => {
   const r = el.getBoundingClientRect();

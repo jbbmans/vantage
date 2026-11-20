@@ -186,7 +186,7 @@ export const METHODS: Record<MethodKey, PurchaseMethod> = {
         { text: 'The Regional Contracting Office (RCO) receives notice of the approved PR, validates the requirement, and accepts it.', actor: 'RCO' },
         { text: 'The RCO assigns a Contracting Officer (KO), who completes the contracting process.', actor: 'KO' },
         { text: 'The KO releases the awarded contract in SPS.', actor: 'KO', evidence: 'SF 1449 or SF 30' },
-        { text: 'SPS sends the award to DAI. The Block III chart shows a certifier step and a "24hrs" label — a diagram detail, not a service standard.', actor: 'SPS / Certifier' },
+        { text: 'SPS sends the award to DAI. The Block III chart shows a certifier step and a "24hrs" label: a diagram detail, not a service standard.', actor: 'SPS / Certifier' },
         { text: 'Verify the supported obligation posts to the intended DAI record.', actor: 'FMRA' },
       ] },
       { title: 'Delivery, receipt and payment', steps: [
@@ -267,7 +267,7 @@ export const METHODS: Record<MethodKey, PurchaseMethod> = {
         { text: 'The AO approves. DTS generates the approved authorization and sends an award transaction to DAI. Verify the interface and posting.', actor: 'AO', evidence: 'DD 1610 / DTS authorization' },
       ] },
       { title: 'Travel, voucher and settlement', steps: [
-        { text: 'The traveler executes the trip — the real-world delivered event, separate from the later accounting entry.', actor: 'Traveler' },
+        { text: 'The traveler executes the trip: the real-world delivered event, separate from the later accounting entry.', actor: 'Traveler' },
         { text: 'After travel, the traveler completes the voucher in DTS.', actor: 'Traveler', evidence: 'DD 1351-2 / DTS voucher' },
         { text: 'The book’s example route is Supply review, Admin certification, then local Disbursing validation and approval. Follow the established local route.', actor: 'Supply / Admin / Disbursing' },
         { text: 'Approved voucher processing sends the delivered transaction to DAI.', actor: 'DTS' },
@@ -351,9 +351,9 @@ export const REQUIREMENT_ELEMENTS = [
 ] as const;
 
 export const ROUTING = [
-  { requirement: 'Item with an NSN — office supplies', methods: ['servmart'] as MethodKey[], condition: 'Authorized item and appropriate government source.' },
-  { requirement: 'Item with an NSN — maintenance parts', methods: ['gcss'] as MethodKey[], condition: 'Logistics requisition and stock/source review.' },
-  { requirement: 'Item without an NSN — commercial supply', methods: ['gpc', 'contract'] as MethodKey[], condition: 'Threshold and requirement characteristics affect routing.' },
+  { requirement: 'Item with an NSN: office supplies', methods: ['servmart'] as MethodKey[], condition: 'Authorized item and appropriate government source.' },
+  { requirement: 'Item with an NSN: maintenance parts', methods: ['gcss'] as MethodKey[], condition: 'Logistics requisition and stock/source review.' },
+  { requirement: 'Item without an NSN: commercial supply', methods: ['gpc', 'contract'] as MethodKey[], condition: 'Threshold and requirement characteristics affect routing.' },
   { requirement: 'Goods or services from another DoD component', methods: ['mipr'] as MethodKey[], condition: 'Interagency support and acceptance process.' },
   { requirement: 'Commercial service', methods: ['gpc', 'contract'] as MethodKey[], condition: 'Service threshold and applicable authority.' },
   { requirement: 'Government fuel', methods: ['fuel'] as MethodKey[], condition: 'Fuel key / QR and the local control process.' },

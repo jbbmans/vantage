@@ -13,7 +13,7 @@ import { VERIFIABLE_LABELS, courseSourceLabel, type CourseProvenance } from './c
 
 /**
  * What a person's records look like outside Vantage, and how they come back in (ADR-0019). One registry for the personal
- * export, the import that reads it back, a single record's download and the Your data page: every category the spec names,
+ * export, the import that reads it back, a single record's download and the Your data page: every category there is,
  * the store it lives in, whether an import writes it (and why not when it does not), and the spreadsheet columns of each
  * record type. Export, import and the page all read this, so a column the export writes is one the import reads.
  *
@@ -42,7 +42,7 @@ export const TABLE_LABELS: Record<ImportTable, { one: string; many: string }> = 
   career_steps: { one: 'career step', many: 'Career plan' },
 };
 
-// ——— Categories ———
+// Categories
 
 export type CategoryFilter = { column: 'type' | 'category'; value: string } | { column: 'from_work' };
 
@@ -126,7 +126,7 @@ export function selectSections(keys: readonly string[] | null | undefined): Sect
   };
 }
 
-// ——— Spreadsheet columns ———
+// Spreadsheet columns
 
 export type ColumnKind = 'text' | 'date' | 'time' | 'number' | 'flag' | 'enum' | 'list' | 'links' | 'json';
 export interface TransferColumn {
@@ -296,7 +296,7 @@ export const READINESS_COLUMNS: TransferColumn[] = [
   { key: 'fitrep_period_end', header: 'FITREP Period End', kind: 'date' },
 ];
 
-// ——— Routing a sheet or a row to its record type ———
+// Routing a sheet or a row to its record type
 
 export type RouteTarget = { table: ImportTable; preset?: Record<string, unknown>; label: string } | { table: 'profile'; label: string };
 
@@ -330,7 +330,7 @@ export function routeFor(name: string | null | undefined): RouteTarget | null {
   return null;
 }
 
-// ——— Reading a row ———
+// Reading a row
 
 const norm = squash;
 
@@ -488,7 +488,7 @@ export function readCell(column: TransferColumn, raw: string): { value: unknown;
   }
 }
 
-// ——— Writing a row ———
+// Writing a row
 
 const ongoingOf = (row: Record<string, unknown>) => row.ongoing === 1 || row.ongoing === true;
 
@@ -514,7 +514,7 @@ export function sheetRow(table: ImportTable, row: Record<string, unknown>): Reco
 
 export const sheetHeaders = (table: ImportTable) => [...RECORD_COLUMNS[table].map((c) => c.header), DELETED_AT_HEADER];
 
-// ——— The import's review, as the page reads it ———
+// The import's review, as the page reads it
 
 export type RowOutcome = 'new' | 'update' | 'unchanged' | 'present' | 'duplicate' | 'problem' | 'excluded' | 'not_imported';
 

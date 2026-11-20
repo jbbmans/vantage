@@ -24,7 +24,7 @@ export interface HealthCheck { id: string; label: string; status: HealthStatus; 
 const worst = (statuses: HealthStatus[]): HealthStatus => (statuses.includes('fail') ? 'fail' : statuses.includes('warn') ? 'warn' : 'ok');
 const parse = <T>(raw: string | null, fallback: T): T => { try { return raw ? (JSON.parse(raw) as T) : fallback; } catch { return fallback; } };
 
-// ——— Releases ———
+// Releases
 
 export interface Release { version: string; build: string; client: string | null; firstStartedAt: string }
 const RELEASES_KEPT = 20;
@@ -65,7 +65,7 @@ export function versionStatus(ctx: AppContext) {
   };
 }
 
-// ——— Schema and migrations ———
+// Schema and migrations
 
 export function migrationStatus(ctx: AppContext) {
   const database = Number(metaGet(ctx.db, 'schema_version') || 0);
@@ -123,7 +123,7 @@ export function auditMigrations(ctx: AppContext) {
   metaSet(db, 'migration_audited_through', String(schema));
 }
 
-// ——— Backups ———
+// Backups
 
 /** The last backups Vantage knows of, and whether the newest is within VANTAGE_BACKUP_MAX_AGE_HOURS. */
 export function backupStatus(ctx: AppContext, at = Date.now()) {
@@ -144,7 +144,7 @@ export function backupStatus(ctx: AppContext, at = Date.now()) {
   };
 }
 
-// ——— Scheduled jobs ———
+// Scheduled jobs
 
 export interface JobState {
   name: string; label: string; everyMs: number; runs: number; failures: number; consecutiveFailures: number;
@@ -197,7 +197,7 @@ export function jobStatus(ctx: AppContext, at = Date.now()) {
 /** For tests: forget the jobs registered against a context. */
 export function clearJobs(ctx: AppContext) { jobs.delete(ctx); }
 
-// ——— Health ———
+// Health
 
 const mb = (bytes: number) => `${Math.round(bytes / 1_048_576)} MB`;
 

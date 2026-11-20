@@ -1,6 +1,6 @@
 # Vantage films
 
-The trailer (about 100 seconds: the specification's ten outcomes, Task 27, ADR-0036) and thirteen field-guide
+The trailer (about 100 seconds: the ten outcomes, ADR-0036) and thirteen field-guide
 chapters. There is no narration: each film says what it has to say in plain text on screen, over its own music. They are made in
 code, from the real application, and published with one command:
 

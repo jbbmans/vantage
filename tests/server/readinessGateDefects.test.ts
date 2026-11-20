@@ -1,5 +1,5 @@
 /**
- * The defects the production readiness gate found (Task 28), each held by the test that fails without its fix. The
+ * The defects the production readiness gate found, each held by the test that fails without its fix. The
  * register (docs/engineering/readiness-gate.json) cites each test by its title.
  */
 import { test, after, before } from 'node:test';
@@ -20,7 +20,7 @@ import { createContext } from '../../server/app.ts';
 const day = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const EDIPI_RUN = /(?<!\d)\d{10}(?!\d)/;
 
-// ——— Reach inside one Unit Instance: a role that does not reach down (position 0) reads its own unit alone ———
+// Reach inside one Unit Instance: a role that does not reach down (position 0) reads its own unit alone
 
 let app: TestApp;
 let op: { id: string; token: string };
@@ -302,7 +302,7 @@ test('a delimited file longer than the intake reads says it was cut, as a workbo
   }
 });
 
-// ——— EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's ———
+// EDIPIs: a Unit Instance's trail is read by roles that never see one, and a personal export carries only the owner's
 
 test('the Unit Instance audit trail never shows, matches or exports an EDIPI, whether a card was linked or the feed ran', async () => {
   const local = await startApp({ VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' });
@@ -403,7 +403,7 @@ test('a personal export gives the Marine where they acted from, never the addres
   } finally { await local.close(); }
 });
 
-// ——— The service archive (POST /api/platform/import): only what this build can hold, with the trail it was exported with ———
+// The service archive (POST /api/platform/import): only what this build can hold, with the trail it was exported with
 
 test('a service archive from a newer build, or with its audit trail changed, removed or stripped, is refused and nothing is imported', async () => {
   const source = await startApp();

@@ -8,7 +8,7 @@ import { forgetImportSnapshots } from '../../server/services/records.ts';
 import { removeMember } from '../../server/services/org.ts';
 
 /**
- * Task 13 (ADR-0019): a person's records go out and come back by what they are. An award stays an award, a course a
+ * ADR-0019: a person's records go out and come back by what they are. An award stays an award, a course a
  * course, a counseling a counseling, duty duty (ADR-0023), never turned into Activities; nothing a file says
  * places a record in another Unit Instance or names a record here that is not the importer's own.
  */

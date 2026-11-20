@@ -569,7 +569,7 @@ export function seedBody(field: { key: string; label: string; money?: boolean; a
   const system = imported ? 'Imported sheet' : 'Entered with the work';
   const base = { field: field.key, label: field.label, source: 'source_file', system };
   const raw = seed.amount ?? seed.value_text ?? null;
-  const blank = seed.not_shown || raw == null || String(raw).trim() === '' || /^[-–—]$/.test(String(raw).trim());
+  const blank = seed.not_shown || raw == null || String(raw).trim() === '' || /^[-–\u2014]$/.test(String(raw).trim());
   if (field.money) {
     if (blank) return field.allowNotShown ? { ...base, not_shown: true, display: 'Not shown', value_text: null } : null;
     const cents = observationCents(String(raw));

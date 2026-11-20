@@ -13,13 +13,14 @@ import * as api from '@/lib/api';
 import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { useAdmin } from './sections';
 import { usePlatformCan } from './people';
+import { NO_VALUE } from '../../shared/metrics';
 
 /**
  * The Vantage Administrator console's operations pages (ADR-0011): the service's health, its sign-in health, its feature
  * flags and controlled maintenance. Each describes the service; none shows what a Unit Instance keeps.
  */
 
-const mb = (bytes: number | null | undefined) => (bytes == null ? '—' : bytes < 1_048_576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1_048_576).toFixed(1)} MB`);
+const mb = (bytes: number | null | undefined) => (bytes == null ? NO_VALUE : bytes < 1_048_576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1_048_576).toFixed(1)} MB`);
 const every = (ms: number) => (ms >= 86_400_000 ? `every ${ms / 86_400_000} d` : ms >= 3_600_000 ? `every ${ms / 3_600_000} h` : `every ${Math.round(ms / 60_000)} min`);
 const uptime = (s: number) => (s >= 86_400 ? `${Math.floor(s / 86_400)} d ${Math.floor((s % 86_400) / 3600)} h` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 
@@ -27,7 +28,7 @@ function Failed({ error, retry }: { error: unknown; retry: () => void }) {
   return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
 }
 
-// ——— Operations ———
+// Operations
 
 interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
 interface BackupRecord { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null }
@@ -61,7 +62,7 @@ export function Operations() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Build" subtitle={`Vantage ${version.version}`}>
           <dl className="space-y-1.5 text-sm">
-            {[['Build', version.build], ['Client', version.client ?? 'not built'], ['Node', version.node], ['Serving since', version.startedAt ? `${formatStamp(version.startedAt)} (${uptime(version.uptime)})` : '—'], ['Memory', `${mb(health.process.rssBytes)} resident · ${mb(health.process.heapUsedBytes)} heap`]].map(([k, v]) => (
+            {[['Build', version.build], ['Client', version.client ?? 'not built'], ['Node', version.node], ['Serving since', version.startedAt ? `${formatStamp(version.startedAt)} (${uptime(version.uptime)})` : NO_VALUE], ['Memory', `${mb(health.process.rssBytes)} resident · ${mb(health.process.heapUsedBytes)} heap`]].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink" title={v}>{v}</dd></div>
             ))}
           </dl>
@@ -123,7 +124,7 @@ export function Operations() {
   );
 }
 
-// ——— Unit Instance operations (ADR-0014) ———
+// Unit Instance operations (ADR-0014)
 
 interface UpgradeRecordView {
   id: string; at: string; version: string; schema: { from: number; to: number }; status: UpgradeStatus; ms: number; migrations: number[];
@@ -234,7 +235,7 @@ export function InstanceOperationsPage() {
   );
 }
 
-// ——— Sign-in health ———
+// Sign-in health
 
 interface CrlStatus { file: string; issuer: string | null; thisUpdate: string | null; nextUpdate: string | null; error: string | null; status: HealthStatus }
 interface SignInReport {
@@ -292,12 +293,12 @@ export function SignInHealth() {
             {cac.mode === 'proxy' && <p className="mt-2 text-xs text-ink-3">Vantage cannot see the gateway’s revocation lists or trusted CAs. Ask the team that runs it to watch both.</p>}
             {cac.crls.length > 0 && (
               <Table label="Certificate revocation lists" className="scroll-x mt-3" minWidth={560} head={<><th>Revocation list</th><th>Issuer</th><th>Next update</th><th>State</th></>}>
-                {cac.crls.map((c, i) => <tr key={`${c.file}:${i}`}><td className="mono text-2xs">{c.file}</td><td className="text-xs">{c.issuer ?? '—'}</td><td className="fig text-xs">{c.error ? <span className="text-bad">{c.error}</span> : c.nextUpdate ? `${formatStamp(c.nextUpdate)} (${timeAgo(c.nextUpdate)})` : 'not given'}</td><td><StatusBadge status={c.status} /></td></tr>)}
+                {cac.crls.map((c, i) => <tr key={`${c.file}:${i}`}><td className="mono text-2xs">{c.file}</td><td className="text-xs">{c.issuer ?? NO_VALUE}</td><td className="fig text-xs">{c.error ? <span className="text-bad">{c.error}</span> : c.nextUpdate ? `${formatStamp(c.nextUpdate)} (${timeAgo(c.nextUpdate)})` : 'not given'}</td><td><StatusBadge status={c.status} /></td></tr>)}
               </Table>
             )}
             {cac.cas.length > 0 && (
               <Table label="Trusted certificate authorities" className="scroll-x mt-3" minWidth={480} head={<><th>Trusted CA</th><th>Valid until</th><th>State</th></>}>
-                {cac.cas.map((c, i) => <tr key={`${c.subject}:${i}`}><td className="text-xs">{c.subject}</td><td className="fig text-xs">{c.validTo ? formatStamp(c.validTo) : '—'}</td><td><StatusBadge status={c.status} /></td></tr>)}
+                {cac.cas.map((c, i) => <tr key={`${c.subject}:${i}`}><td className="text-xs">{c.subject}</td><td className="fig text-xs">{c.validTo ? formatStamp(c.validTo) : NO_VALUE}</td><td><StatusBadge status={c.status} /></td></tr>)}
               </Table>
             )}
           </Panel>
@@ -320,7 +321,7 @@ export function SignInHealth() {
   );
 }
 
-// ——— Feature flags ———
+// Feature flags
 
 interface RuntimeFlag { key: string; label: string; hint: string; settings: string[]; on: boolean; blockedBy: string | null; reaches: { destination: string; mcen: 'refused' | 'approval' | 'enterprise' } | null; changedAt: string | null; changedBy: string | null }
 interface EnvironmentFlag { key: string; label: string; on: boolean; value?: string; settings: string[]; hint: string }
@@ -449,7 +450,7 @@ function InstanceFlags({ report, editable, refresh }: { report: InstanceFlagRepo
   );
 }
 
-// ——— Controlled maintenance ———
+// Controlled maintenance
 
 interface MaintenanceWindow { reason: string; message: string | null; until: string | null; startedAt: string; startedBy: string; startedByName: string }
 interface TaskResult { task: string; label: string; ok: boolean; summary: string; detail: string[]; ms: number; at: string }

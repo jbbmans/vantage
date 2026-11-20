@@ -11,7 +11,7 @@ import {
 } from '../../shared/unitAnalytics.ts';
 
 /**
- * Unit analytics (Task 21, ADR-0028): every figure lists the records it counts, the records it reads are the shared ones
+ * Unit analytics (ADR-0028): every figure lists the records it counts, the records it reads are the shared ones
  * of the units the reader may read, it names Marines only to those who open member records, and every read is audited.
  */
 

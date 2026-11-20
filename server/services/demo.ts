@@ -545,7 +545,7 @@ export const DEMO_SCORING_SINCE_DAYS = 120;
  * The section's duty set-up (ADR-0023, ADR-0024): the standard duty types and one scoring version in force from the
  * workspace's invented past. A real Unit Instance's Unit Managers add both in the console, and a version they publish
  * takes effect tomorrow at the soonest; the demo has no console, so without this a visitor could record duty but never
- * see it scored. The points are the specification's own worked examples (§13), and the content is held to the console's
+ * see it scored. The points are the documented worked examples, and the content is held to the console's
  * rules before it is written.
  */
 function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) {
@@ -579,7 +579,7 @@ function seedDuty(ctx: AppContext, unitId: string, ids: Record<string, string>) 
   // and no audit entry stamped today claims it was published today, 120 days after it took effect.
   const policyId = newId();
   const since = dayOffset(-DEMO_SCORING_SINCE_DAYS);
-  const note = 'The section’s scoring (synthetic): the specification’s worked examples.';
+  const note = 'The section’s scoring (synthetic): the worked examples.';
   ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)')
     .run(policyId, unitId, since, JSON.stringify(content), note, ids.leader, isoAt(DEMO_SCORING_SINCE_DAYS + 1, 15));
 }

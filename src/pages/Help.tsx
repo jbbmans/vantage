@@ -103,7 +103,7 @@ export default function Help() {
             className="pl-9 pr-9"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search the guide — try “who can see my records”, “passkey”, “retention”"
+            placeholder="Search the guide, for example “who can see my records”, “passkey”, “retention”"
             aria-label="Search the field guide"
           />
           {query && (
@@ -120,7 +120,7 @@ export default function Help() {
           <TutorialList only={lessons} />
           <Panel title={`${results.length} ${results.length === 1 ? 'answer' : 'answers'} for “${query.trim()}”`} bodyClassName="p-0">
             {results.length === 0
-              ? <div className="p-4"><EmptyState title={lessons.length ? 'No answer matches that' : 'Nothing matches that'} description="Try a word somebody would say out loud — “share”, “delete”, “CAC”, “how many people”." /></div>
+              ? <div className="p-4"><EmptyState title={lessons.length ? 'No answer matches that' : 'Nothing matches that'} description="Try a word somebody would say out loud: “share”, “delete”, “CAC”, “how many people”." /></div>
               : <div>{results.map((entry) => <QA key={entry.id} entry={entry} highlight />)}</div>}
           </Panel>
         </div>
@@ -195,7 +195,7 @@ export default function Help() {
                     <ul className="mt-1.5 space-y-1 border-l border-line pl-3">
                       {(ref.updates || []).map((u) => (
                         <li key={u.id} className="text-xs text-ink-3">
-                          <a className="link" href={u.url} target="_blank" rel="noreferrer noopener">{u.id}</a> — {u.note}
+                          <a className="link" href={u.url} target="_blank" rel="noreferrer noopener">{u.id}</a>: {u.note}
                         </li>
                       ))}
                     </ul>

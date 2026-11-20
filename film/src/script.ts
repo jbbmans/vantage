@@ -11,7 +11,7 @@ export interface Scene {
   min?: number;
   /** What the score does at the start of this scene. */
   cue?: 'hit' | 'lift' | 'drop' | 'build' | 'resolve';
-  /** The trailer: which of the specification's ten outcomes the scene shows, as its label reads on screen. */
+  /** The trailer: which of the ten outcomes the scene shows, as its label reads on screen. */
   outcome?: string;
 }
 
@@ -43,7 +43,7 @@ export interface Film {
 }
 
 /**
- * The trailer (Task 27): the product as it ships, outcome by outcome, in the order the specification names them. Every
+ * The trailer: the product as it ships, outcome by outcome, in a fixed order. Every
  * scene after the title is the real application in the synthetic demo; `outcome` is the label above its words, and the
  * scene's id says which of the ten it is. It says nothing a public site would: no address, no sign-up, no hosting claim.
  */

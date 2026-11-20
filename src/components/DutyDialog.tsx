@@ -21,7 +21,7 @@ import { formatStamp, todayIso } from '@/lib/utils';
 export const DUTY_TONE = { pending: 'info', approved: 'good', returned: 'warn', rejected: 'bad' } as const;
 
 /**
- * Recording a duty (Task 17, ADR-0023): for oneself, for a Marine one counsels in a unit, a correction to one not yet
+ * Recording a duty (ADR-0023): for oneself, for a Marine one counsels in a unit, a correction to one not yet
  * decided, or an activity its owner says was a duty. The form shows what the server will work out (its length, its
  * conditions and its points under the Unit Instance's scoring version of its first day) before anything is sent; the
  * server works it out again and keeps its own answer.

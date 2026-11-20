@@ -9,7 +9,7 @@ import {
 } from '../../shared/dutyScoring.ts';
 
 /**
- * A Unit Instance's duty scoring policies (Task 18 brought forward, ADR-0012). Each is published once as a version with
+ * A Unit Instance's duty scoring policies (ADR-0012). Each is published once as a version with
  * the day it takes effect and is never changed after; the database refuses a change (duty_scoring_policies_published).
  * A version that has not taken effect may be withdrawn and stays on the record. Duty is scored under the version in
  * force on its day (policyOn), so publishing a new one never rescores earlier duty.

@@ -17,7 +17,7 @@ import { ContributorsDialog, MetricTotalsGrid } from '@/components/MetricTotals'
 import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
 import { ECHELONS } from '../../shared/constants';
-import { formatDate, formatDollars } from '../../shared/metrics';
+import { formatDate, formatDollars, NO_VALUE } from '../../shared/metrics';
 import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays, useMediaQuery } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
@@ -557,7 +557,7 @@ function Units({ units, manageUnits, orgAdmin, roster }: { units: Unit[]; manage
   );
 }
 
-/** What the unit dashboard shows: what the unit produced (shared outcomes), or one area of its analytics (Task 21). */
+/** What the unit dashboard shows: what the unit produced (shared outcomes), or one area of its analytics. */
 type DashboardShow = 'output' | AnalyticsSection;
 const DASHBOARD_SHOWS: Array<{ value: DashboardShow; label: string }> = [
   { value: 'output', label: 'Output' }, { value: 'work', label: 'Casework' }, { value: 'duty', label: 'Duty' }, { value: 'training', label: 'Training' }, { value: 'personnel', label: 'Personnel' },
@@ -713,13 +713,13 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
         <div className="card"><EmptyState title="Not enough shared outcomes for a chart yet" description="Shared outcomes that carry a quantity, a value or hours will show month by month here." /></div>
       )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
+        <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? NO_VALUE], ['Avg CFT', t.avg_cft ?? NO_VALUE], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
           {!members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
             <>
             <div id={membersId}>
             <Table label="Members" head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
-              {listed.map((m) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
+              {listed.map((m) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? NO_VALUE : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
             </Table>
             </div>
             {members.length > MEMBERS_SHOWN && (

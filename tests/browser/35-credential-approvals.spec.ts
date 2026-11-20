@@ -4,7 +4,7 @@ import { ensureSetup, confirmSudoIfAsked, loginAs, registerAs, unique, OPERATOR,
 import { totpCode } from '../../server/auth/totp.ts';
 
 /**
- * Two people for a takeover in the Vantage Administrator console (Task 7, ADR-0013): a temporary password on an account
+ * Two people for a takeover in the Vantage Administrator console (ADR-0013): a temporary password on an account
  * that holds authority is refused alone and leads to a request with a reason; a second staff member approves it from the
  * approvals list; the one who asked carries it out, once.
  */

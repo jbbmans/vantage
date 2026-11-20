@@ -4,6 +4,7 @@ import { Table } from '@/components/common';
 import * as api from '@/lib/api';
 import { formatStamp } from '@/lib/utils';
 import { useAdmin } from './sections';
+import { NO_VALUE } from '../../shared/metrics';
 
 /**
  * The separation-of-duties report (ADR-0013): accounts whose authority crosses a line the role model draws, for Vantage
@@ -66,13 +67,13 @@ export function SeparationOfDuties() {
       <Finding id="leaders-not-members" title="Unit leaders who are not members" count={data.leadersNotMembers.length}
         explain="Recorded as a unit’s leader but no longer in it, so the leadership confers nothing. A Unit Manager names the unit’s leader."
         head={<><th>Recorded leader</th><th>Unit</th><th>Unit Instance</th></>}>
-        {data.leadersNotMembers.map((r) => <tr key={r.unitId}><td><Who person={r.person} /></td><td>{r.unitName}</td><td>{r.orgName ?? '—'}</td></tr>)}
+        {data.leadersNotMembers.map((r) => <tr key={r.unitId}><td><Who person={r.person} /></td><td>{r.unitName}</td><td>{r.orgName ?? NO_VALUE}</td></tr>)}
       </Finding>
       <Finding id="unproven-readers" title="Roles from the person who created the account" count={data.unprovenReaders.length}
         explain="Accounts that have not signed in with their own CAC or the organization’s sign-in, holding a role that reads records, or a Unit Instance role, from whoever created or invited them."
         head={<><th>Account</th><th>Role</th><th>Where</th><th>Granted by</th></>}>
         {data.unprovenReaders.map((r) => (
-          <tr key={`${r.person.id}:${r.unitId ?? r.orgId}:${r.role}`}><td><Who person={r.person} /></td><td>{r.role}</td><td>{r.unitName ? `${r.unitName}${r.orgName ? `, ${r.orgName}` : ''}` : r.orgName ?? '—'}</td><td><Who person={r.grantedBy} /></td></tr>
+          <tr key={`${r.person.id}:${r.unitId ?? r.orgId}:${r.role}`}><td><Who person={r.person} /></td><td>{r.role}</td><td>{r.unitName ? `${r.unitName}${r.orgName ? `, ${r.orgName}` : ''}` : r.orgName ?? NO_VALUE}</td><td><Who person={r.grantedBy} /></td></tr>
         ))}
       </Finding>
     </div>

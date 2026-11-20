@@ -1,5 +1,5 @@
 /**
- * Unit analytics (Task 21, ADR-0028): the figures a unit's analytics show, and the records behind each one.
+ * Unit analytics (ADR-0028): the figures a unit's analytics show, and the records behind each one.
  *
  * A section reads its source records once. Each record says which bar of which visual it counts in, under which series,
  * and with what value: its memberships. A figure is the sum of the memberships in its bar; a drill is the same
@@ -153,7 +153,7 @@ export function rateOf(v: Pick<Visual, 'buckets'>): { done: number; of: number; 
   return { done, of, percent: of ? Math.round((done / of) * 1000) / 10 : null };
 }
 
-// ——— Words ———
+// Words
 
 /** A figure in words: a count, dollars, hours, a share or days. */
 export function formatFigure(value: number, format: FigureFormat, exact = false): string {
@@ -209,7 +209,7 @@ export function summaryOf(v: Visual): string {
   return `${top.label} is the largest, at ${valueOf(v, top)} of ${formatFigure(v.value, v.format)}.`;
 }
 
-// ——— Months ———
+// Months
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -234,7 +234,7 @@ export const monthOf = (day: string | null | undefined, from: string) => {
 /** The longest window the analytics read, so a request cannot ask for a decade of months. */
 export const ANALYTICS_MAX_DAYS = 731;
 
-// ——— What crosses the wire ———
+// What crosses the wire
 
 export interface AnalyticsResponse {
   unit_id: string;

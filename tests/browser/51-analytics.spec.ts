@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, loginAs, quickLog, unique, OPERATOR } from './fixtures';
 
 /**
- * Unified analytics (Task 21, ADR-0028). The Unit dashboard answers questions about the unit's casework, duty, training
+ * Unified analytics (ADR-0028). The Unit dashboard answers questions about the unit's casework, duty, training
  * and personnel. Every chart is headed by its question, switches to a table of the same figures, prints with that table,
  * and opens the records behind each bar, by pointer or keyboard. It reads cleanly to assistive technology in both
  * themes and fits a phone.

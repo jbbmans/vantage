@@ -10,7 +10,7 @@ import { addMember } from '../../server/services/org.ts';
 import { composeDigest } from '../../server/services/digest.ts';
 
 /**
- * Task 24 (ADR-0031): what is said is said on the record it is about, to people who already read it. A question or a
+ * ADR-0031: what is said is said on the record it is about, to people who already read it. A question or a
  * review request goes to one named person, who alone answers it; its asker alone withdraws it; its workflow closes it.
  * Only someone who reads the record by their own place in its Unit Instance speaks there: Vantage access reads and never
  * writes. Mentions and the people picker stay inside the record's Marine and its Unit Instance. A case takes questions

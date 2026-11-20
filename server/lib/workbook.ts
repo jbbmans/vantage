@@ -250,7 +250,7 @@ export function sniffDelimiter(text: string): string {
   return best[1] > 0 ? best[0] : ',';
 }
 
-// ——— Writing ———
+// Writing
 
 export interface SheetOut { name: string; rows: Array<Array<string | number | null | undefined>> }
 

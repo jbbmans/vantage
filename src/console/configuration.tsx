@@ -25,7 +25,7 @@ import { Failed, useAct, useOrg } from './sections';
 import { useIdentity } from '@/lib/queries';
 
 /**
- * The Unit Manager console's structure and configuration pages (Task 6, ADR-0012): units and teams, billets, unit roles,
+ * The Unit Manager console's structure and configuration pages (ADR-0012): units and teams, billets, unit roles,
  * duty types, training requirements, work and report settings, and imports and exports. The server decides every change
  * against the caller's Unit Instance permissions; a page only hides what the role cannot use.
  */
@@ -93,7 +93,7 @@ const unitOptions = (units: OrgUnit[]) => treeOf(units).map((u) => ({ value: u.i
 
 const StatusBadge = ({ active }: { active: number }) => (active ? <Badge tone="good">In use</Badge> : <Badge tone="neutral">Retired</Badge>);
 
-// ——— Units and teams ———
+// Units and teams
 
 type UnitDraft = { id?: string; name: string; short_name: string; echelon: string; location: string; parent_id: string };
 
@@ -198,7 +198,7 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Billets ———
+// Billets
 
 type BilletDraft = { id?: string; title: string; code: string; unit_id: string; description: string };
 const sameTitle = (a: string | null | undefined, b: string) => (a || '').trim().toLowerCase() === b.trim().toLowerCase();
@@ -306,7 +306,7 @@ export function Billets({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Unit roles ———
+// Unit roles
 
 interface UnitRole {
   id: string; unit_id: string; key: string | null; name: string; description: string | null; color: string | null; position: number; permissions: number;
@@ -427,7 +427,7 @@ export function UnitRoles({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Duty ———
+// Duty
 
 type DutyDraft = { id?: string; code: string; name: string; description: string };
 
@@ -491,7 +491,7 @@ export function Duty({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Financial error reports (ADR-0021) ———
+// Financial error reports (ADR-0021)
 
 /**
  * The kinds of financial error report the Unit Instance's units file and compare: the standard five and any of its own.
@@ -556,7 +556,7 @@ export function ErrorReportTypes({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Duty scoring (Task 18 brought forward) ———
+// Duty scoring
 
 type MethodChoice = ScoringMethod | 'none';
 type RuleDraft = { method: MethodChoice; points: string; bands: Array<{ from_hours: string; points: string }> };
@@ -775,7 +775,7 @@ function DutyScoring({ org, data }: { org: OrgSummary; data: Configuration }) {
   );
 }
 
-// ——— Training ———
+// Training
 
 type RequirementDraft = { id?: string; title: string; type: string; course_code: string; interval_months: string; unit_id: string; description: string };
 const recurs = (m: number | null) => (!m ? 'Once' : m % 12 === 0 ? (m === 12 ? 'Every year' : `Every ${m / 12} years`) : `Every ${m} months`);
@@ -845,7 +845,7 @@ export function Training({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Work and reports ———
+// Work and reports
 
 export function WorkAndReports({ org }: { org: OrgSummary }) {
   const can = (p: string) => org.permissions.includes(p);
@@ -882,7 +882,7 @@ export function WorkAndReports({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Imports and exports ———
+// Imports and exports
 
 type Outcome = 'add' | 'restore' | 'exists' | 'skip';
 interface ImportPlan { applied?: boolean; lines: Array<{ kind: string; label: string; outcome: Outcome; reason?: string }>; counts: Record<Outcome, number> }
@@ -976,9 +976,9 @@ export function ImportsExports({ org }: { org: OrgSummary }) {
   );
 }
 
-// ——— Enterprise-controlled settings, read-only ———
+// Enterprise-controlled settings, read-only
 
-/** What Vantage decides for every Unit Instance, so a Unit Manager sees where their own settings stop (§19). */
+/** What Vantage decides for every Unit Instance, so a Unit Manager sees where their own settings stop. */
 export function EnterpriseControlsPanel({ orgId }: { orgId: string }) {
   const { data, error } = useConfiguration(orgId);
   if (error) return null;

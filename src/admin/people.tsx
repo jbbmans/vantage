@@ -70,7 +70,7 @@ function AccountPicker({ value, onChange, label = 'Account' }: { value: Platform
   );
 }
 
-// ——— Organizations ———
+// Organizations
 
 export function Organizations() {
   const can = usePlatformCan();
@@ -169,7 +169,7 @@ function NameOwner({ org, onClose, onDone }: { org: OrgListing | null; onClose: 
 }
 
 /**
- * Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): a Vantage Administrator adds and removes Lead Unit Managers and
+ * Unit Manager assignment (ADR-0010 §5): a Vantage Administrator adds and removes Lead Unit Managers and
  * Unit Managers in any Unit Instance, never themselves, members of it only, and its Lead Unit Managers are told each time.
  */
 function Managers({ org, onClose, onDone }: { org: OrgListing | null; onClose: () => void; onDone: () => void }) {
@@ -231,7 +231,7 @@ export function AskAccess({ org, onClose }: { org: { id: string; name: string } 
   );
 }
 
-// ——— Accounts: sign-in help ———
+// Accounts: sign-in help
 
 type AccountAction = 'unlock' | 'logout' | 'temporary-password' | 'reset-mfa' | 'deactivate' | 'reactivate' | 'sign-in';
 const ACTION_COPY: Record<AccountAction, { title: string; body: string; confirm: string; danger?: boolean }> = {
@@ -459,7 +459,7 @@ export function Accounts() {
   );
 }
 
-// ——— Vantage staff ———
+// Vantage staff
 
 interface StaffRow { user_id: string; role: PlatformRoleKey; username: string; first_name: string; last_name: string; active: number; totp_enabled: number; passkeys: number; last_login_at: string | null; created_at: string; granted_by_name: string | null }
 
@@ -509,7 +509,7 @@ export function Staff() {
   );
 }
 
-// ——— Vantage access ———
+// Vantage access
 
 export function Access() {
   const can = usePlatformCan();
@@ -551,7 +551,7 @@ export function Access() {
   );
 }
 
-// ——— Platform-wide legal holds ———
+// Platform-wide legal holds
 
 interface HoldRow { id: string; scope: 'instance' | 'user' | 'record_type'; subject_id: string | null; record_type: string | null; reason: string; placed_at: string }
 

@@ -80,7 +80,7 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
 }));
 
 /**
- * A unit's analytics (Task 21, ADR-0028): one section's figures, and the records behind one of them. Who may read them,
+ * A unit's analytics (ADR-0028): one section's figures, and the records behind one of them. Who may read them,
  * and whom they name, is the service's to decide; here the section, the window and the figure asked for are checked.
  */
 function analyticsSection(req: Request): AnalyticsSection {
@@ -251,7 +251,7 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   res.json({ ok: true, changed });
 }));
 
-// ——— Personnel records (ADR-0017) ———
+// Personnel records (ADR-0017)
 
 orgRouter.get('/units/:unitId/personnel', wrap((req, res) => {
   const ctx = req.ctx;

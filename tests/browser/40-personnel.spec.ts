@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, instanceDay, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
- * Personnel management (Task 11, ADR-0017): a leader sets a Marine's billet, supervisor and check-in from the roster,
+ * Personnel management (ADR-0017): a leader sets a Marine's billet, supervisor and check-in from the roster,
  * changes several Marines at once after a preview, and reads the result on the Marine's Personnel tab; a Unit Manager
  * manages the roster without opening a record; a Marine reads their own personnel record. Each page reads cleanly to
  * assistive technology and fits a phone.

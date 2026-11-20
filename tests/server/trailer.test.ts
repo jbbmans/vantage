@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { FILMS, TRAILER } from '../../film/src/script.ts';
 
 /**
- * Task 27, the trailer (ADR-0036): the specification's ten outcomes, in its order, recorded on the product as it ships,
+ * The trailer (ADR-0036): the ten outcomes, in order, recorded on the product as it ships,
  * on synthetic demo data, and never portraying Vantage as a public SaaS site.
  */
 

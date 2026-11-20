@@ -8,7 +8,7 @@ import { FORMULAS, PROCEDURES } from '../../shared/procedures.ts';
 import { PROVENANCE, provenanceOf } from '../../shared/procedureTypes.ts';
 
 /**
- * The automatic financial case diagnoser (Task 16, ADR-0022), read as a pure function: what it says about a case from
+ * The automatic financial case diagnoser (ADR-0022), read as a pure function: what it says about a case from
  * the case alone, every statement labelled, every recommendation ranked by its source, and never inference as policy.
  */
 
@@ -122,7 +122,7 @@ test('figures and an error label read as derived values; words alone read as inf
 test('a blank or a dash is unknown, never zero, and the figures it would need are named', () => {
   const d = diagnoseCase({
     item: item({ title: 'Open commitment', reference: 'OB-1', filename: 'balances.csv', source_row: 2 }),
-    sheet: [{ field: 'commitment', column: 'Commitment', value: '100.00' }, { field: 'obligation', column: 'Obligation', value: '-' }, { field: 'delivered', column: 'Delivered', value: '' }, { field: 'paid', column: 'Paid', value: '—' }],
+    sheet: [{ field: 'commitment', column: 'Commitment', value: '100.00' }, { field: 'obligation', column: 'Obligation', value: '-' }, { field: 'delivered', column: 'Delivered', value: '' }, { field: 'paid', column: 'Paid', value: '\u2014' }],
     events: [], procedure: null, today: '2026-11-02',
   });
   assert.equal(d.issue.key, 'ocmt');
@@ -362,6 +362,6 @@ test('error text the import brought in is on the case, not missing, until someon
   assert.equal(d.issue.how, 'error_label', 'the diagnosis reads the issue from the mapped error text');
   assert.ok(!section(d, 'missing_information').some((s) => /^Exact error description from the report/.test(s.text)), 'so it does not ask for that text again');
 
-  const dash = diagnoseCase({ ...input, sheet: [{ field: 'error_text', column: 'Error', value: '—' }], item: { ...input.item, title: 'Unmatched transaction: no matching record' } });
+  const dash = diagnoseCase({ ...input, sheet: [{ field: 'error_text', column: 'Error', value: '\u2014' }], item: { ...input.item, title: 'Unmatched transaction: no matching record' } });
   assert.ok(section(dash, 'missing_information').some((s) => /^Exact error description from the report: not recorded/.test(s.text)), 'a dash is not the error text');
 });

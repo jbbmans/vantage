@@ -318,7 +318,7 @@ test('misconfiguration is refused at start', async () => {
   await assert.rejects(startApp({ VANTAGE_OIDC_ISSUER: 'https://login.example.com', VANTAGE_OIDC_CLIENT_ID: 'x', VANTAGE_OIDC_LINK: 'edipi' }), /EDIPI_CLAIM/);
 });
 
-// ——— C03: an organization sign-in finishes only in the browser, and on the face, that began it (ADR-0035) ———
+// C03: an organization sign-in finishes only in the browser, and on the face, that began it (ADR-0035)
 
 const sessionCookie = (res: Response) => cookieOf(res).includes('vantage_session=');
 const linked = (app: TestApp) => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users WHERE oidc_subject IS NOT NULL').get() as { n: number }).n;

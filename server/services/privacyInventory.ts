@@ -455,7 +455,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   duties: {
-    purpose: 'Duty a Marine stood (Task 17, ADR-0023): its type, unit, place, start and end, what it ran to, what was claimed for it, who recorded it, where it stands with its reviewers, the points it was scored under the Unit Instance’s scoring version, and the points it was approved for and who set them apart from the scoring, when and why (ADR-0024).',
+    purpose: 'Duty a Marine stood (ADR-0023): its type, unit, place, start and end, what it ran to, what was claimed for it, who recorded it, where it stands with its reviewers, the points it was scored under the Unit Instance’s scoring version, and the points it was approved for and who set them apart from the scoring, when and why (ADR-0024).',
     authority: 'Unit duty administration; recorded by the Marine or a leader who counsels them in the unit, every change audited. Points come from the Unit Instance’s published scoring versions.',
     access: 'The Marine; those who read shared records in the unit it was stood for, who are also the only ones who may review it. Always a unit record, never a private note.',
     columns: {
@@ -470,7 +470,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   duty_reviews: {
-    purpose: 'A duty’s review history (Task 18, ADR-0024): each approval, return, rejection, reopening, resubmission and change to its approved points, with who did it, when, the reason given, and the points the scoring gave and the points that counted.',
+    purpose: 'A duty’s review history (ADR-0024): each approval, return, rejection, reopening, resubmission and change to its approved points, with who did it, when, the reason given, and the points the scoring gave and the points that counted.',
     authority: 'Unit duty administration; written by the reviewer’s or the Marine’s own action with the change it records, and kept as written. Every one is also in the audit trail.',
     access: 'Whoever may read the duty: its Marine, and those who read shared records in its unit. Its reasons are redacted when a retention schedule anonymizes the duty, and it is destroyed with the duty.',
     columns: {
@@ -480,7 +480,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   counseling_revisions: {
-    purpose: 'A counseling’s amendment history (Task 20, ADR-0027): what a final counseling said before each amendment, with who amended it, when, why, which fields changed, and whether its Marine had acknowledged the text replaced.',
+    purpose: 'A counseling’s amendment history (ADR-0027): what a final counseling said before each amendment, with who amended it, when, why, which fields changed, and whether its Marine had acknowledged the text replaced.',
     authority: 'The counseling it belongs to; written with the amendment it records and kept as written. Every amendment is also in the audit trail, by the names of the fields it changed.',
     access: 'Whoever may read the counseling. Its words and reasons are redacted when a retention schedule anonymizes the counseling, and it is destroyed with the counseling.',
     columns: {
@@ -910,7 +910,7 @@ export function buildInventory(ctx: AppContext, orgId?: string): Inventory {
 
 export function inventoryMarkdown(inv: Inventory): string {
   const lines: string[] = [];
-  lines.push(`# Data inventory — ${inv.instance}`, '', `Generated ${inv.generatedAt} from the live schema.`, '');
+  lines.push(`# Data inventory: ${inv.instance}`, '', `Generated ${inv.generatedAt} from the live schema.`, '');
   lines.push(`${inv.summary.tables} tables, ${inv.summary.piiTables} holding personal information.`);
   if (inv.summary.unclassifiedColumns) lines.push('', `**${inv.summary.unclassifiedColumns} columns are unclassified.** Each one is a question this assessment cannot yet answer.`);
   if (inv.summary.staleColumns) lines.push('', `**${inv.summary.staleColumns} declared columns no longer exist.** The declaration has drifted from the schema.`);
@@ -922,7 +922,7 @@ export function inventoryMarkdown(inv: Inventory): string {
     lines.push(`- **Purpose:** ${t.purpose ?? '_not declared_'}`);
     lines.push(`- **Authority:** ${t.authority ?? '_not declared_'}`);
     lines.push(`- **Who can see it:** ${t.access ?? '_not declared_'}`);
-    lines.push(`- **Retention:** ${t.retention ? `${t.retention.retain_days} days, then ${t.retention.disposition}${t.retention.enabled ? '' : ' (schedule not enabled)'}${t.retention.authority ? ` — ${t.retention.authority}` : ''}` : '_no schedule set_'}`);
+    lines.push(`- **Retention:** ${t.retention ? `${t.retention.retain_days} days, then ${t.retention.disposition}${t.retention.authority ? `, under ${t.retention.authority}` : ''}${t.retention.enabled ? '' : ' (schedule not enabled)'}` : '_no schedule set_'}`);
     const sensitive = t.columns.filter((c) => SENSITIVE.includes(c.category as PiiCategory));
     if (sensitive.length) {
       lines.push('', '| Column | Category |', '| --- | --- |');

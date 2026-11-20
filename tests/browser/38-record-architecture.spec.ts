@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, quickLog, registerAs, unique } from './fixtures';
 
 /**
- * The Core Record Architecture screens (Task 9, ADR-0015). Nothing moves out of Activities on its own: Quick Log says
+ * The Core Record Architecture screens (ADR-0015). Nothing moves out of Activities on its own: Quick Log says
  * when an entry reads like an award or a course and offers to save it there; the Activities page lists the entries that
  * read that way for their owner to move or keep; a move keeps the entry's lineage and can be undone; and the Timeline
  * reads every kind from its own record. Each Marine here is new, so what they see is only what the test gave them.
@@ -326,7 +326,7 @@ test('the Timeline lists each kind from its own record, filters by kind, and rea
   await expect(page.getByRole('link', { name: /Corporals Course/ })).toHaveAttribute('href', `/career/training?open=${pme.id}`);
   await expect(page.getByRole('link', { name: /Navy and Marine Corps Achievement Medal/ })).toHaveAttribute('href', `/career/awards?open=${award.id}`);
   await expect(page.getByRole('link', { name: /Quarterly counseling/ })).toContainText('by SSgt Reyes');
-  // Every kind has its own record now that duty does (Task 17): nothing is listed as not yet recorded, and no Duty
+  // Every kind has its own record now that duty does: nothing is listed as not yet recorded, and no Duty
   // chip shows for a Marine with no duty.
   await expect(page.getByText(/not on your timeline yet/)).toHaveCount(0);
   await expect(kinds.getByRole('button', { name: /^Duty/ })).toHaveCount(0);

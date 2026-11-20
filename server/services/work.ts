@@ -411,7 +411,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
     const edits = EDITABLE_FIELDS.filter((f) => patch[f] !== undefined);
     if (edits.length) {
       if (isImported(row)) {
-        throw forbidden('This row came from an imported sheet. Its values are what the sheet said — record an action instead of rewriting them.');
+        throw forbidden('This row came from an imported sheet. Its values are what the sheet said. Record an action instead of rewriting them.');
       }
       if (!mayEditFields(scope, user, row)) throw forbidden('Changing this row is not yours to do.');
       for (const field of edits) {

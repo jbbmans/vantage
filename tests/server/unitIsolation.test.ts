@@ -7,7 +7,7 @@ import { exportInstance, importInstance } from '../../server/services/exports.ts
 import { auditAppendOnlyTriggers, instanceBoundaryTriggers, instanceBoundaryViolations, metaGet } from '../../server/db/index.ts';
 
 /**
- * Task 2: the Unit Instance is a backend security boundary (ADR-0008). Unit A cannot read, write, export, report on
+ * The Unit Instance is a backend security boundary (ADR-0008). Unit A cannot read, write, export, report on
  * or link to Unit B's data, whatever identifiers are put in the request, and not even for the person who serves in
  * both: G8 is one Unit Instance, G1 another, and Reyes is enrolled in each with authority in each.
  */
@@ -351,7 +351,7 @@ test('audit events cannot be silently rewritten, and an instance reads only its 
   assert.match(String(after.body.audit.reason), new RegExp(target.id));
 
   // Put back as it was written, the entry verifies again: the seal is of what was written, not of when it was checked.
-  // The tests after this one export this service, and an archive with a rewritten trail is refused (Task 28).
+  // The tests after this one export this service, and an archive with a rewritten trail is refused.
   app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
   app.ctx.db.prepare('UPDATE audit_log SET detail = ? WHERE id = ?').run(target.detail, target.id);
   auditAppendOnlyTriggers(app.ctx.db);
@@ -368,7 +368,7 @@ test('the database keeps the boundary when code is bypassed', () => {
   assert.equal((app.ctx.db.prepare('SELECT org_id FROM units WHERE id = ?').get('FISCAL') as { org_id: string }).org_id, 'G8');
 });
 
-// ——— Ways across that the code and security reviews of this task found, each closed and proved here. ———
+// Ways across that the code and security reviews of this task found, each closed and proved here.
 
 /** A Marine serving in both instances, made when a test first needs one. */
 let dual: { token: string; id: string } | undefined;

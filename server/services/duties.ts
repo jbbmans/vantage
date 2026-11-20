@@ -17,7 +17,7 @@ import { dutyReviewAuthority, readableClause, type RecordRow } from '../authz/re
 import { NO_REVIEW_OPTIONS, dutyReviewOptions, type DutyReviewOptions } from '../../shared/dutyReview.ts';
 
 /**
- * Duty records (Task 17, ADR-0023). The record itself goes through the record routes and server/services/records.ts
+ * Duty records (ADR-0023). The record itself goes through the record routes and server/services/records.ts
  * like every record type; this is what is duty's own: the columns worked out from its start and end and its score,
  * the choices a form offers, and the activities that read like duty for their owner to move.
  */
@@ -200,7 +200,7 @@ export function dutyCandidates(ctx: AppContext, user: SessionUser, problem: (row
   return { candidates: found.slice(0, 200), total: found.length };
 }
 
-// ——— The Duty page's lists, a page at a time ———
+// The Duty page's lists, a page at a time
 
 /** How many duties a page of the Duty page's list holds unless it asks for fewer, and the most one may ask for. */
 export const DUTY_PAGE = 50;

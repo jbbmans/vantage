@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { SUMMARY_FILE, gateProblems, loadRegister, renderGate, verdictOf, type GateRegister } from '../../scripts/readiness-gate.ts';
 
 /**
- * Task 28, the production readiness gate: the six representative roles in one Unit Instance, each tried against what
+ * The production readiness gate: the six representative roles in one Unit Instance, each tried against what
  * it may and may not do, beside a second Unit Instance whose records nobody in the first may reach. Each area has its
  * own deep tests (named in docs/engineering/readiness-gate.json); this file is the one place the six roles stand side
  * by side.
@@ -309,7 +309,7 @@ test('report PDF: the Marine draws their own; another Marine’s needs their rec
   assert.ok([403, 404].includes((await pdf(leader, budgetMarine.id)).status), 'nor the unit beside theirs');
 });
 
-// ——— The register: what the gate claims is what its tests and checks show, and the verdict is computed, never written ———
+// The register: what the gate claims is what its tests and checks show, and the verdict is computed, never written
 
 test('the gate register names only tests that exist, backs every claim, and READINESS_GATE.md is drawn from it', () => {
   const register = loadRegister();

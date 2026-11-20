@@ -8,7 +8,7 @@ import { REDACTED } from '../../shared/constants.ts';
 import type { TimelineItem } from '../../shared/recordKinds.ts';
 
 /**
- * Task 17 (ADR-0023): duty is a record of its own. Its length, conditions and points are the server's to work out, under
+ * ADR-0023: duty is a record of its own. Its length, conditions and points are the server's to work out, under
  * the scoring version in force on its first day, and kept; it is always shared with the unit it was stood for, inside one
  * Unit Instance; a leader who counsels a Marine may record it for them; an activity that was duty moves only when its
  * owner says so; and a reviewer's decision stands.
@@ -228,7 +228,7 @@ test('a leader who counsels a Marine records duty for them; the Marine is told a
   assert.deepEqual([d.user_id, d.recorded_by, d.unit_id, d.visibility, d.approval_status, d.calculated_points], [reyes.id, diaz.id, 'G8', 'unit', 'pending', 3]);
   assert.equal(told().length, before + 1);
   assert.equal(told()[0].action_url, `/record/duty?open=${d.id}`);
-  // Task 24: the notice names the record by entity, read when it is read; it stores no words of its own.
+  // The notice names the record by entity, read when it is read; it stores no words of its own.
   assert.deepEqual([told()[0].entity, told()[0].entity_id, told()[0].message], ['duties', d.id, null]);
   assert.match(told()[0].title, /recorded duty for you/);
 

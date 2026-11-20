@@ -473,7 +473,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
   if (table === 'activities') { cols.push('fingerprint'); vals.push(opts.fingerprint && isDrawnFromWork(opts.fingerprint) ? opts.fingerprint : activityFingerprint(ownerId, data as never)); }
   if (table === 'activities' && data.kind_confirmed) { cols.push('kind_confirmed_at'); vals.push(now()); }
-  // A duty keeps who submitted it and when, and what the server worked out; it starts as submitted, for review (Task 18).
+  // A duty keeps who submitted it and when, and what the server worked out; it starts as submitted, for review.
   if (derived) {
     cols.push('recorded_by', 'submitted_at', 'approval_status');
     vals.push(user.id, now(), 'pending');
@@ -740,7 +740,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   let created = 0; let updated = 0; const duplicates: number[] = [];
   // Rows that read like an award received or training completed are imported as activities, as asked, and counted, so
   // the person can move them to their own records from Activities (ADR-0015). Only rows that went in and will be offered
-  // for a move: not a duplicate skipped, not an entry its owner has already kept as an activity. Semantic import is Task 13's.
+  // for a move: not a duplicate skipped, not an entry its owner has already kept as an activity. Semantic import belongs to the record import (ADR-0019).
   let elsewhere = 0;
   const offered = (row: Record<string, unknown>) => !row.kind_confirmed_at && !isDrawnFromWork(row.fingerprint) && Boolean(recordKindOf(kindText('activities', row)));
   ctx.db.transaction(() => {

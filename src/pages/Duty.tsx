@@ -43,7 +43,7 @@ const rounded = (n: number) => formatNumber(Math.round(n * 100) / 100);
 const isStatus = (v: string): v is DutyStatus => (DUTY_STATUSES as readonly string[]).includes(v);
 
 /**
- * Records → Duty (Task 17, ADR-0023; Task 18, ADR-0024): the duty a Marine stood, each with its type, times, what it ran
+ * Records → Duty (ADR-0023, ADR-0024): the duty a Marine stood, each with its type, times, what it ran
  * to, the points the Unit Instance's scoring gave it and the points it was approved for, where it stands with its
  * reviewers, and the activities that read like duty for their owner to move here. A leader also sees the duty they
  * recorded for their Marines and what their units hold, and a reviewer the duty waiting for their decision. Each tab is

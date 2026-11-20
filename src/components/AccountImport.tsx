@@ -9,6 +9,7 @@ import { withSudo } from '@/components/SudoDialog';
 import { keys } from '@/lib/queries';
 import { downloadText } from '@/lib/utils';
 import * as api from '@/lib/api';
+import { NO_VALUE } from '../../shared/metrics';
 
 interface Planned { line: number; username: string; name: string; rank_id: string | null; command: string | null; team: string | null; role: string; billet: string | null; status: 'create' | 'exists' | 'error'; problems: string[]; warnings: string[]; generated_password: boolean }
 interface Plan { accounts: Planned[]; units: Array<{ name: string; parent: string | null; exists: boolean }>; counts: { create: number; exists: number; error: number; new_units: number }; created?: number; generated?: Array<{ username: string; password: string }>; withheld?: Array<{ username: string; role: string }> }
@@ -93,7 +94,7 @@ export default function AccountImport({ orgId, onDone }: { orgId: string; onDone
                     <td className="fig text-ink-3">{a.line}</td>
                     <td><span className="block font-medium text-ink">{a.rank_id || ''} {a.name}</span><span className="block text-xs text-ink-3">@{a.username}</span>
                       {[...a.problems, ...a.warnings].map((p) => <span key={p} className={`block text-xs ${a.problems.includes(p) ? 'text-bad' : 'text-warn'}`}>{p}</span>)}</td>
-                    <td className="text-xs text-ink-2">{[a.command, a.team].filter(Boolean).join(' › ') || '—'}{a.billet ? <span className="block text-ink-3">{a.billet}</span> : null}</td>
+                    <td className="text-xs text-ink-2">{[a.command, a.team].filter(Boolean).join(' › ') || NO_VALUE}{a.billet ? <span className="block text-ink-3">{a.billet}</span> : null}</td>
                     <td className="text-sm">{a.role}</td>
                     <td><Badge tone={TONE[a.status]}>{done && a.status === 'create' ? 'Created' : LABEL[a.status]}</Badge></td>
                   </tr>

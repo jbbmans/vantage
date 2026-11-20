@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import type { AnalysisReport } from './analytics.ts';
 import type { Narrative } from '../../shared/narrative.ts';
 import type { PackageGroup } from '../../shared/bullets.ts';
-import { formatDollars, formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
+import { formatDollars, formatDollarsExact, formatNumber, NO_VALUE } from '../../shared/metrics.ts';
 import type { Movement } from '../../shared/delta.ts';
 import { drawMark } from '../lib/pdfMark.ts';
 
@@ -73,7 +73,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
         if (doc.y + rowH > bottom()) { doc.addPage(); header(); }
         let x = left; const y = doc.y;
         if (opts.zebra && i % 2 === 1) doc.rect(left, y, width, rowH).fill('#fafafa');
-        for (const c of scaled) { const v = row[c.key]; doc.font('Helvetica').fontSize(size).fillColor(INK); doc.text(fit(v == null || v === '' ? '—' : String(v), c.width - 8), x + 4, y + 3.5, { width: c.width - 8, align: c.align || 'left', lineBreak: false }); x += c.width; }
+        for (const c of scaled) { const v = row[c.key]; doc.font('Helvetica').fontSize(size).fillColor(INK); doc.text(fit(v == null || v === '' ? NO_VALUE : String(v), c.width - 8), x + 4, y + 3.5, { width: c.width - 8, align: c.align || 'left', lineBreak: false }); x += c.width; }
         doc.y = y + rowH;
       });
       doc.x = left; doc.moveDown(0.4);
@@ -158,7 +158,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
       { k: 'Weeks with no entry', v: `${r.consistency.zeroWeeks} of ${r.consistency.weeks}` },
       { k: 'Longest gap without an entry', v: `${r.consistency.longestGapDays} days` },
       { k: 'Mean entries per week (standard deviation)', v: `${r.consistency.meanPerWeek} (${r.consistency.stdevPerWeek})` },
-      { k: 'Busiest week', v: r.consistency.busiestWeek ? `week of ${r.consistency.busiestWeek.week}: ${r.consistency.busiestWeek.entries} entries` : '—' },
+      { k: 'Busiest week', v: r.consistency.busiestWeek ? `week of ${r.consistency.busiestWeek.week}: ${r.consistency.busiestWeek.entries} entries` : NO_VALUE },
     ]);
 
     // ---- 5 Coverage and data quality

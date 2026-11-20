@@ -10,7 +10,7 @@ import {
 } from '../services/errorReports.ts';
 
 /**
- * Financial error reports (Task 15, ADR-0021): a unit's series, filing a report from an upload, a comparison of two of a
+ * Financial error reports (ADR-0021): a unit's series, filing a report from an upload, a comparison of two of a
  * series' reports, the rows behind each figure, and withdrawing a report filed in error. The file itself is uploaded and
  * scanned through /api/work/sources, as an import's is. Who may read or file is decided in server/services/errorReports.ts.
  */

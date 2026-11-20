@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, confirmSudoIfAsked, loginAs, logout, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * The Vantage Administrator console's operations pages (Task 5, ADR-0011): each opens and reads cleanly to assistive
+ * The Vantage Administrator console's operations pages (ADR-0011): each opens and reads cleanly to assistive
  * technology, maintenance is started with a reason and ended from the console, and the audit trail filters on the server.
  */
 

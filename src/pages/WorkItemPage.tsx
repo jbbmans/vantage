@@ -33,6 +33,7 @@ import { formatCents, parseMoney } from '../../shared/money';
 import type { CaseEventView, CaseIntegrity, CaseView, EventBody, WorkItemView } from '../../shared/caseView';
 import { REQUEST_MAX, type Speaker } from '../../shared/workflowMessages';
 import TutorialPrompt from '@/components/TutorialPrompt';
+import { NO_VALUE } from '../../shared/metrics';
 
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
@@ -267,7 +268,7 @@ export default function WorkItemPage() {
                   <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-ink">Everything the source said</summary>
                   <dl className="px-3 pb-2">
                     {Object.entries(item.data as Record<string, string>).map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-3 border-b border-line py-1.5 text-xs last:border-0"><dt className="text-ink-3">{k}</dt><dd className="text-right text-ink">{v || '—'}</dd></div>
+                      <div key={k} className="flex justify-between gap-3 border-b border-line py-1.5 text-xs last:border-0"><dt className="text-ink-3">{k}</dt><dd className="text-right text-ink">{v || NO_VALUE}</dd></div>
                     ))}
                   </dl>
                 </details>
@@ -327,7 +328,7 @@ function ApplyProcedure({ itemId, current, onDone }: { itemId: string; current?:
           {suggested && <p className="mt-2 flex items-center gap-1.5 text-xs text-accent"><Sparkles className="h-3.5 w-3.5" aria-hidden />Suggested: {suggested.title}. {suggestion.data!.why}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select className="w-full sm:w-96" value={key} onValueChange={setChoice} placeholder="Choose a procedure"
-              options={PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short} — ${p.title}` }))} />
+              options={PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.title }))} />
             <Button variant="primary" loading={busy} disabled={!key} onClick={apply}>{confirming ? 'Confirm' : 'Apply'}</Button>
           </div>
           {key && <p className="mt-2 text-2xs text-ink-3">{AUTHORITY_LABEL[PROCEDURES[key].authority]} · v{PROCEDURES[key].version}. The case is pinned to this version.</p>}
@@ -459,7 +460,7 @@ function StepHelp({ step }: { step: ProcedureStep }) {
         <dt className="text-xs text-ink-3">What to do</dt><dd className="text-ink-2">{step.help.what}</dd>
         {step.help.meaning && <><dt className="text-xs text-ink-3">What it means</dt><dd className="text-ink-2">{step.help.meaning}</dd></>}
         <dt className="text-xs text-ink-3">Done when</dt><dd className="text-ink-2">{step.help.done}</dd>
-        {step.responsibility?.length ? <><dt className="text-xs text-ink-3">Needs</dt><dd className="text-ink-2">{step.responsibility.map(responsibilityName).join(' or ')} — and the authority to use it</dd></> : null}
+        {step.responsibility?.length ? <><dt className="text-xs text-ink-3">Needs</dt><dd className="text-ink-2">{step.responsibility.map(responsibilityName).join(' or ')}, and the authority to use it</dd></> : null}
         <dt className="text-xs text-ink-3">Screen path</dt><dd className="text-ink-3">{step.help.path || 'Not documented yet. It will be added once an SME confirms it.'}</dd>
         {step.help.source && <><dt className="text-xs text-ink-3">Source</dt><dd><span className="cite">{step.help.source}</span></dd></>}
       </dl>
@@ -796,7 +797,7 @@ function CalculationPanel({ calc }: { calc: NonNullable<CaseView['latest_calcula
               <tr key={i.event_id} className="border-t border-line">
                 <td className="py-2 text-ink">{i.label}</td>
                 <td className="py-2 text-xs text-ink-3">{VALUE_SOURCES[i.source as keyof typeof VALUE_SOURCES]}</td>
-                <td className="fig py-2 text-right text-ink">{i.field === 'purchase_method' ? (METHODS[calc.method as MethodKey]?.short || '—') : i.not_shown ? 'Not shown' : i.cents == null ? '—' : formatCents(i.cents)}</td>
+                <td className="fig py-2 text-right text-ink">{i.field === 'purchase_method' ? (METHODS[calc.method as MethodKey]?.short || NO_VALUE) : i.not_shown ? 'Not shown' : i.cents == null ? NO_VALUE : formatCents(i.cents)}</td>
               </tr>
             ))}
           </tbody>
@@ -973,7 +974,7 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
               </span>
               {e.kind === 'source_revised' && Array.isArray(e.body.changes) && (
                 <span className="mt-1.5 block space-y-0.5 rounded-lg bg-surface-2/70 px-3 py-2 text-xs ring-1 ring-inset ring-line">
-                  {(e.body.changes as Array<{ field: string; from: string | null; to: string | null }>).slice(0, 8).map((ch) => <span key={ch.field} className="block text-ink-2"><span className="font-medium text-ink">{ch.field}</span>: <span className="line-through">{ch.from ?? '—'}</span> → {ch.to ?? '—'}</span>)}
+                  {(e.body.changes as Array<{ field: string; from: string | null; to: string | null }>).slice(0, 8).map((ch) => <span key={ch.field} className="block text-ink-2"><span className="font-medium text-ink">{ch.field}</span>: <span className="line-through">{ch.from ?? NO_VALUE}</span> → {ch.to ?? NO_VALUE}</span>)}
                 </span>
               )}
               {(e.body.note || e.body.rationale || (e.body.text && !['note', 'finding', 'question'].includes(e.kind)) || e.body.reason) && (

@@ -1,7 +1,7 @@
 # Only the public page is content. Everything behind sign-in is an application.
 #
 # Note the shape of this: the authentication routes are CRAWLABLE but not indexable. Disallowing
-# them looks stricter and is actually weaker — a crawler that is not allowed to fetch /login cannot
+# them looks stricter and is actually weaker: a crawler that is not allowed to fetch /login cannot
 # see the `noindex` on it, so the URL stays eligible to be indexed as a bare link with no content.
 # Letting the crawler read the page is what lets it read the instruction to drop it.
 #

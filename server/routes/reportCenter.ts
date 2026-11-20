@@ -7,7 +7,7 @@ import { REPORT_FILE_FORMATS, REPORT_TYPES, reportQuerySchema } from '../../shar
 import { deleteDefinition, exportReport, listDefinitions, runReport, saveDefinition } from '../services/reportCenter.ts';
 
 /**
- * The report center (Task 14, ADR-0020). Every report is one document: /run answers it for the screen and the print page,
+ * The report center (ADR-0020). Every report is one document: /run answers it for the screen and the print page,
  * /export draws it into a file. Whom a report may be about, and what may leave as a file, is decided in
  * server/services/reportCenter.ts before anything is read.
  */
@@ -36,7 +36,7 @@ reportCenterRouter.get('/export', wrap(async (req, res) => {
   res.send(file.body);
 }));
 
-// ——— Saved reports: the choices, never the data ———
+// Saved reports: the choices, never the data
 
 const definitionSchema = z.object({
   name: z.string().max(200),

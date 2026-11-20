@@ -1,5 +1,5 @@
 /**
- * What Vantage tells a person, and what they may turn off (Task 24, ADR-0031). Every notice has a kind, and every kind is
+ * What Vantage tells a person, and what they may turn off (ADR-0031). Every notice has a kind, and every kind is
  * in one group here: the server refuses a kind this catalogue does not name, and the settings page lists the groups a
  * person may turn off from it. A notice never carries anybody's words: it names the event, who did it and the record,
  * and the record's own name is read when the notice is read, after checking that its reader may still open it.

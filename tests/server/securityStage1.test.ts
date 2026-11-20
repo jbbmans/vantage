@@ -65,7 +65,7 @@ function seatOf(on: TestApp, userId: string, unitId: string) {
   };
 }
 
-// ——— Holds: a password check, a drawn PDF, the export line ———
+// Holds: a password check, a drawn PDF, the export line
 
 type Pbkdf2 = (...args: unknown[]) => void;
 const builtins = crypto as unknown as { pbkdf2: Pbkdf2 };
@@ -118,7 +118,7 @@ after(() => {
   PDFDocument.prototype.end = realEnd;
 });
 
-// ——— F01, F02: contacts ———
+// F01, F02: contacts
 
 /**
  * A G8 with a Fiscal team: ortiz adds contacts and sits in both; lane is a plain member of G8; reyes is a G8 SNCO (manages
@@ -281,7 +281,7 @@ test('a contact is changed by its own rule, against the version its editor read,
   } finally { await on.close(); }
 });
 
-// ——— F04: a proof checked across a reset ———
+// F04: a proof checked across a reset
 
 test('a password checked before a reset, a sign-out everywhere or a deactivation opens and confirms nothing (F04, C04)', async () => {
   const on = await startApp();
@@ -422,7 +422,7 @@ test('a password checked before a reset, a sign-out everywhere or a deactivation
   } finally { await on.close(); }
 });
 
-// ——— F05: files that waited ———
+// F05: files that waited
 
 test('a file that waited in the export line, or while it was drawn, leaves only if its reader still holds it (F05, C05)', async () => {
   const on = await startApp();
@@ -524,7 +524,7 @@ test('a file that waited in the export line, or while it was drawn, leaves only 
   } finally { await on.close(); }
 });
 
-// ——— F06: uploads that waited on the scanner ———
+// F06: uploads that waited on the scanner
 
 test('a session is live by the same deadlines everywhere, asked without renewing it and whether or not it was pruned (F06, C26)', async (t) => {
   const on = await startApp();
@@ -646,7 +646,7 @@ test('an upload that waited on the scanner is kept only for a session still live
   } finally { clamd.close(); await on.close(); }
 });
 
-// ——— Follow-ups from the review of these fixes ———
+// Follow-ups from the review of these fixes
 
 test('a session opened, resolved or confirmed under an older authentication epoch is refused, and a challenge without one is spent (F04, C04)', async () => {
   const on = await startApp();

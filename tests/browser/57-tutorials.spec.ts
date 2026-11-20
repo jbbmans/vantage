@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { ensureSetup, instanceDay, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Tutorials (Task 26, ADR-0034): short, one task each, offered in a line under the title of the page the task is done on,
+ * Tutorials (ADR-0034): short, one task each, offered in a line under the title of the page the task is done on,
  * and in Help → Field guide and the command palette. A tutorial opens beside the page, not over it; it says where each
  * step happens, takes you there, and shows you the control; it stays open from page to page and across a reload, and a
  * finished one is kept in the person's settings. Who it is offered to follows the menu and the person's permissions.
@@ -36,13 +36,13 @@ test('a page offers its tutorial under the title, and the tutorial leads through
   await page.goto('/record/activities');
   await settle(page);
 
-  // ——— Offered in one line under the title; nothing opens by itself ———
+  // Offered in one line under the title; nothing opens by itself
   await expect(panelOf(page, 'Logging work')).toHaveCount(0);
   const offer = prompt(page).getByRole('button', { name: /^Logging work, \d+ steps/ });
   await expect(offer).toBeVisible();
   await offer.click();
 
-  // ——— Opened: not a dialog, its heading takes focus, and the page stays usable ———
+  // Opened: not a dialog, its heading takes focus, and the page stays usable
   const panel = panelOf(page, 'Logging work');
   await expect(panel).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -50,13 +50,13 @@ test('a page offers its tutorial under the title, and the tutorial leads through
   await expect(panel).toContainText('Tutorial · step 1 of');
   await expect(current(page, 'Logging work')).toContainText('Log an activity');
 
-  // ——— Show me: the control is outlined and takes focus ———
+  // Show me: the control is outlined and takes focus
   await current(page, 'Logging work').getByRole('button', { name: 'Show me', exact: true }).click();
   const logButton = page.getByRole('button', { name: 'Log activity', exact: true }).first();
   await expect(logButton).toBeFocused();
   await expect(logButton).toHaveClass(/tutorial-spot/);
 
-  // ——— A form open over the page: the tutorial says it waits, and its step stays readable ———
+  // A form open over the page: the tutorial says it waits, and its step stays readable
   await logButton.click();
   const quick = page.getByRole('dialog', { name: 'Log activity' });
   await expect(quick).toBeVisible();
@@ -66,7 +66,7 @@ test('a page offers its tutorial under the title, and the tutorial leads through
   await expect(quick).toBeHidden();
   await expect(panel).not.toContainText('The tutorial waits');
 
-  // ——— Any step can be opened; one on another page says where it is and goes there ———
+  // Any step can be opened; one on another page says where it is and goes there
   await unfold(page, 'Logging work');
   await panel.getByRole('button', { name: /See credit for casework/ }).click();
   const last = current(page, 'Logging work');
@@ -77,17 +77,17 @@ test('a page offers its tutorial under the title, and the tutorial leads through
   // The button that was pressed is gone; focus waits on the tutorial's heading, not on the page's top.
   await expect(panel.getByRole('heading', { name: 'Logging work' })).toBeFocused();
 
-  // ——— A reload keeps the tutorial at the same step, and leaves focus where the page puts it ———
+  // A reload keeps the tutorial at the same step, and leaves focus where the page puts it
   await page.reload();
   await settle(page);
   await expect(current(page, 'Logging work')).toContainText('See credit for casework');
   await expect(panelOf(page, 'Logging work').getByRole('heading', { name: 'Logging work' })).not.toBeFocused();
 
-  // ——— Finish keeps it in the person's settings, and the line marks it finished ———
+  // Finish keeps it in the person's settings, and the line marks it finished
   await panelOf(page, 'Logging work').getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(panelOf(page, 'Logging work')).toContainText('Tutorial finished');
   await expect.poll(async () => ((await (await page.request.get('/api/me/prefs')).json()).tutorials?.done ?? []) as string[]).toContain('logging-work');
-  // ——— Other tutorials takes focus to the list in Help ———
+  // Other tutorials takes focus to the list in Help
   await panelOf(page, 'Logging work').getByRole('link', { name: 'Other tutorials' }).click();
   await expect(panelOf(page, 'Logging work')).toHaveCount(0);
   await expect(page).toHaveURL(/\/help#tutorials$/);
@@ -269,7 +269,7 @@ for (const size of [{ name: 'desktop 1280', width: 1280, height: 800 }, { name: 
   });
 }
 
-// ——— Every step, as the person it is offered to sees it ———
+// Every step, as the person it is offered to sees it
 
 interface Step { title: string; at: string; anchor?: string; control?: string }
 /** The registry's steps by tutorial title, read from its source as the file is written: each step an object of its own. */

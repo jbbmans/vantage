@@ -13,7 +13,7 @@ import { CATALOG_FIELD_LABELS, CATALOG_HEADERS, MAX_CATALOG_BYTES, MAX_CATALOG_R
 import { useAdmin } from './sections';
 
 /**
- * Approved course sources (Task 22, ADR-0029): the authoritative sources whose published catalogs verify the course values
+ * Approved course sources (ADR-0029): the authoritative sources whose published catalogs verify the course values
  * on trainings. Vantage holds no course list of its own and fetches none. A source is registered with the authorization
  * that approves it; its catalog file is loaded, looked at, then applied. Nothing is edited: a source is withdrawn with a
  * reason, a catalog replaced by a later one, and every step is audited and told to the other Vantage Administrators.

@@ -21,7 +21,7 @@ import { EdipiForm } from '@/components/EdipiOnFile';
 import type { Counseling } from '../../shared/types';
 
 /**
- * A counseling's workflow on the page (Task 20, ADR-0027): a counselor drafts it, may share it with its Marine for review,
+ * A counseling's workflow on the page (ADR-0027): a counselor drafts it, may share it with its Marine for review,
  * and finalizes it; a final counseling changes only by amendment, which keeps what it said before; its Marine acknowledges
  * the text they read. What a reader may do comes with each row from the server (`workflow`), so the page offers only that.
  */

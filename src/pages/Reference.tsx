@@ -22,6 +22,7 @@ import {
 import { formatCents, parseMoney } from '../../shared/money';
 import { PROCEDURE_LIST, AUTHORITY_LABEL } from '../../shared/procedures';
 import { usePlace } from '@/lib/place';
+import { NO_VALUE } from '../../shared/metrics';
 
 type Tab = 'diagnose' | 'lifecycle' | 'methods' | 'conditions' | 'abnormal' | 'roles' | 'data' | 'glossary' | 'limits';
 const TABS: Array<{ value: Tab; label: string }> = [
@@ -47,7 +48,7 @@ export default function Reference() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow={place.group} title="Reference" lede="The FMRA desk reference: know what the balance is telling you. The financial lifecycle, the seven purchase methods and their evidence, open balances, holds, rejects and UMTs — with a diagnoser that reads the four figures and says what to check first.">
+      <PageHeader eyebrow={place.group} title="Reference" lede="The FMRA desk reference: know what the balance is telling you. The financial lifecycle, the seven purchase methods and their evidence, open balances, holds, rejects and UMTs, with a diagnoser that reads the four figures and says what to check first.">
         <SourceBadge />
       </PageHeader>
       <Tabs value={current} onChange={(v) => setTab(v)} tabs={TABS} label="Reference sections" panel="reference-panel" />
@@ -261,7 +262,7 @@ function TrueBalance() {
       <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input type="checkbox" checked={posted} onChange={(e) => setPosted(e.target.checked)} />It has since posted</label>
       <div className="mt-4 flex items-baseline justify-between rounded-xl bg-surface-2/70 px-4 py-3 ring-1 ring-inset ring-line">
         <span className="text-sm text-ink-2">Adjusted view</span>
-        <span className="stat-value text-[26px]">{r ? formatCents(r.adjustedCents) : '—'}</span>
+        <span className="stat-value text-[26px]">{r ? formatCents(r.adjustedCents) : NO_VALUE}</span>
       </div>
       {r?.ignored[0] && <p className="mt-2 text-xs text-ink-3">{r.ignored[0].reason}</p>}
       <p className="mt-3 text-xs leading-relaxed text-ink-3">Use non-overlapping balances: never subtract commitment, obligation, delivery and payment as four separate purchases of the same item.</p>
@@ -299,7 +300,7 @@ function MethodsTab() {
               <Fact label="Systems" value={m.systems.join(' · ')} />
               <Fact label="Tool" value={m.tool} />
               <Fact label="Accounting link" value={m.keyLink} />
-              <Fact label="Identifier" value={`${m.identifier.id} — ${m.identifier.generator}`} hint={m.identifier.owner} />
+              <Fact label="Identifier" value={`${m.identifier.id}, from the ${m.identifier.generator}`} hint={m.identifier.owner} />
             </dl>
             {m.critical && <div className="mt-4"><Note tone="warn">{m.critical}</Note></div>}
           </section>
@@ -417,9 +418,9 @@ function Router() {
 function ConditionsTab() {
   return (
     <div className="space-y-5">
-      <Note>A report identifies a condition, not its cause. An open balance may be valid while the next lifecycle event is pending. Age, amount, method, documents and system status decide whether an item needs corrective action — age alone never does.</Note>
+      <Note>A report identifies a condition, not its cause. An open balance may be valid while the next lifecycle event is pending. Age, amount, method, documents and system status decide whether an item needs corrective action. Age alone never does.</Note>
       {NORMAL_LIST.map((c) => (
-        <Section key={c.key} id={c.key} title={`${c.abbr} — ${c.name}`} lede={c.whatIsOpen} cite={c.cite}>
+        <Section key={c.key} id={c.key} title={`${c.abbr}: ${c.name}`} lede={c.whatIsOpen} cite={c.cite}>
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
             <div className="space-y-4">
               <div className="rounded-xl bg-accent-soft/60 px-4 py-3 ring-1 ring-inset ring-accent/15"><p className="eyebrow text-accent">First question</p><p className="mt-1 text-sm font-medium text-ink">{c.firstQuestion}</p></div>
@@ -442,7 +443,7 @@ function ConditionsTab() {
                   <li key={cause.key} className="rounded-xl p-4 ring-1 ring-inset ring-line">
                     <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">{cause.label}
                       <span className="chip">{cause.pattern === 'both' ? 'full or partial' : cause.pattern}</span>
-                      {cause.valid && <span className="chip bg-good/10 text-good ring-1 ring-inset ring-good/20">valid — monitor</span>}
+                      {cause.valid && <span className="chip bg-good/10 text-good ring-1 ring-inset ring-good/20">valid: monitor</span>}
                     </p>
                     <p className="mt-1.5 text-sm text-ink-2"><span className="text-ink-3">Research: </span>{cause.research}</p>
                     <p className="mt-1 text-sm text-ink-2"><span className="text-ink-3">Path: </span>{cause.correction}</p>
@@ -562,12 +563,12 @@ const RouteChip = ({ route }: { route: string }) => (
 function RolesTab() {
   return (
     <div className="space-y-5">
-      <Section title="Four facts that look alike" lede="A job title does not establish every permission a transaction needs. Keep these apart — a person, and any tool, should." cite={SEPARATION_OF_DUTIES.cite}>
+      <Section title="Four facts that look alike" lede="A job title does not establish every permission a transaction needs. A person, and any tool, should keep these apart." cite={SEPARATION_OF_DUTIES.cite}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {AUTHORITY_FACTS.map((f) => <div key={f.key} className="rounded-xl bg-surface-2/70 p-4 ring-1 ring-inset ring-line"><KeyRound className="h-4 w-4 text-accent" aria-hidden /><p className="mt-2 text-sm font-semibold text-ink">{f.label}</p><p className="mt-1 text-xs leading-relaxed text-ink-2">{f.meaning}</p></div>)}
         </div>
       </Section>
-      <Section title="DAI responsibilities" lede="The book’s role labels and typical users — not a determination of anybody’s current access." cite={{ chapter: '4.3', pages: '59-64' }}>
+      <Section title="DAI responsibilities" lede="The book’s role labels and typical users, not a determination of anybody’s current access." cite={{ chapter: '4.3', pages: '59-64' }}>
         <DataTable head={['Responsibility', 'Capability', 'Typical user', '']} minWidth={760}
           rows={DAI_RESPONSIBILITIES.map((r) => [r.name, <span key={r.key}>{r.capability}{r.note && <span className="mt-1 block text-xs text-warn">{r.note}</span>}</span>, r.typical, r.writes ? <span key="w" className="chip bg-warn/10 text-warn">changes records</span> : <span key="r" className="chip">read only</span>])} />
       </Section>
@@ -615,7 +616,7 @@ function DataTab() {
   return (
     <div className="space-y-5">
       <Section title="Financial data elements" lede={`${FDE.definition} ${FDE.why}`} cite={FDE.cite}>
-        <p className="eyebrow mb-2">POET — training specimens, not live funding data</p>
+        <p className="eyebrow mb-2">POET: training specimens, not live funding data</p>
         <div className="grid gap-3 md:grid-cols-4">{POET.map((p) => <div key={p.element} className="rounded-xl bg-surface-2/70 p-4 ring-1 ring-inset ring-line"><p className="text-sm font-semibold text-ink">{p.element}</p><p className="mt-1 text-xs text-ink-2">{p.meaning}</p><p className="mt-2 break-all font-mono text-2xs text-ink-3">{p.example}</p></div>)}</div>
       </Section>
       <Section title="Standard Line of Accounting" lede={SLOA.definition} cite={SLOA.cite}>
@@ -647,7 +648,7 @@ function GlossaryTab() {
     <div className="card p-5 sm:p-6">
       <div className="relative max-w-md">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search terms — UMT, KSD, POET…" className="pl-9" aria-label="Search the glossary" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search terms: UMT, KSD, POET…" className="pl-9" aria-label="Search the glossary" />
       </div>
       <p className="mt-2 text-xs text-ink-3">{terms.length} {terms.length === 1 ? 'term' : 'terms'}</p>
       <dl className="mt-4 grid gap-x-8 md:grid-cols-2">
@@ -692,7 +693,7 @@ function LimitsTab() {
         <Section title="Not taught, and not invented" lede="The book does not fully teach these. Vantage does not fill the gaps with guessed steps.">
           <Bullets items={NOT_TAUGHT} />
         </Section>
-        <Section title="Never" lede="What an answer — a person’s, Vantage’s, or an AI’s — must never do." cite={{ chapter: '12.4', kind: 'editorial' }}>
+        <Section title="Never" lede="What an answer must never do, whether it is a person’s, Vantage’s or an AI’s." cite={{ chapter: '12.4', kind: 'editorial' }}>
           <ul className="space-y-2">{NEVER.map((n) => <li key={n} className="flex gap-2.5 text-sm text-ink"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />{n}</li>)}</ul>
         </Section>
       </div>

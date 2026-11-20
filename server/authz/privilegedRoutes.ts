@@ -86,7 +86,7 @@ const unit = (method: Method, path: string, permission: RouteAuthority[], audit:
 const DEPARTURE = ['unit_leader_ended', 'org_role_ended', 'work_claim_released_on_departure'];
 
 export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
-  // ——— /api/platform: the service, for Vantage staff ———
+  // /api/platform: the service, for Vantage staff
   platform('POST', '/sign-in-health/oidc-check', 'platform.settings', writes('oidc_checked')),
   platform('PUT', '/runtime', 'platform.settings', writes('edit_configuration')),
   platform('POST', '/maintenance', 'platform.maintenance', writes('maintenance_on', 'maintenance_off')),
@@ -136,7 +136,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   platform('GET', '/backup', 'platform.data', writes('backup'), 'Only while browser backups are allowed; every other holder of platform.data is told.'),
   platform('GET', '/export', 'platform.data', writes('instance_export'), 'Only while browser backups are allowed; every other holder of platform.data is told.'),
 
-  // ——— /api/orgs: one Unit Instance, for the people who hold a role in it ———
+  // /api/orgs: one Unit Instance, for the people who hold a role in it
   orgs('PATCH', '/:orgId', ['org.settings', 'org.owners'], writes('organization_updated'), 'Renaming takes org.settings; the Vantage access policy takes org.owners.'),
   orgs('POST', '/:orgId/roles', ['org.owners'], writes('org_role_granted'), 'Never one’s own role, nor to an account the granter opened that has not proven itself.'),
   orgs('DELETE', '/:orgId/roles/:userId/:role', ['org.owners'], writes('org_role_revoked'), 'Never the last Lead Unit Manager.'),
@@ -179,7 +179,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   orgs('GET', '/:orgId/roster.csv', ['org.export'], writes('organization_roster_exported'), 'No EDIPI, email address or records.'),
   orgs('GET', '/:orgId/configuration/export', ['org.export'], writes('unit_configuration_exported')),
 
-  // ——— /api/org: units, members and unit roles, decided unit by unit ———
+  // /api/org: units, members and unit roles, decided unit by unit
   unit('POST', '/units', ['MANAGE_UNITS'], writes('create_unit', 'create_organization'), 'MANAGE_UNITS in the parent. With no parent it founds a Unit Instance, only while the platform allows self-service Unit Instances (never under MCEN).'),
   unit('PUT', '/units/:unitId', ['MANAGE_UNITS'], writes('edit_unit')),
   unit('DELETE', '/units/:unitId', ['MANAGE_UNITS'], writes('archive_unit', ...DEPARTURE)),
@@ -205,7 +205,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   unit('POST', '/join-codes/:code/join', ['self'], writes('unit_invite_redeemed', 'unit_role_withheld'), 'Anyone signed in who holds a live join code joins with it; a role it carries from the person who opened the account is held back.'),
   unit('GET', '/units/:unitId/export', ['EXPORT_DATA'], writes('export'), 'The unit’s shared work, beneath it as well. Never private entries.'),
 
-  // ——— Bulk downloads elsewhere: one’s own data, or another Marine’s through a unit permission ———
+  // Bulk downloads elsewhere: one’s own data, or another Marine’s through a unit permission
   { method: 'GET', path: '/api/me/export', kind: 'bulk', permission: ['self'], stepUp: true, audit: writes('export_personal'), note: 'Everything one keeps, or the categories one chooses: JSON, a ZIP with attachments, a workbook, or one category as CSV.' },
   { method: 'GET', path: '/api/reports/csv', kind: 'bulk', permission: ['self', 'EXPORT_DATA'], stepUp: false, audit: writes('export_csv', 'build_report'), note: 'Another Marine’s activities take EXPORT_DATA in the unit as well as opening their record.' },
   { method: 'GET', path: '/api/reports/pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },

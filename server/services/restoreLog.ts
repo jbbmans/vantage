@@ -128,7 +128,7 @@ export function lostSince(replaced: Db, restored: ChainPoint) {
   return { lost: { entries, since: restored.at, instances }, undone: { count: undoneCount, entries: undone } };
 }
 
-// ——— Lineage: the newest entry the service last saw, kept beside the database ———
+// Lineage: the newest entry the service last saw, kept beside the database
 
 export interface Lineage { format: 'vantage-lineage/1'; database_id: string | null; seq: number | null; hash: string | null; count: number; schema: number; at: string }
 

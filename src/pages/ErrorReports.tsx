@@ -16,7 +16,7 @@ import { cn, formatStamp, todayIso } from '@/lib/utils';
 import * as api from '@/lib/api';
 import { PERMISSIONS } from '../../shared/permissions';
 import { formatCents } from '../../shared/money';
-import { formatDate, formatNumber } from '../../shared/metrics';
+import { formatDate, formatNumber, NO_VALUE } from '../../shared/metrics';
 import {
   AGE_BASIS_LABELS, COLUMN_ROLES, COLUMN_ROLE_LABELS, DRILL_LABELS, FLAG_LABELS, SINGLE_ROLES, STANDING_LABELS, guessRole, normalStatus,
   type ChangeFlag, type ColumnRole, type Drill, type DrillGroup, type DrillResult, type DrillRow, type ErrorFigure, type ErrorReportLayout, type ErrorReportPreview,
@@ -68,7 +68,7 @@ const RowHead = ({ children, className }: { children: React.ReactNode; className
 );
 
 /**
- * Financial error reports (Task 15, ADR-0021): the ULO, OCMT, UMT, invoices-on-hold and sync-error reports a unit is
+ * Financial error reports (ADR-0021): the ULO, OCMT, UMT, invoices-on-hold and sync-error reports a unit is
  * sent, each filed as it stood on its day and kept as filed, and any two of a series compared: what is new, still
  * open, back, or resolved, what changed, and the figures that follow, each opening the rows behind it. What a person
  * may read, file or take away is the server's to decide; the page shows what it says.
@@ -127,7 +127,7 @@ export default function ErrorReports() {
   );
 }
 
-// ——— Every series of the unit ———
+// Every series of the unit
 
 function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen: (unitId: string, typeId: string) => void; onFile?: () => void }) {
   if (!data.series.length) {
@@ -153,8 +153,8 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
               <td className="text-ink-2">{s.unit_name}</td>
               <td className="fig text-right">{formatNumber(s.reports)}{s.withdrawn ? <span className="block text-2xs text-ink-3">{formatNumber(s.withdrawn)} withdrawn</span> : null}</td>
               <td>{s.latest ? <span className="fig">{day(s.latest.as_of)}</span> : <span className="text-ink-3">None standing</span>}</td>
-              <td className="fig text-right">{s.latest ? formatNumber(s.latest.open_count) : '—'}</td>
-              <td className="fig text-right">{s.latest ? formatCents(s.latest.open_cents) : '—'}</td>
+              <td className="fig text-right">{s.latest ? formatNumber(s.latest.open_count) : NO_VALUE}</td>
+              <td className="fig text-right">{s.latest ? formatCents(s.latest.open_cents) : NO_VALUE}</td>
               <td className={cn('fig text-right', change != null && change > 0 && 'text-bad', change != null && change < 0 && 'text-good')}>
                 {change == null ? <span className="text-ink-3">First report</span> : change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${formatNumber(change)}`}
               </td>
@@ -167,7 +167,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
   );
 }
 
-// ——— One series: two of its reports compared ———
+// One series: two of its reports compared
 
 interface DrillAsk { drill: Drill; group?: DrillGroup; value?: string; title: string }
 
@@ -352,7 +352,7 @@ function ReportsFiled({ reports, afterId, beforeId, onCompare, onWithdraw }: {
             <td className="fig text-right">{formatNumber(s.row_count)}</td>
             <td className="fig text-right">{formatNumber(s.open_count)}</td>
             <td className="fig text-right">{formatCents(s.open_cents)}</td>
-            <td className="fig text-right">{s.rejected_rows ? formatNumber(s.rejected_rows) : '—'}</td>
+            <td className="fig text-right">{s.rejected_rows ? formatNumber(s.rejected_rows) : NO_VALUE}</td>
             <td className="text-xs">{s.filed_by}<span className="block text-ink-3">{formatStamp(s.filed_at)}</span>
               {s.withdrawn ? <span className="mt-1 block"><Badge tone="warn">Withdrawn</Badge> <span className="text-ink-2">{s.withdrawn.by}, {formatStamp(s.withdrawn.at)}: {s.withdrawn.reason}</span></span> : null}
             </td>
@@ -368,7 +368,7 @@ function ReportsFiled({ reports, afterId, beforeId, onCompare, onWithdraw }: {
 }
 
 function figureText(f: ErrorFigure): string {
-  if (f.value == null) return '—';
+  if (f.value == null) return NO_VALUE;
   if (f.kind === 'money') return formatCents(f.value);
   if (f.kind === 'percent') return `${formatNumber(f.value)}%`;
   if (f.kind === 'days') return plural(f.value, 'day');
@@ -472,18 +472,18 @@ function DrillLine({ row, headers, earlier }: { row: DrillRow; headers: string[]
           <summary className="cursor-pointer text-ink-3">Every column<span className="sr-only"> of {row.identifier}</span></summary>
           {open ? (
             <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-              {headers.filter((h) => row.data[h] !== undefined).map((h) => <div key={h} className="contents"><dt className="text-ink-3">{h}</dt><dd className="break-words text-ink-2">{row.data[h] || '—'}</dd></div>)}
+              {headers.filter((h) => row.data[h] !== undefined).map((h) => <div key={h} className="contents"><dt className="text-ink-3">{h}</dt><dd className="break-words text-ink-2">{row.data[h] || NO_VALUE}</dd></div>)}
             </dl>
           ) : null}
         </details>
       </RowHead>
-      <td className="max-w-[18rem]">{row.description || row.reference || '—'}{row.category ? <span className="block text-xs text-ink-3">{row.category}</span> : null}{row.unit ? <span className="block text-xs text-ink-3">{row.unit}</span> : null}</td>
+      <td className="max-w-[18rem]">{row.description || row.reference || NO_VALUE}{row.category ? <span className="block text-xs text-ink-3">{row.category}</span> : null}{row.unit ? <span className="block text-xs text-ink-3">{row.unit}</span> : null}</td>
       <td>{row.marine ?? row.owner ?? <span className="text-ink-3">None named</span>}{row.marine && row.owner && row.marine !== row.owner ? <span className="block text-xs text-ink-3">{row.owner}</span> : null}</td>
-      <td>{row.status ?? <span className="text-ink-3">—</span>}{row.closed ? <Badge tone="good" className="ml-1">Closed</Badge> : null}</td>
-      <td className="fig text-right">{amount == null ? '—' : formatCents(amount)}{other != null && other !== amount ? <span className="block text-xs text-ink-3">{earlier ? 'now' : 'was'} {formatCents(other)}</span> : null}</td>
-      <td className="fig text-right">{row.age_days == null ? '—' : plural(row.age_days, 'day')}{row.age_basis ? <span className="block text-2xs text-ink-3">{AGE_BASIS_LABELS[row.age_basis]}</span> : null}</td>
+      <td>{row.status ?? <span className="text-ink-3">{NO_VALUE}</span>}{row.closed ? <Badge tone="good" className="ml-1">Closed</Badge> : null}</td>
+      <td className="fig text-right">{amount == null ? NO_VALUE : formatCents(amount)}{other != null && other !== amount ? <span className="block text-xs text-ink-3">{earlier ? 'now' : 'was'} {formatCents(other)}</span> : null}</td>
+      <td className="fig text-right">{row.age_days == null ? NO_VALUE : plural(row.age_days, 'day')}{row.age_basis ? <span className="block text-2xs text-ink-3">{AGE_BASIS_LABELS[row.age_basis]}</span> : null}</td>
       <td className="fig text-right">{formatNumber(row.source_row)}</td>
-      <td>{row.case_id ? <Link className="link" to={`/work/items/${encodeURIComponent(row.case_id)}`}>Open the case</Link> : <span className="text-ink-3">—</span>}</td>
+      <td>{row.case_id ? <Link className="link" to={`/work/items/${encodeURIComponent(row.case_id)}`}>Open the case</Link> : <span className="text-ink-3">{NO_VALUE}</span>}</td>
     </tr>
   );
 }
@@ -516,7 +516,7 @@ function WithdrawDialog({ report, code, onClose, onDone }: { report: SnapshotSum
   );
 }
 
-// ——— Filing a report ———
+// Filing a report
 
 type Step = 'file' | 'sheet' | 'columns' | 'preview' | 'done';
 type Filed = SnapshotSummary & { unit_id: string; type_id: string };
@@ -763,7 +763,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
                       <Select aria-label={`What ${h} holds`} className="w-52" value={roles[h] || 'keep'} onValueChange={(v) => { changed('columns'); setRoles((m) => ({ ...m, [h]: v as ColumnRole })); }}
                         options={COLUMN_ROLES.filter((role) => role !== 'ignore' || !keys.includes(h)).map((role) => ({ value: role, label: COLUMN_ROLE_LABELS[role].label }))} />
                     </td>
-                    <td className="max-w-[14rem] truncate px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || '—'}</td>
+                    <td className="max-w-[14rem] truncate px-3 py-1.5 text-xs text-ink-3">{sheet?.sample?.[headerRow]?.[i] || NO_VALUE}</td>
                   </tr>
                 ))}
               </tbody>

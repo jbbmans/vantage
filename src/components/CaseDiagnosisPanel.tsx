@@ -14,7 +14,7 @@ import { provenanceOf } from '../../shared/procedureTypes';
 import type { ExampleState, GuidanceRecord } from '../../shared/caseGuidance';
 
 /**
- * The case diagnosis (Task 16, ADR-0022) on the case page: the rule engine's reading of the case in the specification's
+ * The case diagnosis (ADR-0022) on the case page: the rule engine's reading of the case in its fixed
  * order, every statement labelled as a known fact, a derived value, a recommendation with its source and rank, an unknown,
  * or a decision for a person. No AI writes any of it.
  */

@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { ensureSetup, loginAs, unique, OPERATOR } from './fixtures';
 
 /**
- * Record timeframes (Task 12, ADR-0018): an activity, a course or an award takes a start and an end, an activity or a
+ * Record timeframes (ADR-0018): an activity, a course or an award takes a start and an end, an activity or a
  * course a time at each end and "ongoing". The form says which date to fix before anything is sent, the lists and the
  * record show the range, and the form reads cleanly to assistive technology and fits a phone.
  */

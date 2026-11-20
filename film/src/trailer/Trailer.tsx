@@ -12,7 +12,7 @@ import { film, localCards, type TScene } from '../timeline';
 import { DB, FONT, MONO, SERIF } from '../theme';
 
 /**
- * The trailer (Task 27, ADR-0036). The application in its own frame: the coat's navy, a gold eyebrow naming each of the
+ * The trailer (ADR-0036). The application in its own frame: the coat's navy, a gold eyebrow naming each of the
  * ten outcomes, the gold-over-scarlet piping the application draws under every page title, and the real application in
  * a window beneath, the camera pushing in on what the words are about. Every product shot is marked as demo data, and the
  * end card says what the application's own footer says. No address, no sign-up: this is an application a command runs,

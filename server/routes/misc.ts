@@ -312,7 +312,7 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
   }
 }));
 
-// What a course code is listed as in the current catalogs of approved sources (Task 22, ADR-0029). Course details are no
+// What a course code is listed as in the current catalogs of approved sources (ADR-0029). Course details are no
 // one's record and name no one, so anyone signed in may look one up; Vantage fetches nothing to answer.
 const lookupQuery = z.object({ code: z.string().max(COURSE_CODE_MAX * 4).transform((v) => cleanCourseCode(v)).pipe(z.string().min(1, 'Enter a course code.').max(COURSE_CODE_MAX)) });
 miscRouter.get('/courses/lookup', wrap((req, res) => res.json(lookupCourse(req.ctx, parse(lookupQuery, req.query).code))));

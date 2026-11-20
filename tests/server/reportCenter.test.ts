@@ -9,7 +9,7 @@ import { REPORT_FORMAT, REPORT_TYPES, REPORT_SPECS, chartBars, labelledColumn, p
 import { PROCEDURE_LIST } from '../../shared/procedures.ts';
 
 /**
- * The report center (Task 14, ADR-0020): every report, whom it may be about, what may leave as a file, and what each
+ * The report center (ADR-0020): every report, whom it may be about, what may leave as a file, and what each
  * read, print and file leaves in the audit trail. One document is drawn into every format, so a PDF, a CSV, a workbook
  * and the JSON say what the screen says.
  */
@@ -135,7 +135,7 @@ test('every report runs, and is one document with its title, subject, period, fi
 });
 
 test('every chart in every report draws a column of a table beside it, and prints with its source', async () => {
-  // Task 21 (ADR-0028): a chart is never the only place its figures are. Each names the table in its own section that
+  // ADR-0028: a chart is never the only place its figures are. Each names the table in its own section that
   // holds them, and the column it draws; every bar's figure is in that column, so the chart traces to its rows.
   let charts = 0;
   for (const type of REPORT_TYPES) {
