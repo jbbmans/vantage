@@ -32,6 +32,7 @@ import {
 } from '../services/counselings.ts';
 import { renderCounselingPdf } from '../lib/pdfCounseling.ts';
 import { statSync } from 'node:fs';
+import { checkRange } from '../lib/dateRange.ts';
 
 export const recordsRouter = Router();
 recordsRouter.use(requireAuth);
@@ -45,8 +46,10 @@ function tableParam(req: express.Request) {
 recordsRouter.get('/:table', wrap((req, res) => {
   const table = tableParam(req);
   const scope = scopeFor(req.ctx, req.user, req);
+  // Both days or neither, real ones, in order, two years at most (ADR-0038).
+  const range = checkRange(req.query);
   const rows = listRecords(req.ctx, req.user, table, scope, {
-    unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
+    unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: range?.from ?? null, to: range?.to ?? null,
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
     counted: (shown, total) => res.setHeader('X-Vantage-Rows', `${shown}/${total}`),
   });

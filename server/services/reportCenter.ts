@@ -1,5 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
@@ -1698,6 +1699,8 @@ export function saveDefinition(ctx: AppContext, user: SessionUser, scope: Scope,
     .filter(([k, v]) => (REPORT_PARAM_KEYS as readonly string[]).includes(k) && v != null && v !== '' && !(visibility === 'unit' && k === 'user_id')));
   const checked = reportQuerySchema.safeParse({ ...kept, type: input.type });
   if (!checked.success) throw badRequest('Those report choices are not ones Vantage runs.', { fieldErrors: { params: checked.error.issues[0]?.message || 'Invalid.' } });
+  // A saved report keeps exact days only as custom dates chosen on purpose, and only a range Vantage would run.
+  checkRange(checked.data);
   const params = JSON.stringify(Object.fromEntries(Object.entries(checked.data).filter(([k, v]) => k !== 'type' && v !== undefined)));
   if (params.length > 4000) throw badRequest('Those report choices are too long to keep.');
   const at = now();

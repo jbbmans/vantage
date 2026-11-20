@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { NO_VALUE, PERIOD_OPTIONS, formatDollarsExact, formatNumber, isCalendarDay, type PeriodKey } from './metrics.ts';
+import { CUSTOM_PERIOD } from './dateRange.ts';
 
 /**
  * The reports Vantage prints and files (ADR-0020): what each answers, whom it may be about, the filters it
@@ -239,8 +240,9 @@ const id = z.string().trim().max(64);
 export const reportQuerySchema = z.object({
   type: z.enum(REPORT_TYPES).default('individual'),
   subject: z.enum(REPORT_SUBJECTS).optional(),
-  period: z.enum(PERIOD_OPTIONS.map((p) => p.value) as [string, ...string[]]).optional(),
-  from: day.optional(), to: day.optional(),
+  // A preset, or custom dates. The two days are checked together on the server by the one range rule (ADR-0038).
+  period: z.enum([CUSTOM_PERIOD, ...PERIOD_OPTIONS.map((p) => p.value)]).optional(),
+  from: z.string().max(200).optional(), to: z.string().max(200).optional(),
   user_id: id.optional(), unit_id: id.optional(),
   track: z.enum(['jepes', 'fitrep']).optional(),
   status: z.string().trim().max(40).optional(),

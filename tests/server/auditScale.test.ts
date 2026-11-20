@@ -110,7 +110,7 @@ test('AUD-2: the action list comes with the unfiltered first page only, from the
   const g8 = await get(op.token, '/api/orgs/G8/audit');
   assert.ok(g8.body.actions.includes('scale_g8_probe'));
   assert.ok(!(await get(g1lead.token, '/api/orgs/G1/audit')).body.actions.includes('scale_g8_probe'), 'G-1’s list never holds what only G-8 did');
-  for (const filter of ['action=scale_g8_probe', 'q=probe', 'category=unit', 'from=2020-01-01', 'to=2099-01-01', 'unit=G8', `before=${g8.body.rows[0].seq}`]) {
+  for (const filter of ['action=scale_g8_probe', 'q=probe', 'category=unit', 'from=2020-01-01&to=2021-12-31', 'from=2098-01-01&to=2099-01-01', 'unit=G8', `before=${g8.body.rows[0].seq}`]) {
     const res = await get(op.token, `/api/orgs/G8/audit?${filter}`);
     assert.equal(res.status, 200, filter);
     assert.equal(res.body.actions, null, `${filter}: a filtered page carries no action list`);

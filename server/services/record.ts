@@ -14,6 +14,7 @@ import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
 import { zonedDay, zonedDayBounds, zonedDateOf } from '../lib/clock.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import type { AssignedItem, ContributionCounts, WorkloadMember, WorkloadResponse } from '../../shared/caseView.ts';
 
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
@@ -26,12 +27,10 @@ const bounds = (timezone: string, w: Window) => zonedDayBounds(w.timezone || tim
 
 const defaultWindow = (timezone: string, days: number): Window => ({ from: zonedDay(timezone, -(days - 1)), to: zonedDay(timezone) });
 
+/** The window a request names, checked by the one rule (ADR-0038), or the last `days` days when it names none. */
 export function parseWindow(timezone: string, query: Record<string, unknown>, days = 90): Window {
-  const fallback = defaultWindow(timezone, days);
-  const from = typeof query.from === 'string' && query.from ? query.from : fallback.from;
-  const to = typeof query.to === 'string' && query.to ? query.to : fallback.to;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
-  return { from, to, timezone };
+  const range = checkRange(query);
+  return { ...(range ?? defaultWindow(timezone, days)), timezone };
 }
 
 const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id IN (SELECT value FROM json_each(?)) AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
@@ -128,7 +127,11 @@ export function recordSummary(ctx: AppContext, user: SessionUser, w: Window) {
       blocked: assigned.filter((a) => a.stage === 'blocked').length,
     },
     contributions: contributionCounts(ctx, user.id, w),
-    personal: { activities: personal('activities', 'date'), trainings: personal('trainings', 'date'), open_drafts: drafts },
+    personal: {
+      activities: personal('activities', 'date'), trainings: personal('trainings', 'date'), open_drafts: drafts,
+      // Whether they have logged anything at all, whatever the window: Getting started asks this.
+      any_activity: Boolean(ctx.db.prepare('SELECT 1 FROM activities WHERE user_id = ? AND deleted_at IS NULL LIMIT 1').get(user.id)),
+    },
     definitions: CONTRIBUTION_DEFINITIONS,
   };
 }
