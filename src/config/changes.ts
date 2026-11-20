@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-20',
+    title: 'Choose your own dates',
+    items: [
+      'Period now has Custom dates on Records, Analysis, the Report library, Duty and Today. Choose it, then set From and To; the page uses both days as soon as they are set.',
+      'Exports, the report and analysis PDFs, and Print or file use the same days. Period over period now compares the days you chose, and an activities export for All time with dates set exports those dates.',
+      'A range is up to 731 days, both ends counted. A day that does not exist, such as 30 February, or a last day before the first, is named at its field instead of being read some other way.',
+      'The dates stay in the page’s address, so a reload, a bookmark or a link opens on the same days. The Timeline and the audit trails now ask for both days before they narrow the list.',
+    ],
+  },
+  {
     date: '2026-11-18',
     title: 'A trailer of the finished product',
     items: [

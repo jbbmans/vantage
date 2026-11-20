@@ -7,6 +7,7 @@ import { TimeframeText } from '@/components/Timeframe';
 import { QueryFailure } from '@/components/QueryFailure';
 import { useRecordTimeline } from '@/lib/queries';
 import { formatDate } from '../../shared/metrics';
+import { FIRST_YEAR, LAST_YEAR, rangeProblems } from '../../shared/dateRange';
 import { RECORD_KINDS, type TimelineItem, type TimelineResponse } from '../../shared/recordKinds';
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty';
 import { cn, humanize } from '@/lib/utils';
@@ -60,9 +61,11 @@ export default function Timeline() {
   const [from, setFrom] = useParam('from');
   const [to, setTo] = useParam('to');
   const [, setParams] = useSearchParams();
-  const backwards = Boolean(from && to && from > to);
+  // A window is both days, in the order and span every range keeps (ADR-0038); until it is one, none is asked for.
+  const problem = from || to ? rangeProblems(from, to, { required: true }) : null;
+  const dated = Boolean(from && to && !problem);
   // The kind goes to the server, so a kind with few entries shows its own newest rather than those among everything's newest.
-  const params = useMemo(() => ({ ...(backwards ? { from } : { from: from || undefined, to: to || undefined }), kind: kind === 'all' ? undefined : kind }), [from, to, backwards, kind]);
+  const params = useMemo(() => ({ ...(dated ? { from, to } : {}), kind: kind === 'all' ? undefined : kind }), [from, to, dated, kind]);
   const timeline = useRecordTimeline(params);
   // While another kind is on its way, the last answer still counts every kind for the filters, but its entries are not this kind's.
   const switching = timeline.data ? (timeline.data.kind ?? 'all') !== kind : false;
@@ -78,14 +81,14 @@ export default function Timeline() {
         <>
           <Kinds data={timeline.data} kind={kind} onKind={setKind} />
           <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
-            <Field label="From" className="w-40"><Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></Field>
-            <Field label="To" className="w-40" error={backwards ? 'Pick a day on or after the start.' : null}><Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></Field>
+            <Field label="From" className="w-40" error={problem?.fieldErrors.from}><Input type="date" value={from} min={`${FIRST_YEAR}-01-01`} max={to || `${LAST_YEAR}-12-31`} onChange={(e) => setFrom(e.target.value)} /></Field>
+            <Field label="To" className="w-40" error={problem?.fieldErrors.to}><Input type="date" value={to} min={from || `${FIRST_YEAR}-01-01`} max={`${LAST_YEAR}-12-31`} onChange={(e) => setTo(e.target.value)} /></Field>
             {(from || to) && <Button variant="ghost" onClick={() => clear('from', 'to')}>Clear dates</Button>}
             {timeline.data && <Pending kinds={timeline.data.pending} />}
           </div>
           {timeline.isPending || switching ? <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
-            : backwards ? <div className="card"><EmptyState icon={CalendarRange} title="Those dates are the wrong way round" description="The start is after the end. Change one of them to see your timeline." /></div>
-              : <Entries data={timeline.data} kind={kind} dated={Boolean(from || to)} onClear={() => clear('kind', 'from', 'to')} />}
+            : problem ? <div className="card"><EmptyState icon={CalendarRange} title={problem.message} description="Change the dates, or clear them, to see your timeline." /></div>
+              : <Entries data={timeline.data} kind={kind} dated={dated} onClear={() => clear('kind', 'from', 'to')} />}
         </>
       )}
     </div>

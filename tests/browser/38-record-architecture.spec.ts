@@ -370,6 +370,9 @@ test('the Timeline lists each kind from its own record, filters by kind, and rea
 
   // A date window narrows every kind at once, and the counts follow it.
   await page.getByLabel('From', { exact: true }).fill('2026-08-01');
+  // One day alone is not a window: the page says what is missing and asks for nothing until both are set.
+  await expect(page.getByText('Add the last day.').first()).toBeVisible();
+  await page.getByLabel('To', { exact: true }).fill('2027-12-31');
   await expect(entries).toHaveCount(3);
   await expect(chip('Everything')).toContainText('3');
   await expect(kinds.getByRole('button', { name: /^Awards/ })).toHaveCount(0);

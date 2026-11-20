@@ -195,12 +195,16 @@ test('a backwards date range is said at its field, the count is announced, and a
   await from.fill('2026-03-10');
   await page.getByLabel('To (UTC)').fill('2026-03-01');
   await page.getByRole('button', { name: 'Apply' }).click();
-  await expect(from).toHaveAttribute('aria-invalid', 'true');
-  await expect(page.getByRole('alert').filter({ hasText: 'From is after To' })).toBeVisible();
+  const to = page.getByLabel('To (UTC)');
+  await expect(to).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert').filter({ hasText: 'On or after the first day.' })).toBeVisible();
   await expect(page.getByText(/shown, filtered/), 'nothing was sent').toHaveCount(0);
 
-  await page.getByLabel('To (UTC)').fill('2099-12-31');
-  await expect(from).not.toHaveAttribute('aria-invalid', 'true');
+  // A window around today, inside the span every range keeps (ADR-0038).
+  const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  await from.fill(day(-30));
+  await to.fill(day(1));
+  await expect(to).not.toHaveAttribute('aria-invalid', 'true');
   await page.getByLabel('Search').fill('anchor');
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByRole('status').filter({ hasText: /shown, filtered/ })).toBeVisible();

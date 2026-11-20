@@ -5,7 +5,10 @@ import { Plus, Upload, ShieldCheck, ArrowRightLeft, ChevronDown, ChevronUp, Clip
 import { PageHeader, Button, EmptyState, Badge, Field, Select, Stat, Segmented, Skeleton } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { PeriodSelect, Table, useParam } from '@/components/common';
+import { Table, useParam } from '@/components/common';
+import DateRangePicker from '@/components/DateRangePicker';
+import { usePeriodParam } from '@/lib/usePeriodParam';
+import { periodDays } from '@/lib/periodParams';
 import { QueryFailure } from '@/components/QueryFailure';
 import { TimeframeText } from '@/components/Timeframe';
 import { Attachments } from '@/components/Attachments';
@@ -19,7 +22,7 @@ import { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import { can, canCorrectDuty, keys, useDeleteRecord, useDutyCandidates, useDutyPages, useDutyReviewQueue, useDutySummary, useIdentity, useKeepAsActivity, useRestoreRecord, type Identity } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { PERMISSIONS } from '../../shared/permissions';
-import { dayKey, formatNumber, rangeForPeriod } from '../../shared/metrics';
+import { formatNumber } from '../../shared/metrics';
 import { formatTimeframe } from '../../shared/timeframe';
 import { DUTY_STATUSES, DUTY_STATUS_LABELS, formatHours, type DutyCandidate, type DutyStatus } from '../../shared/duty';
 import { hasReviewOptions } from '../../shared/dutyReview';
@@ -57,7 +60,8 @@ export default function Duty() {
   const me = identity?.user.id;
   const [openId, setOpenId] = useParam('open');
   const [who, setWho] = useParam('who', 'mine');
-  const [period, setPeriod] = useParam('period', 'all');
+  const range = usePeriodParam('all');
+  const { period, from, to, custom } = range;
   const [unit, setUnit] = useParam('unit');
   const [statusParam, setStatus] = useParam('status');
   const [queueUnit, setQueueUnit] = useParam('queue_unit');
@@ -77,10 +81,10 @@ export default function Duty() {
   const listWho: api.DutyTab = whoShown === 'review' ? 'mine' : whoShown;
 
   const filters = useMemo<api.DutyListFilters>(() => {
-    const range = period && period !== 'all' ? rangeForPeriod(period) : null;
-    return { ...(unit ? { unit_id: unit } : {}), ...(range ? { from: dayKey(range.start), to: dayKey(range.end) } : {}), ...(status ? { status } : {}) };
-  }, [period, unit, status]);
-  const filtered = Boolean(unit || status || (period && period !== 'all'));
+    const days = periodDays({ period, from, to, custom });
+    return { ...(unit ? { unit_id: unit } : {}), ...(days ?? {}), ...(status ? { status } : {}) };
+  }, [period, from, to, custom, unit, status]);
+  const filtered = Boolean(unit || status || custom || period !== 'all');
   // The review queue is a list of its own: while it shows, the tab's list is not read, so a decision there reads no list again.
   const list = useDutyPages(listWho, filters, whoShown !== 'review');
   const rows = useMemo(() => {
@@ -156,7 +160,7 @@ export default function Duty() {
   // so calling them one after another would keep only the last change and leave the list narrowed.
   const clearFilters = () => setSearchParams((p) => {
     const n = new URLSearchParams(p);
-    for (const name of ['period', 'unit', 'status']) n.delete(name);
+    for (const name of ['period', 'from', 'to', 'unit', 'status']) n.delete(name);
     return n;
   }, { replace: true });
 
@@ -226,7 +230,9 @@ export default function Duty() {
 
       {showFilters && (
         <div role="group" aria-label="Narrow the list" className="card mb-3 grid grid-cols-1 gap-3 p-3 sm:grid-cols-3">
-          <Field label="Period"><PeriodSelect value={period || 'all'} onChange={(v) => setPeriod(v === 'all' ? '' : v)} className="w-full" /></Field>
+          <Field label="Period" className={custom ? 'sm:col-span-3' : undefined}>
+            <DateRangePicker stacked value={range} ignored={range.ignored} onChange={range.set} className={custom ? 'w-full sm:w-56' : 'w-full'} />
+          </Field>
           {unitChoices.length > 1 && (
             <Field label="Unit"><Select className="w-full" value={unit || 'all'} onValueChange={(v) => setUnit(v === 'all' ? '' : v)}
               options={[{ value: 'all', label: 'All units' }, ...unitChoices.map((u) => ({ value: u.id, label: u.name }))]} /></Field>
