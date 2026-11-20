@@ -27,7 +27,7 @@ import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyStaff } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
-import { zonedNow } from '../lib/clock.ts';
+import { zonedDay, zonedNow } from '../lib/clock.ts';
 import { listItems } from '../services/work.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { lookupCourse } from '../services/courses.ts';
@@ -194,7 +194,11 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const filters: Record<string, string | null> = {};
   if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
   if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
-  const { from, to } = range ?? (q.period ? periodBounds(q.period, null, null, zoneOf(req.ctx, req.user)) : defaultPeriod(req.ctx));
+  const zone = zoneOf(req.ctx, req.user);
+  const named = q.period ? periodBounds(q.period, null, null, zone) : null;
+  // All time runs through tomorrow, as the rolling periods do: a reader east of the instance's clock dates today's work
+  // a day ahead of it, and that work is in All time too.
+  const { from, to } = range ?? (named ? (q.period === 'all' ? { from: named.from, to: zonedDay(zone, 1) } : named) : defaultPeriod(req.ctx));
   return {
     scope,
     opts: {

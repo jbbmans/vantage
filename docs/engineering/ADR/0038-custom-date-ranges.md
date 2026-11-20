@@ -45,11 +45,15 @@ Before this change, each endpoint that reads records by days had its own check, 
 4. **The family reads the range it is given.** `/reports/delta` compares the days given with the span before them.
    `/reports/csv` with All time and two days exports those days; All time with none still exports every entry.
 5. **Clocks.** Each endpoint keeps the clock it used for presets (the user's zone or the instance's). Custom days are
-   exact days, so no clock applies to them.
+   exact days, so no clock applies to them. All time on `/api/metrics`, which pages used to send as 1970 to the
+   browser's today, runs through tomorrow on the reader's zone, as the rolling periods do, so work a reader east of the
+   instance dates today is in All time as it is in the last 30 days.
 6. **The picker.** `DateRangePicker` is the Period select with Custom dates after the presets. Choosing it opens From
    and To (native date fields), filled with the days the period before covered (or the default period's days, when
-   that was All time). The range is handed on only once both days pass the rule; until then the field shows the rule's
-   message and the page keeps the last good range. A form that runs on demand (the Report library) is handed every
+   that was All time). The range is handed on only once both days pass the rule; until then the page keeps the last
+   good range, and the field shows the rule's message once the person leaves it. A date field reports each part of a
+   day as it is typed (a year passes through 0002 and 0020), so a message at every keystroke would announce errors
+   nobody made. A form that runs on demand (the Report library) is handed every
    edit (`everyEdit`) and will not run or save while the range is wrong.
 7. **The address.** `usePeriodParam` reads and writes `period`, `from` and `to` in one URL change, through pure
    functions in `src/lib/periodParams.ts` that the server tests load. Two days in a link with no period are custom
@@ -73,7 +77,8 @@ Before this change, each endpoint that reads records by days had its own check, 
   word in place of a day.
 - A request from a browser still holding the build before this change sends All time to `/api/metrics` as 1970 to
   today, which is now refused; the page reads again once it is reloaded.
-- A Timeline or audit filter with one day set no longer narrows the list until the other is set.
+- With one day set, the Timeline shows what is missing in place of the list, and an audit filter is not applied, until
+  the other day is set.
 - The rule's words are in one table, so the picker, the forms and the server cannot drift apart.
 
 ## Not done

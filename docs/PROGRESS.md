@@ -23,6 +23,9 @@ Round 2 item 12, part 1, from `9ab75ae` ([ADR-0038](engineering/ADR/0038-custom-
   custom range never does. Links with days that break the rule show the usual period and say why.
 - **Callers fixed:** Timeline and the audit trails send a window only with both days; Getting started reads
   `personal.any_activity` instead of a 26-year summary.
+- **Review fixes:** All time on `/metrics` runs through tomorrow on the reader's zone, as the rolling periods do; a
+  day field says what is wrong once it is left, not at each keystroke of a date being typed; Duty shows its filters
+  when a link's days were not used, so it can say why.
 - **Tests:** `tests/server/dateRanges.test.ts` (the rule, the URL helpers, every endpoint in one table, delta and CSV,
   saved definitions) and `tests/browser/58-date-ranges.spec.ts` (each page, reload, requests and files, keyboard only,
   axe at 320, 768 and 1280 px in light and dark). Specs 32 and 38 now set both days.

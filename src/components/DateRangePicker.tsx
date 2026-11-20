@@ -39,6 +39,10 @@ export default function DateRangePicker({
   // The address moved (back, forward, a link): the fields follow it.
   useEffect(() => { if (custom) setDraft({ from: value.from ?? '', to: value.to ?? '' }); }, [custom, value.from, value.to]);
   const problem = custom ? rangeProblems(draft.from, draft.to, { required: true }) : null;
+  // A date field reports each part of a day as it is typed (a year passes through 0002 and 0020 on its way to 2026), so
+  // what is wrong with the range is said once the person leaves the field, not at every keystroke.
+  const [typing, setTyping] = useState(false);
+  const shown = typing ? null : { from: problem?.fieldErrors.from ?? errors?.from, to: problem?.fieldErrors.to ?? errors?.to };
   const noticeId = useId();
   const described = [describedBy, ignored ? noticeId : null].filter(Boolean).join(' ') || undefined;
 
@@ -52,6 +56,7 @@ export default function DateRangePicker({
   const edit = (field: 'from' | 'to', day: string) => {
     const next = { ...draft, [field]: day };
     setDraft(next);
+    setTyping(true);
     if (everyEdit || !rangeProblems(next.from, next.to, { required: true })) onChange({ period: CUSTOM_PERIOD, ...next });
   };
   const options = [
@@ -65,8 +70,8 @@ export default function DateRangePicker({
       {custom && (
         <fieldset className={cn('flex min-w-0 flex-wrap items-start gap-2', stacked && 'mt-2')}>
           <legend className="sr-only">{CUSTOM_LABEL}</legend>
-          <DayField label="From" value={draft.from} min={`${FIRST_YEAR}-01-01`} max={draft.to || `${LAST_YEAR}-12-31`} error={problem?.fieldErrors.from ?? errors?.from} onChange={(d) => edit('from', d)} />
-          <DayField label="To" value={draft.to} min={draft.from || `${FIRST_YEAR}-01-01`} max={`${LAST_YEAR}-12-31`} error={problem?.fieldErrors.to ?? errors?.to} onChange={(d) => edit('to', d)} />
+          <DayField label="From" value={draft.from} min={`${FIRST_YEAR}-01-01`} max={draft.to || `${LAST_YEAR}-12-31`} error={shown?.from} onChange={(d) => edit('from', d)} onBlur={() => setTyping(false)} />
+          <DayField label="To" value={draft.to} min={draft.from || `${FIRST_YEAR}-01-01`} max={`${LAST_YEAR}-12-31`} error={shown?.to} onChange={(d) => edit('to', d)} onBlur={() => setTyping(false)} />
         </fieldset>
       )}
       {ignored && <p id={noticeId} className={cn('w-full text-xs leading-snug text-ink-3', stacked && 'mt-1')}>The dates in the link were not used. {ignored.message}</p>}
@@ -75,13 +80,13 @@ export default function DateRangePicker({
 }
 
 /** One day of the range: a native date field with its name beside it, so it sits in a row of filters. */
-function DayField({ label, value, min, max, error, onChange }: { label: string; value: string; min: string; max: string; error?: string; onChange: (day: string) => void }) {
+function DayField({ label, value, min, max, error, onChange, onBlur }: { label: string; value: string; min: string; max: string; error?: string; onChange: (day: string) => void; onBlur: () => void }) {
   const errorId = useId();
   return (
     <div className="min-w-0">
       <label className="flex items-center gap-1.5 text-sm text-ink-2">
         <span>{label}</span>
-        <Input type="date" className="fig w-[10.5rem]" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
+        <Input type="date" className="fig w-[10.5rem]" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
           {...(error ? { 'aria-invalid': true, 'aria-describedby': errorId } : {})} />
       </label>
       {error && <p id={errorId} className="mt-1 text-xs leading-snug text-bad" role="alert">{error}</p>}

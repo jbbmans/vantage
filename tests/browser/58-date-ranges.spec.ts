@@ -43,8 +43,9 @@ test('Records keeps custom dates in its address, and its CSV carries them', asyn
   await page.getByRole('button', { name: 'Export activities' }).click();
   await csv;
 
-  // A range that ends before it starts is said at the field; the page keeps the last good range.
+  // A range that ends before it starts is said at the field once it is left; the page keeps the last good range.
   await page.getByLabel('To', { exact: true }).fill('2026-01-01');
+  await page.getByLabel('To', { exact: true }).blur();
   await expect(page.getByRole('alert').filter({ hasText: 'On or after the first day.' })).toBeVisible();
   await expect(page.getByLabel('To', { exact: true })).toHaveAttribute('aria-invalid', 'true');
   await expect(page).toHaveURL(IN_URL);
@@ -64,11 +65,17 @@ test('a link whose dates are no range is shown on the period it falls back to, a
   const described = await period.getAttribute('aria-describedby');
   expect(described).toBeTruthy();
   await expect(page.locator(`[id="${described!.split(' ').at(-1)}"]`)).toContainText('The dates in the link were not used.');
+
+  // Duty folds its filters away for a short list, but shows them to say why the link's days were not used.
+  await page.goto('/record/duty?from=2026-03-10&to=2026-03-01');
+  await expect(page.getByRole('group', { name: 'Narrow the list' }).getByText('The dates in the link were not used. The range ends before it starts.')).toBeVisible();
 });
 
 test('Analysis asks for custom dates and carries them to its files and to Print or file', async ({ page }) => {
   await page.goto('/reports/analysis?period=all');
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+  // The view is a saved choice that earlier specs change, so the test starts from a known one.
+  await page.getByRole('tab', { name: 'Narrative' }).click();
   const report = page.waitForRequest((r) => asks('/api/reports?')(r.url()));
   const metrics = page.waitForRequest((r) => asks('/api/metrics?')(r.url()));
   await chooseCustom(page);
@@ -116,6 +123,7 @@ test('the Report library runs, prints and saves custom dates, and will not run a
   await page.unroute('**/api/report-center/definitions');
 
   await page.getByLabel('To', { exact: true }).fill('2026-01-01');
+  await page.getByLabel('To', { exact: true }).blur();
   await expect(page.getByRole('alert').filter({ hasText: 'On or after the first day.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run report' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Save these choices' })).toBeDisabled();
@@ -170,9 +178,17 @@ test('custom dates are chosen and set by keyboard alone', async ({ page }) => {
   await page.keyboard.type('01052026');
   await expect(from).toHaveValue(FROM);
   const to = page.getByLabel('To', { exact: true });
+  const days = page.getByRole('group', { name: 'Custom dates' });
+  await to.focus();
+  // Halfway through the year the field holds 0020, a day out of range. Nothing is said while the day is being typed.
+  await page.keyboard.type('022020');
+  await expect(to).toHaveValue('0020-02-20');
+  await expect(days.getByRole('alert')).toHaveCount(0);
+  await to.blur();
   await to.focus();
   await page.keyboard.type('02202026');
   await expect(to).toHaveValue(TO);
+  await expect(days.getByRole('alert')).toHaveCount(0);
   await expect(page).toHaveURL(IN_URL);
 });
 
@@ -189,6 +205,7 @@ for (const width of [320, 768, 1280]) {
       await expect(page.getByLabel('From', { exact: true }).first()).toHaveValue(FROM);
       // A backwards range shows its message too, so the error state is checked as well.
       await page.getByLabel('To', { exact: true }).first().fill('2026-01-01');
+      await page.getByLabel('To', { exact: true }).first().blur();
       await expect(page.getByRole('alert').filter({ hasText: 'On or after the first day.' }).first()).toBeVisible();
       await page.waitForLoadState('networkidle');
       for (const theme of ['light', 'dark'] as const) {

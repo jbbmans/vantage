@@ -172,7 +172,8 @@ export default function Duty() {
   const panel = showTabs ? { id: PANEL, role: 'tabpanel', 'aria-labelledby': tabId(whoShown) } : {};
   const tabCount = whoShown === 'review' ? 0 : listWho === 'mine' ? tabs?.mine ?? 0 : listWho === 'recorded' ? tabs?.recorded ?? 0 : tabs?.units ?? 0;
   const unitChoices = summary.data?.units ?? [];
-  const showFilters = whoShown !== 'review' && (filtered || tabCount > 10);
+  // Days a link carried that were not used are said beside the period, so the filters show to say it.
+  const showFilters = whoShown !== 'review' && (filtered || Boolean(range.ignored) || tabCount > 10);
 
   // The queue names only the units where something waits. A unit narrowed to that has nothing left waiting stays in the
   // choice, under the name the reader's units give it, so the choice still says what it shows.

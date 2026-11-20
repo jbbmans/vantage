@@ -1,6 +1,7 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, type TestApp } from './helpers.ts';
+import { zonedDay } from '../../server/lib/clock.ts';
 import { CUSTOM_PERIOD, MAX_RANGE_DAYS, RANGE_TEXT, customSeed, isRangeDay, presetDays, rangeLabel, rangeOfDays, rangeProblems, spanDays } from '../../shared/dateRange.ts';
 import { DEFAULT_PERIOD } from '../../shared/metrics.ts';
 import { metricsPeriod, periodDays, periodQuery, readPeriod, writePeriod } from '../../src/lib/periodParams.ts';
@@ -222,4 +223,17 @@ test('a saved report keeps custom dates only when they make a range', async () =
     assert.equal(res.status, 400, JSON.stringify(params));
     assert.ok(res.body.fieldErrors?.[field], `${JSON.stringify(params)}: ${JSON.stringify(res.body)}`);
   }
+});
+
+test('All time on the metrics counts work dated tomorrow on the instance clock, as the rolling periods do', async () => {
+  // A reader east of the instance dates today's work a day ahead of the instance's today.
+  const tomorrow = zonedDay(app.ctx.config.timezone, 1);
+  const made = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Checks run east of the instance', date: tomorrow, quantity: 7, unit_label: 'checks', visibility: 'private' } });
+  assert.equal(made.status, 201, made.text);
+  const figure = (body: any) => [...body.headline, ...body.tracked].find((t: any) => t.metricId === 'quantity:check');
+  const all = await get('/api/metrics?scope=me&period=all');
+  assert.equal(all.status, 200);
+  assert.equal(figure(all.body)?.value, 7, 'All time holds it');
+  const last30 = await get(`/api/metrics?scope=me&from=${zonedDay(app.ctx.config.timezone, -29)}&to=${tomorrow}`);
+  assert.equal(figure(last30.body)?.value, 7, 'as the last 30 days do');
 });
