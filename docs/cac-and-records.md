@@ -85,8 +85,9 @@ another command) accept the card in place of a password: **Confirm with your CAC
 calls `POST /api/auth/cac/step-up`. The card goes through the same checks as a sign-in, and it must
 carry the EDIPI the signed-in account carries. Somebody else's valid card is refused, and so is any card
 on an account with no linked card. Every refusal is on the audit trail as `cac_step_up_refused`, and
-every confirmation as `cac_step_up`. Accounts the card or the roster created have no password, so
-before this they could not confirm anything.
+every confirmation as `cac_step_up`, naming the session it confirmed, as a password confirmation is
+`password_step_up`. A unit change made on Unit Instance authority asks for the same confirmation. Accounts the card
+or the roster created have no password, so before this they could not confirm anything.
 
 ### Linking accounts
 

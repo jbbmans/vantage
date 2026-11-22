@@ -55,7 +55,8 @@ and fairness reports (Task 18) stay where they are.
 | Enterprise controls | Settings → Set by Vantage (read-only) | `org.view` |
 
 Every route is under `/api/orgs/:orgId`. Like the rest of the console, it needs a recent step-up, and it
-checks its permission on the server (`inOrg`):
+checks its permission on the server (`inOrg`). Since [ADR-0040](0040-security-fixes-for-later-features.md) a unit
+change made through `/api/org` on the same Unit Instance authority asks for step-up too:
 
 - someone with no role in the instance, or asking about another instance, gets 404;
 - a role without the permission gets 403 `org_permission`.

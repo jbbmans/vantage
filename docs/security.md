@@ -9,7 +9,7 @@
 - Sessions are random 256-bit tokens stored only as SHA-256 digests, in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie. Idle timeout 15 minutes, 10 for Vantage staff (`VANTAGE_IDLE_MINUTES`, `VANTAGE_STAFF_IDLE_MINUTES`), absolute 12 hours, at most 8 active per user. A background poll (the notification bell) is marked as such and does not count as activity, so an open tab still times out. The client is told when the session will end and asks two minutes before.
 - Lockout: three consecutive failures (a wrong password at sign-in, a wrong second factor, or a wrong password at a step-up or password change) lock the account for 15 minutes (`VANTAGE_LOCKOUT_ATTEMPTS`, `VANTAGE_LOCKOUT_MINUTES`). The count is kept in the database, so a restart does not lift it. The right password does not open a locked account; a passkey, a CAC or organization sign-in still does. A Unit Manager can unlock from the Accounts tab (except an account that also serves in another Unit Instance or runs the service, ADR-0009), and issuing a temporary password unlocks too. Each lock and unlock is audited.
 - Notice and consent: `VANTAGE_CONSENT_BANNER=dod` shows the standard DoD Notice and Consent Banner before sign-in, and the server refuses to create an account or a session for a client that has not accepted it. `custom` shows `VANTAGE_CONSENT_TEXT`. Off by default, because it states the conditions of a U.S. Government system.
-- Step-up: sensitive changes require confirming it is you within a 10-minute window (`sudo_until` on the session): the password, or the CAC the account carries (`POST /api/auth/cac/step-up`, which refuses somebody else's card and any card on an account with none linked). The dialog offers what the account can use; with neither, signing in again confirms. A card-only deployment refuses the password step-up.
+- Step-up: sensitive changes require confirming it is you within a 10-minute window (`sudo_until` on the session): the password, or the CAC the account carries (`POST /api/auth/cac/step-up`, which refuses somebody else's card and any card on an account with none linked). The dialog offers what the account can use; with neither, signing in again confirms. A card-only deployment refuses the password step-up. A password step-up is audited (`password_step_up`), naming the session it confirmed.
 - Password change, role change, membership change, MFA reset, and deactivation revoke the affected user's other sessions.
 - Every one of those transitions also advances the account's authentication epoch, in the same transaction (ADR-0035). A session stands only while it was opened under its account's current epoch, and a proof that was being checked when the account moved on (a password still hashing, a code challenge issued before a reset, a passkey answer) opens no session and confirms no step-up: a sign-in hears `401 credentials_changed`; a step-up or password change on a session that still stands hears `403 credentials_changed` and asks again. A second factor turned on while a password is checked is asked for.
 - Work that waits on something outside the database before it writes or answers (a malware scan, a queued export, a drawn PDF, a database backup copy, an AI provider's answer, each page of a mailbox sync) asks again afterwards whether its session is live, without renewing it, by the same idle and absolute deadlines a request meets, and then decides its own access again on the account and scope as they are then (`liveSession`, `freshAuthority`, `freshPlatformAuthority`, ADR-0035). A file that waited is not kept, a drawn file or a backup copy does not leave, an AI answer is not handed back and a mailbox page is not stored when the answer has changed; nothing is audited as exported, backed up or given. An export whose reader has gone (their connection closed) is not drawn or audited.
@@ -82,7 +82,8 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **Every route checks its permission on the server.** Configuration is `org.config` (Lead Unit Managers
   and Unit Managers); reading it is `org.view`; the roster and configuration exports are `org.export`;
   the audit trail and its export are `org.audit`. Another Unit Instance's routes answer 404. All of
-  `/api/orgs` needs a recent step-up. `tests/server/unitManagerConsole.test.ts` and
+  `/api/orgs` needs a recent step-up, and so does an `/api/org` change that rests on the same Unit Instance authority
+  (ADR-0040). `tests/server/unitManagerConsole.test.ts` and
   `tests/server/roleModel.test.ts` drive every Unit Instance role against them.
 - **Unit configuration never reaches enterprise controls.** No setting it holds touches sign-in, sessions,
   attachments or audit. Settings show what Vantage sets, read-only, without secrets or host names. The one
@@ -220,7 +221,8 @@ and restores, keeps backups apart from data exports, and makes a restore privile
 - **A restore runs on the host, never through the app.** `node scripts/restore.ts` needs `VANTAGE_RESTORE=1`, the words
   `REPLACE-DATABASE`, an active Lead Vantage Administrator by username and a reason, and refuses while anything
   holds the database open. It checks the backup's integrity, schema, chain key and every audit entry, refuses a
-  backup of another database unless told, keeps the database it replaces (owner-readable only), signs everyone
+  backup of another database unless told (one that names no database is this one's only when this trail holds its
+  newest entry), keeps the database it replaces (owner-readable only from its first page), signs everyone
   out, drops the backup's sign-in links and queued mail and cancels pending support approvals. The service
   audits it as `database_restored` in the platform trail and every Unit Instance's at its next start, and tells
   staff, every Lead Unit Manager and the authorizer. Who must approve a restore beyond that is I-35.
@@ -425,6 +427,28 @@ about, never in a chat, and gives every notice the record it is about (`server/s
 - **Audited without words.** `request_sent` and `request_closed` name the request by id; comment audits name the
   comment by id.
 
+## Step-up on Unit Instance authority, and what the trail keeps (ADR-0040)
+
+[ADR-0040](engineering/ADR/0040-security-fixes-for-later-features.md) closes the open register defects the later work
+builds on.
+
+- **A unit change on Unit Instance authority asks for step-up.** An `/api/org` change to a unit, its members, roles,
+  responsibilities, invitations, join codes or a Marine's profile asks the person to confirm it is them when it rests
+  on a Unit Instance role rather than the chain of command, as `/api/orgs` asks for every change. A Unit Leader in their
+  own unit is not asked. The app asks and retries as the consoles do.
+- **Every way a session ends is in the trail once**, under the 12 characters of its id the sessions list shows:
+  sign-out (`logout`), another session signed out from the list (`session_revoked`), the session limit
+  (`session_evicted`) and expiry, idle or absolute (`session_expired`, written by the service).
+- **Every case close is in the trail**, from its stage, its row or an action (`work_closed`, `work_reopened`). A restore
+  from the bin names whose record it was.
+- **Private entries stay out of every unit's access log.** What is done to a private entry is filed under its Unit
+  Instance and no unit, decided as the entry is written, so the Unit Instance trail keeps it and no unit's leaders learn
+  it exists. A counseling a leader writes keeps its unit. Entries written before keep the unit they had.
+- **When a Marine last signed in** is given to them and to those who manage them, never to a leader who only reads
+  their records.
+- **Settings are whole numbers in range.** Every numeric setting is digits only and within its bounds, on every
+  profile; the start names one that is not.
+
 ## Limits, paging and load (ADR-0032)
 
 [ADR-0032](engineering/ADR/0032-performance-accessibility-responsive.md) bounds the reads that grow with a command.
@@ -505,7 +529,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
   or a project restarts it); the preview counts them, and the run's history and its `disposition_run` audit entry state
   the count. A legal hold keeps them as it keeps the records, and also keeps the files a held person added to anyone's
   record and the files of an entry whose history a hold keeps, until it is released.
-- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected attachment, record import or saved message is never stored, and its audit entry (`upload_rejected`) says what the scanner found, never the file's name; a file inside an import's archive is told apart by its position and the import's id. A rejected workbook is kept only as a refused entry in work intake under its name and is never opened. A saved message is filed, and a file attached, only if the sender's session still stands when the scan ends, by their memberships and roles as they are then. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
+- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected attachment, record import or saved message is never stored, and its audit entry (`upload_rejected`) says what the scanner found, never the file's name; a file inside an import's archive is told apart by its position and the import's id. A rejected workbook is kept only as a refused entry in work intake under its name and is never opened. A saved message is filed, and a file attached, only if the sender's session still stands when the scan ends, by their memberships and roles as they are then. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned". Each file keeps what the scan said (`scan_status`: `clean`, `skipped` for a file kept without a verdict, `unrecorded` for one kept before verdicts were), and the file lists mark a file that is not `clean`.
 - A workbook is charged against its size limit by what it really expands to, not by the sizes it declares.
 - A person's import of their own records (ADR-0019) takes up to `VANTAGE_RECORD_IMPORT_MAX_BYTES` (50 MB), 5,000 spreadsheet rows or 20,000 records of a Vantage file, scans the file and each file inside a Vantage ZIP on its own, holds one file per person for at most `VANTAGE_RECORD_IMPORT_STAGED_HOURS` (24), and refuses infrastructure backups and other Vantage files by their format. It writes only the importer's account: ids in a file never name a record here, and a record the importer may not place in a unit comes in private. Its undo puts a record back only where an edit could place it now, so nothing others added to it in another Unit Instance since is carried back across.
 
@@ -529,6 +553,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 - In direct mode Vantage signs every message with DKIM. The private key is generated on the server, stored in `meta` encrypted with `VANTAGE_SECRET` (AES-256-GCM), and never leaves the instance; only the public key is shown, for DNS.
 - Mail a receiver asks to retry is queued in `email_queue` encrypted with the same secret, and deleted once delivered or given up: 30 minutes for a reset link, two days at most otherwise.
 - Delivery uses opportunistic STARTTLS, as mail servers do between themselves; a receiver that offers no TLS still gets the message in the clear, which is the norm for server-to-server mail.
+- On MCEN, mail goes to the enterprise relay only over TLS 1.2 or later, to a certificate that checks: `smtps://`, or `smtp://` that must start TLS. An `SMTP_URL` that is not one of those, or that sets its own TLS terms in its query, stops the start (ADR-0040).
 - Direct delivery resolves each mail host itself and never connects to a private, loopback, link-local or reserved address, so a recipient domain cannot point delivery into the host's own network. It connects to the address it checked. `VANTAGE_EMAIL_ALLOW_PRIVATE=true` is for a network whose mail hosts really are private.
 - The Vantage Administrator console's email checks are for staff with the email permission, behind step-up confirmation, and each run is audited (`email_setup_checked`).
 - Team messages need `MANAGE_MEMBERS` in the unit, go to each member separately so no address is shared, set Reply-To to the sender, are limited to five an hour per sender, and are audited (`team_message`). Subjects are flattened to one line, so typed text cannot add mail headers.

@@ -352,7 +352,10 @@ step-up applies, and the audit actions it writes with their categories.
 - it calls every route in the manifest without a session (401), as an ordinary member, and as a Unit Auditor
   beyond what that read-only role allows, and requires a refusal and no change each time.
 
-A new privileged route therefore fails the suite until it is declared.
+A new privileged route therefore fails the suite until it is declared. A route that asks for step-up only when the
+change rests on Unit Instance authority is marked `stepUp: 'instance_authority'`, and the scan reads that check from
+its code ([ADR-0040](0040-security-fixes-for-later-features.md)). The same record says how session ends, step-ups and
+entries about a private entry are written.
 
 ### 12. OWASP ASVS 5.0.0
 

@@ -186,7 +186,9 @@ counseling while it is a draft does not name its Marine** (`subject_id` is left 
 listing one's own drafts is not a listing of the Marine's records: the trail keeps what its counselor did, but the
 Marine's access log and personal export never show that a draft exists. Once it is shared or final, entries name them
 again. Audit readers of the unit still see that a draft was written and by whom, as they see every entry's metadata,
-but not whom it is about or what it says.
+but not whom it is about or what it says. A counseling a Marine keeps private with no counselor but themselves is
+filed under no unit, as their other private entries are; one a leader writes keeps its unit
+([ADR-0040](0040-security-fixes-for-later-features.md)).
 
 ### 8. Exports, imports, retention
 

@@ -2,6 +2,31 @@
 
 _Updated 2026-11-22_
 
+## What changed (2026-11-22: security fixes the later features need)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, the open register defects that statistics, the console, email and the database work build on, from `ffa63d2`
+([ADR-0040](engineering/ADR/0040-security-fixes-for-later-features.md)). Migration 042.
+
+- **Step-up on Unit Instance authority:** an `/api/org` change asks for step-up when it rests on a Unit Instance role
+  rather than the chain of command, as `/api/orgs` does; a Unit Leader is not asked. The route inventory marks these
+  routes `instance_authority`. The app's `/api/org` writes go through `withSudo` (`src/lib/sudo.ts`).
+- **Session ends and step-ups in the trail:** `password_step_up`, `session_revoked`, `session_evicted` and
+  `session_expired`, each once, under the session's 12-character id; sign-in and sign-out name it too.
+- **Settings and mail:** every numeric setting is a whole number in its range or the start names it; on MCEN, mail to
+  the relay is TLS 1.2 or later with a checked certificate, and an `SMTP_URL` that sets its own TLS terms is refused.
+- **Copies and restore:** `backupDatabase` makes every copy owner-only before it is written; a backup that names no
+  database is this one's only when this trail holds its newest entry.
+- **Scan verdicts:** `attachments.scan_status` (042); the file lists mark Not scanned or No scan on record.
+- **Audits:** case closes and reopens from the row or an action; a restore names whose record it was.
+- **Two leaks:** last sign-in on a Marine's page only for those who manage them; entries about a private entry are filed
+  under the Unit Instance and no unit, so no unit's access log shows them.
+- **Register:** 11 entries fixed, 3 found on the way added as fixed; `c08-mcen-weak-postures-not-refused` stays open
+  for the ISSM.
+- **Tests:** `tests/server/readinessGateDefects.test.ts` (one test per defect, each failing without its fix),
+  `tests/server/migrations.test.ts` (042), `tests/server/privilegedRoutes.test.ts` (the inventory reads the new check).
+
 ## What changed (2026-11-22: custom date ranges, part 2)
 
 **Partial.** In review; HawkScan not run (no key); CI results not acted on.

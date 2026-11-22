@@ -51,7 +51,16 @@ The start fails, naming every problem at once, if any of these is set:
 - `VANTAGE_EMAIL_PROVIDER=resend` or `direct`;
 - `VANTAGE_SELF_REGISTRATION=true`;
 - `VANTAGE_CONSENT_BANNER=off`;
-- a `VANTAGE_SITE_URL` different from the application's address.
+- a `VANTAGE_SITE_URL` different from the application's address;
+- `VANTAGE_EMAIL_PROVIDER=smtp` with an `SMTP_URL` that is empty, is not `smtp://` or `smtps://`, or sets its own TLS
+  terms in its query (`secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS`, `tls.*`).
+
+Mail to the relay goes only over TLS 1.2 or later, to a certificate that checks: `smtps://` is TLS from the first byte
+(port 465 unless the address names one), and `smtp://` must start TLS (port 587 unless it names one). A relay whose
+certificate an enterprise CA signed needs that CA in `NODE_EXTRA_CA_CERTS`.
+
+On every profile, a numeric setting that is not a whole number written in digits, within its range, stops the start
+and is named. The ranges are wide; how tight a session limit the accredited host sets is the ISSM's to decide.
 
 The Vantage Administrator console cannot turn self-registration or self-service Unit Instances back on.
 
