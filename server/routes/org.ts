@@ -71,7 +71,7 @@ orgRouter.delete('/units/:unitId', wrap((req, res) => {
   // Archiving the last unit you belong to in a Unit Instance takes you out of it, and your Unit Instance roles with you
   // (ADR-0010), so its last Lead Unit Manager cannot. Archiving its top unit closes the instance itself, which is not that.
   const member = req.ctx.db.prepare('SELECT 1 FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND m.unit_id = ? AND u.parent_id IS NOT NULL').get(req.user.id, unitId);
-  if (member && lastUnitInInstance(req.ctx, req.user.id, unitId)) assertMayEndInstanceRoles(req.ctx, req.user, orgOfUnit(req.ctx, unitId), req.user.id);
+  if (member && lastUnitInInstance(req.ctx, req.user.id, unitId) && assertMayEndInstanceRoles(req.ctx, req.user, orgOfUnit(req.ctx, unitId), req.user.id).length) assertSudo(req);
   archiveUnit(req.ctx, req.user, scope, unitId, clientIp(req));
   res.json({ ok: true });
 }));
@@ -376,8 +376,9 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (isUnitOwner(ctx, userId, unitId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot remove a Marine whose role is at or above your own.', 'hierarchy');
   // Their last unit in the Unit Instance takes them out of it, and ends any Unit Instance role they hold there (ADR-0010).
-  // Ending one rests on the instance's own authority, never the unit's, so it asks as the console does (ADR-0040).
-  if (lastUnitInInstance(ctx, userId, unitId) && assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId).length && userId !== req.user.id) assertSudo(req);
+  // Ending one rests on the instance's own authority, never the unit's, so it asks as the console does (ADR-0040), one's
+  // own included.
+  if (lastUnitInInstance(ctx, userId, unitId) && assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId).length) assertSudo(req);
   const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; responsibilities ended: ${removed.responsibilitiesEnded}; supervisions ended: ${removed.supervisionsEnded}; sessions revoked: ${revoked}`, ip: clientIp(req) });

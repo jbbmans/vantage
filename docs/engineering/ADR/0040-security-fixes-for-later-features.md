@@ -41,7 +41,8 @@ a read of the statistics code found two more:
    that, by what it gives or by its place, and who also holds a Unit Instance role is asked, since the change, or
    whom it reaches, may rest on either. Moving a unit asks about its new parent only when the parent changes, so
    renaming a unit one leads is not asked. Taking someone out of their last unit in the instance asks whenever it
-   ends a Unit Instance role they hold, as the console does, since that rests on the instance alone. A bulk personnel
+   ends a Unit Instance role they hold, as the console does, since that rests on the instance alone; so does archiving
+   the last unit one serves in there, which ends one's own. A bulk personnel
    change is asked when it runs, not on its dry run. Joining with a code and the unit export are untouched.
    `assertSudo` is the one refusal (`403 sudo_required`); the route inventory marks these routes
    `stepUp: 'instance_authority'`, and its test reads the check from the code. In the app, `withSudo` lives in
@@ -49,7 +50,7 @@ a read of the statistics code found two more:
 2. **A session that ends alone is in the trail once, under its id.** A password step-up is `password_step_up`. Another
    session of one's own signed out from the sessions list is `session_revoked`; this session signed out there is
    `logout`. A session the limit pushes out is `session_evicted`, and one that runs out, found by a request or by the
-   prune, is `session_expired`; both are written by the service. Every sign-in, sign-out and step-up names its session
+   prune, is `session_expired`, naming the limit it reached first (idle or absolute); both are written by the service. Every sign-in, sign-out and step-up names its session
    by the 12 characters of its id the sessions list shows (entity `sessions`). A wrong password at step-up still counts
    toward the lockout and is not written one by one. `session_revoked` stays off the restore review list, since a
    restore ends every session anyway. Sessions ended together (signing out the others, a password, role, membership,
@@ -58,7 +59,8 @@ a read of the statistics code found two more:
 3. **Settings are whole numbers in range, on every profile.** Every numeric setting is read by one `envInt(name,
    fallback, min, max)`: digits only, a safe integer, within its bounds. The start names a bad one. The quiet clamps are
    refusals now. Where 0 already meant "never" (`VANTAGE_INTAKE_RETAIN_DAYS`, uploaded workbooks kept until their
-   owners remove them), 0 is in range. The ranges are wide enough for every default, test and known deployment; how tight a session limit an
+   owners remove them), 0 is in range. A setting's old name (`VANTAGE_OPERATOR_IDLE_MINUTES`) is read only when its
+   new one is not set, so a stale old value never stops a start the new one configures. The ranges are wide enough for every default, test and known deployment; how tight a session limit an
    accredited host sets (an idle limit of 15 minutes at most, for example) is policy for the ISSM, not a ceiling here.
 4. **Mail to the relay is TLS only on MCEN.** The transport is built from the parsed `SMTP_URL` (address and sign-in
    only) with TLS required, TLS 1.2 at least and a certificate that checks. `smtps://` is TLS from the first byte (465
@@ -106,8 +108,8 @@ a read of the statistics code found two more:
   in the entry for the change that ended them. It holds every case close.
 - A deployment with a bad number in its settings, or plain mail to the relay on MCEN, does not start, and says why.
 - A unit's access log is a little shorter: it holds what was done to the unit's shared entries and to the unit itself.
-- A Unit Leader who is also a Unit Manager is asked a little more: before ending someone's Unit Instance role from the
-  unit routes, and wherever their full authority comes from a role placed below the Unit Instance role.
+- A Unit Leader who is also a Unit Manager is asked a little more: before ending a Unit Instance role from the unit
+  routes, their own too, and wherever their full authority comes from a role placed below the Unit Instance role.
 - One migration (042), one column with a default; no row changes.
 
 ## Not done

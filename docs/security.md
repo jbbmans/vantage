@@ -435,12 +435,12 @@ builds on.
 - **A unit change on Unit Instance authority asks for step-up.** An `/api/org` change to a unit, its members, roles,
   responsibilities, invitations, join codes or a Marine's profile asks the person to confirm it is them when it rests
   on a Unit Instance role rather than the chain of command, as `/api/orgs` asks for every change. A Unit Leader in their
-  own unit is not asked, unless the change ends someone's Unit Instance role or moves the unit under a parent they do
-  not lead. Full unit authority from a role placed below a Unit Instance role is not leading the unit. The app asks
+  own unit is not asked, unless the change ends a Unit Instance role, their own too (taking someone out of, or
+  archiving, the last unit they serve in there), or moves the unit under a parent they do not lead. Full unit authority from a role placed below a Unit Instance role is not leading the unit. The app asks
   and retries as the consoles do.
 - **A session that ends alone is in the trail once**, under the 12 characters of its id the sessions list shows:
   sign-out (`logout`), another session signed out from the list (`session_revoked`), the session limit
-  (`session_evicted`) and expiry, idle or absolute (`session_expired`, written by the service). Sessions ended
+  (`session_evicted`) and expiry, idle or absolute, whichever came first (`session_expired`, written by the service). Sessions ended
   together, by signing out the others or by a password, role, membership or account change, are in the entry for
   that change.
 - **Every case close is in the trail**, from its stage, its row or an action (`work_closed`, `work_reopened`). A restore

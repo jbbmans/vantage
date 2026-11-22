@@ -70,9 +70,12 @@ const pastDeadline = (row: { expires_at: string; absolute_expires_at: string }, 
  * Ends a session that ran out, whoever found it (a request on it, or the prune), with one entry in the trail by the
  * service: which deadline it passed. Only the call that removed the row writes it, so it is written once.
  */
-function expireSession(ctx: AppContext, row: { id: string; user_id: string; absolute_expires_at: string }, nowMs: number): void {
+function expireSession(ctx: AppContext, row: { id: string; user_id: string; expires_at: string; absolute_expires_at: string }, nowMs: number): void {
   if (!ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(row.id).changes) return;
-  const which = new Date(row.absolute_expires_at).getTime() < nowMs ? 'absolute limit reached' : 'idle';
+  // The deadline it passed first is the one that ended it, though both may have passed by the time it is found.
+  const idle = new Date(row.expires_at).getTime();
+  const absolute = new Date(row.absolute_expires_at).getTime();
+  const which = absolute < nowMs && !(idle < absolute) ? 'absolute limit reached' : 'idle';
   audit(ctx, { actor_id: null, action: 'session_expired', entity: 'sessions', entity_id: sessionRef(row.id), subject_id: row.user_id, detail: which });
 }
 
@@ -147,7 +150,7 @@ export function invalidateUserSessions(ctx: AppContext, userId: string, exceptId
 export function pruneSessions(ctx: AppContext) {
   const t = now();
   const nowMs = Date.parse(t);
-  const ended = ctx.db.prepare('SELECT id, user_id, absolute_expires_at FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').all(t, t) as Array<{ id: string; user_id: string; absolute_expires_at: string }>;
+  const ended = ctx.db.prepare('SELECT id, user_id, expires_at, absolute_expires_at FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').all(t, t) as Array<{ id: string; user_id: string; expires_at: string; absolute_expires_at: string }>;
   for (const row of ended) expireSession(ctx, row, nowMs);
   ctx.db.prepare('DELETE FROM tokens WHERE expires_at < ? OR used_at IS NOT NULL').run(new Date(Date.now() - 86_400_000).toISOString());
   ctx.db.prepare('DELETE FROM passkey_challenges WHERE expires_at <= ?').run(t);
@@ -200,7 +203,7 @@ export function resolveSession(ctx: AppContext, token: string | undefined, { tou
   const nowMs = Date.now();
   // Past a deadline, or opened under an epoch its account has since left (ADR-0035): over either way. Only running out is
   // news for the trail; a new epoch was written by the change that moved it.
-  if (pastDeadline(row, nowMs)) { expireSession(ctx, { id, user_id: row.id, absolute_expires_at: row.absolute_expires_at }, nowMs); return null; }
+  if (pastDeadline(row, nowMs)) { expireSession(ctx, { id, user_id: row.id, expires_at: row.expires_at, absolute_expires_at: row.absolute_expires_at }, nowMs); return null; }
   if (row.session_epoch !== row.auth_epoch) { destroySession(ctx, id); return null; }
   let expiresAt = row.expires_at;
   if (touch && nowMs - new Date(row.last_used_at).getTime() > 15_000) {

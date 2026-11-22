@@ -744,7 +744,7 @@ test('every unit change a Unit Manager makes on Unit Instance authority asks the
   } finally { await app.close(); }
 });
 
-test('a Unit Leader is not asked to rename the unit they lead, and is asked to end someone’s Unit Instance role or to move their unit under a parent they do not lead', async () => {
+test('a Unit Leader is not asked to rename the unit they lead, and is asked to end a Unit Instance role, their own too, or to move their unit under a parent they do not lead', async () => {
   const { app, post, lead, manager, other, unconfirm } = await instanceWithUnitManager();
   try {
     // The founder leads G8 and is its Lead Unit Manager. Taking a Unit Manager out of their last unit ends that role,
@@ -773,6 +773,21 @@ test('a Unit Leader is not asked to rename the unit they lead, and is asked to e
     const under = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: tmp.body.id } });
     assert.equal(under.status, 403, JSON.stringify(under.body));
     assert.equal(under.body.code, 'sudo_required');
+
+    // Their own role too: they lead the team they make beneath DISB, and archiving it, the last unit they serve in
+    // here, takes them out of the instance and ends their Unit Manager role, which leading a unit never gave.
+    const team = await post(manager.token, '/api/org/units', { name: 'Cashiers', short_name: 'CSH', code: 'csh', parent_id: 'DISB' });
+    assert.equal(team.status, 201, JSON.stringify(team.body));
+    app.ctx.db.prepare("DELETE FROM unit_members WHERE user_id = ? AND unit_id IN ('G8', 'DISB')").run(manager.id);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    const archived = await app.call('DELETE', `/api/org/units/${team.body.id}`, { token: manager.token });
+    assert.equal(archived.status, 403, JSON.stringify(archived.body));
+    assert.equal(archived.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(manager.id), 'they are still a Unit Manager');
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/${team.body.id}`, { token: manager.token })).status, 200);
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(manager.id), undefined);
   } finally { await app.close(); }
 });
 
@@ -869,6 +884,12 @@ test('a session the limit pushes out, one that runs out on a request and one the
     assert.deepEqual(ended('session_expired').slice(1), [{ actor_id: null, entity: 'sessions', entity_id: thirdId.slice(0, 12), subject_id: lead.id, detail: 'absolute limit reached' }]);
     assert.equal((await app.call('GET', '/api/me', { token: third })).status, 401);
     assert.equal(ended('session_expired').length, 2);
+    // Found only after both deadlines passed, it is put down to the one it passed first.
+    const fourth = (await app.login('boletz')).body.token as string;
+    const fourthId = ids().find((s) => s !== thirdId && s !== secondId)!;
+    app.ctx.db.prepare('UPDATE sessions SET expires_at = ?, absolute_expires_at = ? WHERE id = ?').run(new Date(Date.now() - 120_000).toISOString(), new Date(Date.now() - 60_000).toISOString(), fourthId);
+    assert.equal((await app.call('GET', '/api/me', { token: fourth })).status, 401);
+    assert.deepEqual(ended('session_expired').slice(2).map((e) => [e.entity_id, e.detail]), [[fourthId.slice(0, 12), 'idle']]);
     assert.equal(verifyAuditChain(app.ctx).ok, true);
   } finally { await app.close(); }
 });
@@ -887,7 +908,7 @@ test('a security setting that is negative, a fraction, written as an exponent or
     ['VANTAGE_IDLE_MINUTES', '-5'], ['VANTAGE_IDLE_MINUTES', '1.5'], ['VANTAGE_IDLE_MINUTES', '1e3'], ['VANTAGE_IDLE_MINUTES', '0x10'], ['VANTAGE_IDLE_MINUTES', '0'],
     ['VANTAGE_SESSION_HOURS', '1e20'], ['VANTAGE_LOCKOUT_MINUTES', '1e20'], ['VANTAGE_LOCKOUT_ATTEMPTS', '2.5'], ['VANTAGE_SUDO_MINUTES', '-10'],
     ['VANTAGE_MAX_SESSIONS', '0'], ['VANTAGE_ATTACHMENT_MAX_BYTES', '-1'], ['VANTAGE_PBKDF2_ITERATIONS', '600000.5'], ['VANTAGE_DEMO_TTL_HOURS', '500'],
-    ['VANTAGE_BACKUP_MAX_AGE_HOURS', '0'], ['VANTAGE_MUTATIONS_PER_15_MINUTES', '1e12'],
+    ['VANTAGE_BACKUP_MAX_AGE_HOURS', '0'], ['VANTAGE_MUTATIONS_PER_15_MINUTES', '1e12'], ['VANTAGE_STAFF_IDLE_MINUTES', '-1'],
   ];
   for (const base of [TEST_ENV, MCEN_ENV]) {
     for (const [name, value] of bad) {
@@ -899,6 +920,11 @@ test('a security setting that is negative, a fraction, written as an exponent or
   // In range, the setting is read as written.
   const ok = loadConfig({ ...MCEN_ENV, VANTAGE_IDLE_MINUTES: '15', VANTAGE_LOCKOUT_MINUTES: ' 30 ', VANTAGE_LOCKOUT_ATTEMPTS: '5' } as NodeJS.ProcessEnv);
   assert.deepEqual([ok.sessions.idleMinutes, ok.security.lockoutMinutes, ok.security.lockoutAttempts], [15, 30, 5]);
+  // An older name is read only when its new name is not set, so a value the new name replaces stops nothing.
+  const renamed = loadConfig({ ...MCEN_ENV, VANTAGE_STAFF_IDLE_MINUTES: '5', VANTAGE_OPERATOR_IDLE_MINUTES: '2.5' } as NodeJS.ProcessEnv);
+  assert.equal(renamed.sessions.operatorIdleMinutes, 5);
+  assert.equal(loadConfig({ ...MCEN_ENV, VANTAGE_OPERATOR_IDLE_MINUTES: '7' } as NodeJS.ProcessEnv).sessions.operatorIdleMinutes, 7);
+  assert.match(refusal({ ...MCEN_ENV, VANTAGE_OPERATOR_IDLE_MINUTES: '2.5' }) ?? '', /^VANTAGE_OPERATOR_IDLE_MINUTES must be/);
 });
 
 /** A relay that offers no STARTTLS and keeps everything it is sent, in clear text. */

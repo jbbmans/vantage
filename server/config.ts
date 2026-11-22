@@ -465,8 +465,11 @@ export function loadConfig(env = process.env): AppConfig {
     clientIp,
     sessions: {
       idleMinutes: envInt(env, 'VANTAGE_IDLE_MINUTES', 15, 1, 24 * 60),
-      // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations.
-      operatorIdleMinutes: envInt(env, 'VANTAGE_STAFF_IDLE_MINUTES', envInt(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10, 1, 24 * 60), 1, 24 * 60),
+      // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations, read
+      // only when the new name is not set.
+      operatorIdleMinutes: env.VANTAGE_STAFF_IDLE_MINUTES
+        ? envInt(env, 'VANTAGE_STAFF_IDLE_MINUTES', 10, 1, 24 * 60)
+        : envInt(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10, 1, 24 * 60),
       absoluteHours: envInt(env, 'VANTAGE_SESSION_HOURS', 12, 1, 7 * 24),
       maxActive: envInt(env, 'VANTAGE_MAX_SESSIONS', 8, 1, 100),
       sudoMinutes: envInt(env, 'VANTAGE_SUDO_MINUTES', 10, 1, 60),

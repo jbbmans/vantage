@@ -1865,7 +1865,7 @@
         },
         {
           "file": "tests/server/readinessGateDefects.test.ts",
-          "test": "a Unit Leader is not asked to rename the unit they lead, and is asked to end someone’s Unit Instance role or to move their unit under a parent they do not lead"
+          "test": "a Unit Leader is not asked to rename the unit they lead, and is asked to end a Unit Instance role, their own too, or to move their unit under a parent they do not lead"
         }
       ],
       "note": "Confirmed and fixed (ADR-0040). An /api/org change asks for step-up when it rests on Unit Instance authority: a Unit Instance structure role in the unit, and no full authority there from the chain of command from a place as high. Naming a unit leader asks when it rests on the instance’s Manage units; taking someone out of their last unit asks whenever it ends a Unit Instance role, as the console does. A Unit Leader renaming their own unit is not asked."

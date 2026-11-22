@@ -10,7 +10,7 @@ export const CHANGES: Change[] = [
     date: '2026-11-22',
     title: 'A confirmation before unit changes, and files marked when they were not scanned',
     items: [
-      'A Unit Manager changing a unit, its people, roles, invitations or join codes from the unit pages is asked to confirm it is them first, as the Unit Manager console asks. A Unit Leader changing their own unit is not asked, unless the change ends someone’s Unit Manager role or moves the unit under one they do not lead.',
+      'A Unit Manager changing a unit, its people, roles, invitations or join codes from the unit pages is asked to confirm it is them first, as the Unit Manager console asks. A Unit Leader changing their own unit is not asked, unless the change ends a Unit Manager role, theirs too, or moves the unit under one they do not lead.',
       'A file kept without a malware scan says Not scanned beside its name, and one added before Vantage kept scan results says No scan on record.',
       'What you do to something you keep private, an entry, a contact, a thread or a report draft, is no longer listed in your unit’s access log, and when you last signed in is shown only to you and to the leaders who manage you.',
     ],

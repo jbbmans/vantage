@@ -10,8 +10,8 @@ Round 2, the open register defects that statistics, the console, email and the d
 ([ADR-0040](engineering/ADR/0040-security-fixes-for-later-features.md)). Migration 042.
 
 - **Step-up on Unit Instance authority:** an `/api/org` change asks for step-up when it rests on a Unit Instance role
-  rather than the chain of command, as `/api/orgs` does; a Unit Leader is not asked, unless the change ends someone's
-  Unit Instance role or moves the unit under a parent they do not lead. Full authority from a role placed below a
+  rather than the chain of command, as `/api/orgs` does; a Unit Leader is not asked, unless the change ends a Unit
+  Instance role, their own too, or moves the unit under a parent they do not lead. Full authority from a role placed below a
   Unit Instance role asks. The route inventory marks these routes `instance_authority`. The app's `/api/org` writes
   go through `withSudo` (`src/lib/sudo.ts`).
 - **Session ends and step-ups in the trail:** `password_step_up`, `session_revoked`, `session_evicted` and

@@ -245,5 +245,5 @@ The same page shows the build and when each build first served this database, ev
 ## Retention
 
 - Deleted records sit in a recycle bin for 30 days, then purge nightly.
-- Sessions expire after 15 minutes idle (10 for an owner) and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_OPERATOR_IDLE_MINUTES`, `VANTAGE_SESSION_HOURS`). Background polls do not count as activity.
+- Sessions expire after 15 minutes idle (10 for Vantage staff and the consoles) and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_STAFF_IDLE_MINUTES`, whose old name `VANTAGE_OPERATOR_IDLE_MINUTES` is read only when it is not set, `VANTAGE_SESSION_HOURS`). Background polls do not count as activity.
 - The audit log is append-only and never purged.
