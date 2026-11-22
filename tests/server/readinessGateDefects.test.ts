@@ -817,3 +817,79 @@ test('a session the limit pushes out, one that runs out on a request and one the
     assert.equal(verifyAuditChain(app.ctx).ok, true);
   } finally { await app.close(); }
 });
+
+// Settings in range, and mail to the relay over TLS only (ADR-0040)
+
+const TEST_ENV = { NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_PUBLIC_URL: 'http://localhost:5173' };
+const MCEN_ENV = {
+  NODE_ENV: 'production', VANTAGE_TEST: '', VANTAGE_SECRET: 's'.repeat(40), VANTAGE_SETUP_TOKEN: 't'.repeat(30), VANTAGE_DEPLOYMENT_PROFILE: 'mcen',
+  VANTAGE_APP_URL: 'https://vantage.example.mil', VANTAGE_PUBLIC_URL: '', VANTAGE_SITE_URL: '', VANTAGE_CONSOLE_URL: '', VANTAGE_ADMIN_URL: '',
+};
+const refusal = (env: Record<string, string>) => { try { loadConfig(env as NodeJS.ProcessEnv); return null; } catch (e) { return (e as Error).message; } };
+
+test('a security setting that is negative, a fraction, written as an exponent or hex, or past its range stops the start and names it, on every profile', () => {
+  const bad: Array<[string, string]> = [
+    ['VANTAGE_IDLE_MINUTES', '-5'], ['VANTAGE_IDLE_MINUTES', '1.5'], ['VANTAGE_IDLE_MINUTES', '1e3'], ['VANTAGE_IDLE_MINUTES', '0x10'], ['VANTAGE_IDLE_MINUTES', '0'],
+    ['VANTAGE_SESSION_HOURS', '1e20'], ['VANTAGE_LOCKOUT_MINUTES', '1e20'], ['VANTAGE_LOCKOUT_ATTEMPTS', '2.5'], ['VANTAGE_SUDO_MINUTES', '-10'],
+    ['VANTAGE_MAX_SESSIONS', '0'], ['VANTAGE_ATTACHMENT_MAX_BYTES', '-1'], ['VANTAGE_PBKDF2_ITERATIONS', '600000.5'], ['VANTAGE_DEMO_TTL_HOURS', '500'],
+    ['VANTAGE_BACKUP_MAX_AGE_HOURS', '0'], ['VANTAGE_MUTATIONS_PER_15_MINUTES', '1e12'],
+  ];
+  for (const base of [TEST_ENV, MCEN_ENV]) {
+    for (const [name, value] of bad) {
+      const message = refusal({ ...base, [name]: value });
+      assert.ok(message, `${name}=${value} was accepted`);
+      assert.match(message!, new RegExp(`^${name} must be a whole number from`), `${name}=${value}: ${message}`);
+    }
+  }
+  // In range, the setting is read as written.
+  const ok = loadConfig({ ...MCEN_ENV, VANTAGE_IDLE_MINUTES: '15', VANTAGE_LOCKOUT_MINUTES: ' 30 ', VANTAGE_LOCKOUT_ATTEMPTS: '5' } as NodeJS.ProcessEnv);
+  assert.deepEqual([ok.sessions.idleMinutes, ok.security.lockoutMinutes, ok.security.lockoutAttempts], [15, 30, 5]);
+});
+
+/** A relay that offers no STARTTLS and keeps everything it is sent, in clear text. */
+async function plainRelay() {
+  const { createServer } = await import('node:net');
+  const seen: string[] = [];
+  const server = createServer((sock) => {
+    let data = false;
+    sock.write('220 relay.example.mil ESMTP\r\n');
+    sock.on('data', (buf) => {
+      const text = buf.toString('utf8');
+      seen.push(text);
+      if (data) { if (/\r\n\.\r\n$/.test(text)) { data = false; sock.write('250 queued\r\n'); } return; }
+      for (const line of text.split('\r\n').filter(Boolean)) {
+        if (/^EHLO/i.test(line)) sock.write('250-relay.example.mil\r\n250 SIZE 10000000\r\n');
+        else if (/^STARTTLS/i.test(line)) sock.write('454 TLS not available\r\n');
+        else if (/^DATA/i.test(line)) { data = true; sock.write('354 go ahead\r\n'); }
+        else if (/^QUIT/i.test(line)) { sock.write('221 bye\r\n'); sock.end(); }
+        else sock.write('250 ok\r\n');
+      }
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return { port: (server.address() as { port: number }).port, seen, close: () => new Promise<void>((r) => server.close(() => r())) };
+}
+
+test('on MCEN a reset link never goes to a mail relay that will not start TLS, and an SMTP_URL that sets its own TLS terms stops the start', async () => {
+  const relay = await plainRelay();
+  const app = await startApp({ VANTAGE_DEPLOYMENT_PROFILE: 'mcen', VANTAGE_SELF_REGISTRATION: '', VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: `smtp://127.0.0.1:${relay.port}` });
+  try {
+    const sent = await app.ctx.mailer.send({ to: 'marine@example.mil', subject: 'Reset your password', text: 'Reset link: https://vantage.example.mil/reset?token=SECRET-RESET-TOKEN', html: '<p>SECRET-RESET-TOKEN</p>', kind: 'reset' });
+    assert.equal(sent.ok, false, 'the message is not sent');
+    const heard = relay.seen.join('');
+    assert.ok(!heard.includes('SECRET-RESET-TOKEN'), 'the relay never received the link');
+    assert.ok(!/^(MAIL FROM|RCPT TO|DATA)/im.test(heard), 'nothing past the greeting was sent in the clear');
+    assert.equal((app.ctx.db.prepare("SELECT status FROM email_log WHERE kind = 'reset'").get() as { status: string }).status, 'failed');
+  } finally { await app.close(); await relay.close(); }
+
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtp://relay.example.mil:587' }), null);
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:pa55@relay.example.mil:465' }), null);
+  for (const url of ['', 'http://relay.example.mil', 'not a url', 'smtp://relay.example.mil:25?ignoreTLS=true', 'smtp://relay.example.mil?requireTLS=false', 'smtps://relay.example.mil?tls.rejectUnauthorized=false', 'smtp://relay.example.mil?secure=false', 'smtp://relay.example.mil?TLS.minVersion=TLSv1']) {
+    const message = refusal({ ...smtp, SMTP_URL: url });
+    assert.ok(message?.startsWith('VANTAGE_DEPLOYMENT_PROFILE=mcen refuses:'), `${JSON.stringify(url)} was accepted`);
+    assert.match(message!, /SMTP_URL/);
+  }
+  // Elsewhere the URL is taken as written: the commercial site sends through its provider over HTTPS.
+  assert.equal(refusal({ ...TEST_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.com:25?ignoreTLS=true' }), null);
+});
