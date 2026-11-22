@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { normalizeMetrics } from '../../shared/constants.ts';
 import { setCurrencySymbol } from '../../shared/metrics.ts';
 import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, UNIT_MANAGER_ROLES, type PlatformRole } from '../../shared/permissions.ts';
@@ -20,7 +20,7 @@ import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
-import { SCHEMA_VERSION } from '../db/index.ts';
+import { SCHEMA_VERSION, backupDatabase } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -824,8 +824,7 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   const discard = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } };
   // Whatever fails before the file leaves, the copy goes with the directory it was drawn in.
   try {
-    await ctx.db.backup(dest);
-    chmodSync(dest, 0o600);
+    await backupDatabase(ctx.db, dest);
     // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
     freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
     // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
@@ -1345,6 +1345,23 @@ function isLegacyDatabase(db: Db): boolean {
   if (!hasUsers) return false;
   const columns = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);
   return !columns.includes('is_operator');
+}
+
+/**
+ * A copy of a database that is the service's alone from its first page (ADR-0040): the file is made owner-only before
+ * SQLite writes a byte to it, so no other account on the host reads the copy while it is drawn, and a copy that fails is
+ * removed when this call made the file. Every copy the service or its scripts take comes through here.
+ */
+export async function backupDatabase(db: { backup: (destination: string) => Promise<unknown> }, dest: string): Promise<void> {
+  const existed = existsSync(dest);
+  writeFileSync(dest, '', { flag: 'a', mode: 0o600 });
+  chmodSync(dest, 0o600);
+  try { await db.backup(dest); }
+  catch (error) {
+    if (!existed) for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${dest}${suffix}`, { force: true });
+    throw error;
+  }
+  chmodSync(dest, 0o600);
 }
 
 export function openDatabase(path: string): Db {

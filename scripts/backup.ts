@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
-import { chmodSync, mkdirSync, statSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { recordBackup } from '../server/services/backupLog.ts';
+import { backupDatabase } from '../server/db/index.ts';
 
 /**
  * A consistent copy of the database, taken on the server: `node scripts/backup.ts /backups/vantage-2026-10-02.db`.
@@ -16,11 +17,11 @@ if (!dest) {
   console.error('Usage: node scripts/backup.ts <destination file>');
   process.exit(2);
 }
-mkdirSync(dirname(resolve(dest)), { recursive: true });
+// A directory made for the copies is the service account's alone; one that exists keeps its own permissions.
+mkdirSync(dirname(resolve(dest)), { recursive: true, mode: 0o700 });
 const db = new Database(source, { readonly: true, fileMustExist: true });
-await db.backup(resolve(dest));
+await backupDatabase(db, resolve(dest));
 db.close();
-chmodSync(resolve(dest), 0o600);
 const bytes = statSync(resolve(dest)).size;
 // The copy is one self-contained file, with no write-ahead log beside it to lose in the move, and it says the newest audit
 // entry it holds: what restoring it goes back to (ADR-0014).

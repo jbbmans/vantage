@@ -4,14 +4,14 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { startApp, enroll, today, mockGenAi, PASSWORD, type TestApp } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
-import { SCHEMA_VERSION, openDatabase } from '../../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase, metaGet, openDatabase } from '../../server/db/index.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
@@ -892,4 +892,90 @@ test('on MCEN a reset link never goes to a mail relay that will not start TLS, a
   }
   // Elsewhere the URL is taken as written: the commercial site sends through its provider over HTTPS.
   assert.equal(refusal({ ...TEST_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.com:25?ignoreTLS=true' }), null);
+});
+
+// Database copies and restores (ADR-0040)
+
+test('every copy of the database is its owner’s alone from its first page, the script’s new directory too, and a copy that fails leaves nothing', async () => {
+  const previous = process.umask(0o022);
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-copies-'));
+  try {
+    const db = openDatabase(join(dir, 'data', 'vantage.db'));
+    db.exec('CREATE TABLE gate_filler (b BLOB)');
+    const fill = db.prepare('INSERT INTO gate_filler VALUES (randomblob(4000))');
+    for (let i = 0; i < 600; i += 1) fill.run();
+    // Watched while SQLite writes it, page by page: never readable by anyone else.
+    const dest = join(dir, 'copy.db');
+    const seen = new Set<string>();
+    let done = false;
+    const watch = () => { for (const f of [dest, `${dest}-journal`]) if (existsSync(f)) seen.add(`${basename(f)} ${(statSync(f).mode & 0o777).toString(8)}`); if (!done) setImmediate(watch); };
+    setImmediate(watch);
+    await backupDatabase(db, dest);
+    done = true;
+    assert.ok([...seen].some((m) => m.startsWith('copy.db ')), 'the copy was watched');
+    for (const m of seen) assert.match(m, / 600$/, m);
+    const copy = new Database(dest, { readonly: true });
+    assert.equal(copy.pragma('quick_check', { simple: true }), 'ok');
+    copy.close();
+    // A copy that fails takes its file with it.
+    const failed = join(dir, 'failed.db');
+    await assert.rejects(backupDatabase({ backup: async () => { throw new Error('disk full'); } }, failed), /disk full/);
+    assert.equal(existsSync(failed), false);
+    db.close();
+
+    // The backup script makes the directory it is given the service account’s alone.
+    const env = { ...process.env, VANTAGE_DB: join(dir, 'data', 'vantage.db') };
+    const nightly = join(dir, 'backups', 'nightly', 'vantage.db');
+    execFileSync(process.execPath, ['scripts/backup.ts', nightly], { env, stdio: 'pipe' });
+    assert.equal((statSync(nightly).mode & 0o777).toString(8), '600');
+    assert.equal((statSync(join(dir, 'backups', 'nightly')).mode & 0o777).toString(8), '700');
+  } finally { process.umask(previous); rmSync(dir, { recursive: true, force: true }); }
+
+  // Nothing copies the database any other way.
+  const sources = ['server', 'scripts'].flatMap((root) => readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter((f) => f.isFile() && f.name.endsWith('.ts')).map((f) => join(f.parentPath, f.name)));
+  const direct = sources.filter((f) => /\.backup\(/.test(readFileSync(f, 'utf8').replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '')));
+  assert.deepEqual(direct, [], 'database copies go through backupDatabase');
+});
+
+test('a backup that names no database is this one’s only when the trail here holds its newest entry, so another database’s is refused and never takes this one’s name', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-unnamed-'));
+  try {
+    const live = join(dir, 'vantage.db');
+    const other = join(dir, 'other.db');
+    const own = join(dir, 'own.db');
+    // Another database with a longer trail, named nothing, as a build before databases were named left it.
+    const b = await startApp({ VANTAGE_DB: other });
+    const bop = await b.setupOperator();
+    for (let i = 0; i < 40; i += 1) audit(b.ctx, { actor_id: bop.id, action: 'backup', entity: 'database', detail: `filler ${i}` });
+    b.ctx.db.prepare("DELETE FROM meta WHERE key = 'database_id'").run();
+    await b.close();
+    // This database, with a shorter trail of its own, and a copy of it named nothing.
+    const a = await startApp({ VANTAGE_DB: live });
+    await a.setupOperator();
+    const liveId = metaGet(a.ctx.db, 'database_id');
+    await backupDatabase(a.ctx.db, own);
+    await a.close();
+    const unnamed = new Database(own);
+    unnamed.prepare("DELETE FROM meta WHERE key = 'database_id'").run();
+    unnamed.close();
+
+    const env = { ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: live, VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false', VANTAGE_RESTORE: '1' };
+    const restore = (from: string, ...extra: string[]) => spawnSync(process.execPath, ['scripts/restore.ts', 'REPLACE-DATABASE', '--from', from, '--by', 'boletz', '--reason', 'Checking which database a backup is of', ...extra], { env, encoding: 'utf8' });
+    const refused = restore(other);
+    assert.notEqual(refused.status, 0, refused.stdout);
+    assert.match(refused.stderr, /another Vantage database than the one here/);
+    const named = (file: string) => { const d = new Database(file, { readonly: true }); try { return metaGet(d as never, 'database_id'); } finally { d.close(); } };
+    assert.equal(named(live), liveId, 'nothing was replaced');
+
+    // Its own unnamed copy is this database's, and keeps its name.
+    const back = restore(own);
+    assert.equal(back.status, 0, back.stderr);
+    assert.equal(named(live), liveId);
+
+    // Another database's, on purpose: it comes in, and does not take this database's name.
+    const anyway = restore(other, '--different-database');
+    assert.equal(anyway.status, 0, anyway.stderr);
+    assert.notEqual(named(live), liveId);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
