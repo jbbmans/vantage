@@ -8,6 +8,7 @@ import {
 } from '../services/record.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import { recordTimeline } from '../services/timeline.ts';
 import { moveCandidates, dutyMoveCandidates } from '../services/recordMoves.ts';
 import { dutyList, dutyListQuery, dutyOptions, dutySummary } from '../services/duties.ts';
@@ -40,7 +41,11 @@ recordRouter.get('/duty/options', wrap((req, res) => res.json(dutyOptions(req.ct
 recordRouter.get('/duty/candidates', wrap((req, res) => res.json(dutyMoveCandidates(req.ctx, req.user))));
 // The Duty page's tabs a page at a time, newest first, and what the page adds up from all of the reader's duty rather
 // than the page they have open. Only duty the reader may read, decided before a page is cut or anything counted.
-recordRouter.get('/duty/list', wrap((req, res) => res.json(dutyList(req.ctx, req.user, scopeFor(req.ctx, req.user, req), parse(dutyListQuery, req.query), clientIp(req)))));
+recordRouter.get('/duty/list', wrap((req, res) => {
+  const q = parse(dutyListQuery, req.query);
+  checkRange(q);
+  res.json(dutyList(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q, clientIp(req)));
+}));
 recordRouter.get('/duty/summary', wrap((req, res) => res.json(dutySummary(req.ctx, req.user, scopeFor(req.ctx, req.user, req)))));
 // Duty waiting for the caller's decision, in the units where they review it (ADR-0024).
 recordRouter.get('/duty/review-queue', wrap((req, res) => res.json(dutyReviewQueue(req.ctx, req.user, req, { unitId: typeof req.query.unit_id === 'string' ? req.query.unit_id : null }, clientIp(req)))));

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Check, KeyRound, ShieldCheck, UserRound, PenLine, Users, X } from 'lucide-react';
 import { useIdentity, useRecordSummary, useSavePrefs } from '@/lib/queries';
 import { useView, viewLabel } from '@/lib/view';
-import { cn, todayIso } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useTutorials } from '@/lib/tutorialContext';
 
 const seenKey = (userId: string) => `vantage.seen-team.${userId}`;
@@ -19,8 +19,8 @@ interface Step { key: string; title: string; hint: string; done: boolean; icon: 
 export default function GettingStarted() {
   const { data: identity } = useIdentity();
   const { view } = useView(identity);
-  const today = todayIso();
-  const summary = useRecordSummary({ from: '2000-01-01', to: today });
+  // The summary of the default window carries whether one has logged anything at all, whenever it was.
+  const summary = useRecordSummary();
   const save = useSavePrefs();
   const user = identity?.user;
   const tutorials = useTutorials();
@@ -32,7 +32,7 @@ export default function GettingStarted() {
       { key: 'password', title: 'Your own password', hint: 'Set when you first signed in.', done: true, icon: KeyRound, action: 'Done' },
       { key: 'secure', title: 'Protect your sign-in', hint: 'Add a passkey or an authenticator app, so a password alone is never enough.', done: Boolean(user.passkeys || user.totp_enabled), icon: ShieldCheck, to: '/settings?tab=security', action: 'Secure' },
       { key: 'profile', title: 'Check your profile', hint: 'Rank, MOS and an email for reset links. Rank decides JEPES or FITREP.', done: Boolean(user.rank_id && user.mos && user.email), icon: UserRound, to: '/settings?tab=profile', action: 'Review' },
-      { key: 'first', title: 'Log your first activity', hint: 'One sentence is enough. Press N anywhere.', done: (summary.data?.personal?.activities || 0) > 0, icon: PenLine, onClick: () => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' })), action: 'Log activity' },
+      { key: 'first', title: 'Log your first activity', hint: 'One sentence is enough. Press N anywhere.', done: Boolean(summary.data?.personal?.any_activity), icon: PenLine, onClick: () => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' })), action: 'Log activity' },
       { key: 'team', title: view ? `Meet ${viewLabel(view)}` : 'Meet your team', hint: 'Who is on your team, and the goals it and its command are working toward.', done: teamSeen(user.id), icon: Users, to: '/team', action: 'Open' },
     ];
   }, [user, summary.data, view]);

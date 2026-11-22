@@ -7,7 +7,7 @@ import {
   CLAIMED_CONDITIONS, DUTY_STATUSES, DUTY_STATUS_LABELS, dutyConditions, dutyFacts, dutyFromActivity, dutyProblems, isDecidedDuty, readsLikeDuty, scoreDuty,
   type DutyScoringVersion, type DutyStatus,
 } from '../../shared/duty.ts';
-import { isCalendarDay } from '../../shared/metrics.ts';
+import { rangeFields } from '../lib/dateRange.ts';
 import { isDrawnFromWork } from '../../shared/recordKinds.ts';
 import { listScoringPolicies, scoringToday } from './dutyScoring.ts';
 import { holdState, type HoldState } from './holds.ts';
@@ -211,8 +211,6 @@ const DUTY_PAGE_MAX = 100;
  */
 export const DUTY_COUNTED = 1000;
 
-const listDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').refine(isCalendarDay, 'That date does not exist.');
-
 /**
  * What one page of the Duty page asks for (GET /api/record/duty/list). `who` is the tab: the reader's own duty, the duty
  * they recorded for their Marines, or every duty they may read that is not their own (which holds what they recorded).
@@ -220,8 +218,8 @@ const listDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').r
 export const dutyListQuery = z.object({
   who: z.enum(['mine', 'recorded', 'units']).default('mine'),
   unit_id: z.string().trim().min(1).max(100).optional(),
-  from: listDay.optional(),
-  to: listDay.optional(),
+  // Checked by the one range rule (checkRange, ADR-0038) once parsed: both days or neither, in order, two years at most.
+  ...rangeFields,
   status: z.enum(DUTY_STATUSES).optional(),
   cursor: z.string().max(400).optional(),
   limit: z.coerce.number().int().min(1).max(DUTY_PAGE_MAX).default(DUTY_PAGE),

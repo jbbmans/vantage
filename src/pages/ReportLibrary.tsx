@@ -8,7 +8,8 @@ import { useToast } from '@/components/ui/toast';
 import DownloadMenu, { type DownloadChoice } from '@/components/DownloadMenu';
 import ReportDocumentView from '@/components/ReportDocumentView';
 import { QueryFailure } from '@/components/QueryFailure';
-import { PageShell, PeriodSelect } from '@/components/common';
+import { PageShell } from '@/components/common';
+import DateRangePicker from '@/components/DateRangePicker';
 import { can, useIdentity, useMetrics, useTeam } from '@/lib/queries';
 import { usePlace } from '@/lib/place';
 import { cn, formatRange } from '@/lib/utils';
@@ -17,6 +18,7 @@ import { PERMISSIONS } from '../../shared/permissions';
 import { EVAL_AREAS, TRAINING_TYPES } from '../../shared/constants';
 import { PROCEDURE_LIST } from '../../shared/procedures';
 import { PERIOD_OPTIONS } from '../../shared/metrics';
+import { CUSTOM_PERIOD, rangeProblems } from '../../shared/dateRange';
 import {
   CASE_STATES, CUSTOM_DATASETS, PERSONNEL_STATUSES, REPORT_GROUPS, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, isReportType, primaryTable,
   type ReportDocument, type ReportFileFormat, type ReportSpec, type ReportSubject, type ReportType,
@@ -55,19 +57,26 @@ function cleanParams(form: Params, spec: ReportSpec): Params {
   if ((form.subject === 'unit' || form.subject === 'member') && form.unit_id) out.unit_id = form.unit_id;
   const keys = spec.filters.flatMap((f) => (f === 'sort' ? ['sort', 'direction'] : [f]));
   for (const k of keys) if (form[k]) out[k] = form[k];
-  // A window carried from the Unit dashboard (from and to) stands in for the period until a period is chosen.
-  if (spec.filters.includes('period') && windowIn(form)) { out.from = form.from; out.to = form.to; }
+  // Custom dates go as chosen, for the server to check. A window carried from the Unit dashboard (from and to) stands in
+  // for the period until a period is chosen.
+  if (spec.filters.includes('period') && (form.period === CUSTOM_PERIOD || windowIn(form))) {
+    if (form.from) out.from = form.from;
+    if (form.to) out.to = form.to;
+  }
   return out;
 }
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const windowIn = (form: Params) => Boolean(form.from && form.to && DAY.test(form.from) && DAY.test(form.to) && form.from <= form.to);
+/** Days a link carried in place of a period (ADR-0038), when they make a range. */
+const windowIn = (form: Params) => form.period !== CUSTOM_PERIOD && Boolean(form.from || form.to) && !rangeProblems(form.from, form.to, { required: true });
+/** Why days a link carried were not used, when they do not make a range. */
+const linkProblem = (form: Params) => (form.period !== CUSTOM_PERIOD && (form.from || form.to) ? rangeProblems(form.from, form.to, { required: true }) : null);
 
 // The dashboard's windows are the last N days, so a saved report keeps the rolling period that matches, never the dates
-// of the day it was saved. The 180-day window matches none, so it is saved only once a period is chosen.
+// of the day it was saved. The 180-day window matches none, so it is saved only once a period is chosen. Custom dates
+// were chosen as dates, so they are saved as they are.
 const ROLLING: Record<number, string> = { 30: 'last30', 90: 'last90', 365: 'last12', 366: 'last12' };
 function savable(params: Params): Params | null {
-  if (!params.from || !params.to) return params;
+  if (params.period === CUSTOM_PERIOD || !params.from || !params.to) return params;
   const { from, to, ...rest } = params;
   const period = ROLLING[Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1];
   return period ? { ...rest, period } : null;
@@ -134,7 +143,8 @@ export default function ReportLibrary() {
     catch (e) { toast.error(api.errorText(e)); }
   };
   const params = cleanParams(f, spec);
-  const saveParams = savable(params);
+  const rangeBad = spec.filters.includes('period') && f.period === CUSTOM_PERIOD ? rangeProblems(f.from, f.to, { required: true }) : null;
+  const saveParams = rangeBad ? null : savable(params);
   const doc = run.data;
   const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: FILE_LABEL[fmt][0], hint: fileHint(doc!, fmt), url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
   // A choice the server refused is named on the field it is about, as well as above the report.
@@ -181,8 +191,9 @@ export default function ReportLibrary() {
               {f.subject === 'member' ? <Field label="Marine" error={fe.user_id}><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
               {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it" error={fe.unit_id}><Select value={f.unit_id} onValueChange={(v) => setForm((p) => ({ ...p, unit_id: v, error_type: '', snapshot: '', against: '' }))} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
               {spec.filters.includes('period') ? (
-                <Field label="Period" error={fe.period || fe.from || fe.to} hint={windowIn(f) ? `${formatRange(f.from, f.to)}, the dates in this page's link. Choose a period to replace them.` : undefined}>
-                  <PeriodSelect value={windowIn(f) ? '' : f.period} placeholder={windowIn(f) ? 'Dates in the link' : undefined} onChange={(v) => setForm((p) => ({ ...p, period: v, from: '', to: '' }))} />
+                <Field label="Period" error={fe.period} hint={windowIn(f) ? `${formatRange(f.from, f.to)}, the dates in this page's link. Choose a period to replace them.` : undefined}>
+                  <DateRangePicker everyEdit stacked value={f.period === CUSTOM_PERIOD || windowIn(f) ? { period: CUSTOM_PERIOD, from: f.from, to: f.to } : { period: f.period }}
+                    errors={{ from: fe.from, to: fe.to }} ignored={linkProblem(f)} onChange={(next) => setForm((p) => ({ ...p, period: next.period, from: next.from ?? '', to: next.to ?? '' }))} />
                 </Field>
               ) : null}
               {spec.filters.includes('track') ? <Field label="Evaluation"><Select value={f.track || 'auto'} onValueChange={(v) => set('track', v === 'auto' ? '' : v)} options={[{ value: 'auto', label: 'By rank' }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} /></Field> : null}
@@ -239,10 +250,10 @@ export default function ReportLibrary() {
             {!subjects.length ? <p className="mt-3 text-sm text-ink-2" role="note">This report is about a unit, and you have none whose shared records you may view. Your own reports are under Your record.</p> : null}
             <p className="mt-3 text-xs text-ink-3">{spec.needs}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="primary" onClick={() => go(params)} loading={run.isFetching} data-tutorial="run-report" disabled={!subjects.length || (f.subject === 'member' && !f.user_id) || (f.subject === 'unit' && !f.unit_id)}><Play className="h-4 w-4" aria-hidden />Run report</Button>
+              <Button variant="primary" onClick={() => go(params)} loading={run.isFetching} data-tutorial="run-report" disabled={!subjects.length || Boolean(rangeBad) || (f.subject === 'member' && !f.user_id) || (f.subject === 'unit' && !f.unit_id)}><Play className="h-4 w-4" aria-hidden />Run report</Button>
               <Button onClick={() => setSaving(true)} disabled={!saveParams}><BookmarkPlus className="h-4 w-4" aria-hidden />Save these choices</Button>
             </div>
-            {!saveParams ? <p className="mt-2 text-xs text-ink-3" role="note">To save these choices, choose a period: a saved report keeps a period, not the dates in the link.</p> : null}
+            {!saveParams && !rangeBad ? <p className="mt-2 text-xs text-ink-3" role="note">To save these choices, choose a period: a saved report keeps a period, not the dates in the link.</p> : null}
           </Panel>
 
           {!ran ? <div className="card"><EmptyState icon={FileText} title="Choose a report and run it" description="It shows here as it prints: its title, whom it is about, the period, the filters, then its figures and tables." /></div>
@@ -319,7 +330,7 @@ function SaveDialog({ open, onOpenChange, type, params, units, defaultUnit, onSa
     <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Save these choices" description="The report, whom it is about and its filters, under a name. The records are read fresh each time it runs."
       footer={<><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" loading={busy} disabled={!name.trim()} onClick={save}>Save</Button></>}>
       <div className="space-y-3">
-        <Field label="Name" error={error}><Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={[REPORT_SPECS[type].title, PERIOD_OPTIONS.find((p) => p.value === params.period)?.label].filter(Boolean).join(', ')} /></Field>
+        <Field label="Name" error={error}><Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={[REPORT_SPECS[type].title, params.period === CUSTOM_PERIOD && params.from && params.to ? formatRange(params.from, params.to) : PERIOD_OPTIONS.find((p) => p.value === params.period)?.label].filter(Boolean).join(', ')} /></Field>
         {units.length ? <Switch checked={share} onChange={setShare} label="Share with a unit" description="Its members see the choices and run it with their own authority. A shared report names no Marine." /> : null}
         {share ? <Field label="Unit"><Select value={target} onValueChange={setUnit} options={units.map((u) => ({ value: u.id, label: u.short_name || u.name }))} /></Field> : null}
       </div>

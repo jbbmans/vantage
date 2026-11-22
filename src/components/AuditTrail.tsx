@@ -9,6 +9,7 @@ import { QueryFailure } from '@/components/QueryFailure';
 import * as api from '@/lib/api';
 import { formatStamp, humanize } from '@/lib/utils';
 import { AUDIT_CATEGORIES, AUDIT_CATEGORY_LABELS, isAuditCategory } from '../../shared/auditCatalog';
+import { rangeProblems, type RangeProblem } from '../../shared/dateRange';
 
 export interface AuditRow {
   id: string; seq: number; at: string; action: string; actor_username: string | null; subject_username: string | null; entity: string | null; entity_id: string | null;
@@ -42,7 +43,7 @@ export default function AuditTrail({ queryKey, load, exportUrl, fileStem, units,
 }) {
   const [draft, setDraft] = useState<AuditFilter>(NO_FILTER);
   const [filter, setFilter] = useState<AuditFilter>(NO_FILTER);
-  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [rangeError, setRangeError] = useState<RangeProblem['fieldErrors'] | null>(null);
   const sent = Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) as Partial<AuditFilter>;
   // The pages read so far stay until the reader asks for a fresh read (Refresh, or another filter): coming back to the
   // window does not fold the list back to its first page and lose their place, and it does not ask for the chain again.
@@ -65,7 +66,9 @@ export default function AuditTrail({ queryKey, load, exportUrl, fileStem, units,
   const fieldErrors = trail.error instanceof api.ApiError ? trail.error.fieldErrors : null;
   const apply = (e: React.FormEvent) => {
     e.preventDefault();
-    if (draft.from && draft.to && draft.from > draft.to) { setRangeError('From is after To. Choose a From on or before the To date.'); return; }
+    // Both days or neither, in order and within the span every range keeps (ADR-0038), checked before anything is sent.
+    const problem = draft.from || draft.to ? rangeProblems(draft.from, draft.to, { required: true }) : null;
+    if (problem) { setRangeError(problem.fieldErrors); return; }
     setRangeError(null);
     setFilter({ ...draft, q: draft.q.trim() });
   };
@@ -76,8 +79,8 @@ export default function AuditTrail({ queryKey, load, exportUrl, fileStem, units,
       <Field label="Category" className="w-52"><Select aria-label="Category" value={draft.category || 'all'} onValueChange={(v) => setDraft({ ...draft, category: v === 'all' ? '' : v })} options={CATEGORY_OPTIONS} /></Field>
       <Field label="Action" className="w-52"><Select aria-label="Action" value={draft.action || 'all'} onValueChange={(v) => setDraft({ ...draft, action: v === 'all' ? '' : v })} options={[{ value: 'all', label: 'Every action' }, ...actions.map((a) => ({ value: a, label: humanize(a) }))]} /></Field>
       {units && <Field label="Unit" className="w-48"><Select aria-label="Unit" value={draft.unit || 'all'} onValueChange={(v) => setDraft({ ...draft, unit: v === 'all' ? '' : v })} options={[{ value: 'all', label: 'Every unit' }, ...units.map((u) => ({ value: u.id, label: u.name }))]} /></Field>}
-      <Field label="From (UTC)" className="w-40" error={rangeError ?? fieldErrors?.from}><Input type="date" value={draft.from} onChange={(e) => { setRangeError(null); setDraft({ ...draft, from: e.target.value }); }} /></Field>
-      <Field label="To (UTC)" className="w-40" error={fieldErrors?.to}><Input type="date" value={draft.to} onChange={(e) => { setRangeError(null); setDraft({ ...draft, to: e.target.value }); }} /></Field>
+      <Field label="From (UTC)" className="w-40" error={rangeError?.from ?? fieldErrors?.from}><Input type="date" value={draft.from} onChange={(e) => { setRangeError(null); setDraft({ ...draft, from: e.target.value }); }} /></Field>
+      <Field label="To (UTC)" className="w-40" error={rangeError?.to ?? fieldErrors?.to}><Input type="date" value={draft.to} onChange={(e) => { setRangeError(null); setDraft({ ...draft, to: e.target.value }); }} /></Field>
       <Button type="submit" variant="primary">Apply</Button>
       {filtered && <Button type="button" variant="ghost" onClick={() => { setRangeError(null); setDraft(NO_FILTER); setFilter(NO_FILTER); }}>Clear</Button>}
     </form>

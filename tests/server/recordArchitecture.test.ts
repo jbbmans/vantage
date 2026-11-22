@@ -659,14 +659,14 @@ test('the timeline: the person’s own records of every kind, newest first, wind
   assert.deepEqual(windowed.body.items.map((i: TimelineItem) => i.id), [items.training, items.activity, items.pme]);
   assert.equal(windowed.body.total, 3);
   assert.deepEqual(windowed.body.counts, { activity: 1, pme: 1, training: 1 });
-  assert.deepEqual((await get(lopez.token, '/api/record/timeline?from=2026-06-02')).body.items.map((i: TimelineItem) => i.id), [items.goal]);
+  assert.deepEqual((await get(lopez.token, '/api/record/timeline?from=2026-06-02&to=2028-06-01')).body.items.map((i: TimelineItem) => i.id), [items.goal]);
   // A limit takes the newest, and says there is more.
   const limited = await get(lopez.token, '/api/record/timeline?limit=3');
   assert.deepEqual(limited.body.items.map((i: TimelineItem) => i.id), timeline.items.slice(0, 3).map((i) => i.id));
   assert.equal(limited.body.total, timeline.total);
   assert.equal(limited.body.truncated, true);
   assert.equal((await get(lopez.token, '/api/record/timeline?limit=0')).body.items.length, timeline.total, 'a nonsense limit falls back to the default');
-  for (const bad of ['from=2026-13-40x', 'to=yesterday', 'from=2026-05-01&to=2026-04-01']) {
+  for (const bad of ['from=2026-13-40x', 'to=yesterday', 'from=2026-05-01&to=2026-04-01', 'from=2026-06-02', 'to=2025-09-30']) {
     assert.equal((await get(lopez.token, `/api/record/timeline?${bad}`)).status, 400, bad);
   }
 
@@ -687,7 +687,7 @@ test('the timeline: the person’s own records of every kind, newest first, wind
 test('an activity drawn from a financial case is marked as such on the timeline', async () => {
   const drawn = await entry(lopez.token, { title: 'Cleared an unmatched disbursement', date: '2025-09-01' });
   app.ctx.db.prepare('UPDATE activities SET fingerprint = ? WHERE id = ?').run(`work:item-${drawn.id}`, drawn.id);
-  const res = await get(lopez.token, '/api/record/timeline?to=2025-09-30');
+  const res = await get(lopez.token, '/api/record/timeline?from=2025-09-01&to=2025-09-30');
   const item = res.body.items.find((i: TimelineItem) => i.id === drawn.id);
   assert.ok(item);
   assert.equal(item.from_work, true);

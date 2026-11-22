@@ -170,10 +170,12 @@ test('every chart in every report draws a column of a table beside it, and print
   const weeks = doc.sections.find((s) => s.id === 'weeks')!.tables[0].rows.map((r) => String(r.week));
   assert.ok(weeks.length >= 13, `every week of the 90 days, though entries were shared in only two (${weeks.length})`);
   for (let i = 1; i < weeks.length; i += 1) assert.equal(Date.parse(weeks[i]) - Date.parse(weeks[i - 1]), 7 * 86_400_000, `${weeks[i - 1]} then ${weeks[i]}: no week left out`);
-  // A week not yet begun is not a quiet week: a period that ends ahead (this calendar year, or a far end such as the open
-  // end 9999-12-31) stops at this week, and promptly.
+  // A week not yet begun is not a quiet week: a period that ends ahead (this calendar year, or custom dates that run two
+  // years ahead) stops at this week, and promptly. An open end such as 9999-12-31 is no range at all (ADR-0038).
   const begun = (week: string) => Date.parse(`${week}T00:00:00Z`) <= Date.now() + 86_400_000;
-  for (const params of [{ period: 'year' }, { period: 'fiscalYear' }, { from: '2026-01-01', to: '9999-12-31' }] as Array<Record<string, string>>) {
+  const ahead = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  assert.equal((await run(op.token, { type: 'unit', unit_id: 'G8', from: '2026-01-01', to: '9999-12-31' })).status, 400);
+  for (const params of [{ period: 'year' }, { period: 'fiscalYear' }, { period: 'custom', from: ahead(-30), to: ahead(700) }] as Array<Record<string, string>>) {
     const started = Date.now();
     const res = await run(op.token, { type: 'unit', unit_id: 'G8', ...params });
     assert.equal(res.status, 200, JSON.stringify(params));

@@ -5,7 +5,11 @@ import { Building2, CalendarClock, CheckCircle2, FilePen, GraduationCap, Hand, H
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarChart, FigureFrame, FigureTable, clientVisual } from '@/components/analytics';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { DateText, DueText, PeriodSelect } from '@/components/common';
+import { DateText, DueText } from '@/components/common';
+import DateRangePicker from '@/components/DateRangePicker';
+import { usePeriodParam } from '@/lib/usePeriodParam';
+import { metricsPeriod } from '@/lib/periodParams';
+import { CUSTOM_PERIOD, rangeLabel } from '../../shared/dateRange';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { QueryFailure } from '@/components/QueryFailure';
 import { WorkRow } from '@/components/work';
@@ -19,7 +23,7 @@ import { DRAFT_KIND_LABELS } from '../../shared/draftKinds';
 import { NOTICE_KINDS, isNoticeKind, type NoticeRow } from '../../shared/notifications';
 import { REQUEST_KIND_LABELS } from '../../shared/requestKinds';
 import type { RequestSummary } from '../../shared/workflowMessages';
-import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
+import { DEFAULT_PERIOD, rangeForPeriod, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { goalPace } from '../../shared/metricEngine';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
@@ -475,15 +479,23 @@ function Outcomes() {
   const savePrefs = useSavePrefs();
   const [review, setReview] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const { data: identity } = useIdentity();
-  const period = prefs.dashboardPeriod || DEFAULT_PERIOD;
-  const range = useMemo(() => rangeForPeriod(period), [period]);
-  const params = useMemo(() => ({ from: dayKey(range.start), to: dayKey(range.end), scope: 'me' }), [range]);
+  // A preset is kept in preferences, so Today opens on it; custom dates are kept only in the address (ADR-0038).
+  const range = usePeriodParam(prefs.dashboardPeriod || DEFAULT_PERIOD, { presetsInUrl: false });
+  const { period, from, to, custom } = range;
+  const label = useMemo(() => {
+    if (custom) return rangeLabel(from, to);
+    const named = rangeForPeriod(period).label;
+    return /^FY/.test(named) ? named : named.toLowerCase();
+  }, [period, from, to, custom]);
+  const params = useMemo(() => ({ ...metricsPeriod({ period, from, to, custom }), scope: 'me' }), [period, from, to, custom]);
   const report = useMetricsReport(params);
   return (
     <section aria-labelledby="outcomes-heading" className="mt-8">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {/^FY/.test(range.label) ? range.label : range.label.toLowerCase()}</h2>
-        <PeriodSelect value={period} onChange={(v) => savePrefs.mutate({ dashboardPeriod: v })} className="w-44" />
+        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {label}</h2>
+        <div className="flex flex-wrap items-start gap-2">
+          <DateRangePicker value={range} ignored={range.ignored} className="w-44" onChange={(next) => { range.set(next); if (next.period !== CUSTOM_PERIOD) savePrefs.mutate({ dashboardPeriod: next.period }); }} />
+        </div>
       </div>
       {report.isPending ? <Skeleton className="h-28" /> : report.isError ? (
         <QueryFailure error={report.error} onRetry={() => report.refetch()} what="Your outcomes" />

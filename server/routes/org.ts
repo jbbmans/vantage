@@ -20,7 +20,7 @@ import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readableSubtree, unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
-import { ANALYTICS_MAX_DAYS, isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
+import { isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Counseling, Duty, Goal, MemberActivity, MemberAward, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
@@ -28,7 +28,7 @@ import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
-import { isCalendarDay } from '../../shared/metrics.ts';
+import { checkRange } from '../lib/dateRange.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
@@ -40,14 +40,12 @@ import { sourcedFieldsFor } from '../services/personnel.ts';
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
-/** The last 90 days in the instance's timezone, unless the caller names a window. */
+/**
+ * The window a caller names, checked by the one range rule (ADR-0038): both days or neither, real ones, in order, two
+ * years at most. Neither is the last 90 days on the reader's calendar.
+ */
 function dashboardWindow(req: Request) {
-  const to = String(req.query.to || zonedDay(zoneOf(req.ctx, req.user)));
-  const from = String(req.query.from || zonedDay(zoneOf(req.ctx, req.user), -89));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
-  // A day that is not on the calendar (2026-13-40) is refused, not read as a month the window does not have.
-  if (!isCalendarDay(from) || !isCalendarDay(to)) throw badRequest('Use real dates, as YYYY-MM-DD.');
-  return { from, to };
+  return checkRange(req.query) ?? { from: zonedDay(zoneOf(req.ctx, req.user), -89), to: zonedDay(zoneOf(req.ctx, req.user)) };
 }
 
 orgRouter.post('/units', wrap((req, res) => {
@@ -88,23 +86,17 @@ function analyticsSection(req: Request): AnalyticsSection {
   if (!isAnalyticsSection(section)) throw notFound('No such analytics section.');
   return section;
 }
-function analyticsWindow(req: Request) {
-  const w = dashboardWindow(req);
-  // Both days are in the window, so 2026-01-01 to 2026-01-31 is 31 days.
-  if ((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000 + 1 > ANALYTICS_MAX_DAYS) throw badRequest(`Use a window of ${ANALYTICS_MAX_DAYS} days or fewer.`);
-  return w;
-}
 const drillQuery = z.object({ visual: z.string().trim().min(1).max(40), key: z.string().min(1).max(120), series: z.string().trim().min(1).max(40).optional() });
 
 orgRouter.get('/units/:unitId/analytics/:section', wrap((req, res) => {
   const section = analyticsSection(req);
-  res.json(unitAnalytics(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), clientIp(req)));
+  res.json(unitAnalytics(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, dashboardWindow(req), clientIp(req)));
 }));
 
 orgRouter.get('/units/:unitId/analytics/:section/drill', wrap((req, res) => {
   const section = analyticsSection(req);
   const ask = parse(drillQuery, { visual: req.query.visual, key: req.query.key, series: req.query.series || undefined });
-  res.json(unitAnalyticsDrill(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, analyticsWindow(req), ask, clientIp(req)));
+  res.json(unitAnalyticsDrill(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), section, dashboardWindow(req), ask, clientIp(req)));
 }));
 
 orgRouter.get('/units/:unitId/overview', wrap((req, res) => {

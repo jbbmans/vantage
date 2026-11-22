@@ -6,6 +6,7 @@ import {
 } from './constants.ts';
 import { passwordProblem } from './password.ts';
 import { parseTime, TIME_HINT } from './timeframe.ts';
+import { isRangeDay } from './dateRange.ts';
 import { SCORING_CONDITIONS } from './dutyScoring.ts';
 import { cleanDescription, isEvidenceKind, type EvidenceKind } from './attachments.ts';
 import { CEUS_MAX, COURSE_CODE_MAX, cleanCourseCode, courseKey } from './courses.ts';
@@ -15,11 +16,7 @@ import { TUTORIAL_IDS } from './tutorials.ts';
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
 
-export const isoDate = z.string().regex(ISO_DATE, 'Must be a date (YYYY-MM-DD).').refine((v) => {
-  const [y, m, d] = v.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d));
-  return t.getUTCFullYear() === y && t.getUTCMonth() + 1 === m && t.getUTCDate() === d && y >= 1940 && y <= 2100;
-}, 'Not a real calendar date.');
+export const isoDate = z.string().regex(ISO_DATE, 'Must be a date (YYYY-MM-DD).').refine(isRangeDay, 'Not a real calendar date.');
 
 const text = (max: number) => z.string().max(max, `Too long (limit ${max} characters).`).refine((v) => !v.includes(NUL), 'Contains a null byte.');
 const optText = (max: number) => text(max).nullish().transform((v) => (v === undefined ? undefined : v === null || v === '' ? null : v));

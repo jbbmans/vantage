@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw, SlidersHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -9,14 +9,18 @@ import RecordDialog, { missing } from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import MoveRecordDialog from '@/components/MoveRecordDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
-import { PeriodSelect, DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
+import { DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
+import DateRangePicker from '@/components/DateRangePicker';
+import { usePeriodParam } from '@/lib/usePeriodParam';
+import { periodDays, periodQuery } from '@/lib/periodParams';
+import { CUSTOM_PERIOD } from '../../shared/dateRange';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { can, useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics, useMoveCandidates, useKeepAsActivity } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
-import { DEFAULT_PERIOD, activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
+import { DEFAULT_PERIOD, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
 import { inPeriod } from '../../shared/timeframe';
 import { findDuplicates } from '../../shared/duplicates';
 import { strength } from '../../shared/bullets';
@@ -30,7 +34,6 @@ type Sort = 'date' | 'value' | 'strength' | 'updated';
 export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const place = usePlace();
   const cfg = useMetrics();
-  const navigate = useNavigate();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
@@ -41,8 +44,9 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const remove = useDeleteRecord('activities');
   const restore = useRestoreRecord('activities');
   const [q, setQ] = useState('');
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
-  const [from] = useParam('from'); const [to] = useParam('to');
+  // The period and its days in the address, written as one (ADR-0038); a preset is also kept as the saved choice.
+  const range = usePeriodParam(prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
+  const days = useMemo(() => periodDays({ period: range.period, from: range.from, to: range.to, custom: range.custom }), [range.period, range.from, range.to, range.custom]);
   const [category, setCategory] = useParam('category', 'all');
   const [area, setArea] = useParam('area', 'all');
   const [quality, setQuality] = useParam('quality', 'all');
@@ -56,7 +60,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const clearFilters = (widenPeriod = false) => setSearchParams((p) => {
     const n = new URLSearchParams(p);
     for (const k of ['category', 'area', 'quality', 'owner']) n.delete(k);
-    if (widenPeriod) n.set('period', 'all');
+    if (widenPeriod) { n.set('period', 'all'); n.delete('from'); n.delete('to'); }
     return n;
   }, { replace: true });
   // The filters past search and period fold behind one button, on a desk as on a phone; a link that sets one opens them.
@@ -81,8 +85,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const filtered = useMemo(() => {
     let list: any[] = rows || [];
     // Any entry with a day in the range, one begun before it and still going included (ADR-0018).
-    if (from && to) list = list.filter((a) => inPeriod('activities', a, from, to));
-    else if (period !== 'all') list = activitiesInRange(list, rangeForPeriod(period));
+    if (days) list = list.filter((a) => inPeriod('activities', a, days.from, days.to));
     if (owner === 'mine') list = list.filter((a) => a.user_id === identity?.user.id);
     if (owner === 'unit') list = list.filter((a) => a.user_id !== identity?.user.id);
     if (category !== 'all') list = list.filter((a) => a.category === category);
@@ -99,7 +102,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       updated: (a, b) => b.updated_at.localeCompare(a.updated_at),
     };
     return [...list].sort(cmp[sort]);
-  }, [rows, from, to, period, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track]);
+  }, [rows, days, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track]);
   const metrics = useMemo(() => aggregateMetrics(filtered, cfg), [filtered, cfg]);
   const hasShared = (rows || []).some((a) => a.user_id !== identity?.user.id);
 
@@ -110,7 +113,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
     } catch (e) { toast.error(api.errorText(e)); }
   };
   const exportCsv = async () => {
-    try { const name = await api.downloadFile(api.reportCsvUrl({ period: from && to ? 'custom' : period, from, to }), 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
+    try { const name = await api.downloadFile(api.reportCsvUrl(periodQuery(range)), 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
   };
   const canEditRow = (a: any) => !a.deleted_at && (a.user_id === identity?.user.id ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id));
@@ -139,7 +142,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
+          <DateRangePicker value={range} ignored={range.ignored} className="w-40" onChange={(next) => { range.set(next); if (next.period !== CUSTOM_PERIOD) savePrefs.mutate({ reportPeriod: next.period }); }} />
           <Button onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters" data-tutorial="activity-filters">
             <SlidersHorizontal className="h-4 w-4" />Filters{activeFilters ? <span className="fig ml-0.5 rounded-full bg-accent px-1.5 text-2xs text-accent-ink">{activeFilters}</span> : null}
           </Button>
