@@ -1,6 +1,34 @@
 # Progress
 
-_Updated 2026-11-20_
+_Updated 2026-11-22_
+
+## What changed (2026-11-22: custom date ranges, part 2)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2 item 12, part 2, from `d48bf78` ([ADR-0039](engineering/ADR/0039-window-ranges-and-export-dates.md)). No
+migration.
+
+- **One window shape in the address:** a preset under the page's own key (`days` on the Unit dashboard, `window` on
+  Your record and Workload), custom dates as `period=custom&from&to`, as on a Period page. "Last year" and
+  `?window=365` keep their 365 days ending today. A window nobody offers is the default, never a failure.
+- **Unit dashboard:** Window has Custom dates; Print or file sends them by name; "Export unit data" offers These dates
+  or Every date (Personnel keeps one button). The Command brief follows the range rule.
+- **Workload:** the window is in the address, has Custom dates and stays on screen while another loads; Print or file
+  carries it.
+- **Your record:** Reporting window is the picker; the tiles to Contributions keep the window, and the Timeline link
+  opens on the window's days.
+- **Timeline:** the standard Period choice, All time by default; old `?from&to` links open as custom dates.
+- **Report Studio:** the New report dialog has Custom dates, sent exactly as shown; the server applies the rule to
+  `period_start` and `period_end` and names the field. A stored longer package still saves.
+- **Unit export:** two days hold only the shared records in them (by the days each covers, a task by its due day);
+  no days hold everything, as before. The file and the audit entry name the range. `recordPeriodClause` is the one
+  branch the export, records lists and the report center's custom rows use.
+- **Tests:** `tests/server/dateRanges.test.ts` (window helpers, the unit export in the endpoint table, export and
+  report-center file contents, the Command brief), `tests/server/reportStudio.test.ts` (the rule at its field, an
+  older package), `tests/browser/58-date-ranges.spec.ts` (each surface, the Report library's Download, window pages
+  in the axe loop) and spec 38's Timeline steps.
+- **Unit Instance export:** left a structure snapshot, as designed.
 
 ## What changed (2026-11-20: custom date ranges, part 1)
 
@@ -29,7 +57,7 @@ Round 2 item 12, part 1, from `9ab75ae` ([ADR-0038](engineering/ADR/0038-custom-
 - **Tests:** `tests/server/dateRanges.test.ts` (the rule, the URL helpers, every endpoint in one table, delta and CSV,
   saved definitions) and `tests/browser/58-date-ranges.spec.ts` (each page, reload, requests and files, keyboard only,
   axe at 320, 768 and 1280 px in light and dark). Specs 32 and 38 now set both days.
-- **Next:** part 2, the window selectors and the export dates.
+- **Next:** part 2, the window selectors and the export dates (done 2026-11-22, above).
 
 ## What changed (2026-11-19: Task 28, the final production readiness gate)
 

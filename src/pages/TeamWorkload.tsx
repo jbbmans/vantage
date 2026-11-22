@@ -1,15 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Info } from 'lucide-react';
-import { Panel, Progress, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { Panel, Progress, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { cn, formatRange, lastDays } from '@/lib/utils';
+import { cn, formatRange } from '@/lib/utils';
+import DateRangePicker from '@/components/DateRangePicker';
+import { CUSTOM_PERIOD } from '../../shared/dateRange';
+import { windowDays } from '@/lib/periodParams';
+import { useWindowParam } from '@/lib/usePeriodParam';
+import { WORKLOAD_WINDOW, windowSeed } from '@/lib/windows';
 import { QueryFailure } from '@/components/QueryFailure';
 import type { WorkloadMember } from '../../shared/caseView';
 
-const WINDOWS = [{ value: '30', label: '30 days' }, { value: '90', label: '90 days' }] as const;
+const workloadSeed = windowSeed(WORKLOAD_WINDOW);
 
 type SortKey = 'name' | 'assigned' | 'waiting' | 'blocked' | 'documents_researched' | 'research_actions' | 'submitted_actions' | 'verified_outcomes' | 'resolved_work';
 
@@ -21,15 +26,35 @@ const elapsed = (hours: number) => {
   return `${d} ${d === 1 ? 'day' : 'days'}`;
 };
 export default function TeamWorkload({ unitId }: { unitId: string }) {
-  const [days, setDays] = useState<'30' | '90'>('30');
-  const params = useMemo(() => lastDays(days), [days]);
+  // The window is in the address (?window=, or custom dates), so a reload, a link and Print or file keep it (ADR-0039).
+  const range = useWindowParam(WORKLOAD_WINDOW);
+  const { period, custom } = range;
+  const params = useMemo(() => {
+    const days = windowDays({ period, from: range.from, to: range.to, custom });
+    return custom ? { period: CUSTOM_PERIOD, ...days } : days;
+  }, [period, range.from, range.to, custom]);
   const w = useWorkload(unitId, params);
   // Alphabetical until a leader asks for an order: opening the page should not rank people.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
+  // The window stays on screen while another loads or fails, so the person changing it keeps their place in it.
+  const picker = <DateRangePicker label="Window" presets={WORKLOAD_WINDOW.options} seed={workloadSeed} value={range} ignored={range.ignored} onChange={range.set} className="w-40" />;
 
-  if (w.isPending) return <Skeleton className="h-64" />;
-  if (w.isError || !w.data) {
-    return <QueryFailure error={w.error} what="The section’s workload" onRetry={() => w.refetch()} denied={{ title: 'Workload is not available for this unit', description: 'It needs permission to view the unit’s shared records.' }} />;
+  // The same row at the head of every state, so the picker is the same element throughout and keeps its place.
+  const head = (said: string | null) => (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-ink-3">{said}</p>
+      <div className="flex flex-wrap items-center gap-2">{picker}</div>
+    </div>
+  );
+
+  if (w.isPending || w.isError || !w.data) {
+    return (
+      <div className="space-y-4">
+        {head(null)}
+        {w.isPending ? <Skeleton className="h-64" />
+          : <QueryFailure error={w.error} what="The section’s workload" onRetry={() => w.refetch()} denied={{ title: 'Workload is not available for this unit', description: 'It needs permission to view the unit’s shared records.' }} />}
+      </div>
+    );
   }
   const d = w.data;
   const s = d.section;
@@ -53,10 +78,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink-3">{d.unit_name} · recorded {formatRange(d.window.from, d.window.to)}</p>
-        <Segmented label="Window" value={days} onChange={setDays} options={WINDOWS.map((x) => ({ value: x.value, label: x.label }))} size="sm" />
-      </div>
+      {head(`${d.unit_name} · recorded ${formatRange(d.window.from, d.window.to)}`)}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {[

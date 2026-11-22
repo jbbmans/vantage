@@ -7,6 +7,17 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-22',
+    title: 'Your own dates on the dashboard, Workload, Your record, the Timeline and Report Studio',
+    items: [
+      'Window on the Unit dashboard and Workload, and Reporting window on Your record, now have Custom dates. Last year, 12 months and the other choices open on the same days as before, and the links you already have still work.',
+      'The Timeline uses the same Period choice as Records: All time, the usual periods, or Custom dates. A link with two dates opens on them.',
+      'In Report Studio, a new report can cover custom dates, up to 731 days, and covers exactly the days you set.',
+      'Export unit data on the Unit dashboard offers These dates, which holds only the shared work in the window on screen, or Every date, which holds everything, as it always did. Print or file and the Command brief use the window on screen.',
+      'Workload keeps its window in the page’s address, so a reload or a link opens on the same days.',
+    ],
+  },
+  {
     date: '2026-11-20',
     title: 'Choose your own dates',
     items: [

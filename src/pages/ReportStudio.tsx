@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, Download, ExternalLink, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Textarea, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { QueryFailure } from '@/components/QueryFailure';
@@ -12,10 +12,26 @@ import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
+import { CUSTOM_PERIOD, rangeLabel, rangeProblems } from '../../shared/dateRange';
+import DateRangePicker from '@/components/DateRangePicker';
 import { cn, formatRange, timeAgo } from '@/lib/utils';
 import { usePlace } from '@/lib/place';
 
 interface Section { heading: string; body: string; source_ids: string[] }
+
+/** The periods a package is usually written for, in Studio's own words, with Custom dates after them (ADR-0039). */
+const STUDIO_PERIODS = [
+  { value: 'fiscalQuarter', label: 'This fiscal quarter' },
+  { value: 'lastFiscalQuarter', label: 'Last fiscal quarter' },
+  { value: 'fiscalYear', label: 'This fiscal year' },
+  { value: 'lastFiscalYear', label: 'Last fiscal year' },
+  { value: 'last90', label: 'Last 90 days' },
+  { value: 'last12', label: 'Last 12 months' },
+  { value: 'year', label: 'This calendar year' },
+] as const;
+const presetSpan = (period: string) => { const r = rangeForPeriod(period); return { from: dayKey(r.start), to: dayKey(r.end) }; };
+/** Custom dates start from the days the preset before them covered. */
+const studioSeed = (previous: string) => presetSpan(STUDIO_PERIODS.some((p) => p.value === previous) ? previous : 'fiscalQuarter');
 
 const BLANK_SECTIONS: Section[] = [
   { heading: 'Mission accomplishment', body: '', source_ids: [] },
@@ -51,24 +67,36 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
   const more = async () => { const next = await drafts.fetchNextPage(); if (!next.hasNextPage && !next.isError) count.current?.focus(); };
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
-  const [period, setPeriod] = useState('fiscalQuarter');
+  const [choice, setChoice] = useState<{ period: string; from?: string; to?: string }>({ period: 'fiscalQuarter' });
   const [busy, setBusy] = useState(false);
+  // What the server said about the days, by the picker's field, until they change.
+  const [dayErrors, setDayErrors] = useState<{ from?: string; to?: string }>({});
 
-  const range = useMemo(() => rangeForPeriod(period), [period]);
+  // The days Start sends are the ones on screen: a preset's, or the custom days exactly as typed, checked by the same
+  // rule the server applies, so Start waits while they are wrong.
+  const custom = choice.period === CUSTOM_PERIOD;
+  const days = useMemo(() => (custom ? { from: choice.from ?? '', to: choice.to ?? '' } : presetSpan(choice.period)), [custom, choice]);
+  const problem = custom ? rangeProblems(days.from, days.to, { required: true }) : null;
+  const named = custom ? (problem ? 'Custom dates' : rangeLabel(days.from, days.to)) : rangeForPeriod(choice.period).label;
+  const choose = (next: { period: string; from?: string; to?: string }) => { setChoice(next); setDayErrors({}); };
 
   const create = async () => {
+    if (problem) return;
     setBusy(true);
     try {
       const draft = await api.createReportDraft({
-        title: title.trim() || `${range.label} input`,
-        period_start: dayKey(range.start), period_end: dayKey(range.end),
+        title: title.trim() || `${named} input`,
+        period_start: days.from, period_end: days.to,
       });
       // A new package is a draft waiting on its author: Drafts, the menu count and Today list it (ADR-0030).
       invalidateDomains(qc, 'report');
       setCreating(false); setTitle('');
       onOpen(draft.id);
-    } catch (e) { toast.error(api.errorText(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      const fields = e instanceof api.ApiError ? e.fieldErrors : null;
+      if (fields?.period_start || fields?.period_end) setDayErrors({ from: fields.period_start, to: fields.period_end });
+      else toast.error(api.errorText(e));
+    } finally { setBusy(false); }
   };
 
   return (
@@ -135,19 +163,11 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
       <Dialog
         open={creating} onOpenChange={setCreating} title="New report" size="sm"
         description="Name it and pick the period it covers. The title can change later; the period stays as you set it here, and only records dated inside it can be cited."
-        footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={create}>Start</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" loading={busy} disabled={Boolean(problem)} onClick={create}>Start</Button></>}
       >
-        <Field label="Title"><Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${range.label} input`} /></Field>
-        <Field label="Period" hint={`${dayKey(range.start)} to ${dayKey(range.end)}`}>
-          <Select value={period} onValueChange={setPeriod} options={[
-            { value: 'fiscalQuarter', label: 'This fiscal quarter' },
-            { value: 'lastFiscalQuarter', label: 'Last fiscal quarter' },
-            { value: 'fiscalYear', label: 'This fiscal year' },
-            { value: 'lastFiscalYear', label: 'Last fiscal year' },
-            { value: 'last90', label: 'Last 90 days' },
-            { value: 'last12', label: 'Last 12 months' },
-            { value: 'year', label: 'This calendar year' },
-          ]} />
+        <Field label="Title"><Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${named} input`} /></Field>
+        <Field label="Period" hint={custom ? undefined : `${days.from} to ${days.to}`}>
+          <DateRangePicker stacked everyEdit presets={STUDIO_PERIODS} seed={studioSeed} value={choice} errors={dayErrors} onChange={choose} className="w-full" />
         </Field>
       </Dialog>
     </PageShell>

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
@@ -18,7 +18,12 @@ import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions, namedTooLate } from '../../shared/permissions';
 import { ECHELONS } from '../../shared/constants';
 import { formatDate, formatDollars, NO_VALUE } from '../../shared/metrics';
-import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays, useMediaQuery } from '@/lib/utils';
+import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, todayIso, useMediaQuery } from '@/lib/utils';
+import DateRangePicker from '@/components/DateRangePicker';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
+import { readWindow, windowDays, windowLink } from '@/lib/periodParams';
+import { useWindowParam } from '@/lib/usePeriodParam';
+import { DASHBOARD_WINDOW, WORKLOAD_WINDOW, windowSeed } from '@/lib/windows';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { useFocusWhenShown } from '@/lib/keyboard';
@@ -82,10 +87,12 @@ export default function Team({ section }: { section: TeamSection }) {
   const team = useTeam(shown === 'units');
   const [messaging, setMessaging] = useState(false);
   const [dashboardShow] = useParam('show', 'output');
-  const [dashboardDays] = useParam('days', DEFAULT_WINDOW);
+  const [params] = useSearchParams();
   const report = shown === 'dashboard' ? DASHBOARD_REPORTS[isDashboardShow(dashboardShow) ? dashboardShow : 'output'] : SECTION_REPORTS[shown];
-  // From the dashboard, the report covers the window on screen, so its figures are the dashboard's (the roster stands on today).
-  const printWindow = shown === 'dashboard' && dashboardShow !== 'personnel' ? lastDays(windowOf(dashboardDays)) : null;
+  // From the dashboard or Workload, the report covers the window on screen, so its figures are the page's (the roster
+  // stands on today). Custom dates go as custom dates, so the Report library keeps them as dates (ADR-0039).
+  const printWindow = shown === 'dashboard' && dashboardShow !== 'personnel' ? windowLink(readWindow(params, DASHBOARD_WINDOW))
+    : shown === 'workload' ? windowLink(readWindow(params, WORKLOAD_WINDOW)) : null;
   // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
   if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of the units you belong to. Join one with an invitation or a join code: enter a code in Settings, under Join with a code." /></div></div>;
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
@@ -563,10 +570,8 @@ const DASHBOARD_SHOWS: Array<{ value: DashboardShow; label: string }> = [
   { value: 'output', label: 'Output' }, { value: 'work', label: 'Casework' }, { value: 'duty', label: 'Duty' }, { value: 'training', label: 'Training' }, { value: 'personnel', label: 'Personnel' },
 ];
 const isDashboardShow = (v: string): v is DashboardShow => DASHBOARD_SHOWS.some((s) => s.value === v);
-// The dashboard's window, kept in the address (?days=) so "Print or file" and a shared link carry it.
-const WINDOWS = [{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }];
-const DEFAULT_WINDOW = '90';
-const windowOf = (v: string) => (WINDOWS.some((w) => w.value === v) ? v : DEFAULT_WINDOW);
+// The dashboard's window is kept in the address (?days=, or custom dates) so "Print or file" and a shared link carry it.
+const dashboardSeed = windowSeed(DASHBOARD_WINDOW);
 // The report each part of the dashboard prints as, so "Print or file" carries what is on screen.
 const DASHBOARD_REPORTS: Record<DashboardShow, ReportType> = { output: 'unit', work: 'financial', duty: 'duty', training: 'training', personnel: 'personnel' };
 const SHOW_LEDES: Record<AnalyticsSection, string> = {
@@ -580,17 +585,36 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const toast = useToast();
   const [show, setShow] = useParam('show', 'output');
   const shown: DashboardShow = isDashboardShow(show) ? show : 'output';
-  const [asked, setDays] = useParam('days', DEFAULT_WINDOW);
-  const days = windowOf(asked);
-  const { from, to } = useMemo(() => lastDays(days), [days]);
-  const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
+  const range = useWindowParam(DASHBOARD_WINDOW);
+  const { period, custom } = range;
+  const { from, to } = useMemo(() => windowDays({ period, from: range.from, to: range.to, custom }), [period, range.from, range.to, custom]);
+  // The export holds the dates on screen, or every date: what it held before dates could be chosen (ADR-0039).
+  const exportJson = async (days: { from: string; to: string } | null) => {
+    try {
+      const r = await api.unitExport(unitId, days ?? undefined);
+      downloadText(days ? `vantage-${unitId}-${days.from}-to-${days.to}.json` : `vantage-${unitId}-${todayIso()}.json`, JSON.stringify(r, null, 2), 'application/json');
+      toast.success(days ? `Unit export for ${formatRange(days.from, days.to)} downloaded.` : 'Unit export of every date downloaded.');
+    } catch (e) { toast.error(api.errorText(e)); }
+  };
+  const exportLabel = <><Download className="h-4 w-4" />Export unit data</>;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2" data-tutorial="dashboard-show">
         <Segmented label="Show" value={shown} onChange={setShow} options={DASHBOARD_SHOWS.map((s) => ({ ...s, id: `dashboard-tab-${s.value}`, controls: 'dashboard-panel' }))} />
-        {shown !== 'personnel' && <Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={WINDOWS} />}
+        {shown !== 'personnel' && <DateRangePicker label="Window" presets={DASHBOARD_WINDOW.options} seed={dashboardSeed} value={range} ignored={range.ignored} onChange={range.set} className="w-40" />}
         <span className="text-xs text-ink-3">{shown === 'output' ? `Shared entries only · ${formatRange(from, to)}` : shown === 'personnel' ? 'As of today' : formatRange(from, to)}</span>
-        {canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}
+        {canExport && (shown === 'personnel'
+          // The roster stands on today, so there are no dates on screen to export by.
+          ? <Button className="ml-auto" onClick={() => exportJson(null)}>{exportLabel}</Button>
+          : (
+            <Menu>
+              <MenuTrigger asChild><Button className="ml-auto">{exportLabel}</Button></MenuTrigger>
+              <MenuContent align="end">
+                <MenuItem onSelect={() => exportJson({ from, to })}><span className="flex flex-col"><span>These dates</span><span className="text-2xs text-ink-3">{formatRange(from, to)}</span></span></MenuItem>
+                <MenuItem onSelect={() => exportJson(null)}><span className="flex flex-col"><span>Every date</span><span className="text-2xs text-ink-3">All of the unit’s shared work</span></span></MenuItem>
+              </MenuContent>
+            </Menu>
+          ))}
       </div>
       {/* The tabs change the address, so one panel holds whichever is chosen, named by its tab. */}
       <div id="dashboard-panel" role="tabpanel" aria-labelledby={`dashboard-tab-${shown}`}>
@@ -652,7 +676,9 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
   const { data } = dashboard;
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
   const unitMetrics = useMetricsReport(unitMetricParams, true, AUDITED_READ);
-  const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
+  // A brief is of the window it was drafted for; another window on screen puts it away rather than show it under the wrong dates.
+  const [drafted, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number }; from: string; to: string } | null>(null);
+  const brief = drafted && drafted.from === from && drafted.to === to ? drafted : null;
   const series = unitMetrics.data?.monthly || [];
   const [picked, setPicked] = useState('');
   const top = series.find((m) => m.metricId === picked) || series[0];
@@ -732,7 +758,7 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
           )}
         </Panel>
       </div>
-      {canExport && <Panel title="Command brief" subtitle="AI summarizes aggregate totals only; no names leave the server" action={<AiAction workflow="command_brief" input={{ unit_id: unitId, from, to }} label="Draft brief" onResult={(output, meta) => setBrief({ output, meta })} />}>{brief ? <AiResult output={brief.output} meta={brief.meta} primaryKey="executive_summary" /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />A one-paragraph read of {unitLabel} for the window above.</p>}</Panel>}
+      {canExport && <Panel title="Command brief" subtitle="AI summarizes aggregate totals only; no names leave the server" action={<AiAction workflow="command_brief" input={{ unit_id: unitId, from, to }} label="Draft brief" onResult={(output, meta) => setBrief({ output, meta, from, to })} />}>{brief ? <AiResult output={brief.output} meta={brief.meta} primaryKey="executive_summary" /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />A one-paragraph read of {unitLabel} for the window above.</p>}</Panel>}
       {opened && total && (
         <ContributorsDialog
           total={total}

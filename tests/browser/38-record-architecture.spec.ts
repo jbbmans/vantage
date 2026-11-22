@@ -368,16 +368,23 @@ test('the Timeline lists each kind from its own record, filters by kind, and rea
   await expect(page).toHaveURL(/\/record\/timeline$/);
   await expect(entries).toHaveCount(6);
 
-  // A date window narrows every kind at once, and the counts follow it.
+  // Custom dates narrow every kind at once, and the counts follow them.
+  await page.getByRole('combobox', { name: 'Period' }).click();
+  await page.getByRole('option', { name: 'Custom dates' }).click();
   await page.getByLabel('From', { exact: true }).fill('2026-08-01');
-  // One day alone is not a window: once the field is left, the page says what is missing and asks for nothing until both are set.
-  await page.getByLabel('From', { exact: true }).blur();
-  await expect(page.getByText('Add the last day.').first()).toBeVisible();
   await page.getByLabel('To', { exact: true }).fill('2027-12-31');
+  await expect(page).toHaveURL(/period=custom&from=2026-08-01&to=2027-12-31/);
   await expect(entries).toHaveCount(3);
   await expect(chip('Everything')).toContainText('3');
   await expect(kinds.getByRole('button', { name: /^Awards/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Clear dates' }).click();
+  // A range that ends before it starts is said at the field once it is left; the timeline keeps the last good range.
+  await page.getByLabel('To', { exact: true }).fill('2026-07-01');
+  await page.getByLabel('To', { exact: true }).blur();
+  await expect(page.getByRole('alert').filter({ hasText: 'On or after the first day.' })).toBeVisible();
+  await expect(entries).toHaveCount(3);
+  await page.getByRole('combobox', { name: 'Period' }).click();
+  await page.getByRole('option', { name: 'All time' }).click();
+  await expect(page).toHaveURL(/\/record\/timeline$/);
   await expect(entries).toHaveCount(6);
 
   // Opening an entry opens its own record.

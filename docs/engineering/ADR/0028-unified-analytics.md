@@ -68,16 +68,19 @@ the count and total of all). Sections:
   report's (tested).
 - **Duty counts as ADR-0024 says**: approved duty, at its approved points. Awaiting review is all pending duty whenever
   stood.
-- **The window** is the dashboard's (30 to 365 days; the server refuses more than 731). A day not on the calendar
+- **The window** is the dashboard's (30 to 365 days, or custom dates; the server refuses more than 731, ADR-0038 and
+  ADR-0039). A day not on the calendar
   (2026-02-30) is refused here, on the dashboard and in the report center, never read as another day or answered with a
   server error. An entry across the window's edge counts in it (ADR-0018), and in a month series in the first month it
   touches. Personnel stands on today.
-- The dashboard's section and window are in the address (`?show=work&days=365`), and "Print or file" opens the report
+- The dashboard's section and window are in the address (`?show=work&days=365`, or `period=custom&from&to` since
+  ADR-0039), and "Print or file" opens the report
   that section is (financial, duty, training, personnel; Output stays the unit report) for the window on screen, so the
   printed figures are the dashboard's. The report library shows those dates (named as the link's, in the Period
   field's description and placeholder) until a period is chosen. Saving keeps the rolling period that matches (30 days,
   90 days, the last 12 months), never the dates of the day it was saved; the 180-day window matches none, so it is saved
-  only once a period is chosen. Personnel stands on today and carries no window.
+  only once a period is chosen. Custom dates go to the library by name (`period=custom`), so it runs and saves them as
+  dates (ADR-0039). Personnel stands on today and carries no window.
 
 ### 4. Who may read what
 
