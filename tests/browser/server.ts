@@ -60,6 +60,15 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify(ctx.mailer.outbox));
     return;
   }
+  // A sign-in confirms it is the person for ten minutes, longer than a spec waits. This ends that for one account's
+  // sessions, so a spec sees the confirmation a change asks for (ADR-0040). Test server only.
+  if (req.method === 'POST' && req.url?.startsWith('/api/__test/end-step-up')) {
+    const user = new URL(req.url, 'http://localhost').searchParams.get('user') || '';
+    ctx.db.prepare('UPDATE sessions SET sudo_until = NULL WHERE user_id = ?').run(user);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
   // A scoring version takes effect tomorrow at the earliest (ADR-0012) and duty is recorded once it has been stood, so no
   // spec can reach duty with calculated points through the product alone. This puts a version in force for a Unit
   // Instance that has none: three points for each of its duty types, from a day long past. Test server only.
