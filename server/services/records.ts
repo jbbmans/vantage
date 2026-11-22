@@ -48,7 +48,7 @@ const changesTimeframe = (table: RecordTable, row: Record<string, unknown>, data
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
-import { audit } from './audit.ts';
+import { audit, privateEntry } from './audit.ts';
 import { heldUsersClause, holdState, recordDispositionRun, type HoldState } from './holds.ts';
 import { forgetNotices, notify } from './notifications.ts';
 import { addAssignmentNote, closeRequests } from './comments.ts';
@@ -358,13 +358,14 @@ export function assertRestorable(ctx: AppContext, scope: Scope, user: SessionUse
  * counseling's edit is an amendment (ADR-0013): counseling_amended, naming the fields that changed (their names, never
  * their contents), so the trail shows that what a counseling said was revised after the fact.
  */
-function auditEdit(ctx: AppContext, e: { actorId: string; table: RecordTable; id: string; subjectId: string | null; from: string | null; to: string | null; how: string; ip?: string; amended?: string[] }) {
+function auditEdit(ctx: AppContext, e: { actorId: string; table: RecordTable; id: string; subjectId: string | null; from: string | null; to: string | null; how: string; ip?: string; amended?: string[]; wasPrivate: boolean }) {
   const crossed = e.to !== e.from && Boolean(orgOfUnit(ctx, e.from)) && Boolean(e.to) && !sameInstance(ctx, e.from, e.to);
   const moved = e.to === e.from ? '' : crossed ? '; moved in from another Unit Instance' : `; moved from ${e.from ?? 'no unit'} to ${e.to ?? 'no unit'}`;
   const changed = e.amended ? `; changed: ${e.amended.join(', ') || 'nothing'}` : '';
   const amendment = Boolean(e.amended);
   audit(ctx, { actor_id: e.actorId, action: amendment ? 'counseling_amended' : 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.to ?? e.from, detail: `${e.how}${changed}${moved}`, ip: e.ip });
-  if (crossed) audit(ctx, { actor_id: e.actorId, action: amendment ? 'counseling_amended' : 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.from, detail: `${e.how}${changed}; moved out to another Unit Instance`, ip: e.ip });
+  // The instance it left files it as the entry was there (ADR-0040), so one kept private there stays out of its unit's log.
+  if (crossed) audit(ctx, { actor_id: e.actorId, action: amendment ? 'counseling_amended' : 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.from, detail: `${e.how}${changed}; moved out to another Unit Instance`, ip: e.ip, privateEntry: e.wasPrivate });
 }
 
 /** The fields an update changes, by name, against the row as it was. */
@@ -611,6 +612,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const reassigned = spec.assignee && data.assignee_id !== undefined && (data.assignee_id || null) !== (row.assignee_id ?? null);
   const newAssignee = reassigned && data.assignee_id && data.assignee_id !== user.id ? String(data.assignee_id) : null;
   if (assignmentNote && !newAssignee) throw noAssignmentForNote();
+  const wasPrivate = privateEntry(ctx, table, id);
   try {
     ctx.db.transaction(() => {
       if (expected !== undefined) {
@@ -630,7 +632,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   }
   (tellReviewer as (() => void) | null)?.();
   const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
-  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended });
+  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended, wasPrivate });
   const after = getRecord(ctx, table, id) as (RecordRow & Record<string, unknown>) | undefined;
   const version = Number(after?.version ?? 0);
   if (newAssignee) tellAssigned(ctx, user, table, id, newAssignee, version);
@@ -750,7 +752,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
           try { ctx.db.prepare(`UPDATE activities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, p.id); updated += 1; }
           catch (error) { if (String((error as Error).message).includes('UNIQUE')) { duplicates.push(i); return; } throw error; }
           if (offered({ ...merged, fingerprint })) elsewhere += 1;
-          if (p.unitId !== existing.unit_id) auditEdit(ctx, { actorId: user.id, table: 'activities', id: p.id, subjectId: null, from: existing.unit_id, to: p.unitId, how: 'import', ip });
+          if (p.unitId !== existing.unit_id) auditEdit(ctx, { actorId: user.id, table: 'activities', id: p.id, subjectId: null, from: existing.unit_id, to: p.unitId, how: 'import', ip, wasPrivate: existing.visibility === 'private' });
           return;
         }
       }

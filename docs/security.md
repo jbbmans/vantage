@@ -448,8 +448,9 @@ builds on.
 - **Private entries stay out of every unit's access log.** What is done to a private entry is filed under its Unit
   Instance and no unit, decided as the entry is written, so the Unit Instance trail keeps it and no unit's leaders learn
   it exists: a record or case, and a workbook, import, contact, thread, report draft or saved report kept private. A
-  counseling a leader writes keeps its unit. Each end of a move is filed as its own row was. Entries written before
-  keep the unit they had.
+  counseling a leader writes keeps its unit. Each end of a move is filed as its own row was, under its own unit, and
+  a shared end names a private one by its type alone; an edit into another Unit Instance is filed in the one it left
+  as the entry was there. Entries written before keep the unit they had.
 - **When a Marine last signed in** is given to them and to those who manage them, never to a leader who only reads
   their records.
 - **Settings are whole numbers in range.** Every numeric setting is digits only and within its bounds, on every

@@ -40,7 +40,8 @@ a read of the statistics code found two more:
    place or above, is not asked, whatever Unit Instance role they also hold. Someone whose chain role falls short of
    that, by what it gives or by its place, and who also holds a Unit Instance role is asked, since the change, or
    whom it reaches, may rest on either. Moving a unit asks about its new parent only when the parent changes, so
-   renaming a unit one leads is not asked. Taking someone out of their last unit in the instance asks whenever it
+   renaming a unit one leads is not asked. A parent is named by its id or not at all; anything else is refused before
+   either check (`parentIdIn`), so the check and the change always read the same unit. Taking someone out of their last unit in the instance asks whenever it
    ends a Unit Instance role they hold, as the console does, since that rests on the instance alone; so does archiving
    the last unit one serves in there, which ends one's own. A bulk personnel
    change is asked when it runs, not on its dry run. Joining with a code and the unit export are untouched.
@@ -53,9 +54,9 @@ a read of the statistics code found two more:
    prune, is `session_expired`, naming the limit it reached first (idle or absolute); both are written by the service. Every sign-in, sign-out and step-up names its session
    by the 12 characters of its id the sessions list shows (entity `sessions`). A wrong password at step-up still counts
    toward the lockout and is not written one by one. `session_revoked` stays off the restore review list, since a
-   restore ends every session anyway. Sessions ended together (signing out the others, a password, role, membership,
-   MFA or EDIPI change, a removal or a forced sign-out) are in the entry for the change that ended them, not one by
-   one, as before.
+   restore ends every session anyway. A demo persona switch names the session it ends. Sessions ended together
+   (signing out the others, a password, role, membership or EDIPI change, an administrator's MFA reset, a removal or
+   a forced sign-out) are in the entry for the change that ended them, not one by one, as before.
 3. **Settings are whole numbers in range, on every profile.** Every numeric setting is read by one `envInt(name,
    fallback, min, max)`: digits only, a safe integer, within its bounds. The start names a bad one. The quiet clamps are
    refusals now. Where 0 already meant "never" (`VANTAGE_INTAKE_RETAIN_DAYS`, uploaded workbooks kept until their
@@ -74,6 +75,8 @@ a read of the statistics code found two more:
    both copies a restore takes and the start-over copy use it; `scripts/backup.ts` makes a new directory for the copies
    owner-only (0700). A database SQLite cannot read through is kept by `copyFilePrivate`, its bytes into a file that is
    owner-only before the first (a plain file copy would give it the source's permissions), its write-ahead log too.
+   The restore keeps the live files' descriptors open until it lets go of the database's lock, since closing one
+   would drop that lock.
 6. **A backup that names no database** is this database's only when the trail here holds the backup's newest entry with
    the same hash. Otherwise it is another database's: refused without `--different-database`, and never given this
    database's name.
@@ -94,9 +97,10 @@ a read of the statistics code found two more:
     it, while the Unit Instance trail keeps it. So is a private workbook in work intake and its import, contact,
     correspondence thread (and a message in it), report draft (and its revisions and exports) and saved report. A
     counseling a leader writes keeps its unit, as its counselor reads it there. Each end of a move is filed as its own
-    row was: the one it left as it was before the move, the one it became as it is, so a duty undone back to a
-    private activity is seen leaving its unit and the activity is not seen. A shared entry made private is filed under
-    no unit from then on. Entries written before keep their unit: the trail is sealed.
+    row was, under its own unit: the one it left as it was before the move, the one it became as it is; a shared end
+    names a private other end by its type alone. So a duty undone back to a private activity is seen leaving its unit,
+    and the activity, even its id, is not seen. An edit that takes an entry into another Unit Instance is filed in the
+    one it left as the entry was there. A shared entry made private is filed under no unit from then on. Entries written before keep their unit: the trail is sealed.
 
 ## Consequences
 

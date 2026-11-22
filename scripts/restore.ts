@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { loadConfig } from '../server/config.ts';
@@ -78,7 +78,13 @@ if (existsSync(live)) {
     fail(`Something has ${live} open (${(error as Error).message}). Stop Vantage, and anything else using the database, then run this again.`);
   }
 }
-const releaseLive = () => { try { liveDb?.close(); } catch { /* closed */ } liveDb = null; };
+// A byte copy of the live files keeps its descriptors here, open until the lock goes: closing one would drop it.
+const heldOpen: number[] = [];
+const releaseLive = () => {
+  try { liveDb?.close(); } catch { /* closed */ }
+  liveDb = null;
+  for (const fd of heldOpen.splice(0)) { try { closeSync(fd); } catch { /* closed */ } }
+};
 
 // 2. A private copy of the backup beside the live database: the backup is never written, and the swap is one rename
 const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 18);
@@ -179,8 +185,8 @@ if (liveDb) {
     await backupDatabase(liveDb, safetyCopy);
   } catch {
     // A database SQLite cannot read through is kept as its files are, each owner-only before a byte is copied.
-    copyFilePrivate(live, safetyCopy);
-    if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`);
+    copyFilePrivate(live, safetyCopy, heldOpen);
+    if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`, heldOpen);
   }
   chmodSync(safetyCopy, 0o600);
 }

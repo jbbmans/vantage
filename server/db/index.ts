@@ -1379,18 +1379,22 @@ export async function backupDatabase(db: { backup: (destination: string) => Prom
 /**
  * A database file copied as its bytes, for one SQLite cannot read through (ADR-0040): owner-only before the first byte,
  * whatever the source's mode, since copyFile gives the copy the source's permissions. A copy that fails is removed.
+ * Closing any descriptor on a file drops every POSIX lock this process holds on it, a SQLite lock included, so a copy
+ * of a database this process holds locked passes `keepOpen`: the source's descriptor is added to it, still open, for
+ * the caller to close once the lock may go.
  */
-export function copyFilePrivate(src: string, dest: string): void {
+export function copyFilePrivate(src: string, dest: string, keepOpen?: number[]): void {
   const out = openSync(dest, 'w', 0o600);
   try {
     fchmodSync(out, 0o600);
     const input = openSync(src, 'r');
+    keepOpen?.push(input);
     try {
       const chunk = Buffer.allocUnsafe(1 << 20);
-      for (let n = readSync(input, chunk, 0, chunk.length, null); n > 0; n = readSync(input, chunk, 0, chunk.length, null)) {
-        for (let at = 0; at < n;) at += writeSync(out, chunk, at, n - at);
+      for (let n = readSync(input, chunk, 0, chunk.length, 0), at = 0; n > 0; at += n, n = readSync(input, chunk, 0, chunk.length, at)) {
+        for (let w = 0; w < n;) w += writeSync(out, chunk, w, n - w);
       }
-    } finally { closeSync(input); }
+    } finally { if (!keepOpen) closeSync(input); }
   } catch (error) {
     closeSync(out);
     rmSync(dest, { force: true });

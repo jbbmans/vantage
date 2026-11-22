@@ -129,7 +129,7 @@ export const HELP: HelpSection[] = [
         id: 'not-scanned',
         q: 'Why does a file say Not scanned?',
         a: [
-          'Where the service has a malware scanner, every file is checked as it is added, and a file the scanner finds something in is never kept. Not scanned means the file was kept without a result: no scanner is set up, or it did not answer in time. No scan on record means the file was added before Vantage kept scan results.',
+          'Where the service has a malware scanner, every file is checked as it is added. A file attached to an entry that the scanner finds something in is never kept, and a workbook it finds something in is never opened. Not scanned means the file was kept without a result: no scanner is set up, or it did not answer in time. No scan on record means the file was added before Vantage kept scan results.',
           'Open a file marked either way only if you know where it came from, as you would a file sent by email.',
         ],
         also: ['virus', 'malware', 'scan', 'attachment'],

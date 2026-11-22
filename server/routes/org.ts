@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, stepUpOnInstanceAuthority, assertSudo } from '../auth/middleware.ts';
 import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, membersAcross, sameInstance, orgOfUnit, orgCan } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, parentIdIn, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { auditQuery } from '../services/auditQuery.ts';
@@ -51,7 +51,7 @@ function dashboardWindow(req: Request) {
 
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  stepUpOnInstanceAuthority(req, scope, [typeof req.body?.parent_id === 'string' ? req.body.parent_id : null]);
+  stepUpOnInstanceAuthority(req, scope, [parentIdIn(req.body || {}) ?? null]);
   res.status(201).json(createUnit(req.ctx, req.user, scope, req.body || {}, clientIp(req)));
 }));
 orgRouter.put('/units/:unitId', wrap((req, res) => {
@@ -60,7 +60,7 @@ orgRouter.put('/units/:unitId', wrap((req, res) => {
   // Moving a unit under another parent needs authority in both; the page sends the parent it has, so the same one is
   // no move.
   stepUpOnInstanceAuthority(req, scope, [unitId]);
-  const parentId = typeof req.body?.parent_id === 'string' ? req.body.parent_id : null;
+  const parentId = parentIdIn(req.body || {});
   if (parentId && parentId !== getUnit(req.ctx, unitId)?.parent_id) stepUpOnInstanceAuthority(req, scope, [parentId]);
   res.json(updateUnit(req.ctx, req.user, scope, unitId, req.body || {}, clientIp(req)));
 }));

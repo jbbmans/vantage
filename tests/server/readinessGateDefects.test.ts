@@ -4,7 +4,7 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -773,6 +773,15 @@ test('a Unit Leader is not asked to rename the unit they lead, and is asked to e
     const under = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: tmp.body.id } });
     assert.equal(under.status, 403, JSON.stringify(under.body));
     assert.equal(under.body.code, 'sudo_required');
+    // A parent named any way but by its id is refused before either check, never read as that unit.
+    for (const parent_id of [[tmp.body.id], { id: tmp.body.id }, 7]) {
+      const odd = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id } });
+      assert.equal(odd.status, 400, JSON.stringify(odd.body));
+      const made = await post(manager.token, '/api/org/units', { name: 'Odd Section', short_name: 'ODD', code: 'odd', parent_id });
+      assert.equal(made.status, 400, JSON.stringify(made.body));
+    }
+    assert.equal((app.ctx.db.prepare("SELECT parent_id FROM units WHERE id = 'DISB'").get() as { parent_id: string }).parent_id, 'G8');
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM units WHERE id = 'odd'").get(), undefined);
 
     // Their own role too: they lead the team they make beneath DISB, and archiving it, the last unit they serve in
     // here, takes them out of the instance and ends their Unit Manager role, which leading a unit never gave.
@@ -1027,6 +1036,22 @@ test('every copy of the database is its owner’s alone from its first page, the
     assert.ok(readFileSync(bytes).equals(readFileSync(loose)), 'every byte came');
     assert.throws(() => copyFilePrivate(join(dir, 'missing.db'), join(dir, 'never.db')));
     assert.equal(existsSync(join(dir, 'never.db')), false, 'a copy that fails leaves nothing');
+    // Copied while this process holds the database locked, as a restore does, the lock holds until the caller lets go.
+    const locked = join(dir, 'locked.db');
+    const holder = new Database(locked);
+    holder.exec('CREATE TABLE t (x)');
+    holder.pragma('locking_mode = EXCLUSIVE');
+    holder.exec('BEGIN EXCLUSIVE');
+    holder.exec('COMMIT');
+    const write = () => spawnSync(process.execPath, ['-e', `const D = require('better-sqlite3'); try { new D(${JSON.stringify(locked)}, { timeout: 0 }).exec('INSERT INTO t VALUES (1)'); console.log('written'); } catch (e) { console.log(e.code); }`], { encoding: 'utf8' }).stdout.trim();
+    assert.equal(write(), 'SQLITE_BUSY', 'locked before the copy');
+    const keepOpen: number[] = [];
+    copyFilePrivate(locked, join(dir, 'locked-copy.db'), keepOpen);
+    assert.equal(keepOpen.length, 1);
+    assert.equal(write(), 'SQLITE_BUSY', 'and still locked after it');
+    holder.close();
+    for (const fd of keepOpen) closeSync(fd);
+    assert.equal(write(), 'written', 'until it is let go');
 
     // The backup script makes the directory it is given the service account’s alone.
     const env = { ...process.env, VANTAGE_DB: join(dir, 'data', 'vantage.db') };
@@ -1220,7 +1245,7 @@ test('what a Marine does to a private entry stays out of every unit’s access l
   assert.equal(verifyAuditChain(app.ctx).ok, true);
 });
 
-test('a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave', async () => {
+test('a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave without its id', async () => {
   const { privateEntry } = await import('../../server/services/audit.ts');
   const call = (method: string, path: string, body?: unknown) => app.call(method, path, { token: kid.token, body });
   const unitLog = async () => {
@@ -1228,7 +1253,7 @@ test('a private contact, thread, workbook, import or report draft stays out of e
     assert.equal(log.status, 200, JSON.stringify(log.body));
     return log.body.rows as Array<{ action: string; entity: string; entity_id: string }>;
   };
-  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null }>;
+  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id, detail FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null; detail: string | null }>;
 
   const contact = await call('POST', '/api/correspondence/contacts', { name: 'ZZ Private Contact', visibility: 'private', unit_id: 'FISCAL' });
   assert.equal(contact.status, 201, JSON.stringify(contact.body));
@@ -1264,6 +1289,15 @@ test('a private contact, thread, workbook, import or report draft stays out of e
   assert.equal((await call('POST', `/api/records/duties/${moved.body.id}/undo-move`)).status, 200);
   assert.deepEqual(filed(moved.body.id).map((r) => [r.action, r.unit_id]), [['record_moved', 'FISCAL'], ['record_move_undone', 'FISCAL']], 'the unit sees the duty come and go');
   assert.ok(filed(made.body.id).every((r) => r.unit_id === null), 'the private activity is in no unit’s log');
+  assert.deepEqual(filed(moved.body.id).map((r) => r.detail), ['from activities', 'to activities'], 'nor is its id, in the duty’s entries the unit sees');
+  assert.deepEqual(filed(made.body.id).map((r) => r.detail).slice(-2), [`to duties ${moved.body.id}`, `from duties ${moved.body.id}`], 'the instance trail links the two');
+  // A shared activity moved to a duty in another of its owner's units is seen leaving its own unit.
+  const shared = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'ZZSHARED stood duty', date: day(-2), visibility: 'unit', unit_id: 'FISCAL' } });
+  assert.equal(shared.status, 201, JSON.stringify(shared.body));
+  const across = await app.call('POST', `/api/records/activities/${shared.body.id}/move`, { token: op.token, body: { to: 'duties', fields: { duty_type_id: 'zz-dnco', start_time: '0800', end_time: '1600', unit_id: 'G8' } } });
+  assert.equal(across.status, 201, JSON.stringify(across.body));
+  assert.deepEqual(filed(shared.body.id).map((r) => [r.action, r.unit_id, r.detail]), [['create', 'FISCAL', null], ['record_moved', 'FISCAL', `to duties ${across.body.id}`]]);
+  assert.deepEqual(filed(across.body.id).map((r) => [r.action, r.unit_id, r.detail]), [['record_moved', 'G8', `from activities ${shared.body.id}`]]);
   assert.equal(verifyAuditChain(app.ctx).ok, true);
 });
 

@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { HttpError, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { limiters } from '../auth/limiter.ts';
-import { resolveSession, destroySession, SESSION_COOKIE } from '../auth/sessions.ts';
+import { resolveSession, destroySession, sessionRef, SESSION_COOKIE } from '../auth/sessions.ts';
 import { finishSignIn } from './auth.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
 import { buildInventory } from '../services/privacyInventory.ts';
@@ -41,7 +41,8 @@ demoRouter.post('/persona', requireAuth, wrap((req, res) => {
   const target = req.ctx.db.prepare('SELECT * FROM users WHERE id = ? AND demo_workspace_id = ?').get(targetId, ws.id) as { id: string; must_change_password: number; auth_epoch: number } | undefined;
   if (!target) throw notFound('That persona is gone. Reset the demo.');
   destroySession(req.ctx, req.sessionId);
-  audit(req.ctx, { actor_id: req.user.id, action: 'demo_persona', subject_id: target.id, unit_id: ws.unit_id, detail: persona });
+  // The session it ends, named as the sessions list names it (ADR-0040); the one it opens is in its sign-in entry.
+  audit(req.ctx, { actor_id: req.user.id, action: 'demo_persona', entity: 'sessions', entity_id: sessionRef(req.sessionId), subject_id: target.id, unit_id: ws.unit_id, detail: persona });
   return finishSignIn(req, res, target, 'demo', 'demo_persona');
 }));
 

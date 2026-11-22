@@ -21,13 +21,14 @@ Round 2, the open register defects that statistics, the console, email and the d
   the relay is TLS 1.2 or later with a checked certificate, and an `SMTP_URL` that sets its own TLS terms, or whose
   sign-in holds a `%` that starts no escape, is refused. `VANTAGE_INTAKE_RETAIN_DAYS=0` still means never.
 - **Copies and restore:** `backupDatabase` makes every copy owner-only before it is written, and `copyFilePrivate`
-  the byte copy a restore keeps of a database SQLite cannot read; a backup that names no database is this one's only
+  the byte copy a restore keeps of a database SQLite cannot read, its files held open until the restore's lock goes; a backup that names no database is this one's only
   when this trail holds its newest entry.
 - **Scan verdicts:** `attachments.scan_status` (042); the file lists mark Not scanned or No scan on record.
 - **Audits:** case closes and reopens from the row or an action; a restore names whose record it was.
 - **Two leaks:** last sign-in on a Marine's page only for those who manage them; entries about a private entry
   (records, cases, workbooks, imports, contacts, threads, report drafts, saved reports) are filed under the Unit
-  Instance and no unit, so no unit's access log shows them; each end of a move as its own row was.
+  Instance and no unit, so no unit's access log shows them; each end of a move as its own row was, under its own
+  unit, naming a private other end by its type alone; an edit into another Unit Instance as the entry was where it left.
 - **Register:** 11 entries fixed, 3 found on the way added as fixed; `c08-mcen-weak-postures-not-refused` stays open
   for the ISSM.
 - **Tests:** `tests/server/readinessGateDefects.test.ts` (one test per defect, each failing without its fix),

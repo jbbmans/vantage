@@ -187,10 +187,22 @@ export function claimUnit(ctx: AppContext, unitId: string, ownerId: string, reas
   return { previous, sessionsRevoked };
 }
 
+/**
+ * The parent a unit change names: a unit's id, null for none, undefined when the change names none. Anything else is
+ * refused, so the check on the parent and the change itself always read the same unit.
+ */
+export function parentIdIn(body: { parent_id?: unknown }): string | null | undefined {
+  const value = body.parent_id;
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value === 'string' && value.length <= 120) return value;
+  throw badRequest('Choose the parent unit from the list.', { fieldErrors: { parent_id: 'Not a unit.' } });
+}
+
 export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, body: { name?: string; short_name?: string | null; code?: string | null; echelon?: string | null; location?: string | null; parent_id?: string | null }, ip?: string) {
   const name = String(body.name || '').trim();
   if (!name || name.length > 120) throw badRequest('A unit needs a name under 120 characters.', { fieldErrors: { name: 'Required (limit 120 characters).' } });
-  const parentId = body.parent_id || null;
+  const parentId = parentIdIn(body) ?? null;
   if (parentId) {
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
@@ -236,7 +248,7 @@ export function updateUnit(ctx: AppContext, actor: SessionUser, scope: Scope, un
   if (!name || name.length > 120) throw badRequest('A unit needs a name under 120 characters.', { fieldErrors: { name: 'Required.' } });
   let parentId = unit.parent_id;
   if (body.parent_id !== undefined) {
-    const next = (body.parent_id as string | null) || null;
+    const next = parentIdIn(body) ?? null;
     if (next !== unit.parent_id) {
       if (!next) throw forbidden('A unit stays in its Unit Instance. To split one off into a Unit Instance of its own, ask Vantage support.', 'org_boundary');
       if (next) {

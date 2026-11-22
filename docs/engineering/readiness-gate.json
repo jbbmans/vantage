@@ -1221,7 +1221,7 @@
           "test": "a session the limit pushes out, one that runs out on a request and one the prune finds are each in the trail once, under its id, by the service"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040): session_evicted for the session limit, session_expired for idle or absolute expiry, found by a request or by the prune, each once, under the session’s id, by the service. Sessions ended together by a change (signing out the others, a password or role change) are in that change’s entry, as before."
+      "note": "Confirmed and fixed (ADR-0040): session_evicted for the session limit, session_expired for idle or absolute expiry, whichever came first, found by a request or by the prune, each once, under the session’s id, by the service. A demo persona switch names the session it ends. Sessions ended together by a change (signing out the others, a password or role change) are in that change’s entry, as before."
     },
     {
       "id": "c35-passkey-profile-and-removal",
@@ -2096,10 +2096,14 @@
         },
         {
           "file": "tests/server/readinessGateDefects.test.ts",
-          "test": "a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave"
+          "test": "a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave without its id"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "an entry kept private in one Unit Instance and shared in another by the same edit is filed in the first as it was there, in no unit’s log"
         }
       ],
-      "note": "Found reading the statistics code. Fixed (ADR-0040): an entry about a private entry is filed under its Unit Instance and no unit, decided as it is written: a record or case, and a workbook, import, contact, thread, message, report draft, revision or saved report kept private. Each end of a move is filed as its own row was. A counseling a leader writes keeps its unit. Entries written before keep their unit, since the trail is sealed."
+      "note": "Found reading the statistics code. Fixed (ADR-0040): an entry about a private entry is filed under its Unit Instance and no unit, decided as it is written: a record or case, and a workbook, import, contact, thread, message, report draft, revision or saved report kept private. Each end of a move is filed as its own row was, under its own unit, and a shared end names a private one by its type alone. An edit into another Unit Instance is filed in the one it left as the entry was there. A counseling a leader writes keeps its unit. Entries written before keep their unit, since the trail is sealed."
     }
   ],
   "external": [
