@@ -32,7 +32,7 @@ function Failed({ error, retry }: { error: unknown; retry: () => void }) {
 
 interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
 interface BackupRecord { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null; sha256?: string | null; verified?: boolean; trail?: 'verified' | 'broken' | 'not_checked' }
-interface DrillRecord { id: string; at: string; ok: boolean; failure: string | null; backup: { file: string } }
+interface DrillRecord { id: string; at: string; ok: boolean; failure: string | null; refused?: string | null; backup: { file: string } }
 interface JobState { name: string; label: string; everyMs: number; runs: number; failures: number; consecutiveFailures: number; lastRunAt: string | null; lastOkAt: string | null; lastError: string | null; lastMs: number | null; overdue: boolean; status: HealthStatus }
 interface OperationsReport {
   health: { checkedAt: string; status: HealthStatus; checks: HealthCheck[]; process: { uptime: number; rssBytes: number; heapUsedBytes: number } };
@@ -97,7 +97,7 @@ export function Operations() {
           {backups.last
             ? <p className="text-sm text-ink-2">Last backup {timeAgo(backups.last.at)}, {backups.last.method === 'server' ? 'taken on the server' : 'downloaded from this console'}{backups.last.bytes ? `, ${mb(backups.last.bytes)}` : ''}{backups.last.by ? `, by ${backups.last.by}` : ''}{backups.last.verified ? `; it passed its check${backups.last.trail === 'broken' ? ', but its audit trail does not verify' : ''}` : '; taken before backups were checked'}.{backups.last.sha256 && <> SHA-256 <span className="mono text-xs" title={backups.last.sha256}>{backups.last.sha256.slice(0, 12)}</span>.</>}</p>
             : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">node scripts/backup.ts /path/to/copy.db</span> on the server.</p>}
-          <p className="mt-2 text-sm text-ink-2">{backups.drills[0] ? <>Last restore drill {timeAgo(backups.drills[0].at)}, of <span className="mono text-xs">{backups.drills[0].backup.file}</span>: {backups.drills[0].ok ? 'passed' : <span className="text-bad">failed</span>}.</> : <>No restore drill recorded. Run <span className="mono">node scripts/restore.ts DRILL --from &lt;backup.db&gt;</span> on the server; it runs with the service up.</>}</p>
+          <p className="mt-2 text-sm text-ink-2">{backups.drills[0] ? <>Last restore drill {timeAgo(backups.drills[0].at)}, of <span className="mono text-xs">{backups.drills[0].backup.file}</span>: {backups.drills[0].ok ? 'passed' : backups.drills[0].refused ? 'refused before the backup was rehearsed' : <span className="text-bad">failed</span>}.</> : <>No restore drill recorded. Run <span className="mono">node scripts/restore.ts DRILL --from &lt;backup.db&gt;</span> on the server; it runs with the service up.</>}</p>
           <p className="mt-2 text-xs text-ink-3">Vantage records backups taken on the server with the backup script and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
           {backups.history.length > 1 && (
             <Table label="Recent backups" className="scroll-x mt-3" minWidth={420} head={<><th>When</th><th>How</th><th>Check</th><th className="text-right">Size</th></>}>

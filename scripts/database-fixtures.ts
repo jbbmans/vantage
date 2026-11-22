@@ -8,7 +8,7 @@ import { sha256File } from '../server/db/copies.ts';
 import { schemaFingerprint } from '../server/db/schemaShape.ts';
 import {
   FIXTURE_DIR, LEDGER, MANIFEST, buildFingerprint, fixtureIntact, readLedger, readManifest, rowCounts, upgradeParity,
-  type FixtureEntry, type Ledger, type Manifest,
+  type FixtureEntry, type Ledger, type Manifest, unfrozenVersions,
 } from '../tests/server/fixtureDatabases.ts';
 
 /**
@@ -48,6 +48,10 @@ if (command === 'fingerprint') {
   }
   if (recorded) { console.log(`Schema ${schema} (${migration}) is recorded: ${fingerprint}.`); process.exit(0); }
   if (!write) fail(`Schema ${schema} (${migration}) is not recorded. A new database at it is ${fingerprint}. Run this again with --write to record it.`);
+  // A recorded version guards its migrations only once a database that build wrote is frozen: without one, a migration
+  // edited in place at that version changes upgraded and new databases alike, and nothing tells them apart (ADR-0041).
+  const unfrozen = unfrozenVersions(readManifest(), ledger, schema);
+  if (unfrozen.length) fail(`Schema ${unfrozen.join(', ')} is recorded but no database that build wrote is frozen. Freeze one from the commit that shipped it first: node scripts/database-fixtures.ts freeze <commit>`);
   ledger.versions[String(schema)] = { fingerprint, migration, recordedAt: new Date().toISOString(), from: 'build' };
   writeJson(LEDGER, sortLedger(ledger));
   console.log(`Recorded schema ${schema} (${migration}): ${fingerprint}.`);
@@ -84,6 +88,9 @@ if (existsSync(join(FIXTURE_DIR, name)) || manifest.fixtures.some((f) => f.file 
 
 const work = mkdtempSync(join(tmpdir(), 'vantage-fixture-'));
 const tree = join(work, 'tree');
+// Ctrl+C or a stop while the old build runs is held until it ends, so the worktree is always removed below.
+let stopped: NodeJS.Signals | null = null;
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => { stopped = signal; });
 git('worktree', 'add', '--detach', tree, commit);
 try {
   symlinkSync(join(repo, 'node_modules'), join(tree, 'node_modules'), 'dir');
@@ -132,4 +139,5 @@ try {
   try { git('worktree', 'remove', '--force', tree); } catch { /* removed with the directory below */ }
   rmSync(work, { recursive: true, force: true });
   try { git('worktree', 'prune'); } catch { /* nothing to prune */ }
+  if (stopped) { console.error(`Stopped (${stopped}); the worktree was removed.`); process.exitCode = 130; }
 }

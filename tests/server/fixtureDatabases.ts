@@ -108,6 +108,16 @@ export function upgradeParity(entry: FixtureEntry, migrations: readonly Migratio
   };
 }
 
+/**
+ * The recorded versions below `newest` that no frozen database reaches. A migration edited in place is caught only by a
+ * database frozen at or after its version, which already ran it as it shipped: every recorded version but the newest
+ * needs one (ADR-0041).
+ */
+export function unfrozenVersions(manifest: Manifest, ledger: Ledger, newest: number): number[] {
+  const frozen = Math.max(0, ...manifest.fixtures.map((f) => f.schema));
+  return Object.keys(ledger.versions).map(Number).filter((v) => v < newest && v > frozen).sort((a, b) => a - b);
+}
+
 /** The fingerprint of a new database's schema at this build's schema version. */
 export function buildFingerprint(): { schema: number; fingerprint: string; migration: string } {
   const db = freshDatabase();

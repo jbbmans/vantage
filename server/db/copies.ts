@@ -73,17 +73,40 @@ export interface UpgradeCopyOptions {
   keep?: number;
 }
 
-const COPY_NAME = /^vantage-before-upgrade-(\d+)-to-(\d+)-(\d{8}T\d{9})\.db$/;
+/**
+ * The copy names: the schemas, when, and a tag for the database they were taken of (from its path), so databases that
+ * share a directory each prune only their own copies.
+ */
+const COPY_NAME = /^vantage-before-upgrade-(\d+)-to-(\d+)-(\d{8}T\d{9})-([0-9a-f]{8})\.db$/;
+/** The tag in the names of one database's copies: the start of the SHA-256 of its full path. */
+export const copyTagOf = (path: string) => createHash('sha256').update(resolve(path)).digest('hex').slice(0, 8);
 const stampNow = () => new Date().toISOString().replace(/[-:.]/g, '').slice(0, 18);
 const metaRead = (db: Db, key: string) => (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
 const hasTable = (db: Db, name: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
 const auditCount = (db: Db) => (hasTable(db, 'audit_log') ? (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n : null);
 const mb = (bytes: number) => Math.max(1, Math.ceil(bytes / 1_048_576));
 
-/** The copies a start kept before upgrades, in one directory, oldest first. */
-export function upgradeCopiesIn(dir: string): string[] {
+/** The copies starts kept before upgrades, in one directory, oldest first: all of them, or one database's (by its path). */
+export function upgradeCopiesIn(dir: string, of?: string): string[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => COPY_NAME.test(f)).sort((a, b) => COPY_NAME.exec(a)![3].localeCompare(COPY_NAME.exec(b)![3]) || a.localeCompare(b));
+  const tag = of ? copyTagOf(of) : null;
+  return readdirSync(dir)
+    .filter((f) => { const m = COPY_NAME.exec(f); return Boolean(m) && (!tag || m![4] === tag); })
+    .sort((a, b) => COPY_NAME.exec(a)![3].localeCompare(COPY_NAME.exec(b)![3]) || a.localeCompare(b));
+}
+
+/**
+ * The copy an earlier start took before an upgrade that then failed, when it is still there and still the file it took:
+ * a start after a failed one keeps that copy rather than taking another of the half-upgraded database, since the
+ * service served nothing in between and only that copy is the database as the previous build left it (ADR-0041).
+ */
+export function copyStillKept(copy: UpgradeCopy | null | undefined, dir: string): UpgradeCopy | null {
+  if (!copy?.file || basename(copy.file) !== copy.file) return null;
+  const file = join(dir, copy.file);
+  try {
+    if (!existsSync(file) || readChecksumFile(file) !== copy.sha256 || sha256File(file) !== copy.sha256) return null;
+  } catch { return null; }
+  return copy;
 }
 
 /**
@@ -93,7 +116,7 @@ export function upgradeCopiesIn(dir: string): string[] {
  * `.sha256`. Only the newest `keep` of these copies stay. Anything that goes wrong throws, before a single migration
  * runs: a database that fails the check is not migrated, and neither is one that cannot be copied.
  */
-export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number, options: UpgradeCopyOptions = {}): UpgradeCopy {
+export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number, options: UpgradeCopyOptions & { kept?: UpgradeCopy | null } = {}): UpgradeCopy {
   const dir = resolve(options.dir || dirname(path));
   const keep = Math.max(1, Math.floor(options.keep ?? 3));
   const refuse = (why: string): never => {
@@ -101,13 +124,16 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   };
   const check = String(db.pragma('quick_check', { simple: true }));
   if (check !== 'ok') refuse(`the database fails SQLite's integrity check (${check.slice(0, 300)}), so it is neither copied nor upgraded. Restore the last good backup, then start again.`);
+  // After a failed upgrade, the copy that start took is the one to keep: nothing is copied or pruned.
+  const kept = copyStillKept(options.kept, dir);
+  if (kept) return kept;
   const pageSize = Number(db.pragma('page_size', { simple: true }));
   const needed = (Number(db.pragma('page_count', { simple: true })) - Number(db.pragma('freelist_count', { simple: true }))) * pageSize;
   try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (error) { refuse(`could not make ${dir} for it: ${(error as Error).message}.`); }
   let free: number | null = null;
   try { const fs = statfsSync(dir); free = Number(fs.bavail) * Number(fs.bsize); } catch { free = null; }
   if (free !== null && free < needed + (1 << 20)) refuse(`${dir} has ${mb(free)} MB free where the copy needs about ${mb(needed)} MB. Make room there, or set VANTAGE_UPGRADE_COPY_DIR to a directory with room, and start again.`);
-  const dest = join(dir, `vantage-before-upgrade-${from}-to-${to}-${stampNow()}.db`);
+  const dest = join(dir, `vantage-before-upgrade-${from}-to-${to}-${stampNow()}-${copyTagOf(path)}.db`);
   try { copyDatabaseInto(db, dest); } catch (error) { refuse(`could not write it to ${dest}: ${(error as Error).message}. Make room there, or set VANTAGE_UPGRADE_COPY_DIR to a directory with room, and start again.`); }
   try {
     const copy = new Database(dest, { readonly: true, fileMustExist: true });
@@ -123,8 +149,9 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   }
   const sha256 = sha256File(dest);
   writeChecksumFile(dest, sha256);
-  const copies = upgradeCopiesIn(dir);
-  for (const old of copies.slice(0, Math.max(0, copies.length - keep))) {
+  // This database's copies only, and never the one just made: it and the newest keep - 1 others stay.
+  const others = upgradeCopiesIn(dir, path).filter((f) => f !== basename(dest));
+  for (const old of others.slice(0, Math.max(0, others.length - (keep - 1)))) {
     for (const f of [join(dir, old), checksumFileOf(join(dir, old)), `${join(dir, old)}-journal`]) rmSync(f, { force: true });
   }
   return { file: basename(dest), bytes: statSync(dest).size, sha256 };

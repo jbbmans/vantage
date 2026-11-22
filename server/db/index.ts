@@ -4,7 +4,7 @@ import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync, rmSync, wri
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
-import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
+import { compareCounts, recordUpgrade, rowCounts, upgradeHistory, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
 import { copyBeforeUpgrade, type UpgradeCopy, type UpgradeCopyOptions } from './copies.ts';
 import { VERSION } from '../version.ts';
 import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
@@ -1429,6 +1429,17 @@ export function openDatabase(path: string, options: OpenOptions = {}): Db {
     throw new Error(`Database schema ${storedVersion} is invalid or newer than this build's ${SCHEMA_VERSION}. Use the matching build or the supported restore procedure.`);
   }
   let from = storedVersion === null ? 0 : Number(storedVersion);
+  // A database that already holds people or an audit trail but records no schema is not a new one: which migrations it
+  // ran cannot be told, so it is neither copied nor migrated as if it were empty (ADR-0041).
+  if (path !== ':memory:' && from === 0 && !isLegacyDatabase(db)) {
+    const rows = (table: string) => (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) ? (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n : 0);
+    const people = rows('users');
+    const entries = rows('audit_log');
+    if (people || entries) {
+      db.close();
+      throw new Error(`The database at ${path} holds ${people} accounts and ${entries} audit entries but records no schema version, so this build cannot tell which migrations it has run. Nothing was migrated. Restore the last good backup with node scripts/restore.ts, then start again.`);
+    }
+  }
   if (path !== ':memory:' && isLegacyDatabase(db)) {
     db.close();
     const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
@@ -1448,7 +1459,10 @@ export function openDatabase(path: string, options: OpenOptions = {}): Db {
   // schema is replayed over it (ADR-0041). Anything wrong stops the start here, with nothing migrated.
   let copy: UpgradeCopy | null = null;
   if (path !== ':memory:' && options.upgradeCopy !== false && from > 0 && from < SCHEMA_VERSION) {
-    try { copy = copyBeforeUpgrade(db, path, from, SCHEMA_VERSION, options.upgradeCopy ?? {}); }
+    // A start after a failed upgrade keeps the copy that start took, if it is still there unchanged.
+    const last = upgradeHistory(db).at(-1);
+    const kept = last?.status === 'failed' ? last.copy ?? null : null;
+    try { copy = copyBeforeUpgrade(db, path, from, SCHEMA_VERSION, { ...(options.upgradeCopy ?? {}), kept }); }
     catch (error) { db.close(); throw error; }
   }
   upgradeSchema(db, { copy });

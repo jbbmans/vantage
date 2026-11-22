@@ -34,7 +34,10 @@ source would trip on every comment edit and miss what actually changed.
    database passes the same integrity check (if it does, the copy was damaged on its way; if not, the database is, and
    the last good backup is the way back); the download answers `500 backup_unsound` and sends nothing. A trail fault does
    not refuse a fresh copy, since the copy holds exactly what the live database holds; it is reported, and the record
-   says so. A sound copy gets its SHA-256 beside it as `<file>.sha256` (`sha256sum -c` format), in its backup record
+   says so. Audit entries with no chain key or head to check them against are a trail that does not verify. A file the
+   check cannot read, or a `.sha256` that is not a file, is a named fault, never a crash. A live database at a newer
+   schema than this build's is refused as that, with no disk blamed. A sound copy gets its SHA-256 beside it as
+   `<file>.sha256` (`sha256sum -c` format), in its backup record
    and audit entry, and on a download as `Content-Digest` (RFC 9530). `backup.ts --verify <file>` runs the check on any
    backup, writes nothing, and says whether this database recorded taking it.
 3. **A restore drill runs beside the live service.** `restore.ts DRILL --from <file>` needs no `VANTAGE_RESTORE` and
@@ -44,19 +47,32 @@ source would trip on every comment edit and miss what actually changed.
    refusing one whose rows the upgrade changes, checks it again under `VANTAGE_SECRET` alone, says what a restore would
    undo, and removes the scratch file. `--dry-run` is the same drill plus the authorization check, and also runs with the
    service up. Only a real restore takes the exclusive lock. A drill of another database's backup passes and says so; the
-   dry run and the restore still refuse one without `--different-database`.
+   dry run and the restore still refuse one without `--different-database`. Who may authorize is read from the live
+   database, or from the backup when the live database or its accounts cannot be read; a database from before platform
+   roles names its owners by `users.is_operator`, as the migration to roles read them. A throw or a signal before the
+   restored copy is in place removes the scratch copy, and a drill or dry run that stops so is recorded as failed.
 4. **Drills are recorded and audited.** Each drill and dry run, passed or failed, is kept in the live database's
-   `drill_history` (the last twenty; host history that a restore carries over). The running service writes each into the
-   platform audit trail as `restore_drill` within five minutes (the backup audit job), and a failed one notifies the
-   staff who hold platform data. **Backup and restore → Restore drills** and **Operations → Backups** list them.
+   `drill_history`: every one not yet audited (up to 200), and the last twenty audited; host history that a restore
+   carries over. The running service writes each into the platform audit trail as `restore_drill` within five minutes
+   (the backup audit job), and a failed one notifies the staff who hold platform data. A dry run stopped for who
+   authorized it, another database's backup or too little room is recorded as refused, audited as refused before the
+   backup was rehearsed, and notifies no one. **Backup and restore → Restore drills** lists them and **Operations →
+   Backups** shows the last; there, who ran each and the host account are shown only to staff holding `platform.data`
+   or `platform.audit`.
 5. **A start keeps a copy before it migrates.** When a file database is below this build's schema, `openDatabase` runs
-   `quick_check`, vacuums the database into `vantage-before-upgrade-<from>-to-<to>-<stamp>.db` in
+   `quick_check`, vacuums the database into `vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db` in
    `VANTAGE_UPGRADE_COPY_DIR` (default: beside the database), owner-only before its first byte, with its `.sha256`, and
-   checks the copy (sound, at the old schema, every audit entry). Only then does the first migration run. A damaged
-   database, too little room or a copy that does not check out stops the start before any migration, at the old schema.
-   The newest `VANTAGE_UPGRADE_COPIES_KEPT` copies stay (default 3, 1 to 20); older ones the service made are removed and
-   nothing else in the directory is touched. The upgrade record and its audit entries name the copy. There is no setting
-   that skips it; a new database, one at the current schema and an in-memory one need none.
+   checks the copy (sound, at the old schema, every audit entry). `<tag>` is the first eight hexadecimal characters of
+   the SHA-256 of the database's resolved path, so two databases sharing a copy directory never prune each other's
+   copies. Only then does the first migration run. A damaged database, too little room or a copy that does not check
+   out stops the start before any migration, at the old schema. The newest `VANTAGE_UPGRADE_COPIES_KEPT` copies of each
+   database stay (default 3, 1 to 20), the one just made always among them; older ones the service made of that
+   database are removed and nothing else in the directory is touched. A start after a failed upgrade reuses the copy the
+   failed start recorded while that file is there and matches its `.sha256`, and makes and prunes nothing: a migration
+   that fails on every start would otherwise prune the database as it was out of the directory within a few restarts.
+   A file database that records no schema version but holds accounts or audit entries is refused with nothing copied
+   or migrated, since this build cannot tell which migrations it ran. The upgrade record and its audit entries name the
+   copy. There is no setting that skips it; a new database, one at the current schema and an in-memory one need none.
 6. **Migrations are tested by the schema they produce.** `server/db/schemaShape.ts` reads every table, index, trigger
    and view from the database's own `sqlite_master`, drops comments, spacing and letter case outside quotes, keeps a
    table's column and constraint definitions as a sorted list (so a column an upgrade appended matches one a new
@@ -67,8 +83,13 @@ source would trip on every comment edit and miss what actually changed.
    migrations and requires its schema to equal a new database's; a difference names the object and the migration that
    last changed it. `fingerprints.json` records the fresh-database fingerprint for each released schema version; a new
    database at a recorded version must match it, so a migration edited after release fails the test and a reworded
-   comment does not. `scripts/database-fixtures.ts freeze <ref>` builds a fixture from a git ref in a temporary worktree,
-   `fingerprint --write` records a new version (it never changes a recorded one), and `check` runs the parity test.
+   comment does not. A fingerprint shows only that a new database is unchanged; a migration edited in place is caught on
+   upgrade only by a fixture frozen at or after its version, which already ran it as it shipped. So every recorded
+   version below the newest must be reached by a frozen fixture: the ledger test fails otherwise, and
+   `fingerprint --write` refuses to record a new version until the previous one has its fixture.
+   `scripts/database-fixtures.ts freeze <ref>` builds a fixture from a git ref in a temporary worktree (removed even when
+   the run is interrupted), `fingerprint --write` records a new version (it never changes a recorded one), and `check`
+   runs the parity test.
 7. **Old trails verify.** `verifyAuditChainOf(db, key)` reads a trail from whatever columns its table has, reading the
    missing ones as NULL, which is how those entries were sealed. The backup check and the restore use it, so a backup
    from before organizations can be checked, drilled and restored.
@@ -76,9 +97,13 @@ source would trip on every comment edit and miss what actually changed.
 ## Consequences
 
 - A corrupted, truncated or altered backup is named as such by `--verify`, the drill and the restore, and the restore
-  refuses it. Tests: `tests/server/verifiedBackups.test.ts` (five damaged cases, the drill against a database being
-  written, the upgrade of the schema 14 fixture during a drill) and `tests/server/databaseFixtures.test.ts` (the copy
-  before an upgrade, its pruning, a refused start, a changed migration, a reworded one).
+  refuses it. Tests: `tests/server/verifiedBackups.test.ts` (five damaged cases, a sidecar that cannot be read, a
+  damaged copy in log mode, a trail with no chain, the drill against a database being written, the upgrade of the
+  schema 14 fixture during a drill, a drill and dry run against a pre-organization database, refused dry runs, the
+  drill history's cap, who-ran redaction, a ranged download, a live database at a newer schema, a restore over damaged
+  accounts) and `tests/server/databaseFixtures.test.ts` (the copy before an upgrade, per-database pruning, a copy
+  reused across failed starts, an unversioned database refused, a refused start, a changed migration, a reworded one,
+  no recorded version without a fixture).
 - Operators can rehearse a restore on any day without a maintenance window; the console shows when the last drill ran
   and what it found.
 - An upgrade needs free room for one more database in the copy directory. The copies are for undoing an upgrade on that

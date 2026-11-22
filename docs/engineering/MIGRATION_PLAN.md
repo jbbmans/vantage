@@ -42,7 +42,9 @@ records `schema_version` in `meta`. No migration deletes or rewrites what a pers
   their text (ADR-0041).
 - When a new migration ships, record its version with `node scripts/database-fixtures.ts fingerprint --write` (it
   records a version once and never changes a recorded one), and after a release freeze a fixture from its tag with
-  `node scripts/database-fixtures.ts freeze <tag>`. `node scripts/database-fixtures.ts check` runs the parity check on
+  `node scripts/database-fixtures.ts freeze <tag>`. Every recorded version below the newest needs a frozen fixture, since
+  only a database that already ran a migration as it shipped catches that migration being edited: the fixture test
+  fails without one, and `fingerprint --write` refuses to record the next version until the fixture is there. `node scripts/database-fixtures.ts check` runs the parity check on
   every fixture by itself.
 
 **Tested:** `tests/server/migrations.test.ts` builds a database at version 7 with real rows, opens it,
@@ -54,10 +56,12 @@ database's schema. It also checks the copy a start keeps before an upgrade.
 
 **Upgrade procedure (current):** take the backup the run book asks for, stop the service, start the new version.
 Before the first migration the start keeps a checked, owner-only copy of the database as it was
-(`vantage-before-upgrade-<from>-to-<to>-<stamp>.db`, `VANTAGE_UPGRADE_COPY_DIR`, `VANTAGE_UPGRADE_COPIES_KEPT`), and a
-start that cannot make one stops with nothing migrated. Each migration runs at startup inside a transaction. There is
-no automatic downgrade: to roll back, restore that copy (or the backup) with the previous build, after drilling it
-(`docs/operations.md#upgrades`).
+(`vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db`, `VANTAGE_UPGRADE_COPY_DIR`, `VANTAGE_UPGRADE_COPIES_KEPT`),
+and a start that cannot make one stops with nothing migrated. A start after a failed upgrade keeps the copy the failed
+start took. Each migration runs at startup inside its own transaction, so a failure leaves the database at the last
+migration that committed. There is no automatic downgrade: to roll back, drill that copy (or the backup) with the
+previous build, then restore it with that build (`docs/operations.md#upgrades`). This build's drill would upgrade it
+again, so it says nothing about the previous build.
 
 ## Engine migration (SQLite → PostgreSQL)
 

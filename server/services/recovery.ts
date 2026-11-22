@@ -101,6 +101,7 @@ export function auditServerBackups(ctx: AppContext): number {
 
 const drillText = (r: DrillRecord) => {
   const what = `${r.kind === 'dry_run' ? 'A dry run of a restore' : 'A restore drill'} of ${r.backup.file}${r.backup.sha256 ? ` (SHA-256 ${r.backup.sha256})` : ''}`;
+  if (!r.ok && r.refused) return `${what} was refused at ${r.at}, before the backup was rehearsed: ${r.failure ?? 'no reason recorded'}`;
   if (!r.ok) return `${what} failed at ${r.at}: ${r.failure ?? 'no reason recorded'}`;
   const held = r.backup.schema ? `; it holds schema ${r.backup.schema}${r.backup.seq ? ` through audit entry ${r.backup.seq}` : ''}` : '';
   const upgraded = r.upgraded ? `, upgraded to schema ${r.upgraded.to}` : '';
@@ -123,7 +124,8 @@ export function auditDrills(ctx: AppContext): number {
     for (const r of drillHistory(ctx.db).filter((d) => !d.audited)) {
       audit(ctx, { actor_id: null, action: 'restore_drill', entity: 'database', entity_id: r.id, detail: drillText(r).slice(0, 1000) });
       done.add(r.id);
-      if (!r.ok) failed.push(r);
+      // A refusal for who authorized it, another database or room says nothing about the backup: no one is told it failed.
+      if (!r.ok && !r.refused) failed.push(r);
     }
     markDrillsAudited(ctx.db, done);
   }).immediate();

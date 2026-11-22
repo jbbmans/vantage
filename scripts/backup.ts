@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { backupHistory, recordBackup } from '../server/services/backupLog.ts';
 import { checkBackup, describeCheck, fileFaults, TRAIL_FAULTS } from '../server/services/backupCheck.ts';
-import { backupDatabase } from '../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase } from '../server/db/index.ts';
 import { checksumFileOf, writeChecksumFile } from '../server/db/copies.ts';
 
 /**
@@ -77,6 +77,15 @@ if (broken.length) {
   // Whether the live database passes the same check tells a fault on the way to the copy from one in the database.
   const liveFails = (why: string) => `The live database fails SQLite's integrity check too (${why.slice(0, 300)}). Rehearse the last good backup with node scripts/restore.ts DRILL --from <backup.db>, then restore it.`;
   let live: string;
+  // A schema this build does not know is the live database's own, not damage on the way: no disk is to blame.
+  if (broken.every((f) => f.fault === 'schema_newer' || f.fault === 'not_vantage')) {
+    live = check.schema && check.schema > SCHEMA_VERSION
+      ? `The live database is at schema ${check.schema}, newer than this build's ${SCHEMA_VERSION}: take the backup with the build that runs it.`
+      : `The live database is not one this build can back up: ${broken.map((f) => f.message).join(' ')}`;
+    for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${dest}${suffix}`, { force: true });
+    console.error(`The backup failed its check and was removed. ${live}`);
+    process.exit(1);
+  }
   try {
     const l = new Database(source, { readonly: true, fileMustExist: true });
     try {

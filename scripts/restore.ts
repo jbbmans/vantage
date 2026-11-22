@@ -110,25 +110,37 @@ const releaseLive = () => {
 };
 const removeTemp = () => { for (const suffix of ['', '-wal', '-shm', '-journal']) { try { if (existsSync(`${temp}${suffix}`)) unlinkSync(`${temp}${suffix}`); } catch { /* gone */ } } };
 /** Writes the drill into the live database, for the console and for the service to audit. Never a reason to fail it. */
-const recordRehearsal = (ok: boolean, failure: string | null) => {
-  if (!rehearse || !existsSync(live)) return;
+let recorded = false;
+const recordRehearsal = (ok: boolean, failure: string | null, refused: DrillRecord['refused'] = null) => {
+  if (!rehearse || recorded || !existsSync(live)) return;
+  recorded = true;
   try {
     const db = new Database(live, { fileMustExist: true });
     try {
       db.pragma('busy_timeout = 5000');
-      recordDrill(db, { kind: drillOnly ? 'drill' : 'dry_run', ok, failure: failure?.slice(0, 1000) ?? null, ...facts, by: drillOnly ? null : by, hostUser, version: VERSION, ms: Math.round(performance.now() - started) });
+      recordDrill(db, { kind: drillOnly ? 'drill' : 'dry_run', ok, failure: failure?.slice(0, 1000) ?? null, ...(refused ? { refused } : {}), ...facts, by: drillOnly ? null : by, hostUser, version: VERSION, ms: Math.round(performance.now() - started) });
     } finally { db.close(); }
   } catch (error) {
     console.warn(`The drill ran, but the database could not record it: ${(error as Error).message}`);
   }
 };
-const abandon = (message: string): never => {
+const abandon = (message: string, refused: DrillRecord['refused'] = null): never => {
   try { copy?.close(); } catch { /* closed */ }
   removeTemp();
   releaseLive();
-  recordRehearsal(false, message);
+  recordRehearsal(false, message, refused);
   return fail(`${message}\nNothing was replaced.`);
 };
+/** Set once the restored copy is in place: from then on nothing is undone, and the temporary copy no longer exists. */
+let swapped = false;
+// Anything that throws before the swap, or a signal, leaves no scratch copy behind and is recorded like any failed drill.
+process.on('uncaughtException', (error) => {
+  if (swapped) { console.error(`The restored database is in place, but a later step failed: ${error.message}`); process.exit(1); }
+  abandon(`The ${rehearse ? 'drill' : 'restore'} stopped: ${error.message}`);
+});
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.once(signal, () => { if (swapped) process.exit(130); abandon(`The ${rehearse ? 'drill' : 'restore'} was interrupted (${signal}).`); });
+}
 
 // 1. A restore needs the service stopped: take the live database's lock, and hold it until the copy is ready. A drill
 //    only reads the live database, so it runs beside the service.
@@ -152,7 +164,9 @@ if (liveDb) { try { liveDb.prepare('SELECT 1 FROM users LIMIT 1').get(); liveRea
 
 // 2. Is the backup sound: one self-contained SQLite file that passes the full integrity check, the bytes it was taken
 //    with, a Vantage schema this build can run, sealed under this secret, with a trail that verifies?
-const check = checkBackup(source, { config, requireTrail: true });
+let check: ReturnType<typeof checkBackup>;
+try { check = checkBackup(source, { config, requireTrail: true }); } catch (error) { abandon(`The backup could not be checked: ${(error as Error).message}`); }
+check = check!;
 facts.backup = { file: basename(source), bytes: check.bytes, sha256: check.sha256, schema: check.schema, seq: check.audit?.seq ?? null, at: check.audit?.at ?? null, recorded: false };
 if (liveDb && liveReadable && check.sha256) { try { facts.backup.recorded = backupHistory(liveDb).some((r) => r.sha256 === check.sha256); } catch { /* unrecorded */ } }
 if (!check.ok) {
@@ -165,7 +179,7 @@ const schema = check.schema!;
 try {
   const fs = statfsSync(dir);
   const free = Number(fs.bavail) * Number(fs.bsize);
-  if (free < (check.bytes ?? 0) + (1 << 20)) abandon(`${dir} has ${Math.ceil(free / 1_048_576)} MB free, and the restored copy needs about ${Math.ceil((check.bytes ?? 0) / 1_048_576) + 1} MB there. Make room, then run this again.`);
+  if (free < (check.bytes ?? 0) + (1 << 20)) abandon(`${dir} has ${Math.ceil(free / 1_048_576)} MB free, and the restored copy needs about ${Math.ceil((check.bytes ?? 0) / 1_048_576) + 1} MB there. Make room, then run this again.`, 'space');
 } catch { /* a file system that cannot say its free space is copied to as it is */ }
 try {
   copyFilePrivate(source, temp);
@@ -189,14 +203,27 @@ if (resealed) console.log(`Sealed ${resealed} stored secret${resealed === 1 ? ''
 
 // 4. Who authorized it: an active Lead Vantage Administrator, as the live database has it, or the backup when there is no live one
 type Owner = { id: string; username: string; first_name: string; last_name: string };
-const ownerIn = (d: Database.Database) => d.prepare(`SELECT u.id, u.username, u.first_name, u.last_name FROM users u JOIN platform_roles p ON p.user_id = u.id AND p.role = 'owner'
-                                                       WHERE lower(u.username) = lower(?) AND u.active = 1`).get(by) as Owner | undefined;
+// A backup from before platform roles names its owners by users.is_operator, as the migration to roles reads it.
+const ownerIn = (d: Database.Database) => (d.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'platform_roles'").get()
+  ? d.prepare(`SELECT u.id, u.username, u.first_name, u.last_name FROM users u JOIN platform_roles p ON p.user_id = u.id AND p.role = 'owner'
+               WHERE lower(u.username) = lower(?) AND u.active = 1`).get(by)
+  : d.prepare('SELECT id, username, first_name, last_name FROM users WHERE lower(username) = lower(?) AND active = 1 AND is_operator = 1').get(by)) as Owner | undefined;
 let authorizer: Owner | null = null;
 if (!drillOnly) {
   let owner: Owner | undefined;
-  if (liveDb && liveReadable) { try { owner = ownerIn(liveDb); } catch { owner = undefined; } }
-  else owner = ownerIn(db);
-  if (!owner) abandon(`${by} is not an active Lead Vantage Administrator ${liveReadable ? 'of this service' : 'in the backup'}. A restore is authorized by one, named by username.`);
+  let ownersFrom: 'live' | 'backup' = liveDb && liveReadable ? 'live' : 'backup';
+  if (ownersFrom === 'live') {
+    try { owner = ownerIn(liveDb!); } catch (error) {
+      // Accounts SQLite cannot read through are a damaged database, the one a restore is for: the backup names who may
+      // authorize it, as it does when nothing here can be read at all.
+      if (/^SQLITE_(CORRUPT|NOTADB)/.test(String((error as { code?: string }).code ?? ''))) {
+        ownersFrom = 'backup';
+        console.log(`The accounts in ${live} cannot be read (${(error as Error).message}), so the backup's Lead Vantage Administrators authorize this.`);
+      } else owner = undefined;
+    }
+  }
+  if (ownersFrom === 'backup') { try { owner = ownerIn(db); } catch { owner = undefined; } }
+  if (!owner) abandon(`${by} is not an active Lead Vantage Administrator ${ownersFrom === 'live' ? 'of this service' : 'in the backup'}. A restore is authorized by one, named by username.`, 'authorization');
   authorizer = owner!;
 }
 
@@ -220,7 +247,7 @@ if (replaced) {
   }
   facts.sameDatabase = sameDatabase;
   // A drill of another database's backup still says whether it restores; only a restore, or its dry run, refuses it.
-  if (sameDatabase === false && !drillOnly && !flags.has('--different-database')) abandon('The backup is of another Vantage database than the one here. Pass --different-database to replace this one with it anyway.');
+  if (sameDatabase === false && !drillOnly && !flags.has('--different-database')) abandon('The backup is of another Vantage database than the one here. Pass --different-database to replace this one with it anyway.', 'other_database');
   if (sameDatabase) ({ lost, undone } = lostSince(liveDb!, restored));
   if (lost) facts.wouldUndo = { entries: lost.entries, instances: Object.keys(lost.instances).length, changes: undone?.count ?? 0 };
 }
@@ -256,7 +283,9 @@ if (!rehearse && liveDb) {
   // The copy is what the database was, sound or not: a restore is often the answer to a damaged one, so it is kept and
   // said, never a reason to stop.
   const kept = readable ? checkBackup(safetyCopy) : null;
-  if (kept?.sha256) writeChecksumFile(safetyCopy, kept.sha256);
+  // Its SHA-256 is kept beside it whether SQLite can read it or not, and its log's too when it has one.
+  writeChecksumFile(safetyCopy, kept?.sha256 ?? sha256File(safetyCopy));
+  if (existsSync(`${safetyCopy}-wal`)) writeChecksumFile(`${safetyCopy}-wal`, sha256File(`${safetyCopy}-wal`));
   if (!kept || !kept.ok) console.log(`The database being replaced ${kept ? `fails its check (${kept.faults.map((f) => f.message).join(' ')})` : 'cannot be read by SQLite'}; its copy is kept as it was.`);
 }
 
@@ -324,6 +353,7 @@ if (rehearse) {
 releaseLive();
 for (const suffix of ['-wal', '-shm']) if (existsSync(`${live}${suffix}`)) unlinkSync(`${live}${suffix}`);
 renameSync(temp, live);
+swapped = true;
 chmodSync(live, 0o600);
 
 // 10. The lineage notes the restored chain, so the next start tells this restore from a database put back some other way

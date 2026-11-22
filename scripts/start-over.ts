@@ -65,16 +65,21 @@ if (!flags.has('--no-backup') && db.name !== ':memory:') {
   const backup = join(dirname(db.name), `vantage-before-start-over-${stamp}.db`);
   await backupDatabase(db, backup);
   // The copy is the only way back from starting over, so it is checked before anything is erased (ADR-0041).
-  const kept = new Database(backup, { fileMustExist: true });
-  try { kept.pragma('journal_mode = DELETE'); } finally { kept.close(); }
+  try {
+    const kept = new Database(backup, { fileMustExist: true });
+    try { kept.pragma('journal_mode = DELETE'); } finally { kept.close(); }
+  } catch { /* a copy SQLite cannot switch is one the check below names */ }
   const check = checkBackup(backup, { config });
   const broken = fileFaults(check);
   if (broken.length) {
-    rmSync(backup, { force: true });
+    for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${backup}${suffix}`, { force: true });
     fail(`The copy of the current database failed its check, so nothing was erased: ${broken.map((f) => f.message).join(' ')}`);
   }
   writeChecksumFile(backup, check.sha256!);
   console.log(`Backed up the current database to ${backup} (checked; SHA-256 ${check.sha256}, kept beside it as ${basename(backup)}.sha256)`);
+  // A trail that does not verify is the live database's: the copy is kept, and the operator is told it will not restore as it is.
+  const trail = check.faults.filter((f) => !broken.includes(f));
+  if (trail.length) console.warn(`${trail.map((f) => f.message).join(' ')} The copy holds what the database holds, but node scripts/restore.ts refuses a trail that does not verify; see Audit integrity in the console before relying on it.`);
 }
 
 const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('meta', 'ranks') AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);

@@ -119,11 +119,15 @@ export function chainPoint(db: Db): ChainPoint {
  */
 export function lostSince(replaced: Db, restored: ChainPoint) {
   const after = restored.seq ?? 0;
+  // A database from before organizations, or before entries named their subject, has neither column: it counts none.
+  const columns = new Set((replaced.prepare('PRAGMA table_info(audit_log)').all() as Array<{ name: string }>).map((c) => c.name));
+  const orgId = columns.has('org_id') ? 'a.org_id' : 'NULL';
+  const subjectId = columns.has('subject_id') ? 'a.subject_id' : 'NULL';
   const entries = (replaced.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE seq > ?').get(after) as { n: number }).n;
-  const instances = Object.fromEntries((replaced.prepare('SELECT org_id, COUNT(*) AS n FROM audit_log WHERE seq > ? AND org_id IS NOT NULL GROUP BY org_id').all(after) as Array<{ org_id: string; n: number }>).map((r) => [r.org_id, r.n]));
+  const instances = Object.fromEntries((replaced.prepare(`SELECT ${orgId} AS org_id, COUNT(*) AS n FROM audit_log a WHERE a.seq > ? AND ${orgId} IS NOT NULL GROUP BY ${orgId}`).all(after) as Array<{ org_id: string; n: number }>).map((r) => [r.org_id, r.n]));
   const actions = JSON.stringify(RESTORE_REVIEW_ACTIONS);
   const undoneCount = (replaced.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE seq > ? AND action IN (SELECT value FROM json_each(?))').get(after, actions) as { n: number }).n;
-  const undone = replaced.prepare(`SELECT a.seq, a.at, a.action, a.subject_id, a.org_id, u.username AS subject_username FROM audit_log a LEFT JOIN users u ON u.id = a.subject_id
+  const undone = replaced.prepare(`SELECT a.seq, a.at, a.action, ${subjectId} AS subject_id, ${orgId} AS org_id, u.username AS subject_username FROM audit_log a LEFT JOIN users u ON u.id = ${subjectId}
                                    WHERE a.seq > ? AND a.action IN (SELECT value FROM json_each(?)) ORDER BY a.seq LIMIT ${UNDONE_LISTED}`).all(after, actions) as UndoneChange[];
   return { lost: { entries, since: restored.at, instances }, undone: { count: undoneCount, entries: undone } };
 }

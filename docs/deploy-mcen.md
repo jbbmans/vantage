@@ -136,8 +136,10 @@ Adding a unit never needs a source change.
 
 - **Back up on the host.** Run `node scripts/backup.ts <file>` (a consistent copy of the database, attachments
   included) and keep copies where the enterprise keeps backups (I-09). Each copy passes SQLite's integrity check
-  and the audit trail's before it counts, keeps its SHA-256 beside it as `<file>.sha256`, and is refused and removed
-  if it fails; `node scripts/backup.ts --verify <file>` checks one again at any time. Each run is recorded and audited,
+  before it counts, keeps its SHA-256 beside it as `<file>.sha256`, and is refused and removed if the file fails. A
+  trail that does not verify is reported and recorded and the copy kept, since it holds what the live database holds;
+  a restore refuses it, so look at **Audit integrity** first. `node scripts/backup.ts --verify <file>` checks one again
+  at any time, and with `VANTAGE_SECRET` set checks its trail too. Each run is recorded and audited,
   and the Vantage Administrator console (**Operations → Backups**) says when the last one was taken. Set
   `VANTAGE_BACKUP_MAX_AGE_HOURS` to the enterprise's backup interval (default 168). A snapshot the host
   takes on its own is not seen by Vantage (I-28).
@@ -157,7 +159,8 @@ Adding a unit never needs a source change.
   **Backup and restore → Not backups: data exports** lists them all.
 - **Upgrades keep a copy.** A start that migrates the database first keeps a checked copy of it as it was, owner-only,
   in `VANTAGE_UPGRADE_COPY_DIR` (default: beside the database), the newest `VANTAGE_UPGRADE_COPIES_KEPT` (default 3) of
-  them; a start that cannot make one stops with nothing migrated. Give that directory room for one more database. The
+  each database's copies; a start that cannot make one stops with nothing migrated, and a start after a failed upgrade
+  keeps the copy that start took. Give that directory room for one more database. The
   start then checks every table's rows, and each Unit Instance's, and records, audits and tells the Lead Unit Managers
   about any it lost. The copy is for undoing the upgrade on this host; it does not replace the backup off it.
 - **Each Unit Instance's operations.** **Instance operations** in the Vantage Administrator console shows

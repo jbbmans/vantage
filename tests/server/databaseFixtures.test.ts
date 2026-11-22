@@ -5,13 +5,13 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILD_MIGRATIONS, SCHEMA_VERSION, copyFilePrivate, metaGet, openDatabase, type Migration } from '../../server/db/index.ts';
-import { readChecksumFile, sha256File, upgradeCopiesIn } from '../../server/db/copies.ts';
+import { copyTagOf, readChecksumFile, sha256File, upgradeCopiesIn } from '../../server/db/copies.ts';
 import { upgradeHistory } from '../../server/db/upgrades.ts';
 import { normalizeSql, schemaFingerprint, schemaShape, tableDefinitions } from '../../server/db/schemaShape.ts';
 import { loadChainKey } from '../../server/lib/keys.ts';
 import { verifyAuditChain } from '../../server/services/audit.ts';
 import type { AppContext } from '../../server/context.ts';
-import { FIXTURE_DIR, FIXTURE_SECRET, buildFingerprint, damagePages, fixtureInMemory, fixtureIntact, freshDatabase, readLedger, readManifest, rowCounts, upgradeParity, type FixtureEntry } from './fixtureDatabases.ts';
+import { FIXTURE_DIR, FIXTURE_SECRET, buildFingerprint, damagePages, fixtureInMemory, fixtureIntact, freshDatabase, readLedger, readManifest, rowCounts, unfrozenVersions, upgradeParity, type FixtureEntry } from './fixtureDatabases.ts';
 import { PASSWORD, startApp } from './helpers.ts';
 
 // Databases earlier builds wrote, frozen once, that every new migration has to upgrade (ADR-0041)
@@ -27,6 +27,12 @@ function onDisk(entry: FixtureEntry) {
   const path = join(dir, 'vantage.db');
   copyFilePrivate(join(FIXTURE_DIR, entry.file), path);
   return { dir, path };
+}
+
+/** The same fixture put back at the same path, as the previous build left it. */
+function putBack(entry: FixtureEntry, path: string) {
+  for (const suffix of ['', '-wal', '-shm']) rmSync(`${path}${suffix}`, { force: true });
+  copyFilePrivate(join(FIXTURE_DIR, entry.file), path);
 }
 
 test('the fixtures are the release tag and the two main builds the plan names, each the file its manifest records', () => {
@@ -46,6 +52,10 @@ test('the fixtures are the release tag and the two main builds the plan names, e
 });
 
 test('a new database has the schema the ledger records for the newest migration', () => {
+  // Every recorded version before the newest is reached by a frozen database, which ran its migrations as they shipped.
+  const unfrozen = unfrozenVersions(manifest, ledger, SCHEMA_VERSION);
+  assert.deepEqual(unfrozen, [], `schema ${unfrozen.join(', ')} is recorded but no database that build wrote is frozen, so a migration edited in place there would pass. Freeze one from the commit that shipped it: node scripts/database-fixtures.ts freeze <commit>`);
+  assert.deepEqual(unfrozenVersions(manifest, { ...ledger, versions: { ...ledger.versions, [String(SCHEMA_VERSION + 1)]: ledger.versions[String(SCHEMA_VERSION)] } }, SCHEMA_VERSION + 2), [SCHEMA_VERSION + 1], 'a version recorded past the newest fixture is named');
   const recorded = ledger.versions[String(SCHEMA_VERSION)];
   assert.ok(recorded, `migration ${SCHEMA_VERSION} has no entry in tests/fixtures/databases/fingerprints.json. Record it with: node scripts/database-fixtures.ts fingerprint --write`);
   const { fingerprint } = buildFingerprint();
@@ -70,7 +80,7 @@ test('an upgrade keeps a checked, private copy first, with every row, and leaves
       try {
         // The copy: owner-only, its SHA-256 beside it, at the old schema with every row.
         const [name] = upgradeCopiesIn(copies);
-        assert.match(name, new RegExp(`^vantage-before-upgrade-${entry.schema}-to-${SCHEMA_VERSION}-\\d{8}T\\d{9}\\.db$`), entry.file);
+        assert.match(name, new RegExp(`^vantage-before-upgrade-${entry.schema}-to-${SCHEMA_VERSION}-\\d{8}T\\d{9}-${copyTagOf(path)}\\.db$`), entry.file);
         copyFile = join(copies, name);
         assert.equal((statSync(copyFile).mode & 0o777).toString(8), '600');
         assert.equal((statSync(copies).mode & 0o777).toString(8), '700');
@@ -127,25 +137,78 @@ test('a database already at this build’s schema, a new one and one in memory t
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('only the newest copies are kept, and only copies the service made are removed', () => {
+test('only the newest copies of each database are kept, the one just made always, and nothing else is removed', () => {
   const copies = mkdtempSync(join(tmpdir(), 'vantage-copies-'));
   const keepMine = join(copies, 'vantage-before-upgrade-notes.txt');
   writeFileSync(keepMine, 'not a copy');
-  const dirs: string[] = [];
+  const v5 = fixture('v5.0.0');
+  const other = onDisk(v5);
+  const mine = onDisk(v5);
   try {
+    // Another database shares the directory.
+    openDatabase(other.path, { upgradeCopy: { dir: copies, keep: 2 } }).close();
+    const others = upgradeCopiesIn(copies, other.path);
+    assert.equal(others.length, 1);
+    // A copy of this database stamped later than now (a clock once set wrong) never makes a start prune the copy it made.
+    const later = `vantage-before-upgrade-14-to-${SCHEMA_VERSION}-20991231T000000000-${copyTagOf(mine.path)}.db`;
+    writeFileSync(join(copies, later), 'a copy from a wrong clock');
+    const made: string[] = [];
     for (let i = 0; i < 3; i += 1) {
-      const { dir, path } = onDisk(fixture('v5.0.0'));
-      dirs.push(dir);
-      openDatabase(path, { upgradeCopy: { dir: copies, keep: 2 } }).close();
+      putBack(v5, mine.path);
+      const db = openDatabase(mine.path, { upgradeCopy: { dir: copies, keep: 2 } });
+      try { made.push(upgradeHistory(db).at(-1)!.copy!.file); } finally { db.close(); }
+      assert.ok(existsSync(join(copies, made.at(-1)!)), 'the copy a start just made is kept');
     }
-    const left = upgradeCopiesIn(copies);
+    const left = upgradeCopiesIn(copies, mine.path);
     assert.equal(left.length, 2);
-    for (const f of left) assert.ok(existsSync(join(copies, `${f}.sha256`)));
-    assert.equal(readdirSync(copies).filter((f) => f.endsWith('.sha256')).length, 2, 'a pruned copy takes its SHA-256 with it');
+    assert.ok(left.includes(made.at(-1)!), 'the copy the last upgrade names is one of them');
+    assert.ok(!left.includes(made[0]) && !existsSync(join(copies, `${made[0]}.sha256`)), 'an older copy goes, with its SHA-256');
+    assert.deepEqual(upgradeCopiesIn(copies, other.path), others, 'another database\u2019s copies in the same directory are left alone');
+    assert.ok(existsSync(join(copies, `${others[0]}.sha256`)));
     assert.ok(existsSync(keepMine), 'a file the service did not make is left alone');
   } finally {
-    for (const d of [copies, ...dirs]) rmSync(d, { recursive: true, force: true });
+    for (const d of [copies, other.dir, mine.dir]) rmSync(d, { recursive: true, force: true });
   }
+});
+
+test('a start after a failed upgrade keeps the copy that start took, so restarts never prune away the database as it was', () => {
+  const { dir, path } = onDisk(fixture('v5.0.0'));
+  const copies = join(dir, 'copies');
+  const schemaOf = () => { const d = new Database(path, { readonly: true }); try { return metaGet(d, 'schema_version'); } finally { d.close(); } };
+  try {
+    // Migration 30 fails on this database, every time: each start stops there, at schema 29.
+    const d = new Database(path);
+    for (const on of ['INSERT', 'UPDATE']) d.exec(`CREATE TRIGGER refuse_30_${on.toLowerCase()} BEFORE ${on} ON meta WHEN NEW.key = 'schema_version' AND NEW.value = '30' BEGIN SELECT RAISE(ABORT, 'migration 30 cannot take this database'); END`);
+    d.close();
+    for (let start = 0; start < 4; start += 1) assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
+    assert.equal(schemaOf(), '29');
+    const kept = upgradeCopiesIn(copies, path);
+    assert.equal(kept.length, 1, 'no copy of the half-upgraded database replaces it');
+    assert.match(kept[0], /^vantage-before-upgrade-14-to-/);
+    const failed = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).filter((r) => r.status === 'failed'); } finally { h.close(); } })();
+    assert.equal(failed.length, 4);
+    for (const r of failed) assert.equal(r.copy?.file, kept[0], 'each failed start names the copy of the database as the previous build left it');
+    // Once the cause is gone, the upgrade completes and still names that copy.
+    const fix = new Database(path);
+    for (const on of ['insert', 'update']) fix.exec(`DROP TRIGGER refuse_30_${on}`);
+    fix.close();
+    const db = openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } });
+    try { assert.equal(upgradeHistory(db).at(-1)!.copy?.file, kept[0]); } finally { db.close(); }
+    assert.deepEqual(upgradeCopiesIn(copies, path), kept);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a database that holds people but records no schema is neither copied nor migrated', () => {
+  const { dir, path } = onDisk(fixture('v5.0.0'));
+  try {
+    const d = new Database(path);
+    d.prepare('DELETE FROM meta WHERE key = ?').run('schema_version');
+    d.close();
+    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: join(dir, 'copies') } }), /holds \d+ accounts and \d+ audit entries but records no schema version.*Nothing was migrated/s);
+    assert.deepEqual(upgradeCopiesIn(join(dir, 'copies')), []);
+    const after = new Database(path, { readonly: true });
+    try { assert.equal(metaGet(after, 'schema_version'), null); } finally { after.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a copy that cannot be made, or a database that fails its check, stops the start with nothing migrated', () => {

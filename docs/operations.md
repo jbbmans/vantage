@@ -19,9 +19,13 @@ every upgrade, and store it somewhere the data classification allows. Render dis
 
 Every copy is checked before it counts (ADR-0041): SQLite's full integrity check, one self-contained file with no
 write-ahead log beside it, a Vantage schema this build knows, and the audit trail verifying when the script has
-`VANTAGE_SECRET` (the browser download always checks it). A copy that fails is removed and the script exits 1,
+`VANTAGE_SECRET` (the browser download always checks it). A copy whose file fails is removed and the script exits 1,
 saying whether the live database passes the same check: if it does, the copy was damaged on its way to the backup
-disk; if it does not, the database itself is damaged and the last good backup is the way back. A sound copy gets its
+disk; if it does not, the database itself is damaged and the last good backup is the way back. A live database at a
+newer schema than this build's is said to be one, for the build that runs it to back up. A trail that does not verify,
+including audit entries with no chain key or head to check them against, does not remove a fresh copy: the copy holds
+exactly what the live database holds, so it is kept, the script warns, and the record says the trail is broken. Look
+at **Audit integrity** before relying on it, since a restore refuses such a trail. A sound copy gets its
 SHA-256 beside it as `<copy>.sha256`, in the form `sha256sum -c` reads, and the record keeps it; a download carries it
 as its `Content-Digest` header. Check any backup later, before moving it or before relying on it:
 
@@ -58,7 +62,9 @@ the result with this build as the next start would (an older backup is upgraded,
 again under `VANTAGE_SECRET` alone, reads the live database to say what a restore would undo in each Unit Instance, and
 removes the scratch copy. It exits 0 when the backup restores. The live database records the drill and the running
 service writes it into the platform audit trail (`restore_drill`) within five minutes; a drill that fails tells the
-Vantage staff who hold the backups. **Backup and restore → Restore drills** and **Operations → Backups** show them.
+Vantage staff who hold the backups. **Backup and restore → Restore drills** lists them, and **Operations → Backups**
+shows the last one. The live database keeps every drill until the service has audited it, then the last twenty. Who
+ran each, and as which account on the host, is shown only to staff who hold the backups or read the audit trail.
 Drill the newest backup after each upgrade and at least monthly, and before any restore. The scratch copy needs as much
 free space beside the database as the backup's size.
 
@@ -75,9 +81,12 @@ audited (ADR-0014). `node scripts/restore.ts` is the only supported way.
      --change INC-4471 --dry-run
    ```
    It refuses a backup that fails its check or no longer matches its `.sha256`, one that does not verify under this
-   service's `VANTAGE_SECRET`, and a `--by` that is not an active Lead Vantage Administrator. It prints how many audit
-   entries after the backup a restore would undo, in how many Unit Instances, and how many of them changed accounts,
-   authority or holds.
+   service's `VANTAGE_SECRET`, and a `--by` that is not an active Lead Vantage Administrator. When the database here,
+   or its accounts, cannot be read, `--by` is checked against the backup instead and the command says so; a backup or
+   database from before platform roles names its Lead Vantage Administrators as that build did. It prints how many
+   audit entries after the backup a restore would undo, in how many Unit Instances, and how many of them changed
+   accounts, authority or holds. A dry run stopped for who authorized it, for another database's backup or for too
+   little room is recorded and audited as refused, and tells no one the backup failed, since it never rehearsed it.
 2. **Vantage Administrator console → Maintenance → Start maintenance**, with the reason (the change or incident
    record's number, I-35). Then stop the service.
 3. **Run it** without `--dry-run`. It refuses while anything holds the database open. It keeps the database it
@@ -118,18 +127,25 @@ a Vantage Administrator marks a changed or failed one reviewed with what they fo
 each affected Unit Instance shows it as needing attention.
 
 Before a start migrates anything, it keeps a copy of the database as the last build left it (ADR-0041). It runs
-SQLite's quick check on the database, copies it into `vantage-before-upgrade-<from>-to-<to>-<stamp>.db`, owner-only from
-before its first byte, with its `.sha256`, and checks the copy (sound, at the old schema, holding every audit entry).
-Only then does it migrate. A database that fails the check, or a copy that cannot be made or does not check out, stops
-the start with nothing migrated and says why; the database stays at its old schema for the previous build. There is
-no setting that skips the copy. The upgrade record, its `upgrade_verified`, `upgrade_rows_lost` or `upgrade_failed`
-entry and a failed migration's message name the copy: restoring it with the previous build is how a lossy or failed
-upgrade is undone.
+SQLite's quick check on the database, copies it into `vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db`,
+owner-only from before its first byte, with its `.sha256`, and checks the copy (sound, at the old schema, holding every
+audit entry). `<tag>` is eight hexadecimal characters taken from the database's path, so the copies of two databases
+in one directory are told apart. Only then does it migrate. A database that fails the check, or a copy that cannot be
+made or does not check out, stops the start with nothing migrated and says why; the database stays at its old schema
+for the previous build. There is no setting that skips the copy. A start after a failed upgrade keeps the copy the
+failed start took, while it is still there and matches its `.sha256`, and takes none of its own: restarting never
+prunes away the database as it was. A database file that holds accounts or audit entries but records no schema
+version is refused with nothing copied or migrated; restore the last good backup. The upgrade record, its
+`upgrade_verified`, `upgrade_rows_lost` or `upgrade_failed` entry and a failed migration's message name the copy:
+restoring it with the previous build is how a lossy or failed upgrade is undone. Drill it with that build first
+(`restore.ts DRILL` from this release on; with an older build, `REPLACE-DATABASE --dry-run` with the service
+stopped), since this build's drill would upgrade it again.
 
 - `VANTAGE_UPGRADE_COPY_DIR`: where the copies go. Default: the database's own directory. Give it room for one more
   database; a start with too little stops and says how much it needs.
-- `VANTAGE_UPGRADE_COPIES_KEPT`: how many of these copies stay there, newest first (default 3, 1 to 20). Older ones
-  the service made are removed; nothing else in the directory is touched.
+- `VANTAGE_UPGRADE_COPIES_KEPT`: how many of each database's copies stay there, newest first (default 3, 1 to 20).
+  The copy just made always stays. Older ones the service made of the same database are removed; nothing else in the
+  directory is touched.
 
 These copies are for undoing an upgrade on this host. They do not replace the weekly backup off the host.
 

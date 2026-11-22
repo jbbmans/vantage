@@ -68,10 +68,18 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
   };
   const fault = (f: BackupFault, message: string) => { result.faults.push({ fault: f, message }); };
   const done = () => { result.ok = result.faults.length === 0; return result; };
-  if (!existsSync(path) || !statSync(path).isFile()) { fault('missing', `There is no backup at ${path}.`); return done(); }
-  result.bytes = statSync(path).size;
-  result.sha256 = sha256File(path);
-  const recorded = readChecksumFile(path);
+  // A file this account cannot read, or a sidecar that is not a file, is a fault the check names, never a crash: the
+  // drill records it like any other failure (ADR-0041).
+  let recorded: string | null;
+  try {
+    if (!existsSync(path) || !statSync(path).isFile()) { fault('missing', `There is no backup at ${path}.`); return done(); }
+    result.bytes = statSync(path).size;
+    result.sha256 = sha256File(path);
+  } catch (error) {
+    fault('unreadable', `${basename(path)} cannot be read here: ${(error as Error).message}.`);
+    return done();
+  }
+  try { recorded = readChecksumFile(path); } catch { recorded = 'unreadable'; }
   if (recorded === 'unreadable' || recorded === 'other') {
     result.checksum = 'unreadable';
     fault('checksum_unreadable', `${basename(path)}.sha256 beside it ${recorded === 'other' ? 'names another file' : 'is not a SHA-256 line'}, so the copy cannot be matched to the one taken.`);
@@ -79,7 +87,8 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
     result.checksum = recorded === result.sha256 ? 'match' : 'mismatch';
     if (result.checksum === 'mismatch') fault('checksum_mismatch', `Its bytes no longer match ${basename(path)}.sha256 beside it (${recorded.slice(0, 12)} when it was taken, ${result.sha256.slice(0, 12)} now): it changed after it was taken.`);
   }
-  const header = readHeader(path);
+  let header: Buffer | null;
+  try { header = readHeader(path); } catch (error) { fault('unreadable', `${basename(path)} cannot be read here: ${(error as Error).message}.`); return done(); }
   if (!header || !header.subarray(0, 16).equals(HEADER)) { fault('not_sqlite', `${basename(path)} is not a SQLite database${result.bytes === 0 ? ': it is empty' : ''}.`); return done(); }
   const beside = ['-wal', '-journal', '-shm'].filter((suffix) => existsSync(`${path}${suffix}`));
   for (const suffix of beside.filter((x) => x !== '-shm' && statSync(`${path}${x}`).size > 0)) {
@@ -91,18 +100,26 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
   const privately = walMode || beside.length > 0;
   let scratch: string | null = null;
   let source = path;
-  if (privately) {
-    scratch = mkdtempSync(join(tmpdir(), 'vantage-check-'));
-    source = join(scratch, 'copy.db');
-    copyFilePrivate(path, source);
-  }
   let db: Database.Database | null = null;
+  // SQLite says a damaged file is malformed, or not a database, as it opens it: that is a corrupt backup, not an unreadable one.
+  const damaged = (error: unknown) => /^SQLITE_(CORRUPT|NOTADB)/.test(String((error as { code?: string }).code ?? ''));
   try {
+    if (privately) {
+      try {
+        scratch = mkdtempSync(join(tmpdir(), 'vantage-check-'));
+        source = join(scratch, 'copy.db');
+        copyFilePrivate(path, source);
+      } catch (error) {
+        fault('unreadable', `It could not be copied aside to be read: ${(error as Error).message}.`);
+        return done();
+      }
+    }
     try {
       db = new Database(source, { readonly: !privately, fileMustExist: true });
       if (walMode) db.pragma('journal_mode = DELETE');
     } catch (error) {
-      fault('unreadable', `SQLite cannot open it: ${(error as Error).message}.`);
+      if (damaged(error)) fault('corrupt', `It fails SQLite's integrity check: ${(error as Error).message}.`);
+      else fault('unreadable', `SQLite cannot open it: ${(error as Error).message}.`);
       return done();
     }
     try {
@@ -114,7 +131,11 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
       fault('corrupt', `It fails SQLite's integrity check: ${(error as Error).message}.`);
     }
     const table = (name: string) => { try { return Boolean(db!.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)); } catch { return false; } };
-    if (!table('meta') || !table('users') || !table('audit_log')) { fault('not_vantage', 'It is not a Vantage database: it has no meta, users or audit_log table.'); return done(); }
+    if (!table('meta') || !table('users') || !table('audit_log')) {
+      // A file SQLite cannot read through has no tables to find: it is corrupt, and saying it is not Vantage's would mislead.
+      if (!result.faults.some((f) => f.fault === 'corrupt')) fault('not_vantage', 'It is not a Vantage database: it has no meta, users or audit_log table.');
+      return done();
+    }
     try {
       const meta = (key: string) => (db!.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
       const schema = meta('schema_version');
@@ -138,6 +159,10 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
         const chain = verifyAuditChainOf(db, opened.key);
         result.trail = { ok: chain.ok, count: chain.count, ...(chain.ok ? {} : { reason: chain.reason }) };
         if (!chain.ok) fault('trail_broken', `Its audit trail does not verify (${chain.reason}): it was changed after it was written, or it is damaged.`);
+      } else if (result.audit?.count) {
+        // Entries with no chain key or head to check them against: whatever they say, nothing shows they were not changed.
+        result.trail = { ok: false, count: 0, reason: 'no chain key or audit head' };
+        fault('trail_broken', `Its audit trail does not verify: it holds ${result.audit.count} entries but no chain key or head to check them against.`);
       } else result.trail = { ok: true, count: 0 };
     } else if (options.requireTrail) fault('sealed_elsewhere', 'Its audit trail was not checked: VANTAGE_SECRET is not set here.');
     return done();

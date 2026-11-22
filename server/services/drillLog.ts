@@ -17,6 +17,12 @@ export interface DrillRecord {
   ok: boolean;
   /** Why it failed, in a sentence. */
   failure: string | null;
+  /**
+   * Set when a dry run stopped for something other than the backup: who authorized it, a backup of another database
+   * named without --different-database, or too little room for the scratch copy. Such a run says nothing about whether
+   * the backup restores, so it is audited but no one is told the backup failed.
+   */
+  refused?: 'authorization' | 'other_database' | 'space' | null;
   /** The backup rehearsed: its file name, size and SHA-256, the schema and newest audit entry it holds, and whether this database recorded taking it. */
   backup: { file: string; bytes: number | null; sha256: string | null; schema: number | null; seq: number | null; at: string | null; recorded: boolean };
   /** The upgrade this build ran on the restored copy, when it was at an older schema: from, to, and what the upgrade check found. */
@@ -37,7 +43,9 @@ export interface DrillRecord {
   audited: boolean;
 }
 
+/** Drills already in the audit trail that are kept here, newest first; one not yet audited is never dropped, up to CAP in all. */
 const KEPT = 20;
+const CAP = 200;
 
 export function drillHistory(db: Db): DrillRecord[] {
   try {
@@ -49,7 +57,11 @@ export function drillHistory(db: Db): DrillRecord[] {
 /** Adds a drill, under the write lock, so the script and the running service never lose one. */
 export function recordDrill(db: Db, record: Omit<DrillRecord, 'id' | 'at' | 'audited'> & { at?: string }): DrillRecord {
   const entry: DrillRecord = { ...record, id: randomUUID(), at: record.at ?? new Date().toISOString(), audited: false };
-  db.transaction(() => { metaSet(db, 'drill_history', JSON.stringify([...drillHistory(db), entry].slice(-KEPT))); }).immediate();
+  db.transaction(() => {
+    const all = [...drillHistory(db), entry];
+    const audited = all.filter((r) => r.audited).slice(-KEPT);
+    metaSet(db, 'drill_history', JSON.stringify(all.filter((r) => !r.audited || audited.includes(r)).slice(-CAP)));
+  }).immediate();
   return entry;
 }
 

@@ -135,7 +135,8 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
     health: healthReport(ctx),
     version: versionStatus(ctx),
     schema: migrationStatus(ctx),
-    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous) },
+    // A drill names who authorized a dry run and the host account that ran it: for the same staff as who took a backup.
+    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous), drills: backups.drills.map((d) => (named ? d : { ...d, by: null, hostUser: null })) },
     jobs: jobStatus(ctx),
   });
 }));
@@ -829,8 +830,10 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
     freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
     // One self-contained file (ADR-0014).
-    const copy = new Database(dest, { fileMustExist: true });
-    try { copy.pragma('journal_mode = DELETE'); } finally { copy.close(); }
+    try {
+      const copy = new Database(dest, { fileMustExist: true });
+      try { copy.pragma('journal_mode = DELETE'); } finally { copy.close(); }
+    } catch { /* a copy SQLite cannot switch is one the check below names */ }
     // Checked before it leaves (ADR-0041): a copy that is not sound is never sent or recorded. Its trail is the live
     // database's, so a fault there is recorded with the copy and answered on the Audit integrity page.
     const check = checkBackup(dest, { config: ctx.config });
@@ -847,7 +850,8 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     // The receiver can tell the file it saved from the one sent (RFC 9530).
     res.setHeader('Content-Digest', `sha-256=:${Buffer.from(check.sha256!, 'hex').toString('base64')}:`);
   } catch (e) { discard(); throw e; }
-  res.download(dest, `vantage-backup-${stamp}.db`, discard);
+  // One copy, whole: no ranges, so the digest is always of what is sent and a resumed download cannot join two copies.
+  res.download(dest, `vantage-backup-${stamp}.db`, { acceptRanges: false }, discard);
 }));
 
 platformRouter.get('/export', requirePlatform('platform.data'), wrap((req, res) => {
