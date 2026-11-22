@@ -1,0 +1,23 @@
+{
+  "format": "vantage-schema-fingerprints/1",
+  "versions": {
+    "14": {
+      "fingerprint": "e10c9a095649e0fb8f4bbc8492cbd3be1904a49fb2c3f23e7c2f8757dde6ec9e",
+      "migration": null,
+      "recordedAt": "2026-11-22T17:34:38.996Z",
+      "from": "fixture"
+    },
+    "22": {
+      "fingerprint": "52273ef678fe7307c990c08d3e0db85ee95e60a7f8fbabc3c335eae6d1020d0f",
+      "migration": "022_instance_operations",
+      "recordedAt": "2026-11-22T17:34:49.503Z",
+      "from": "fixture"
+    },
+    "42": {
+      "fingerprint": "bebd3ce75e32b5278d7cade3e2942eca7f3e9f65cee7f9f506d231f44c5df510",
+      "migration": "042_attachment_scan",
+      "recordedAt": "2026-11-22T17:34:52.504Z",
+      "from": "fixture"
+    }
+  }
+}

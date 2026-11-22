@@ -63,8 +63,9 @@ export const EXPORT_TABLES = [
  */
 const HOST_META = [
   'schema_version', 'migration_history', 'migration_history_since', 'migration_audited_through', 'release_history', 'backup_history', 'last_backup_at',
-  // Which database this is, and what was upgraded, restored and backed up on it (ADR-0014).
-  'database_id', 'upgrade_history', 'restore_history',
+  // Which database this is, and what was upgraded, restored and backed up on it (ADR-0014), and the drills run on its
+  // backups (ADR-0041).
+  'database_id', 'upgrade_history', 'restore_history', 'drill_history',
 ] as const;
 
 /**

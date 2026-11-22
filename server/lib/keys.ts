@@ -25,7 +25,9 @@ function secretThatSignedTheChain(db: Db, candidates: string[]): string | null {
   if (head?.mac) {
     for (const s of candidates) if (hmac(s, `audit-head:${head.hash}:${head.count}`) === head.mac) return s;
   }
-  const caseHead = db.prepare('SELECT work_item_id, hash, count, mac FROM work_event_heads LIMIT 1').get() as { work_item_id: string; hash: string; count: number; mac: string } | undefined;
+  // A backup from before case seals has no work_event_heads table, and so no case head: a backup is read as it is.
+  const caseHeads = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_event_heads'").get());
+  const caseHead = caseHeads ? db.prepare('SELECT work_item_id, hash, count, mac FROM work_event_heads LIMIT 1').get() as { work_item_id: string; hash: string; count: number; mac: string } | undefined : undefined;
   if (caseHead) {
     for (const s of candidates) if (hmac(s, `case-head:${caseHead.work_item_id}:${caseHead.hash}:${caseHead.count}`) === caseHead.mac) return s;
   }
@@ -36,6 +38,23 @@ function secretThatSignedTheChain(db: Db, candidates: string[]): string | null {
 export function sealedUnderPreviousSecret(db: Db, config: Pick<AppConfig, 'secret'>): boolean {
   const stored = metaGet(db, CHAIN_KEY);
   return Boolean(stored) && decryptSecret(config.secret, stored!) === null;
+}
+
+/**
+ * The chain key, read without writing anything: for checking a backup, which must not change (ADR-0041). `no_chain` when
+ * the database holds no chain to check; `sealed_elsewhere` when no secret given opens it.
+ */
+export function readChainKey(db: Db, config: Pick<AppConfig, 'secret' | 'previousSecrets'>): { key: string } | { key: null; reason: 'no_chain' | 'sealed_elsewhere' } {
+  const candidates = secretsOf(config);
+  const stored = metaGet(db, CHAIN_KEY);
+  if (stored) {
+    const key = decryptSecret(candidates, stored);
+    return key === null ? { key: null, reason: 'sealed_elsewhere' } : { key };
+  }
+  const caseHeads = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_event_heads'").get()) && Boolean(db.prepare('SELECT 1 FROM work_event_heads LIMIT 1').get());
+  if (!metaGet(db, 'audit_head') && !caseHeads) return { key: null, reason: 'no_chain' };
+  const key = secretThatSignedTheChain(db, candidates);
+  return key === null ? { key: null, reason: 'sealed_elsewhere' } : { key };
 }
 
 /** Opens (or on first start creates) the chain key, and re-wraps it under the current secret. */

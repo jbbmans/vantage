@@ -831,8 +831,8 @@
     },
     {
       "id": "migrations",
-      "title": "A fresh database reaches the current schema; old ones upgrade with no row lost, once, audited; a newer one is refused; a failed one rolls back",
-      "source": "Task 7-8; ADR-0014",
+      "title": "A fresh database reaches the current schema; old ones upgrade with no row lost, once, audited, after a checked copy is kept; databases earlier builds wrote upgrade to a new database's schema; a changed migration fails; a newer one is refused; a failed one rolls back",
+      "source": "Task 7-8; ADR-0014; ADR-0041",
       "roles": [
         "Vantage Administrator"
       ],
@@ -857,13 +857,29 @@
         {
           "file": "tests/server/auditCoverage.test.ts",
           "test": "a new database says which schema it was created at; each migration after is audited once, and restarts add nothing"
+        },
+        {
+          "file": "tests/server/databaseFixtures.test.ts",
+          "test": "every frozen database upgrades to a new database’s schema"
+        },
+        {
+          "file": "tests/server/databaseFixtures.test.ts",
+          "test": "an upgrade keeps a checked, private copy first, with every row, and leaves the data and the trail as they were"
+        },
+        {
+          "file": "tests/server/databaseFixtures.test.ts",
+          "test": "a copy that cannot be made, or a database that fails its check, stops the start with nothing migrated"
+        },
+        {
+          "file": "tests/server/databaseFixtures.test.ts",
+          "test": "a changed migration fails the fixture test, naming the table and the migration"
         }
       ]
     },
     {
       "id": "rollback-recovery",
-      "title": "Backup, restore and archive: privileged, checked, audited; the chain verifies; another database, a newer schema or an edited trail is refused",
-      "source": "Tasks 7-8; ADR-0014",
+      "title": "Backup, restore and archive: privileged, checked, audited; every backup passes its integrity check or is removed; a drill restores a copy while the service runs; the chain verifies; a damaged backup, another database, a newer schema or an edited trail is refused",
+      "source": "Tasks 7-8; ADR-0014; ADR-0041",
       "roles": [
         "Vantage Administrator"
       ],
@@ -896,6 +912,18 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "the database, its write-ahead log and its directory are the service’s alone, whatever the umask"
+        },
+        {
+          "file": "tests/server/verifiedBackups.test.ts",
+          "test": "a damaged backup is reported as such, and the drill and the restore refuse it without writing it"
+        },
+        {
+          "file": "tests/server/verifiedBackups.test.ts",
+          "test": "a restore drill passes beside the running service, replaces nothing, writes nothing to the backup, and is audited once"
+        },
+        {
+          "file": "tests/server/verifiedBackups.test.ts",
+          "test": "the backup script refuses a copy that fails its check, removes it, and says the live database fails too"
         }
       ]
     }

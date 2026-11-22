@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { hmac } from '../lib/crypto.ts';
 import { newId, now } from '../lib/ids.ts';
-import { metaGet, metaSet } from '../db/index.ts';
+import { metaGet, metaSet, type Db } from '../db/index.ts';
 import { forwardAudit } from './auditSink.ts';
 import { auditCategoryOf, type AuditCategory } from '../../shared/auditCatalog.ts';
 
@@ -172,27 +172,45 @@ const CHAIN_WALK = 'SELECT seq, id, actor_id, action, entity, entity_id, subject
  * recentChainCheck, which reuses an answer for a minute.
  */
 export function verifyAuditChain(ctx: AppContext): ChainCheck {
-  const { db, chainKey } = ctx;
+  const result = walkChain(ctx.db, ctx.chainKey, CHAIN_WALK);
+  // The newest answer is the one a page shows next, so an explicit check that finds the chain broken says so everywhere.
+  chainChecks.set(ctx, { at: Date.now(), result });
+  return result;
+}
+
+/**
+ * The same check on a database an earlier build may have written, as a backup being checked, drilled or restored is
+ * (ADR-0041): its audit log can lack the columns later builds seal in (organizations, categories), and a missing one
+ * reads as empty, which is how those entries were sealed. The running service uses verifyAuditChain.
+ */
+export function verifyAuditChainOf(db: Db, chainKey: string): ChainCheck {
+  const has = new Set((db.prepare("SELECT name FROM pragma_table_info('audit_log')").all() as Array<{ name: string }>).map((c) => c.name));
+  const columns = CHAIN_COLUMNS.map((c) => (has.has(c) ? c : `NULL AS ${c}`)).join(', ');
+  return walkChain(db, chainKey, `SELECT ${columns} FROM audit_log ORDER BY seq /* a backup's chain */`);
+}
+
+const CHAIN_COLUMNS = ['seq', 'id', 'actor_id', 'action', 'entity', 'entity_id', 'subject_id', 'unit_id', 'detail', 'at', 'ip', 'org_id', 'category', 'prev_hash', 'entry_hash'] as const;
+
+function walkChain(db: Db, chainKey: string, walk: string): ChainCheck {
   let previous = '';
   let count = 0;
   let broken: string | null = null;
-  for (const row of db.prepare(CHAIN_WALK).iterate() as IterableIterator<Record<string, unknown>>) {
+  for (const row of db.prepare(walk).iterate() as IterableIterator<Record<string, unknown>>) {
     const expected = entryHash(chainKey, row, previous);
     if ((row.prev_hash ?? null) !== (previous || null) || row.entry_hash !== expected) { broken = String(row.id); break; }
     previous = String(row.entry_hash);
     count += 1;
   }
-  const result = ((): ChainCheck => {
-    // A broken chain still reports how many entries the log holds, as it always has.
-    if (broken) return { ok: false, count: (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n, reason: `audit entry ${broken} does not match the chain` };
-    const head = JSON.parse(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}') as { hash: string; count: number; mac?: string };
-    if (head.hash !== previous || head.count !== count) return { ok: false, count, reason: 'audit head does not match the chain' };
-    if (count && head.mac !== hmac(chainKey, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count, reason: 'audit head signature is invalid' };
-    return { ok: true, count };
-  })();
-  // The newest answer is the one a page shows next, so an explicit check that finds the chain broken says so everywhere.
-  chainChecks.set(ctx, { at: Date.now(), result });
-  return result;
+  // A broken chain still reports how many entries the log holds, as it always has.
+  if (broken) return { ok: false, count: (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n, reason: `audit entry ${broken} does not match the chain` };
+  // A head that is not the object the chain writes (damaged, or written by hand) is one the chain does not match.
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(String(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}')); } catch { parsed = null; }
+  if (!parsed || typeof parsed !== 'object') return { ok: false, count, reason: 'audit head cannot be read' };
+  const head = parsed as { hash: string; count: number; mac?: string };
+  if (head.hash !== previous || head.count !== count) return { ok: false, count, reason: 'audit head does not match the chain' };
+  if (count && head.mac !== hmac(chainKey, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count, reason: 'audit head signature is invalid' };
+  return { ok: true, count };
 }
 
 /**

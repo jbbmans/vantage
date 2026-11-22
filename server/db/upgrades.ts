@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseState, UpgradeCopy } from './copies.ts';
 
 type Db = Database.Database;
 
@@ -49,6 +50,10 @@ export interface UpgradeRecord {
   audited: boolean;
   /** A Vantage Administrator looked at the losses and said so. */
   reviewed?: { at: string; by: string; byName: string; note: string } | null;
+  /** The copy of the database the start kept before it migrated, checked and with its SHA-256 (ADR-0041). Absent before it was kept. */
+  copy?: UpgradeCopy | null;
+  /** For a failed upgrade, the database as the start left it: the next start reuses `copy` only while it still is (ADR-0041). */
+  left?: DatabaseState;
 }
 
 const UPGRADES_KEPT = 50;

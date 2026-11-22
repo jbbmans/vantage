@@ -10,7 +10,7 @@ import { normalizeMetrics } from '../../shared/constants.ts';
 import { setCurrencySymbol } from '../../shared/metrics.ts';
 import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, UNIT_MANAGER_ROLES, type PlatformRole } from '../../shared/permissions.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { limitConsoleReads, requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
 import { freshPlatformAuthority } from '../auth/fresh.ts';
@@ -56,6 +56,7 @@ import { MAX_CATALOG_BYTES } from '../../shared/courses.ts';
 import { instanceFlagStatus, isInstanceFlag, setInstanceFlag } from '../services/instanceFlags.ts';
 import { instanceOperations, operationsSummary } from '../services/instanceOperations.ts';
 import { restoreStatus, reviewUpgrade } from '../services/recovery.ts';
+import { checkBackupOffThread, fileFaults } from '../services/backupCheck.ts';
 import { upgradeHistory } from '../db/upgrades.ts';
 import { signInHealth } from '../services/signInHealth.ts';
 import { probeProvider } from '../auth/oidc.ts';
@@ -124,6 +125,10 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
 
 // Operations: the service's health, build, schema, backups and scheduled jobs (ADR-0011)
 
+/** A text with every absolute path on the host cut to its file name, for viewers from whom the host's layout is withheld. */
+const withoutHostPaths = (text: string) =>
+  text.replace(/(^|[\s('"`=:])(\/[^\s'"`()]+)/g, (_, before: string, path: string) => `${before}${path.split('/').filter(Boolean).at(-1) ?? ''}`);
+
 platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, res) => {
   const ctx = req.ctx;
   const backups = backupStatus(ctx);
@@ -134,7 +139,10 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
     health: healthReport(ctx),
     version: versionStatus(ctx),
     schema: migrationStatus(ctx),
-    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous) },
+    // A drill names who authorized a dry run and the host account that ran it: for the same staff as who took a backup.
+    // Who ran a drill, as whom on the host, and the name a refused dry run gave are for those who hold the backups or read the trail.
+    // A failure's text can name paths on the host, a home directory among them: those viewers see each by its file name.
+    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous), drills: backups.drills.map((d) => (named ? d : { ...d, by: null, hostUser: null, failure: d.refused === 'authorization' ? 'The person named as authorizing it is not an active Lead Vantage Administrator.' : d.failure && withoutHostPaths(d.failure) })) },
     jobs: jobStatus(ctx),
   });
 }));
@@ -827,21 +835,46 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     await backupDatabase(ctx.db, dest);
     // Copying awaits, page by page; the copy leaves only for a session still live, still confirmed and still allowed (ADR-0035).
     freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
-    // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
-    const copy = new Database(dest, { fileMustExist: true });
-    let seq: number | null;
+    // One self-contained file (ADR-0014).
     try {
-      copy.pragma('journal_mode = DELETE');
-      seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
-    } finally { copy.close(); }
-    const bytes = statSync(dest).size;
+      const copy = new Database(dest, { fileMustExist: true });
+      try { copy.pragma('journal_mode = DELETE'); } finally { copy.close(); }
+    } catch { /* a copy SQLite cannot switch is one the check below names */ }
+    // Checked before it leaves (ADR-0041): a copy that is not sound is never sent or recorded. Its trail is the live
+    // database's, so a fault there is recorded with the copy and answered on the Audit integrity page. It runs on a thread
+    // of its own: reading a large copy through would hold every other request meanwhile.
+    const check = await checkBackupOffThread(dest, { config: ctx.config });
+    const broken = fileFaults(check);
+    if (broken.length) throw new HttpError(500, `The copy failed its check, so it was not sent. ${broken.map((f) => f.message).join(' ')} Take the backup again; if it fails again, check the database with node scripts/backup.ts --verify on a server copy.`, 'backup_unsound');
+    // The check reads the whole copy, which takes a while on a large database: the session is asked again before it goes.
+    freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
+    const seq = check.audit?.seq ?? null;
+    const bytes = check.bytes ?? statSync(dest).size;
+    const trail = check.trail ? (check.trail.ok ? 'verified' : 'broken') : 'not_checked';
     ctx.db.transaction(() => {
-      recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
-      audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
+      recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true, sha256: check.sha256, verified: true, trail });
+      audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}; checked, SHA-256 ${check.sha256}${trail === 'broken' ? '; its audit trail does not verify' : ''}`, ip: ip(req) });
     })();
     announce();
+    // The receiver can tell the file it saved from the one sent (RFC 9530).
+    res.setHeader('Content-Digest', `sha-256=:${Buffer.from(check.sha256!, 'hex').toString('base64')}:`);
   } catch (e) { discard(); throw e; }
-  res.download(dest, `vantage-backup-${stamp}.db`, discard);
+  // One copy, whole: no ranges, so the digest is always of what is sent and a resumed download cannot join two copies.
+  // It keeps the API's no-store: no cache on the way keeps a copy of the database.
+  // Each download is a new copy, so a conditional request has nothing to compare: it gets the copy too, never a 304 or a
+  // 412 carrying this copy's digest.
+  for (const header of ['if-match', 'if-none-match', 'if-modified-since', 'if-unmodified-since', 'if-range']) delete req.headers[header];
+  res.download(dest, `vantage-backup-${stamp}.db`, { acceptRanges: false, cacheControl: false, etag: false, lastModified: false, dotfiles: 'allow' }, (error) => {
+    discard();
+    // A copy that could not be sent is answered, never left hanging, and the answer carries none of the file's headers:
+    // no digest, name or type of a copy that was not sent.
+    if (error) {
+      if (res.headersSent) { res.destroy(); return; }
+      for (const header of ['Content-Digest', 'Content-Disposition', 'Content-Type', 'Content-Length', 'ETag', 'Last-Modified', 'Accept-Ranges']) res.removeHeader(header);
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.status(500).json({ error: 'The backup could not be sent. Take it again.', code: 'backup_send_failed' });
+    }
+  });
 }));
 
 platformRouter.get('/export', requirePlatform('platform.data'), wrap((req, res) => {

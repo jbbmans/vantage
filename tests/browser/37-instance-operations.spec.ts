@@ -45,10 +45,22 @@ test('Unit Instance operations lists each Unit Instance, opens one, and reads cl
 });
 
 test('Backup and restore keeps infrastructure backups apart from the data exports, which are not backups', async ({ page }) => {
+  // A drill runs on the host; the test server records one that passed, one that failed and one that stopped, as the script would.
+  expect((await page.request.post('/api/__test/drills')).ok()).toBeTruthy();
   await loginAs(page, OPERATOR.username);
   await openAdmin(page, 'data', 'Backup and restore');
-  for (const name of ['Database backup', 'Restore', 'Restores', 'Service archive', 'Not backups: data exports']) await expect(panel(page, name), name).toBeVisible();
+  for (const name of ['Database backup', 'Restore', 'Restore drills', 'Restores', 'Service archive', 'Not backups: data exports']) await expect(panel(page, name), name).toBeVisible();
   await expect(panel(page, 'Restore')).toContainText('VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE');
+  // A drill rehearses the restore with the service running; the console says how and when the last one ran (ADR-0041).
+  await expect(panel(page, 'Restore')).toContainText('node scripts/restore.ts DRILL --from <backup.db>');
+  const drills = panel(page, 'Restore drills');
+  await expect(drills.getByRole('row', { name: /nightly\.db/ })).toContainText('Passed');
+  await expect(drills.getByRole('row', { name: /damaged\.db/ })).toContainText('Failed');
+  await expect(drills.getByRole('row', { name: /damaged\.db/ })).toContainText("It fails SQLite's integrity check");
+  // A drill that stopped on the host's error says nothing about its backup, and is not shown as a failed one.
+  await expect(drills.getByRole('row', { name: /interrupted\.db/ })).toContainText('Stopped');
+  await expect(drills.getByRole('row', { name: /interrupted\.db/ })).not.toContainText('Failed');
+  await expect(panel(page, 'Restore')).toContainText('stopped before it finished, so drill it again');
   const exports = panel(page, 'Not backups: data exports');
   for (const name of ['Personal export', 'Unit configuration', 'Roster']) await expect(exports.getByRole('cell', { name: new RegExp(`^${name}`) }).first(), name).toBeVisible();
   await expect(exports).not.toContainText('Database backup');

@@ -34,12 +34,36 @@ records `schema_version` in `meta`. No migration deletes or rewrites what a pers
 - Renaming or moving a test that `docs/engineering/readiness-gate.json` cites means updating the register and running
   `node scripts/readiness-gate.ts --write`, since the gate test compares `READINESS_GATE.md` with the register.
 
+- A migration that has shipped is never changed. `tests/server/databaseFixtures.test.ts` fails when a new database at
+  a recorded schema version no longer has that version's fingerprint (`tests/fixtures/databases/fingerprints.json`), or
+  when a frozen fixture upgraded by this build's migrations does not end up with a new database's schema; the message
+  names each object that differs and the migration that last changed it. A change goes in a new migration. Comments
+  and spacing in a migration's SQL do not count: the fingerprint is taken from the schema the migrations produce, not
+  their text (ADR-0041).
+- When a new migration ships, record its version with `node scripts/database-fixtures.ts fingerprint --write` (it
+  records a version once and never changes a recorded one), and after a release freeze a fixture from its tag with
+  `node scripts/database-fixtures.ts freeze <tag>`. Every recorded version below the newest needs a frozen fixture, since
+  only a database that already ran a migration as it shipped catches that migration being edited: the fixture test
+  fails without one, and `fingerprint --write` refuses to record the next version until the fixture is there. `node scripts/database-fixtures.ts check` runs the parity check on
+  every fixture by itself.
+
 **Tested:** `tests/server/migrations.test.ts` builds a database at version 7 with real rows, opens it,
 checks the stage and history backfill, and opens it again to show nothing changes the second time.
+`tests/server/databaseFixtures.test.ts` upgrades databases that earlier builds wrote through their own API, kept in
+`tests/fixtures/databases/` with a manifest of their source commit, SHA-256, rows and the scenario each build answered
+(`v5.0.0.db` at schema 14, `main-2b2ccf2.db` at 22, `main-caebfab.db` at 42), and requires each to reach a new
+database's schema. It also checks the copy a start keeps before an upgrade.
 
-**Upgrade procedure (current):** stop the service, back up the database file (`docs/operations.md`),
-start the new version. The migration runs at startup inside a transaction. There is no automatic
-downgrade: restore the backup to roll back.
+**Upgrade procedure (current):** take the backup the run book asks for, stop the service, start the new version.
+Before the first migration the start keeps a checked, owner-only copy of the database as it was
+(`vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db`, `VANTAGE_UPGRADE_COPY_DIR`, `VANTAGE_UPGRADE_COPIES_KEPT`),
+and a start that cannot make one stops with nothing migrated. A start after a failed upgrade keeps the copy the failed
+start took while nothing was written to the database since, and never prunes it. Each migration runs at startup inside its own transaction, so a failure leaves the database at the last
+migration that committed. There is no automatic downgrade: to roll back, drill that copy (or the backup) with the
+previous build, then restore it with that build (`docs/operations.md#upgrades`). This build's drill would upgrade it
+again (and fails again where the upgrade failed), so it says nothing about the previous build. v5.0.0 has no
+`scripts/restore.ts`: from it, check the copy with this build's `backup.ts --verify`, which does not upgrade it, and put
+it back with this build's `restore.ts`, which does not upgrade what it puts in place either.
 
 ## Engine migration (SQLite → PostgreSQL)
 

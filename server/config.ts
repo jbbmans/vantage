@@ -97,6 +97,11 @@ export interface OperationsConfig {
    * `<database>.lineage` by default; none for an in-memory database or with VANTAGE_LINEAGE_FILE=off.
    */
   lineageFile: string | null;
+  /**
+   * The copy a start keeps before it upgrades the database (ADR-0041): the directory it goes in (the database's own when
+   * null, VANTAGE_UPGRADE_COPY_DIR) and how many such copies stay there (VANTAGE_UPGRADE_COPIES_KEPT, 3 by default).
+   */
+  upgradeCopies: { dir: string | null; keep: number };
 }
 
 export interface OidcConfig {
@@ -413,6 +418,7 @@ export function loadConfig(env = process.env): AppConfig {
   const dbPath = env.VANTAGE_DB || (test ? ':memory:' : 'data/vantage.db');
   const databasePath = dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath);
   const lineage = (env.VANTAGE_LINEAGE_FILE || '').trim();
+  const upgradeCopyDir = (env.VANTAGE_UPGRADE_COPY_DIR || '').trim();
   const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none') as AppConfig['email']['provider'];
   if (!['none', 'resend', 'smtp', 'direct', 'memory'].includes(emailProvider)) throw new Error('VANTAGE_EMAIL_PROVIDER must be none, direct, resend, or smtp.');
   if (emailProvider === 'direct' && production && !/@[a-z0-9-]+(\.[a-z0-9-]+)+>?\s*$/i.test(env.VANTAGE_EMAIL_FROM || '')) throw new Error('Direct email needs VANTAGE_EMAIL_FROM on your own domain, such as "Vantage <no-reply@example.com>".');
@@ -557,6 +563,10 @@ export function loadConfig(env = process.env): AppConfig {
     operations: {
       backupMaxAgeHours: envInt(env, 'VANTAGE_BACKUP_MAX_AGE_HOURS', 168, 1, 24 * 366),
       lineageFile: databasePath === ':memory:' || lineage.toLowerCase() === 'off' ? null : lineage ? (isAbsolute(lineage) ? lineage : resolve(ROOT, lineage)) : `${databasePath}.lineage`,
+      upgradeCopies: {
+        dir: upgradeCopyDir ? (isAbsolute(upgradeCopyDir) ? upgradeCopyDir : resolve(ROOT, upgradeCopyDir)) : null,
+        keep: envInt(env, 'VANTAGE_UPGRADE_COPIES_KEPT', 3, 1, 20),
+      },
     },
   };
 }

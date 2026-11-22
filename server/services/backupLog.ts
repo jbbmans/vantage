@@ -27,6 +27,15 @@ export interface BackupRecord {
    * backup recorded before it was kept, which is never audited after the fact.
    */
   audited?: boolean;
+  /**
+   * The copy's SHA-256 as it was taken (ADR-0041): how a file brought back later is matched to this record, and told from
+   * one that changed since. Absent on a backup recorded before it was kept.
+   */
+  sha256?: string | null;
+  /** True when the copy passed the backup check as it was taken; a copy that fails is never recorded. Absent before it was kept. */
+  verified?: boolean;
+  /** Whether the copy's audit trail verified as it was taken, or could not be checked there (no VANTAGE_SECRET for the script). */
+  trail?: 'verified' | 'broken' | 'not_checked';
 }
 
 const KEPT = 20;
@@ -45,6 +54,9 @@ export function recordBackup(db: Db, record: Omit<BackupRecord, 'at'> & { at?: s
   const entry: BackupRecord = {
     at: record.at ?? new Date().toISOString(), method: record.method, bytes: record.bytes, by: record.by, file: record.file,
     seq: record.seq ?? null, audited: record.audited ?? false,
+    ...(record.sha256 ? { sha256: record.sha256 } : {}),
+    ...(record.verified !== undefined ? { verified: record.verified } : {}),
+    ...(record.trail ? { trail: record.trail } : {}),
   };
   // IMMEDIATE takes the write lock before reading, so the script and the running service cannot interleave and lose one.
   db.transaction(() => {

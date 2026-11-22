@@ -31,13 +31,14 @@ function Failed({ error, retry }: { error: unknown; retry: () => void }) {
 // Operations
 
 interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
-interface BackupRecord { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null }
+interface BackupRecord { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null; sha256?: string | null; verified?: boolean; trail?: 'verified' | 'broken' | 'not_checked' }
+interface DrillRecord { id: string; at: string; ok: boolean; failure: string | null; refused?: string | null; stopped?: boolean; backup: { file: string } }
 interface JobState { name: string; label: string; everyMs: number; runs: number; failures: number; consecutiveFailures: number; lastRunAt: string | null; lastOkAt: string | null; lastError: string | null; lastMs: number | null; overdue: boolean; status: HealthStatus }
 interface OperationsReport {
   health: { checkedAt: string; status: HealthStatus; checks: HealthCheck[]; process: { uptime: number; rssBytes: number; heapUsedBytes: number } };
   version: { version: string; build: string; client: string | null; node: string; startedAt: string | null; uptime: number; releases: Array<{ version: string; build: string; client: string | null; firstStartedAt: string }> };
   schema: { code: number; database: number; state: 'current' | 'behind' | 'ahead'; historySince: { at: string; schema: number } | null; catalog: Array<{ id: number; name: string; applied: boolean; run: MigrationRun | null }>; notes: string[] };
-  backups: { state: 'fresh' | 'stale' | 'never'; last: BackupRecord | null; ageHours: number | null; maxAgeHours: number; browserBackups: boolean; history: BackupRecord[]; lastArchiveExport: string | null; lastArchiveImport: string | null };
+  backups: { state: 'fresh' | 'stale' | 'never'; last: BackupRecord | null; ageHours: number | null; maxAgeHours: number; browserBackups: boolean; history: BackupRecord[]; drills: DrillRecord[]; lastArchiveExport: string | null; lastArchiveImport: string | null };
   jobs: JobState[];
 }
 
@@ -94,12 +95,13 @@ export function Operations() {
 
         <Panel title="Backups" subtitle={`Expected every ${backups.maxAgeHours} hours (VANTAGE_BACKUP_MAX_AGE_HOURS)`} action={<Badge tone={BACKUP_TONE[backups.state]}>{backups.state === 'never' ? 'None recorded' : humanize(backups.state)}</Badge>}>
           {backups.last
-            ? <p className="text-sm text-ink-2">Last backup {timeAgo(backups.last.at)}, {backups.last.method === 'server' ? 'taken on the server' : 'downloaded from this console'}{backups.last.bytes ? `, ${mb(backups.last.bytes)}` : ''}{backups.last.by ? `, by ${backups.last.by}` : ''}.</p>
+            ? <p className="text-sm text-ink-2">Last backup {timeAgo(backups.last.at)}, {backups.last.method === 'server' ? 'taken on the server' : 'downloaded from this console'}{backups.last.bytes ? `, ${mb(backups.last.bytes)}` : ''}{backups.last.by ? `, by ${backups.last.by}` : ''}{backups.last.verified ? `; it passed its check${backups.last.trail === 'broken' ? ', but its audit trail does not verify' : ''}` : '; taken before backups were checked'}.{backups.last.sha256 && <> SHA-256 <span className="mono text-xs" title={backups.last.sha256}>{backups.last.sha256.slice(0, 12)}</span>.</>}</p>
             : <p className="text-sm text-ink-2">Vantage has no record of a backup. Run <span className="mono">node scripts/backup.ts /path/to/copy.db</span> on the server.</p>}
+          <p className="mt-2 text-sm text-ink-2">{backups.drills[0] ? <>Last restore drill {timeAgo(backups.drills[0].at)}, of <span className="mono text-xs">{backups.drills[0].backup.file}</span>: {backups.drills[0].ok ? 'passed' : backups.drills[0].refused ? 'refused before the backup was rehearsed' : backups.drills[0].stopped ? <span className="text-warn">stopped before it finished; drill it again</span> : <span className="text-bad">failed</span>}.</> : <>No restore drill recorded. Run <span className="mono">node scripts/restore.ts DRILL --from &lt;backup.db&gt;</span> on the server; it runs with the service up.</>}</p>
           <p className="mt-2 text-xs text-ink-3">Vantage records backups taken on the server with the backup script and downloads from this console. Snapshots the hosting environment takes on its own do not pass through Vantage and are not listed.</p>
           {backups.history.length > 1 && (
-            <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Size</th></>}>
-              {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}
+            <Table label="Recent backups" className="scroll-x mt-3" minWidth={420} head={<><th>When</th><th>How</th><th>Check</th><th className="text-right">Size</th></>}>
+              {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="text-xs">{b.verified ? (b.trail === 'broken' ? <Badge tone="warn">Trail broken</Badge> : <span title={b.sha256 ? `SHA-256 ${b.sha256}` : undefined}><Badge tone="good">Checked</Badge></span>) : <span className="text-ink-3">Not checked</span>}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}
             </Table>
           )}
           <p className="mt-3 text-xs text-ink-3">Service archive: last exported {backups.lastArchiveExport ? timeAgo(backups.lastArchiveExport) : 'never'}, last imported {backups.lastArchiveImport ? timeAgo(backups.lastArchiveImport) : 'never'}.{can('platform.data') && <> <Link className="link" to="/data">Backup and restore</Link></>}</p>
