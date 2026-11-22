@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
 import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
+import { copyBeforeUpgrade, type UpgradeCopy, type UpgradeCopyOptions } from './copies.ts';
 import { VERSION } from '../version.ts';
 import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
 import { REDACTED } from '../../shared/constants.ts';
@@ -598,6 +599,8 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
+/** Every migration this build carries, in order: what the database fixtures run, and change, to test an upgrade (ADR-0041). */
+export const BUILD_MIGRATIONS: readonly Migration[] = MIGRATIONS;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
 export const MIGRATION_CATALOG: ReadonlyArray<{ id: number; name: string }> = MIGRATIONS.map(({ id, name }) => ({ id, name }));
 
@@ -1403,7 +1406,15 @@ export function copyFilePrivate(src: string, dest: string, keepOpen?: number[]):
   closeSync(out);
 }
 
-export function openDatabase(path: string): Db {
+export interface OpenOptions {
+  /**
+   * Where the copy kept before an upgrade goes and how many are kept (ADR-0041). `false` only for a database that is a
+   * scratch copy already, as the restore drill's is; a start always keeps one.
+   */
+  upgradeCopy?: UpgradeCopyOptions | false;
+}
+
+export function openDatabase(path: string, options: OpenOptions = {}): Db {
   // The database holds every personnel record, sealed secret and audit entry: its directory and file are this service's
   // alone, and SQLite gives the WAL and shared-memory files the database file's own permissions.
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -1417,6 +1428,7 @@ export function openDatabase(path: string): Db {
     db.close();
     throw new Error(`Database schema ${storedVersion} is invalid or newer than this build's ${SCHEMA_VERSION}. Use the matching build or the supported restore procedure.`);
   }
+  let from = storedVersion === null ? 0 : Number(storedVersion);
   if (path !== ':memory:' && isLegacyDatabase(db)) {
     db.close();
     const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
@@ -1424,6 +1436,7 @@ export function openDatabase(path: string): Db {
     console.warn(`Found a pre-5.0 Vantage database at ${path}. It was moved to ${path}.legacy-${stamp} and a fresh database was created. Restore it on a 4.x build if you need its contents.`);
     db = new Database(path);
     try { chmodSync(path, 0o600); } catch { /* as above */ }
+    from = 0;
   }
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -1431,16 +1444,32 @@ export function openDatabase(path: string): Db {
   // Sorts and scratch tables in memory, and a larger page cache: faster, and no change to what is durable.
   db.pragma('temp_store = MEMORY');
   db.pragma('cache_size = -32000');
-  db.exec(SCHEMA);
-  migrate(db);
-  // The audit log is append-only on every start, not only from the migration that first made it so (ADR-0013): a
-  // database restored or copied without the triggers gets them back before anything is served.
-  auditAppendOnlyTriggers(db);
-  seed(db);
+  // A database this build is about to upgrade is checked and copied as the last build left it, before even the base
+  // schema is replayed over it (ADR-0041). Anything wrong stops the start here, with nothing migrated.
+  let copy: UpgradeCopy | null = null;
+  if (path !== ':memory:' && options.upgradeCopy !== false && from > 0 && from < SCHEMA_VERSION) {
+    try { copy = copyBeforeUpgrade(db, path, from, SCHEMA_VERSION, options.upgradeCopy ?? {}); }
+    catch (error) { db.close(); throw error; }
+  }
+  upgradeSchema(db, { copy });
   // Refresh the planner's statistics where they have gone stale; SQLite's advice for a long-lived connection.
   db.pragma('optimize = 0x10002');
   cacheStatements(db);
   return db;
+}
+
+/**
+ * What a start does to the schema, in order: the base schema replayed (it only creates what is missing), the migrations
+ * the database has not run, the audit log made append-only again and the ranks seeded. Exported so the database fixtures
+ * can run a changed list of migrations exactly as a start runs this build's (ADR-0041).
+ */
+export function upgradeSchema(db: Db, options: { migrations?: readonly Migration[]; copy?: UpgradeCopy | null } = {}) {
+  db.exec(SCHEMA);
+  migrate(db, options.migrations ?? MIGRATIONS, options.copy ?? null);
+  // The audit log is append-only on every start, not only from the migration that first made it so (ADR-0013): a
+  // database restored or copied without the triggers gets them back before anything is served.
+  auditAppendOnlyTriggers(db);
+  seed(db);
 }
 
 /**
@@ -1470,7 +1499,7 @@ function cacheStatements(db: Db, limit = 1000) {
  * migrations before the history was kept says from when, and at which schema, it has been kept (`migration_history_since`).
  * Every database is named once (`database_id`), so a restore can tell a copy of this database from another one (ADR-0014).
  */
-function migrate(db: Db) {
+function migrate(db: Db, migrations: readonly Migration[], copy: UpgradeCopy | null) {
   if (!metaGet(db, 'database_id')) metaSet(db, 'database_id', randomUUID());
   const version = Number(metaGet(db, 'schema_version') || 0);
   if (!metaGet(db, 'migration_history_since')) metaSet(db, 'migration_history_since', JSON.stringify({ at: new Date().toISOString(), schema: version }));
@@ -1478,8 +1507,8 @@ function migrate(db: Db) {
   if (version === 0 && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', NEW_DATABASE);
   // One an older build migrated has audited nothing yet: every migration this start runs is audited, from the schema it
   // began at, and never fewer than from AUDITED_FROM.
-  if (version > 0 && version < SCHEMA_VERSION && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', String(Math.min(version, AUDITED_FROM - 1)));
-  runMigrations(db, MIGRATIONS.filter((m) => m.id > version), version);
+  if (version > 0 && version < migrations.at(-1)!.id && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', String(Math.min(version, AUDITED_FROM - 1)));
+  runMigrations(db, migrations.filter((m) => m.id > version), version, copy);
 }
 
 /**
@@ -1488,7 +1517,7 @@ function migrate(db: Db) {
  * that throws is recorded there with its error, and the error is thrown on so the start stops (ADR-0014). Exported so
  * the tests can run a migration this build does not carry.
  */
-export function runMigrations(db: Db, pending: readonly Migration[], from: number): UpgradeRecord | null {
+export function runMigrations(db: Db, pending: readonly Migration[], from: number, copy: UpgradeCopy | null = null): UpgradeRecord | null {
   if (!pending.length) return null;
   const started = performance.now();
   const verify = from > 0;
@@ -1521,9 +1550,10 @@ export function runMigrations(db: Db, pending: readonly Migration[], from: numbe
     status: failed ? 'failed' : upgradeStatus(service, instances),
     ms: Math.round(performance.now() - started), migrations: ran, ...(failed ? { failed } : {}),
     service, instances, checked: before ? Object.keys(before.tables).length : 0, audited: false, reviewed: null,
+    ...(copy ? { copy } : {}),
   });
   if (failure) {
-    console.error(`Migration ${failed!.name} failed and was rolled back; the database stays at schema ${record.schema.to}. The upgrade history records it. Restore the backup taken before the upgrade, or run the build this database last ran.`);
+    console.error(`Migration ${failed!.name} failed and was rolled back; the database stays at schema ${record.schema.to}. The upgrade history records it. ${copy ? `Restore the copy taken before the upgrade, ${copy.file} (beside the database, or in VANTAGE_UPGRADE_COPY_DIR)` : 'Restore the backup taken before the upgrade'}, or run the build this database last ran.`);
     throw failure;
   }
   if (record.status === 'changed') console.warn(`The upgrade to schema ${record.schema.to} left fewer rows in ${record.service.map((c) => c.table).join(', ') || 'some Unit Instances'}. Review it under Operations in the Vantage Administrator console before relying on the data.`);

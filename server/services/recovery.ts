@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from '../lib/errors.ts';
 import { upgradeHistory, updateUpgrade, type UpgradeRecord } from '../db/upgrades.ts';
 import { audit } from './audit.ts';
 import { backupHistory, markBackupsAudited } from './backupLog.ts';
+import { drillHistory, markDrillsAudited, type DrillRecord } from './drillLog.ts';
 import { notify, notifyOrg, notifyStaff } from './notifications.ts';
 import { chainPoint, checkLineage, markRestoreAudited, restoreHistory, writeLineageFile, type RestoreRecord } from './restoreLog.ts';
 
@@ -23,19 +24,22 @@ const lossText = (changes: Array<{ table: string; before: number; after: number 
 
 // Upgrades
 
+/** The copy the start kept before it migrated (ADR-0041), as an upgrade entry names it. */
+const copied = (record: UpgradeRecord) => (record.copy ? `; copied first to ${record.copy.file} (SHA-256 ${record.copy.sha256})` : '');
+
 /** Audits each schema upgrade this database recorded and has not audited: one entry for the service, one per Unit Instance that lost rows. */
 export function auditUpgrades(ctx: AppContext) {
   for (const record of upgradeHistory(ctx.db).filter((r) => !r.audited)) {
     const schema = `schema ${record.schema.from} to ${record.schema.to}`;
     ctx.db.transaction(() => {
       if (record.status === 'failed') {
-        audit(ctx, { actor_id: null, action: 'upgrade_failed', entity: 'schema', entity_id: String(record.failed?.id ?? record.schema.to), detail: `${record.failed?.name ?? 'a migration'} failed under ${record.version} at ${record.at} and was rolled back; the database stayed at schema ${record.schema.to}: ${record.failed?.error ?? 'no error recorded'}`.slice(0, 1000) });
+        audit(ctx, { actor_id: null, action: 'upgrade_failed', entity: 'schema', entity_id: String(record.failed?.id ?? record.schema.to), detail: `${record.failed?.name ?? 'a migration'} failed under ${record.version} at ${record.at} and was rolled back; the database stayed at schema ${record.schema.to}${copied(record)}: ${record.failed?.error ?? 'no error recorded'}`.slice(0, 1000) });
       } else {
         const lost = record.service.filter((c) => !c.intended);
         const lossy = record.status === 'changed';
         audit(ctx, {
           actor_id: null, action: lossy ? 'upgrade_rows_lost' : 'upgrade_verified', entity: 'schema', entity_id: String(record.schema.to),
-          detail: `${schema} under ${record.version}, ${record.checked} tables counted before and after in ${record.ms} ms: ${lossy ? `fewer rows in ${lost.length ? lossText(lost) : `${record.instances.length} Unit Instances`}` : 'no table lost rows'}`,
+          detail: `${schema} under ${record.version}, ${record.checked} tables counted before and after in ${record.ms} ms: ${lossy ? `fewer rows in ${lost.length ? lossText(lost) : `${record.instances.length} Unit Instances`}` : 'no table lost rows'}${copied(record)}`,
         });
         for (const instance of record.instances) {
           audit(ctx, { actor_id: null, action: 'upgrade_rows_lost', category: 'enterprise', entity: 'schema', entity_id: String(record.schema.to), org_id: instance.org_id, detail: `${schema} under ${record.version} left this Unit Instance with fewer rows: ${lossText(instance.changes)}` });
@@ -85,12 +89,48 @@ export function auditServerBackups(ctx: AppContext): number {
     const keys = new Set<string>();
     // Read again inside the write lock: another process may have audited them already.
     for (const r of backupHistory(ctx.db).filter((b) => b.method === 'server' && b.audited === false)) {
-      audit(ctx, { actor_id: null, action: 'backup', entity: 'database', entity_id: r.file, detail: `taken on the server with the backup script at ${r.at}: ${r.bytes ?? 'unknown'} bytes${r.seq ? `, through audit entry ${r.seq}` : ''}${r.file ? `, as ${r.file}` : ''}` });
+      audit(ctx, { actor_id: null, action: 'backup', entity: 'database', entity_id: r.file, detail: `taken on the server with the backup script at ${r.at}: ${r.bytes ?? 'unknown'} bytes${r.seq ? `, through audit entry ${r.seq}` : ''}${r.file ? `, as ${r.file}` : ''}${r.sha256 ? `; checked, SHA-256 ${r.sha256}` : ''}${r.trail === 'broken' ? '; its audit trail does not verify' : ''}` });
       keys.add(`${r.at}|${r.file}`);
     }
     markBackupsAudited(ctx.db, (r) => keys.has(`${r.at}|${r.file}`));
   }).immediate();
   return due.length;
+}
+
+// Restore drills
+
+const drillText = (r: DrillRecord) => {
+  const what = `${r.kind === 'dry_run' ? 'A dry run of a restore' : 'A restore drill'} of ${r.backup.file}${r.backup.sha256 ? ` (SHA-256 ${r.backup.sha256})` : ''}`;
+  if (!r.ok) return `${what} failed at ${r.at}: ${r.failure ?? 'no reason recorded'}`;
+  const held = r.backup.schema ? `; it holds schema ${r.backup.schema}${r.backup.seq ? ` through audit entry ${r.backup.seq}` : ''}` : '';
+  const upgraded = r.upgraded ? `, upgraded to schema ${r.upgraded.to}` : '';
+  const undo = r.wouldUndo ? `; restoring it would undo ${r.wouldUndo.entries} audit entries${r.wouldUndo.changes ? `, ${r.wouldUndo.changes} of them changes to accounts, authority or holds` : ''}` : r.sameDatabase === false ? '; it is of another database' : '';
+  return `${what} passed at ${r.at} under ${r.version}${held}: restored into a scratch copy${upgraded}, opened and checked, the trail verifying over ${r.trail ?? 0} entries${undo}${r.by ? `; named ${r.by} as authorizing` : ''}${r.hostUser ? `; run as ${r.hostUser}` : ''}`;
+};
+
+/**
+ * Audits each restore drill the restore script recorded (ADR-0041): one platform entry each, written and marked in one
+ * transaction. A drill that failed is also told to Vantage staff who hold the backups, since the backup it rehearsed
+ * would not restore.
+ */
+export function auditDrills(ctx: AppContext): number {
+  const due = drillHistory(ctx.db).filter((r) => !r.audited);
+  if (!due.length) return 0;
+  const done = new Set<string>();
+  const failed: DrillRecord[] = [];
+  ctx.db.transaction(() => {
+    // Read again inside the write lock: another process may have audited them already.
+    for (const r of drillHistory(ctx.db).filter((d) => !d.audited)) {
+      audit(ctx, { actor_id: null, action: 'restore_drill', entity: 'database', entity_id: r.id, detail: drillText(r).slice(0, 1000) });
+      done.add(r.id);
+      if (!r.ok) failed.push(r);
+    }
+    markDrillsAudited(ctx.db, done);
+  }).immediate();
+  for (const r of failed) {
+    notifyStaff(ctx, 'platform.data', { kind: 'system', title: `A restore drill of ${r.backup.file} failed`, message: `${r.failure ?? 'No reason was recorded.'} Take a new backup and drill it before relying on this one.`.slice(0, 500), actionUrl: '/admin/data', dedupeKey: `drill:${r.id}` });
+  }
+  return done.size;
 }
 
 // Restores

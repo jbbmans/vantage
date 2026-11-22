@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import Database from 'better-sqlite3';
+import { readFileSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { loadConfig } from '../server/config.ts';
 import { createContext } from '../server/app.ts';
 import { hashPassword } from '../server/lib/crypto.ts';
@@ -12,6 +13,8 @@ import { passwordProblem } from '../shared/password.ts';
 import type { SessionUser } from '../server/context.ts';
 import { withPlatform } from '../server/authz/platform.ts';
 import { auditAppendOnlyTriggers, backupDatabase, dropAuditAppendOnlyTriggers } from '../server/db/index.ts';
+import { writeChecksumFile } from '../server/db/copies.ts';
+import { checkBackup, fileFaults } from '../server/services/backupCheck.ts';
 
 const USAGE = `Usage:
   VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<password>' node scripts/start-over.ts ERASE-EVERYTHING \\
@@ -61,7 +64,17 @@ if (!flags.has('--no-backup') && db.name !== ':memory:') {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
   const backup = join(dirname(db.name), `vantage-before-start-over-${stamp}.db`);
   await backupDatabase(db, backup);
-  console.log(`Backed up the current database to ${backup}`);
+  // The copy is the only way back from starting over, so it is checked before anything is erased (ADR-0041).
+  const kept = new Database(backup, { fileMustExist: true });
+  try { kept.pragma('journal_mode = DELETE'); } finally { kept.close(); }
+  const check = checkBackup(backup, { config });
+  const broken = fileFaults(check);
+  if (broken.length) {
+    rmSync(backup, { force: true });
+    fail(`The copy of the current database failed its check, so nothing was erased: ${broken.map((f) => f.message).join(' ')}`);
+  }
+  writeChecksumFile(backup, check.sha256!);
+  console.log(`Backed up the current database to ${backup} (checked; SHA-256 ${check.sha256}, kept beside it as ${basename(backup)}.sha256)`);
 }
 
 const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('meta', 'ranks') AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);

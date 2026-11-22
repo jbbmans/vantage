@@ -38,6 +38,23 @@ export function sealedUnderPreviousSecret(db: Db, config: Pick<AppConfig, 'secre
   return Boolean(stored) && decryptSecret(config.secret, stored!) === null;
 }
 
+/**
+ * The chain key, read without writing anything: for checking a backup, which must not change (ADR-0041). `no_chain` when
+ * the database holds no chain to check; `sealed_elsewhere` when no secret given opens it.
+ */
+export function readChainKey(db: Db, config: Pick<AppConfig, 'secret' | 'previousSecrets'>): { key: string } | { key: null; reason: 'no_chain' | 'sealed_elsewhere' } {
+  const candidates = secretsOf(config);
+  const stored = metaGet(db, CHAIN_KEY);
+  if (stored) {
+    const key = decryptSecret(candidates, stored);
+    return key === null ? { key: null, reason: 'sealed_elsewhere' } : { key };
+  }
+  const caseHeads = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_event_heads'").get()) && Boolean(db.prepare('SELECT 1 FROM work_event_heads LIMIT 1').get());
+  if (!metaGet(db, 'audit_head') && !caseHeads) return { key: null, reason: 'no_chain' };
+  const key = secretThatSignedTheChain(db, candidates);
+  return key === null ? { key: null, reason: 'sealed_elsewhere' } : { key };
+}
+
 /** Opens (or on first start creates) the chain key, and re-wraps it under the current secret. */
 export function loadChainKey(db: Db, config: Pick<AppConfig, 'secret' | 'previousSecrets'>): string {
   const candidates = secretsOf(config);

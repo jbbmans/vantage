@@ -1064,8 +1064,9 @@ test('every copy of the database is its owner’s alone from its first page, the
   // Nothing copies the database any other way.
   const sources = ['server', 'scripts'].flatMap((root) => readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((f) => f.isFile() && f.name.endsWith('.ts')).map((f) => join(f.parentPath, f.name)));
-  const direct = sources.filter((f) => /\.backup\(|copyFileSync|\bcpSync/.test(readFileSync(f, 'utf8').replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '')));
-  assert.deepEqual(direct, [], 'database copies go through backupDatabase or copyFilePrivate');
+  const direct = sources.filter((f) => /\.backup\(|copyFileSync|\bcpSync|VACUUM\s+INTO/i.test(readFileSync(f, 'utf8')
+    .replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '').replace(/export function copyDatabaseInto[\s\S]*?\n\}\n/, '')));
+  assert.deepEqual(direct, [], 'database copies go through backupDatabase, copyDatabaseInto or copyFilePrivate');
 });
 
 test('a backup that names no database is this one’s only when the trail here holds its newest entry, so another database’s is refused and never takes this one’s name', async () => {

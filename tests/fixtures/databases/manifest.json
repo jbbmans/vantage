@@ -1,0 +1,433 @@
+{
+  "format": "vantage-database-fixtures/1",
+  "fixtures": [
+    {
+      "file": "v5.0.0.db",
+      "ref": "v5.0.0",
+      "commit": "cb9c4ac97c2cbb4fa550aa547bfba26bac47789a",
+      "version": "5.0.0",
+      "schema": 14,
+      "sha256": "d14ac4f1a2e675420914b27e5d44f551cdecb0c6b021de2963cca4d7cae9b4d8",
+      "bytes": 987136,
+      "frozenAt": "2026-11-22T17:34:38.996Z",
+      "rows": {
+        "activities": 3,
+        "ai_usage_daily": 0,
+        "attachments": 0,
+        "audit_log": 24,
+        "awards": 2,
+        "career_profiles": 0,
+        "career_steps": 0,
+        "comments": 0,
+        "connector_auth_states": 0,
+        "connectors": 0,
+        "contacts": 0,
+        "counselings": 1,
+        "demo_workspaces": 0,
+        "disposition_runs": 0,
+        "email_log": 0,
+        "email_queue": 0,
+        "goals": 1,
+        "import_jobs": 0,
+        "legal_holds": 0,
+        "maradmin_user_state": 0,
+        "maradmins": 0,
+        "member_roles": 5,
+        "meta": 4,
+        "notifications": 5,
+        "oidc_states": 0,
+        "passkeys": 0,
+        "personnel_roster": 0,
+        "personnel_sync_runs": 0,
+        "product_events": 5,
+        "projects": 0,
+        "ranks": 27,
+        "readiness": 0,
+        "record_drafts": 0,
+        "recovery_codes": 0,
+        "report_drafts": 0,
+        "report_revisions": 0,
+        "retention_schedules": 0,
+        "roles": 6,
+        "sessions": 4,
+        "source_files": 0,
+        "support_messages": 0,
+        "support_tickets": 0,
+        "tasks": 1,
+        "thread_links": 0,
+        "thread_messages": 0,
+        "threads": 0,
+        "tokens": 0,
+        "trainings": 2,
+        "unit_invite_uses": 0,
+        "unit_invites": 0,
+        "unit_members": 4,
+        "units": 1,
+        "users": 4,
+        "work_actions": 0,
+        "work_event_heads": 0,
+        "work_event_seals": 0,
+        "work_events": 0,
+        "work_items": 0,
+        "work_views": 0
+      },
+      "steps": [
+        {
+          "step": "register and enroll alpha",
+          "status": 200
+        },
+        {
+          "step": "register and enroll bravo",
+          "status": 200
+        },
+        {
+          "step": "register and enroll charlie",
+          "status": 200
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "charlie POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/counselings",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/goals",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/tasks",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/projects",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "file": "main-2b2ccf2.db",
+      "ref": "2b2ccf2",
+      "commit": "2b2ccf21f73447c65ca82bbcbc57696e0b99cebc",
+      "version": "5.0.0",
+      "schema": 22,
+      "sha256": "b76b9c8a46a3dd20c2efea8998d250d9dfc6daebc2b40def2fc53f83ee380b8c",
+      "bytes": 1196032,
+      "frozenAt": "2026-11-22T17:34:49.503Z",
+      "rows": {
+        "access_grants": 0,
+        "activities": 3,
+        "ai_usage_daily": 0,
+        "attachments": 0,
+        "audit_log": 24,
+        "awards": 2,
+        "career_profiles": 0,
+        "career_steps": 0,
+        "comments": 0,
+        "connector_auth_states": 0,
+        "connectors": 0,
+        "contacts": 0,
+        "counselings": 1,
+        "credential_approvals": 0,
+        "demo_workspaces": 0,
+        "disposition_runs": 0,
+        "duty_scoring_policies": 0,
+        "duty_types": 0,
+        "email_log": 0,
+        "email_queue": 0,
+        "goals": 1,
+        "import_jobs": 0,
+        "instance_feature_flags": 0,
+        "legal_holds": 0,
+        "maradmin_user_state": 0,
+        "maradmins": 0,
+        "member_roles": 5,
+        "meta": 10,
+        "notifications": 2,
+        "oidc_states": 0,
+        "org_roles": 1,
+        "organizations": 1,
+        "passkeys": 0,
+        "personnel_roster": 0,
+        "personnel_sync_runs": 0,
+        "platform_roles": 1,
+        "product_events": 8,
+        "projects": 0,
+        "ranks": 27,
+        "readiness": 0,
+        "record_drafts": 0,
+        "recovery_codes": 0,
+        "report_drafts": 0,
+        "report_revisions": 0,
+        "retention_schedules": 0,
+        "roles": 6,
+        "sessions": 7,
+        "source_files": 0,
+        "support_messages": 0,
+        "support_tickets": 0,
+        "tasks": 1,
+        "thread_links": 0,
+        "thread_messages": 0,
+        "threads": 0,
+        "tokens": 0,
+        "training_requirements": 0,
+        "trainings": 2,
+        "unit_billets": 0,
+        "unit_invite_uses": 0,
+        "unit_invites": 0,
+        "unit_members": 4,
+        "unit_membership_periods": 4,
+        "units": 1,
+        "users": 4,
+        "work_actions": 0,
+        "work_event_heads": 0,
+        "work_event_seals": 0,
+        "work_events": 0,
+        "work_items": 0,
+        "work_views": 0
+      },
+      "steps": [
+        {
+          "step": "register and enroll alpha",
+          "status": 200
+        },
+        {
+          "step": "register and enroll bravo",
+          "status": 200
+        },
+        {
+          "step": "register and enroll charlie",
+          "status": 200
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "charlie POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/counselings",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/goals",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/tasks",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/projects",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "file": "main-caebfab.db",
+      "ref": "caebfab",
+      "commit": "caebfabb5135dda1332ceaf06a582d97e04be77f",
+      "version": "5.0.0",
+      "schema": 42,
+      "sha256": "21ee627f7f02a347d1cd2cf9fd9fc5709fd1137692173d9a51172cad615b7421",
+      "bytes": 1683456,
+      "frozenAt": "2026-11-22T17:34:52.504Z",
+      "rows": {
+        "access_grants": 0,
+        "activities": 3,
+        "ai_usage_daily": 0,
+        "attachments": 0,
+        "audit_log": 24,
+        "awards": 2,
+        "career_profiles": 0,
+        "career_steps": 0,
+        "case_guidance": 0,
+        "comments": 0,
+        "connector_auth_states": 0,
+        "connectors": 0,
+        "contacts": 0,
+        "counseling_revisions": 0,
+        "counselings": 1,
+        "course_catalog_entries": 0,
+        "course_catalog_loads": 0,
+        "course_sources": 0,
+        "credential_approvals": 0,
+        "demo_workspaces": 0,
+        "disposition_runs": 0,
+        "duties": 0,
+        "duty_reviews": 0,
+        "duty_scoring_policies": 0,
+        "duty_types": 0,
+        "email_log": 0,
+        "email_queue": 0,
+        "error_report_types": 0,
+        "error_snapshot_rows": 0,
+        "error_snapshots": 0,
+        "form_drafts": 0,
+        "goals": 1,
+        "import_jobs": 0,
+        "instance_feature_flags": 0,
+        "legal_holds": 0,
+        "maradmin_user_state": 0,
+        "maradmins": 0,
+        "member_roles": 5,
+        "meta": 10,
+        "notifications": 2,
+        "oidc_states": 0,
+        "org_roles": 1,
+        "organizations": 1,
+        "passkey_challenges": 0,
+        "passkeys": 0,
+        "personnel_events": 0,
+        "personnel_records": 0,
+        "personnel_responsibilities": 0,
+        "personnel_roster": 0,
+        "personnel_sync_runs": 0,
+        "platform_roles": 1,
+        "product_events": 8,
+        "projects": 0,
+        "ranks": 27,
+        "readiness": 0,
+        "record_drafts": 0,
+        "record_import_origins": 0,
+        "record_imports": 0,
+        "record_lineage": 0,
+        "recovery_codes": 0,
+        "report_definitions": 0,
+        "report_drafts": 0,
+        "report_revisions": 0,
+        "retention_schedules": 0,
+        "roles": 6,
+        "sessions": 7,
+        "source_files": 0,
+        "support_messages": 0,
+        "support_tickets": 0,
+        "tasks": 1,
+        "thread_links": 0,
+        "thread_messages": 0,
+        "threads": 0,
+        "tokens": 0,
+        "training_requirements": 0,
+        "trainings": 2,
+        "unit_billets": 0,
+        "unit_invite_uses": 0,
+        "unit_invites": 0,
+        "unit_members": 4,
+        "unit_membership_periods": 4,
+        "units": 1,
+        "users": 4,
+        "work_actions": 0,
+        "work_event_heads": 0,
+        "work_event_seals": 0,
+        "work_events": 0,
+        "work_items": 0,
+        "work_views": 0
+      },
+      "steps": [
+        {
+          "step": "register and enroll alpha",
+          "status": 200
+        },
+        {
+          "step": "register and enroll bravo",
+          "status": 200
+        },
+        {
+          "step": "register and enroll charlie",
+          "status": 200
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/activities",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/awards",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "charlie POST /api/records/trainings",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/counselings",
+          "status": 201
+        },
+        {
+          "step": "alpha POST /api/records/goals",
+          "status": 201
+        },
+        {
+          "step": "lead POST /api/records/tasks",
+          "status": 201
+        },
+        {
+          "step": "bravo POST /api/records/projects",
+          "status": 403
+        }
+      ]
+    }
+  ]
+}

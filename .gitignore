@@ -3,6 +3,8 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+# Databases earlier builds wrote, frozen once as upgrade fixtures (ADR-0041).
+!tests/fixtures/databases/*.db
 .env
 .DS_Store
 playwright-report/

@@ -7,6 +7,7 @@ import { now } from '../lib/ids.ts';
 import { audit, recentChainCheck, type ChainCheck } from './audit.ts';
 import { auditForwardingStatus } from './auditSink.ts';
 import { backupHistory } from './backupLog.ts';
+import { drillHistory } from './drillLog.ts';
 import { restoreHistory } from './restoreLog.ts';
 import { upgradeHistory } from '../db/upgrades.ts';
 import { signInChecks } from './signInHealth.ts';
@@ -139,6 +140,8 @@ export function backupStatus(ctx: AppContext, at = Date.now()) {
     maxAgeHours,
     browserBackups: ctx.config.security.browserBackups,
     history: [...history].reverse(),
+    // The restore drills run against this database, newest first (ADR-0041): whether its backups are known to restore.
+    drills: [...drillHistory(ctx.db)].reverse(),
     lastArchiveExport: archive('instance_export'),
     lastArchiveImport: archive('instance_import'),
   };

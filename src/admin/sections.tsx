@@ -351,7 +351,16 @@ function AuditAnchors() {
   );
 }
 
-interface BackupView { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null; seq?: number | null }
+interface BackupView {
+  at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null; seq?: number | null;
+  sha256?: string | null; verified?: boolean; trail?: 'verified' | 'broken' | 'not_checked';
+}
+interface DrillView {
+  id: string; at: string; kind: 'drill' | 'dry_run'; ok: boolean; failure: string | null;
+  backup: { file: string; bytes: number | null; sha256: string | null; schema: number | null; seq: number | null; at: string | null; recorded: boolean };
+  upgraded: { from: number; to: number; status: string } | null; trail: number | null; sameDatabase: boolean | null;
+  wouldUndo: { entries: number; instances: number; changes: number } | null; by: string | null; hostUser: string | null; version: string; ms: number;
+}
 interface ChainPointView { seq: number | null; hash: string | null; at: string | null; count: number; database_id: string | null; schema: number }
 interface RestoreView {
   id: string; at: string; method: 'script' | 'archive' | 'detected'; by: { id: string | null; username: string; name: string } | null; hostUser: string | null;
@@ -361,7 +370,7 @@ interface RestoreView {
   finding?: 'other_database' | 'missing_entry' | 'different_entry'; safetyCopy: string | null;
 }
 interface RecoveryReport {
-  backups: { state: 'fresh' | 'stale' | 'never'; last: BackupView | null; maxAgeHours: number; browserBackups: boolean; history: BackupView[]; lastArchiveExport: string | null; lastArchiveImport: string | null };
+  backups: { state: 'fresh' | 'stale' | 'never'; last: BackupView | null; maxAgeHours: number; browserBackups: boolean; history: BackupView[]; drills: DrillView[]; lastArchiveExport: string | null; lastArchiveImport: string | null };
   restores: { history: RestoreView[]; lineage: { kept: boolean; writtenAt: string | null }; usernames: Record<string, string> };
 }
 
@@ -371,7 +380,19 @@ const FINDING: Record<NonNullable<RestoreView['finding']>, string> = {
   missing_entry: 'It no longer holds the audit entry the service noted when it last ran: an older copy was put back.',
   different_entry: 'It holds another entry where the one the service noted should be.',
 };
-const RESTORE_COMMAND = 'VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE --from <backup.db> --by <your username> --reason "<why>" [--change <record>] --dry-run';
+const RESTORE_COMMAND = 'VANTAGE_RESTORE=1 node scripts/restore.ts REPLACE-DATABASE --from <backup.db> --by <your username> --reason "<why>" [--change <record>]';
+const DRILL_COMMAND = 'node scripts/restore.ts DRILL --from <backup.db>';
+
+/** Whether a backup passed its check as it was taken, and its SHA-256 shortened, in full on hover (ADR-0041). */
+function BackupCheckCell({ backup: b }: { backup: BackupView }) {
+  if (!b.verified) return <span className="text-ink-3" title="Taken before backups were checked as they were taken">Not checked</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {b.trail === 'broken' ? <Badge tone="warn">Trail broken</Badge> : <Badge tone="good">Checked</Badge>}
+      {b.sha256 && <span className="mono text-2xs text-ink-3" title={`SHA-256 ${b.sha256}`}>{b.sha256.slice(0, 12)}</span>}
+    </span>
+  );
+}
 
 export function DataAdmin() {
   const { data, isPending, error, refetch } = useAdmin<RecoveryReport>('recovery', api.platformRecovery);
@@ -391,26 +412,45 @@ export function DataAdmin() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Database backup" subtitle="A consistent copy of the SQLite database" action={<Badge tone={backups.state === 'fresh' ? 'good' : 'warn'}>{backups.state === 'never' ? 'None recorded' : backups.state === 'fresh' ? 'Recent' : 'Overdue'}</Badge>}>
           <p className="text-sm text-ink-2">{backups.last ? `Last ${timeAgo(backups.last.at)}, ${backups.last.method === 'server' ? 'on the server' : 'through the browser'}${backups.last.seq ? `, through audit entry ${backups.last.seq}` : ''}; expected every ${backups.maxAgeHours} hours.` : `Expected every ${backups.maxAgeHours} hours.`} On the host: <span className="mono">node scripts/backup.ts /path/to/copy.db</span>. Each one is in the platform audit trail.</p>
+          <p className="mt-2 text-xs text-ink-3">Every copy passes SQLite’s full integrity check before it counts, and a server copy keeps its SHA-256 beside it as a .sha256 file; a download carries it as its Content-Digest. Check any copy later with <span className="mono">node scripts/backup.ts --verify &lt;backup.db&gt;</span>.</p>
           {backups.browserBackups
             ? <><p className="mt-2 text-xs text-ink-3">Every other Lead Vantage Administrator is told each time one is downloaded.</p><Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button></>
             : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
           {backups.history.length > 0 && (
-            <Table label="Recent backups" className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
-              {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? NO_VALUE}</td></tr>)}
+            <Table label="Recent backups" className="scroll-x mt-3" minWidth={460} head={<><th>When</th><th>How</th><th>Check</th><th className="text-right">Audit entry</th></>}>
+              {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="text-xs"><BackupCheckCell backup={b} /></td><td className="fig text-right text-xs text-ink-3">{b.seq ?? NO_VALUE}</td></tr>)}
             </Table>
           )}
         </Panel>
-        <Panel title="Restore" subtitle="On the host, with the service stopped" action={<Badge tone={restores.lineage.kept ? 'good' : 'warn'}>{restores.lineage.kept ? 'Lineage kept' : 'No lineage'}</Badge>}>
+        <Panel title="Restore" subtitle="On the host" action={<Badge tone={restores.lineage.kept ? 'good' : 'warn'}>{restores.lineage.kept ? 'Lineage kept' : 'No lineage'}</Badge>}>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+            <li>With the service running, drill the backup: it is restored into a scratch copy, opened with this build and checked, and the copy removed. It says what restoring it would undo, in each Unit Instance.</li>
             <li><Link className="link" to="/maintenance">Start maintenance</Link> with the reason, then stop the service.</li>
-            <li>Run the command with <span className="mono">--dry-run</span>: it checks the backup and says what restoring it would undo, in each Unit Instance.</li>
-            <li>Run it again without <span className="mono">--dry-run</span>, then start the service and end maintenance.</li>
+            <li>Run the restore, then start the service and end maintenance.</li>
           </ol>
-          <pre className="mono mt-3 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{RESTORE_COMMAND}</pre>
-          <p className="mt-2 text-xs text-ink-3">It refuses while the service has the database open, unless the backup verifies under this service’s secret, and unless --by names a Lead Vantage Administrator. It keeps the database it replaces beside it, signs everyone out and cancels support approvals waiting. At its next start the service writes the restore into the audit trail and tells Vantage staff and every Unit Instance’s Lead Unit Managers.</p>
+          <pre className="mono mt-3 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{DRILL_COMMAND}</pre>
+          <pre className="mono mt-2 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{RESTORE_COMMAND}</pre>
+          <p className="mt-2 text-xs text-ink-3">{backups.drills[0] ? `Last drill ${timeAgo(backups.drills[0].at)}: ${backups.drills[0].ok ? 'passed' : 'failed'}.` : 'No drill recorded yet.'} With <span className="mono">--dry-run</span> the restore command runs the same drill and checks who authorized it, with the service running too.</p>
+          <p className="mt-2 text-xs text-ink-3">The restore refuses while the service has the database open, a backup that fails its check or no longer matches the SHA-256 beside it, one that does not verify under this service’s secret, and a --by that does not name a Lead Vantage Administrator. It keeps the database it replaces beside it, signs everyone out and cancels support approvals waiting. At its next start the service writes the restore into the audit trail and tells Vantage staff and every Unit Instance’s Lead Unit Managers.</p>
           <p className="mt-2 text-xs text-ink-3">{restores.lineage.kept ? `The service notes its newest audit entry beside the database${restores.lineage.writtenAt ? ` (last ${timeAgo(restores.lineage.writtenAt)})` : ''}, so a database put back any other way is noticed at the next start.` : 'The lineage file is off (VANTAGE_LINEAGE_FILE=off), so a database put back outside the restore script is not noticed.'}</p>
         </Panel>
       </div>
+
+      <Panel title="Restore drills" subtitle="Backups restored into a scratch copy with the service running, newest first">
+        {!backups.drills.length ? <p className="text-sm text-ink-3">None yet. Drill a backup on the host with <span className="mono">{DRILL_COMMAND}</span>; the service writes each drill into the audit trail.</p> : (
+          <Table label="Restore drills" minWidth={680} head={<><th>When</th><th>Backup</th><th>Result</th><th className="text-right">Would undo</th><th>Run as</th></>}>
+            {backups.drills.slice(0, 10).map((d) => (
+              <tr key={d.id}>
+                <td className="fig text-xs">{formatStamp(d.at)}<span className="block text-2xs text-ink-3">{d.kind === 'dry_run' ? 'dry run' : 'drill'}</span></td>
+                <td className="text-xs"><span className="mono text-2xs">{d.backup.file}</span>{d.backup.sha256 && <span className="mono block text-2xs text-ink-3" title={`SHA-256 ${d.backup.sha256}`}>{d.backup.sha256.slice(0, 12)}{d.backup.recorded ? ', recorded here' : ''}</span>}</td>
+                <td className="text-xs">{d.ok ? <Badge tone="good">Passed</Badge> : <Badge tone="bad">Failed</Badge>}{d.ok && d.upgraded && <span className="block text-2xs text-ink-3">upgraded from schema {d.upgraded.from}</span>}{!d.ok && d.failure && <span className="block max-w-[18rem] text-2xs text-bad" title={d.failure}>{d.failure.length > 140 ? `${d.failure.slice(0, 140)}…` : d.failure}</span>}</td>
+                <td className="fig text-right text-xs">{d.wouldUndo ? `${d.wouldUndo.entries} entries` : d.sameDatabase === false ? 'another database' : NO_VALUE}{d.wouldUndo?.changes ? <span className="block text-2xs text-warn">{d.wouldUndo.changes} to review</span> : null}</td>
+                <td className="text-xs">{d.hostUser ? <span className="mono text-2xs">{d.hostUser}</span> : NO_VALUE}{d.by ? <span className="block text-2xs text-ink-3">for {d.by}</span> : null}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Panel>
 
       <Panel title="Restores" subtitle="What this database has been put back to, and what each one undid">
         {!restores.history.length ? <p className="text-sm text-ink-3">None. This database has not been restored since Vantage began keeping the record.</p> : (

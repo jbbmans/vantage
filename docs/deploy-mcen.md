@@ -135,10 +135,16 @@ Adding a unit never needs a source change.
 ## Backups and restore
 
 - **Back up on the host.** Run `node scripts/backup.ts <file>` (a consistent copy of the database, attachments
-  included) and keep copies where the enterprise keeps backups (I-09). Each run is recorded and audited,
+  included) and keep copies where the enterprise keeps backups (I-09). Each copy passes SQLite's integrity check
+  and the audit trail's before it counts, keeps its SHA-256 beside it as `<file>.sha256`, and is refused and removed
+  if it fails; `node scripts/backup.ts --verify <file>` checks one again at any time. Each run is recorded and audited,
   and the Vantage Administrator console (**Operations → Backups**) says when the last one was taken. Set
   `VANTAGE_BACKUP_MAX_AGE_HOURS` to the enterprise's backup interval (default 168). A snapshot the host
   takes on its own is not seen by Vantage (I-28).
+- **Drill a restore with the service running.** `node scripts/restore.ts DRILL --from <file>` restores the backup into
+  a scratch copy, opens it with this build and removes it, without stopping Vantage or replacing anything; it is
+  recorded and audited, and a failed one tells the Vantage staff. Drill the newest backup after every upgrade and at
+  least monthly.
 - **Restore with `node scripts/restore.ts`, never by copying a file.** A Lead Vantage Administrator authorizes it,
   with the service stopped and maintenance started with the change or incident record's number (I-29,
   I-35). It checks the backup, keeps the database it replaces, signs everyone out and is audited in every
@@ -149,8 +155,11 @@ Adding a unit never needs a source change.
 - **Data exports are not backups.** A Unit Instance's structure, roster, configuration and audit trail, a
   person's own export and reports are that Unit Instance's or person's data, and restore nothing.
   **Backup and restore → Not backups: data exports** lists them all.
-- **Before an upgrade**, take a backup. A start that migrates the database checks every table's rows,
-  and each Unit Instance's, and records, audits and tells the Lead Unit Managers about any it lost.
+- **Upgrades keep a copy.** A start that migrates the database first keeps a checked copy of it as it was, owner-only,
+  in `VANTAGE_UPGRADE_COPY_DIR` (default: beside the database), the newest `VANTAGE_UPGRADE_COPIES_KEPT` (default 3) of
+  them; a start that cannot make one stops with nothing migrated. Give that directory room for one more database. The
+  start then checks every table's rows, and each Unit Instance's, and records, audits and tells the Lead Unit Managers
+  about any it lost. The copy is for undoing the upgrade on this host; it does not replace the backup off it.
 - **Each Unit Instance's operations.** **Instance operations** in the Vantage Administrator console shows
   each one's version, schema, last upgrade, health, backup freshness and last restore; its Unit Managers
   see theirs under **Operations**. `node scripts/operations-report.ts` prints the same as JSON for whatever

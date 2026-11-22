@@ -56,12 +56,12 @@ import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
 import { maintenanceNotice } from './services/maintenance.ts';
 import { auditMigrations, recordRelease, trackedJob } from './services/operations.ts';
-import { auditRestores, auditServerBackups, auditUpgrades, detectReplacement, writeLineage } from './services/recovery.ts';
+import { auditDrills, auditRestores, auditServerBackups, auditUpgrades, detectReplacement, writeLineage } from './services/recovery.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
   configurePasswordHashing(config.security.passwordIterations);
-  const db = openDatabase(config.databasePath);
+  const db = openDatabase(config.databasePath, { upgradeCopy: config.operations.upgradeCopies });
   // Before anything is written: a database put in place outside the restore command is recorded (ADR-0014).
   detectReplacement({ db, config });
   const rotated = sealedUnderPreviousSecret(db, config);
@@ -84,11 +84,12 @@ export function createContext(config: AppConfig): AppContext {
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
   // Each schema migration this start ran, or the schema a new database began at, goes in the audit trail (ADR-0013); so does
   // what the upgrade verification found, each restore or replacement of the database, and each backup taken on the
-  // server since the service last ran (ADR-0014).
+  // server since the service last ran (ADR-0014), and each restore drill run beside it (ADR-0041).
   auditMigrations(ctx);
   auditUpgrades(ctx);
   auditRestores(ctx);
   auditServerBackups(ctx);
+  auditDrills(ctx);
   // A changed VANTAGE_SECRET is a key rotation: the trail says this start made it, and what it sealed again.
   if (rotated || resealed) audit(ctx, { actor_id: null, action: 'secret_rotated', entity: 'database', detail: `VANTAGE_SECRET changed: ${rotated ? 'the audit chain key wrapped under it, ' : ''}${resealed} stored secret${resealed === 1 ? '' : 's'} sealed again` });
   // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform. A grant the
@@ -574,8 +575,13 @@ export function startSchedulers(ctx: AppContext) {
   every('case_anchor', 'Case history anchor', 24 * 60 * 60_000, () => { anchorCaseHeads(ctx); });
   // The audit chain's head, written into the chain and so forwarded off the host, each day something was written (ADR-0013).
   every('audit_anchor', 'Audit chain anchor', 24 * 60 * 60_000, () => { anchorAuditChainIfChanged(ctx); });
-  // A backup taken on the server goes in the audit trail, and the lineage beside the database keeps up with it (ADR-0014).
-  every('backup_audit', 'Backup audit', 5 * 60_000, () => { const n = auditServerBackups(ctx); if (n) console.log(`${now()} audited ${n} server backups`); });
+  // A backup taken on the server and a restore drill run beside the service go in the audit trail (ADR-0014, ADR-0041),
+  // and the lineage beside the database keeps up with them.
+  every('backup_audit', 'Backup audit', 5 * 60_000, () => {
+    const n = auditServerBackups(ctx);
+    const d = auditDrills(ctx);
+    if (n || d) console.log(`${now()} audited ${n} server backups and ${d} restore drills`);
+  });
   every('lineage', 'Database lineage', 60_000, () => { writeLineage(ctx); });
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
