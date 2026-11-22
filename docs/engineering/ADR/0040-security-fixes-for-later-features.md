@@ -34,34 +34,44 @@ a read of the statistics code found two more:
 
 1. **Step-up on Unit Instance authority.** An `/api/org` change asks the person to confirm it is them, as `/api/orgs`
    does, when it rests on Unit Instance authority: the person holds a Unit Instance structure role in that unit and the
-   chain of command does not give them full authority there (`restsOnInstanceAuthority`). Naming a unit's leader asks
-   when it rests on the instance's Manage units, not on leading the unit. A Unit Leader, or anyone acting on chain of
-   command authority, is not asked; a person who holds both is asked, since the change may rest on either. A bulk
-   personnel change is asked when it runs, not on its dry run. Joining with a code and the unit export are untouched.
+   chain of command does not give them full authority there, from a place at least as high as the Unit Instance role's
+   (`restsOnInstanceAuthority`). Naming a unit's leader asks when it rests on the instance's Manage units, not on
+   leading the unit. A Unit Leader, or anyone the chain of command gives full authority in the unit from its leader's
+   place or above, is not asked, whatever Unit Instance role they also hold. Someone whose chain role falls short of
+   that, by what it gives or by its place, and who also holds a Unit Instance role is asked, since the change, or
+   whom it reaches, may rest on either. Moving a unit asks about its new parent only when the parent changes, so
+   renaming a unit one leads is not asked. Taking someone out of their last unit in the instance asks whenever it
+   ends a Unit Instance role they hold, as the console does, since that rests on the instance alone. A bulk personnel
+   change is asked when it runs, not on its dry run. Joining with a code and the unit export are untouched.
    `assertSudo` is the one refusal (`403 sudo_required`); the route inventory marks these routes
    `stepUp: 'instance_authority'`, and its test reads the check from the code. In the app, `withSudo` lives in
    `src/lib/sudo.ts` and every `/api/org` write goes through it, so the app asks and retries as the consoles do.
-2. **Every way a session ends is in the trail once, under its id.** A password step-up is `password_step_up`. Another
+2. **A session that ends alone is in the trail once, under its id.** A password step-up is `password_step_up`. Another
    session of one's own signed out from the sessions list is `session_revoked`; this session signed out there is
    `logout`. A session the limit pushes out is `session_evicted`, and one that runs out, found by a request or by the
    prune, is `session_expired`; both are written by the service. Every sign-in, sign-out and step-up names its session
    by the 12 characters of its id the sessions list shows (entity `sessions`). A wrong password at step-up still counts
    toward the lockout and is not written one by one. `session_revoked` stays off the restore review list, since a
-   restore ends every session anyway.
+   restore ends every session anyway. Sessions ended together (signing out the others, a password, role, membership,
+   MFA or EDIPI change, a removal or a forced sign-out) are in the entry for the change that ended them, not one by
+   one, as before.
 3. **Settings are whole numbers in range, on every profile.** Every numeric setting is read by one `envInt(name,
    fallback, min, max)`: digits only, a safe integer, within its bounds. The start names a bad one. The quiet clamps are
-   refusals now. The ranges are wide enough for every default, test and known deployment; how tight a session limit an
+   refusals now. Where 0 already meant "never" (`VANTAGE_INTAKE_RETAIN_DAYS`, uploaded workbooks kept until their
+   owners remove them), 0 is in range. The ranges are wide enough for every default, test and known deployment; how tight a session limit an
    accredited host sets (an idle limit of 15 minutes at most, for example) is policy for the ISSM, not a ceiling here.
 4. **Mail to the relay is TLS only on MCEN.** The transport is built from the parsed `SMTP_URL` (address and sign-in
    only) with TLS required, TLS 1.2 at least and a certificate that checks. `smtps://` is TLS from the first byte (465
    by default); `smtp://` must start TLS (587 by default). The start refuses an `SMTP_URL` that is empty, not `smtp:` or
-   `smtps:`, or whose query sets `secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS` or `tls.*`. A relay whose
-   certificate an enterprise CA signed needs that CA in `NODE_EXTRA_CA_CERTS`. Other profiles keep their delivery as it
-   was.
+   `smtps:`, or whose query sets `secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS` or `tls.*`, or whose user
+   name or password holds a `%` that starts no escape (written `%25`). The certificate is checked against Node's
+   bundled roots; a relay whose certificate an enterprise CA signed needs that CA in `NODE_EXTRA_CA_CERTS`, since the
+   host's own store is read only under `--use-system-ca`. Other profiles keep their delivery as it was.
 5. **Every database copy is private from its first page.** `backupDatabase(db, dest)` makes the file owner-only (0600)
    before SQLite writes to it and removes a file it made when the copy fails. The browser download, the server backup,
    both copies a restore takes and the start-over copy use it; `scripts/backup.ts` makes a new directory for the copies
-   owner-only (0700).
+   owner-only (0700). A database SQLite cannot read through is kept by `copyFilePrivate`, its bytes into a file that is
+   owner-only before the first (a plain file copy would give it the source's permissions), its write-ahead log too.
 6. **A backup that names no database** is this database's only when the trail here holds the backup's newest entry with
    the same hash. Otherwise it is another database's: refused without `--different-database`, and never given this
    database's name.
@@ -79,9 +89,12 @@ a read of the statistics code found two more:
 11. **What is done to a private entry is filed under its Unit Instance, never a unit.** `audit()` decides it as the
     entry is written, from the record as it then is (`privateEntry`): an activity, project, task, goal, training,
     award, case or counseling kept private is filed with its Unit Instance and no unit, so no unit's access log lists
-    it, while the Unit Instance trail keeps it. A counseling a leader writes keeps its unit, as its
-    counselor reads it there. A move is decided by the row that survives it. A shared entry made private is filed
-    under no unit from then on. Entries written before keep their unit: the trail is sealed.
+    it, while the Unit Instance trail keeps it. So is a private workbook in work intake and its import, contact,
+    correspondence thread (and a message in it), report draft (and its revisions and exports) and saved report. A
+    counseling a leader writes keeps its unit, as its counselor reads it there. Each end of a move is filed as its own
+    row was: the one it left as it was before the move, the one it became as it is, so a duty undone back to a
+    private activity is seen leaving its unit and the activity is not seen. A shared entry made private is filed under
+    no unit from then on. Entries written before keep their unit: the trail is sealed.
 
 ## Consequences
 
@@ -89,9 +102,12 @@ a read of the statistics code found two more:
   register marks each fixed with that test as evidence. `tests/server/migrations.test.ts` covers 042.
 - A Unit Manager working in the app is asked to confirm it is them before a unit change, as the console asks; a Unit
   Leader working in their own unit is not.
-- The trail now accounts for every session from sign-in to its end, and for every case close.
+- The trail now names each session at its sign-in and, where it ends alone, at its end; sessions ended together are
+  in the entry for the change that ended them. It holds every case close.
 - A deployment with a bad number in its settings, or plain mail to the relay on MCEN, does not start, and says why.
 - A unit's access log is a little shorter: it holds what was done to the unit's shared entries and to the unit itself.
+- A Unit Leader who is also a Unit Manager is asked a little more: before ending someone's Unit Instance role from the
+  unit routes, and wherever their full authority comes from a role placed below the Unit Instance role.
 - One migration (042), one column with a default; no row changes.
 
 ## Not done

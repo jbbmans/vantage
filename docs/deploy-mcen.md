@@ -53,11 +53,13 @@ The start fails, naming every problem at once, if any of these is set:
 - `VANTAGE_CONSENT_BANNER=off`;
 - a `VANTAGE_SITE_URL` different from the application's address;
 - `VANTAGE_EMAIL_PROVIDER=smtp` with an `SMTP_URL` that is empty, is not `smtp://` or `smtps://`, or sets its own TLS
-  terms in its query (`secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS`, `tls.*`).
+  terms in its query (`secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS`, `tls.*`), or whose user name or
+  password holds a `%` that starts no escape (write it `%25`).
 
 Mail to the relay goes only over TLS 1.2 or later, to a certificate that checks: `smtps://` is TLS from the first byte
-(port 465 unless the address names one), and `smtp://` must start TLS (port 587 unless it names one). A relay whose
-certificate an enterprise CA signed needs that CA in `NODE_EXTRA_CA_CERTS`.
+(port 465 unless the address names one), and `smtp://` must start TLS (port 587 unless it names one). The
+certificate is checked against Node's bundled roots, not the host's store, so a relay whose certificate an enterprise
+CA signed needs that CA in `NODE_EXTRA_CA_CERTS`.
 
 On every profile, a numeric setting that is not a whole number written in digits, within its range, stops the start
 and is named. The ranges are wide; how tight a session limit the accredited host sets is the ISSM's to decide.

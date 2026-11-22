@@ -23,8 +23,10 @@ export interface AuditEntry {
 }
 
 /**
- * The records a Marine can keep private, each with the question that finds one that is: private, and nobody's but its
- * owner's. A counseling a leader writes keeps its unit, as the counselor reads it there (ADR-0027).
+ * The things a Marine can keep private, each with the question that finds one that is: private, and nobody's but its
+ * owner's. Records, cases, work intake and its imports, contacts and correspondence (a message by its thread), report
+ * drafts (a revision by its draft) and saved reports. A counseling a leader writes keeps its unit, as the counselor
+ * reads it there (ADR-0027).
  */
 const PRIVATE_ENTRY: Readonly<Record<string, string>> = {
   activities: "SELECT 1 FROM activities WHERE id = ? AND visibility = 'private'",
@@ -35,6 +37,14 @@ const PRIVATE_ENTRY: Readonly<Record<string, string>> = {
   awards: "SELECT 1 FROM awards WHERE id = ? AND visibility = 'private'",
   counselings: "SELECT 1 FROM counselings WHERE id = ? AND visibility = 'private' AND (counselor_id IS NULL OR counselor_id = user_id)",
   work_items: "SELECT 1 FROM work_items WHERE id = ? AND visibility = 'private'",
+  source_files: "SELECT 1 FROM source_files WHERE id = ? AND visibility = 'private'",
+  import_jobs: "SELECT 1 FROM import_jobs WHERE id = ? AND visibility = 'private'",
+  contacts: "SELECT 1 FROM contacts WHERE id = ? AND visibility = 'private'",
+  threads: "SELECT 1 FROM threads WHERE id = ? AND visibility = 'private'",
+  thread_messages: "SELECT 1 FROM thread_messages m JOIN threads t ON t.id = m.thread_id WHERE m.id = ? AND t.visibility = 'private'",
+  report_drafts: "SELECT 1 FROM report_drafts WHERE id = ? AND visibility = 'private'",
+  report_revisions: "SELECT 1 FROM report_revisions r JOIN report_drafts d ON d.id = r.report_id WHERE r.id = ? AND d.visibility = 'private'",
+  report_definitions: "SELECT 1 FROM report_definitions WHERE id = ? AND visibility = 'private'",
 };
 
 /**

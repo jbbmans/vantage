@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
-import { chmodSync, copyFileSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { loadConfig } from '../server/config.ts';
-import { SCHEMA_VERSION, backupDatabase, metaGet, metaSet } from '../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase, copyFilePrivate, metaGet, metaSet } from '../server/db/index.ts';
 import { loadChainKey, resealStoredSecrets, sealedUnderPreviousSecret } from '../server/lib/keys.ts';
 import { verifyAuditChain } from '../server/services/audit.ts';
 import { appendRestore, chainPoint, lostSince, writeLineageFile, type ChainPoint, type RestoreRecord } from '../server/services/restoreLog.ts';
@@ -178,11 +178,9 @@ if (liveDb) {
   try {
     await backupDatabase(liveDb, safetyCopy);
   } catch {
-    // A database SQLite cannot read through is kept as its files are, owner-only before a byte is copied.
-    writeFileSync(safetyCopy, '', { flag: 'a', mode: 0o600 });
-    chmodSync(safetyCopy, 0o600);
-    copyFileSync(live, safetyCopy);
-    if (existsSync(`${live}-wal`)) copyFileSync(`${live}-wal`, `${safetyCopy}-wal`);
+    // A database SQLite cannot read through is kept as its files are, each owner-only before a byte is copied.
+    copyFilePrivate(live, safetyCopy);
+    if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`);
   }
   chmodSync(safetyCopy, 0o600);
 }

@@ -373,7 +373,7 @@ export const HELP: HelpSection[] = [
         q: 'Why am I asked to confirm it is me?',
         a: [
           'Some changes ask for your password, or your CAC, once more before they go through: security settings, exports, the consoles, and a change a Unit Manager makes to a unit, its people or its roles. One confirmation covers ten minutes.',
-          'A Unit Leader changing their own unit is not asked. Nothing changes until you confirm, so a change you cancel there is left undone.',
+          'A Unit Leader changing their own unit is not asked, unless the change ends someone’s Unit Manager role or moves the unit under one they do not lead. Nothing changes until you confirm, so a change you cancel there is left undone.',
         ],
         also: ['password again', 'step-up', 'sudo', 'confirm password'],
       },

@@ -59,8 +59,9 @@ Resend accepts a few requests a second. When it answers 429 (or is briefly unava
 Any SMTP relay works: `VANTAGE_EMAIL_PROVIDER=smtp` and `SMTP_URL=smtps://user:pass@smtp.example.com:465`.
 
 On MCEN the relay is reached only over TLS 1.2 or later, to a certificate that checks: `smtps://` (465), or `smtp://`
-that must start TLS (587). An `SMTP_URL` that sets its own TLS terms in its query stops the start. A relay certificate
-signed by an enterprise CA needs that CA in `NODE_EXTRA_CA_CERTS`.
+that must start TLS (587). An `SMTP_URL` that sets its own TLS terms in its query stops the start, as does a `%` in
+its user name or password that starts no escape (write it `%25`). The certificate is checked against Node's bundled
+roots, so a relay certificate signed by an enterprise CA needs that CA in `NODE_EXTRA_CA_CERTS`.
 
 ## What gets sent
 

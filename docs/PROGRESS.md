@@ -10,18 +10,24 @@ Round 2, the open register defects that statistics, the console, email and the d
 ([ADR-0040](engineering/ADR/0040-security-fixes-for-later-features.md)). Migration 042.
 
 - **Step-up on Unit Instance authority:** an `/api/org` change asks for step-up when it rests on a Unit Instance role
-  rather than the chain of command, as `/api/orgs` does; a Unit Leader is not asked. The route inventory marks these
-  routes `instance_authority`. The app's `/api/org` writes go through `withSudo` (`src/lib/sudo.ts`).
+  rather than the chain of command, as `/api/orgs` does; a Unit Leader is not asked, unless the change ends someone's
+  Unit Instance role or moves the unit under a parent they do not lead. Full authority from a role placed below a
+  Unit Instance role asks. The route inventory marks these routes `instance_authority`. The app's `/api/org` writes
+  go through `withSudo` (`src/lib/sudo.ts`).
 - **Session ends and step-ups in the trail:** `password_step_up`, `session_revoked`, `session_evicted` and
-  `session_expired`, each once, under the session's 12-character id; sign-in and sign-out name it too.
+  `session_expired`, each once, under the session's 12-character id; sign-in and sign-out name it too. Sessions ended
+  together stay in the entry for the change that ended them.
 - **Settings and mail:** every numeric setting is a whole number in its range or the start names it; on MCEN, mail to
-  the relay is TLS 1.2 or later with a checked certificate, and an `SMTP_URL` that sets its own TLS terms is refused.
-- **Copies and restore:** `backupDatabase` makes every copy owner-only before it is written; a backup that names no
-  database is this one's only when this trail holds its newest entry.
+  the relay is TLS 1.2 or later with a checked certificate, and an `SMTP_URL` that sets its own TLS terms, or whose
+  sign-in holds a `%` that starts no escape, is refused. `VANTAGE_INTAKE_RETAIN_DAYS=0` still means never.
+- **Copies and restore:** `backupDatabase` makes every copy owner-only before it is written, and `copyFilePrivate`
+  the byte copy a restore keeps of a database SQLite cannot read; a backup that names no database is this one's only
+  when this trail holds its newest entry.
 - **Scan verdicts:** `attachments.scan_status` (042); the file lists mark Not scanned or No scan on record.
 - **Audits:** case closes and reopens from the row or an action; a restore names whose record it was.
-- **Two leaks:** last sign-in on a Marine's page only for those who manage them; entries about a private entry are filed
-  under the Unit Instance and no unit, so no unit's access log shows them.
+- **Two leaks:** last sign-in on a Marine's page only for those who manage them; entries about a private entry
+  (records, cases, workbooks, imports, contacts, threads, report drafts, saved reports) are filed under the Unit
+  Instance and no unit, so no unit's access log shows them; each end of a move as its own row was.
 - **Register:** 11 entries fixed, 3 found on the way added as fixed; `c08-mcen-weak-postures-not-refused` stays open
   for the ISSM.
 - **Tests:** `tests/server/readinessGateDefects.test.ts` (one test per defect, each failing without its fix),

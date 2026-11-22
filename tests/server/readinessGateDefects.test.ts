@@ -4,14 +4,14 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { startApp, enroll, today, mockGenAi, PASSWORD, type TestApp } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
-import { SCHEMA_VERSION, backupDatabase, metaGet, openDatabase } from '../../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase, copyFilePrivate, metaGet, openDatabase } from '../../server/db/index.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
@@ -744,6 +744,61 @@ test('every unit change a Unit Manager makes on Unit Instance authority asks the
   } finally { await app.close(); }
 });
 
+test('a Unit Leader is not asked to rename the unit they lead, and is asked to end someone’s Unit Instance role or to move their unit under a parent they do not lead', async () => {
+  const { app, post, lead, manager, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    // The founder leads G8 and is its Lead Unit Manager. Taking a Unit Manager out of their last unit ends that role,
+    // which rests on the instance, never on leading the unit.
+    assert.equal((await post(lead.token, '/api/orgs/G8/roles', { user_id: other.id, role: 'admin' })).status, 201);
+    unconfirm(lead.id);
+    const removed = await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(other.id), 'they are still a Unit Manager');
+    assert.equal((await post(lead.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token })).status, 200);
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(other.id), undefined);
+
+    // A Unit Manager named to lead DISB renames it unasked, though the page sends its parent with the name.
+    await enroll(app, lead.token, 'DISB', manager.id);
+    assert.equal((await post(lead.token, '/api/org/units/DISB/owner', { user_id: manager.id })).status, 200);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    const renamed = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: 'G8' } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+    // Moving it under a unit they reach only as a Unit Manager asks.
+    lead.token = (await app.login('boletz')).body.token;
+    const tmp = await post(lead.token, '/api/org/units', { name: 'Temporary', short_name: 'TMP', code: 'tmp', parent_id: 'G8' });
+    assert.equal(tmp.status, 201, JSON.stringify(tmp.body));
+    const under = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: tmp.body.id } });
+    assert.equal(under.status, 403, JSON.stringify(under.body));
+    assert.equal(under.body.code, 'sudo_required');
+  } finally { await app.close(); }
+});
+
+test('full unit authority from a role below a Unit Manager’s place does not stand in for confirming it is them, since whom they outrank comes from the instance', async () => {
+  const { app, post, lead, manager, marine, unconfirm } = await instanceWithUnitManager();
+  try {
+    const role = async (name: string, position: number, permissions: number, userId: string) => {
+      const made = await post(lead.token, '/api/org/roles', { unit_id: 'DISB', name, position, permissions });
+      assert.equal(made.status, 201, JSON.stringify(made.body));
+      assert.equal((await post(lead.token, `/api/org/team/${userId}/roles`, { role_id: made.body.id, unit_id: 'DISB' })).status, 200);
+    };
+    await enroll(app, lead.token, 'DISB', manager.id);
+    await role('Deputy', 50, PERMISSIONS.ADMINISTRATOR, manager.id);
+    await role('Senior Clerk', 60, PERMISSIONS.VIEW_UNIT, marine.id);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    // Removing the Senior Clerk needs a place above 60: the Deputy role alone does not give it, the Unit Manager role does.
+    const removed = await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE unit_id = 'DISB' AND user_id = ?").get(marine.id), 'the Marine is still in DISB');
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token })).status, 200);
+  } finally { await app.close(); }
+});
+
 // Session ends and password step-up in the audit trail (ADR-0040)
 
 test('confirming it is them with a password is in the audit trail, naming the session it confirmed, and a wrong password is not', async () => {
@@ -894,6 +949,19 @@ test('on MCEN a reset link never goes to a mail relay that will not start TLS, a
   assert.equal(refusal({ ...TEST_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.com:25?ignoreTLS=true' }), null);
 });
 
+test('an SMTP_URL whose sign-in holds a % that starts no escape stops the start and says how to write it, and a workbook retention of 0 still keeps them', async () => {
+  const { tlsOnlyTransport } = await import('../../server/services/email.ts');
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  const message = refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%off@relay.example.mil:465' });
+  assert.match(message ?? '', /SMTP_URL has a % in its user name or password/);
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%25off@relay.example.mil:465' }), null);
+  assert.deepEqual(tlsOnlyTransport('smtps://mailer:50%25off@relay.example.mil:465').auth, { user: 'mailer', pass: '50%off' });
+  assert.doesNotThrow(() => tlsOnlyTransport('smtps://mailer:50%off@relay.example.mil:465'), 'the transport never throws on what the start would refuse');
+  // 0 keeps uploaded workbooks until their owners remove them, as it did.
+  assert.equal(refusal({ ...MCEN_ENV, VANTAGE_INTAKE_RETAIN_DAYS: '0' }), null);
+  assert.equal(loadConfig({ ...TEST_ENV, VANTAGE_INTAKE_RETAIN_DAYS: '0' } as NodeJS.ProcessEnv).intake.retainDays, 0);
+});
+
 // Database copies and restores (ADR-0040)
 
 test('every copy of the database is its owner’s alone from its first page, the script’s new directory too, and a copy that fails leaves nothing', async () => {
@@ -923,6 +991,17 @@ test('every copy of the database is its owner’s alone from its first page, the
     assert.equal(existsSync(failed), false);
     db.close();
 
+    // A database SQLite cannot read through is copied as its bytes, owner-only before the first, whatever the source's mode.
+    const loose = join(dir, 'loose.db');
+    writeFileSync(loose, Buffer.alloc(3 << 20, 1), { mode: 0o644 });
+    chmodSync(loose, 0o644);
+    const bytes = join(dir, 'bytes.db');
+    copyFilePrivate(loose, bytes);
+    assert.equal((statSync(bytes).mode & 0o777).toString(8), '600', 'copyFile would have given it the source’s 644');
+    assert.ok(readFileSync(bytes).equals(readFileSync(loose)), 'every byte came');
+    assert.throws(() => copyFilePrivate(join(dir, 'missing.db'), join(dir, 'never.db')));
+    assert.equal(existsSync(join(dir, 'never.db')), false, 'a copy that fails leaves nothing');
+
     // The backup script makes the directory it is given the service account’s alone.
     const env = { ...process.env, VANTAGE_DB: join(dir, 'data', 'vantage.db') };
     const nightly = join(dir, 'backups', 'nightly', 'vantage.db');
@@ -934,8 +1013,8 @@ test('every copy of the database is its owner’s alone from its first page, the
   // Nothing copies the database any other way.
   const sources = ['server', 'scripts'].flatMap((root) => readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((f) => f.isFile() && f.name.endsWith('.ts')).map((f) => join(f.parentPath, f.name)));
-  const direct = sources.filter((f) => /\.backup\(/.test(readFileSync(f, 'utf8').replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '')));
-  assert.deepEqual(direct, [], 'database copies go through backupDatabase');
+  const direct = sources.filter((f) => /\.backup\(|copyFileSync|\bcpSync/.test(readFileSync(f, 'utf8').replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '')));
+  assert.deepEqual(direct, [], 'database copies go through backupDatabase or copyFilePrivate');
 });
 
 test('a backup that names no database is this one’s only when the trail here holds its newest entry, so another database’s is refused and never takes this one’s name', async () => {
@@ -1112,6 +1191,53 @@ test('what a Marine does to a private entry stays out of every unit’s access l
   assert.equal(privateEntry(app.ctx, 'counselings', 'zz-c-own'), true);
   assert.equal(privateEntry(app.ctx, 'duties', id), false, 'a duty is always its unit’s');
   assert.equal(privateEntry(app.ctx, '__proto__', id), false);
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave', async () => {
+  const { privateEntry } = await import('../../server/services/audit.ts');
+  const call = (method: string, path: string, body?: unknown) => app.call(method, path, { token: kid.token, body });
+  const unitLog = async () => {
+    const log = await app.call('GET', '/api/org/units/FISCAL/audit?limit=500', { token: op.token });
+    assert.equal(log.status, 200, JSON.stringify(log.body));
+    return log.body.rows as Array<{ action: string; entity: string; entity_id: string }>;
+  };
+  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null }>;
+
+  const contact = await call('POST', '/api/correspondence/contacts', { name: 'ZZ Private Contact', visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(contact.status, 201, JSON.stringify(contact.body));
+  const thread = await call('POST', '/api/correspondence/threads', { subject: 'ZZ private follow-up', visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(thread.status, 201, JSON.stringify(thread.body));
+  assert.equal((await call('POST', `/api/correspondence/threads/${thread.body.id}/state`, { state: 'resolved' })).status, 200);
+  const draft = await call('POST', '/api/studio/reports', { title: 'ZZ private draft', period_start: day(-30), period_end: day(-1), unit_id: 'FISCAL', visibility: 'private' });
+  assert.equal(draft.status, 201, JSON.stringify(draft.body));
+  const rows = await unitLog();
+  for (const r of [contact.body.id, thread.body.id, draft.body.id]) assert.ok(!rows.some((x) => x.entity_id === r), `${r} is not in the unit's log`);
+  assert.deepEqual(filed(thread.body.id).map((r) => [r.action, r.unit_id]), [['create_thread', null], ['thread_state', null]]);
+
+  // Every kind of thing a Marine can keep private is decided the same way: a workbook and its import, a message by its
+  // thread, a revision by its draft.
+  const at = new Date().toISOString();
+  const db = app.ctx.db;
+  db.prepare("INSERT INTO source_files (id, user_id, unit_id, visibility, filename, content_type, kind, byte_size, sha256, content, created_at) VALUES ('zz-src', ?, 'FISCAL', 'private', 'mine.csv', 'text/csv', 'delimited', 1, 'x', x'00', ?)").run(kid.id, at);
+  db.prepare("INSERT INTO import_jobs (id, source_file_id, user_id, unit_id, visibility, sheet_name, created_at, updated_at) VALUES ('zz-job', 'zz-src', ?, 'FISCAL', 'private', 'Sheet1', ?, ?)").run(kid.id, at, at);
+  db.prepare("INSERT INTO thread_messages (id, thread_id, direction, created_at) VALUES ('zz-msg', ?, 'inbound', ?)").run(thread.body.id, at);
+  db.prepare("INSERT INTO report_revisions (id, report_id, revision, title, period_start, period_end, created_by, created_at) VALUES ('zz-rev', ?, 1, 't', ?, ?, ?, ?)").run(draft.body.id, day(-30), day(-1), kid.id, at);
+  for (const [table, id] of [['source_files', 'zz-src'], ['import_jobs', 'zz-job'], ['contacts', contact.body.id], ['threads', thread.body.id], ['thread_messages', 'zz-msg'], ['report_drafts', draft.body.id], ['report_revisions', 'zz-rev']]) {
+    assert.equal(privateEntry(app.ctx, table, id), true, `${table} kept private`);
+  }
+  db.prepare("UPDATE threads SET visibility = 'unit' WHERE id = ?").run(thread.body.id);
+  assert.equal(privateEntry(app.ctx, 'thread_messages', 'zz-msg'), false, 'a message in a shared thread is its unit’s');
+
+  // A private activity moved to Duty, which is always its unit's, then undone: each end is filed as its own row was.
+  db.prepare("INSERT OR IGNORE INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES ('zz-dnco', 'G8', 'ZZDN', 'Duty NCO', NULL, 1, ?, ?)").run(at, at);
+  const made = await call('POST', '/api/records/activities', { title: 'ZZPRIVATE stood duty', date: day(-2), visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const moved = await call('POST', `/api/records/activities/${made.body.id}/move`, { to: 'duties', fields: { duty_type_id: 'zz-dnco', start_time: '0800', end_time: '1600', unit_id: 'FISCAL' } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  assert.equal((await call('POST', `/api/records/duties/${moved.body.id}/undo-move`)).status, 200);
+  assert.deepEqual(filed(moved.body.id).map((r) => [r.action, r.unit_id]), [['record_moved', 'FISCAL'], ['record_move_undone', 'FISCAL']], 'the unit sees the duty come and go');
+  assert.ok(filed(made.body.id).every((r) => r.unit_id === null), 'the private activity is in no unit’s log');
   assert.equal(verifyAuditChain(app.ctx).ok, true);
 });
 

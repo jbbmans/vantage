@@ -168,7 +168,7 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
   const revision = Number(req.params.revision);
   const text = renderRevisionText(req.ctx, draft.id, revision);
-  audit(req.ctx, { actor_id: req.user.id, action: 'export_report_revision', entity: 'report_revisions', entity_id: `${draft.id}:${revision}`, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'export_report_revision', entity: 'report_revisions', entity_id: `${draft.id}:${revision}`, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req), privateEntry: draft.visibility === 'private' });
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.setHeader('content-disposition', `attachment; filename="vantage-report-r${revision}.txt"`);
   record(req.ctx, 'report.exported', { revision, format: 'txt' }, { id: req.user.id });

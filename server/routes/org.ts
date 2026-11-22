@@ -57,9 +57,11 @@ orgRouter.post('/units', wrap((req, res) => {
 orgRouter.put('/units/:unitId', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unitId = String(req.params.unitId);
-  // Moving a unit under another parent needs authority in both.
+  // Moving a unit under another parent needs authority in both; the page sends the parent it has, so the same one is
+  // no move.
   stepUpOnInstanceAuthority(req, scope, [unitId]);
-  if (typeof req.body?.parent_id === 'string') stepUpOnInstanceAuthority(req, scope, [req.body.parent_id]);
+  const parentId = typeof req.body?.parent_id === 'string' ? req.body.parent_id : null;
+  if (parentId && parentId !== getUnit(req.ctx, unitId)?.parent_id) stepUpOnInstanceAuthority(req, scope, [parentId]);
   res.json(updateUnit(req.ctx, req.user, scope, unitId, req.body || {}, clientIp(req)));
 }));
 orgRouter.delete('/units/:unitId', wrap((req, res) => {
@@ -374,7 +376,8 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (isUnitOwner(ctx, userId, unitId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot remove a Marine whose role is at or above your own.', 'hierarchy');
   // Their last unit in the Unit Instance takes them out of it, and ends any Unit Instance role they hold there (ADR-0010).
-  if (lastUnitInInstance(ctx, userId, unitId)) assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId);
+  // Ending one rests on the instance's own authority, never the unit's, so it asks as the console does (ADR-0040).
+  if (lastUnitInInstance(ctx, userId, unitId) && assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId).length && userId !== req.user.id) assertSudo(req);
   const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; responsibilities ended: ${removed.responsibilitiesEnded}; supervisions ended: ${removed.supervisionsEnded}; sessions revoked: ${revoked}`, ip: clientIp(req) });

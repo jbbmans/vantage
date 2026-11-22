@@ -356,6 +356,7 @@ function smtpUrlProblem(raw: string | undefined): string | null {
   if ((url.protocol !== 'smtp:' && url.protocol !== 'smtps:') || !url.hostname) return `SMTP_URL must be the enterprise relay's address, ${example}.`;
   const named = [...url.searchParams.keys()].filter((k) => SMTP_SECURITY_QUERY.test(k));
   if (named.length) return `SMTP_URL sets ${[...new Set(named)].join(', ')}: on MCEN mail to the relay always uses TLS 1.2 or later with its certificate checked. Remove ${named.length === 1 ? 'it' : 'them'} from the address.`;
+  try { decodeURIComponent(url.username); decodeURIComponent(url.password); } catch { return 'SMTP_URL has a % in its user name or password that starts no escape. Write a % there as %25.'; }
   return null;
 }
 
@@ -490,7 +491,8 @@ export function loadConfig(env = process.env): AppConfig {
       maxRows: envInt(env, 'VANTAGE_INTAKE_MAX_ROWS', 20000, 1, 10_000_000),
       maxColumns: envInt(env, 'VANTAGE_INTAKE_MAX_COLUMNS', 128, 1, 10_000),
       maxBytesPerUser: envInt(env, 'VANTAGE_INTAKE_MAX_BYTES_PER_USER', 250 * MIB, 1, 1024 * GIB),
-      retainDays: envInt(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400, 1, 36_500),
+      // 0 keeps uploaded workbooks until their owners remove them.
+      retainDays: envInt(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400, 0, 36_500),
       scannerCommand: env.VANTAGE_SCANNER_COMMAND ? String(env.VANTAGE_SCANNER_COMMAND) : null,
       clamd: (env.VANTAGE_CLAMD || '').trim() || null,
       // Accredited hosts: refuse a file that could not be scanned rather than keep it marked as not scanned.

@@ -435,15 +435,21 @@ builds on.
 - **A unit change on Unit Instance authority asks for step-up.** An `/api/org` change to a unit, its members, roles,
   responsibilities, invitations, join codes or a Marine's profile asks the person to confirm it is them when it rests
   on a Unit Instance role rather than the chain of command, as `/api/orgs` asks for every change. A Unit Leader in their
-  own unit is not asked. The app asks and retries as the consoles do.
-- **Every way a session ends is in the trail once**, under the 12 characters of its id the sessions list shows:
+  own unit is not asked, unless the change ends someone's Unit Instance role or moves the unit under a parent they do
+  not lead. Full unit authority from a role placed below a Unit Instance role is not leading the unit. The app asks
+  and retries as the consoles do.
+- **A session that ends alone is in the trail once**, under the 12 characters of its id the sessions list shows:
   sign-out (`logout`), another session signed out from the list (`session_revoked`), the session limit
-  (`session_evicted`) and expiry, idle or absolute (`session_expired`, written by the service).
+  (`session_evicted`) and expiry, idle or absolute (`session_expired`, written by the service). Sessions ended
+  together, by signing out the others or by a password, role, membership or account change, are in the entry for
+  that change.
 - **Every case close is in the trail**, from its stage, its row or an action (`work_closed`, `work_reopened`). A restore
   from the bin names whose record it was.
 - **Private entries stay out of every unit's access log.** What is done to a private entry is filed under its Unit
   Instance and no unit, decided as the entry is written, so the Unit Instance trail keeps it and no unit's leaders learn
-  it exists. A counseling a leader writes keeps its unit. Entries written before keep the unit they had.
+  it exists: a record or case, and a workbook, import, contact, thread, report draft or saved report kept private. A
+  counseling a leader writes keeps its unit. Each end of a move is filed as its own row was. Entries written before
+  keep the unit they had.
 - **When a Marine last signed in** is given to them and to those who manage them, never to a leader who only reads
   their records.
 - **Settings are whole numbers in range.** Every numeric setting is digits only and within its bounds, on every

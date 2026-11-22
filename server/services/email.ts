@@ -24,9 +24,15 @@ const BACKOFF_MINUTES = [2, 10, 30, 60, 120, 240, 480];
 /**
  * The relay connection on MCEN (ADR-0040): from SMTP_URL's address and sign-in only, with TLS required. smtps:// starts
  * in TLS; smtp:// must upgrade with STARTTLS or nothing is sent. TLS 1.2 or later, and the relay's certificate checked
- * against the system store and NODE_EXTRA_CA_CERTS. These are set after everything the URL gives, so no part of it can
- * weaken them; the start already refused a URL that tried.
+ * against Node's bundled roots and NODE_EXTRA_CA_CERTS (the host's own store only under --use-system-ca). These are set
+ * after everything the URL gives, so no part of it can weaken them; the start already refused a URL that tried, or one
+ * whose sign-in cannot be read.
  */
+/** A user name or password from SMTP_URL as written, its %-escapes read; one the start would refuse is kept as it is. */
+export function smtpUserinfo(part: string): string {
+  try { return decodeURIComponent(part); } catch { return part; }
+}
+
 export function tlsOnlyTransport(smtpUrl: string) {
   const url = new URL(smtpUrl);
   const secure = url.protocol === 'smtps:';
@@ -34,7 +40,7 @@ export function tlsOnlyTransport(smtpUrl: string) {
   return {
     host: url.hostname.replace(/^\[|\]$/g, ''),
     port: url.port ? Number(url.port) : secure ? 465 : 587,
-    ...(url.username ? { auth: { user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) } } : {}),
+    ...(url.username ? { auth: { user: smtpUserinfo(url.username), pass: smtpUserinfo(url.password) } } : {}),
     ...(name ? { name } : {}),
     secure,
     requireTLS: true,

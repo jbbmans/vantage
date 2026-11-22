@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync, rmSync, writeFileSync, openSync, closeSync, fchmodSync, readSync, writeSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
@@ -1374,6 +1374,29 @@ export async function backupDatabase(db: { backup: (destination: string) => Prom
     throw error;
   }
   chmodSync(dest, 0o600);
+}
+
+/**
+ * A database file copied as its bytes, for one SQLite cannot read through (ADR-0040): owner-only before the first byte,
+ * whatever the source's mode, since copyFile gives the copy the source's permissions. A copy that fails is removed.
+ */
+export function copyFilePrivate(src: string, dest: string): void {
+  const out = openSync(dest, 'w', 0o600);
+  try {
+    fchmodSync(out, 0o600);
+    const input = openSync(src, 'r');
+    try {
+      const chunk = Buffer.allocUnsafe(1 << 20);
+      for (let n = readSync(input, chunk, 0, chunk.length, null); n > 0; n = readSync(input, chunk, 0, chunk.length, null)) {
+        for (let at = 0; at < n;) at += writeSync(out, chunk, at, n - at);
+      }
+    } finally { closeSync(input); }
+  } catch (error) {
+    closeSync(out);
+    rmSync(dest, { force: true });
+    throw error;
+  }
+  closeSync(out);
 }
 
 export function openDatabase(path: string): Db {

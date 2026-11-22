@@ -1067,7 +1067,7 @@
           "test": "every copy of the database is its owner’s alone from its first page, the script’s new directory too, and a copy that fails leaves nothing"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040): backupDatabase makes every copy owner-only before SQLite writes to it and removes a copy it made that fails. The browser download, the server backup, both restore copies and the start-over copy use it; the script makes a new directory 0700."
+      "note": "Confirmed and fixed (ADR-0040): backupDatabase makes every copy owner-only before SQLite writes to it and removes a copy it made that fails. The browser download, the server backup, both restore copies and the start-over copy use it; a database SQLite cannot read through is kept by copyFilePrivate, owner-only before its first byte, its write-ahead log too; the script makes a new directory 0700."
     },
     {
       "id": "pre022-other-database-not-refused",
@@ -1118,7 +1118,7 @@
           "test": "a security setting that is negative, a fraction, written as an exponent or hex, or past its range stops the start and names it, on every profile"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040): every numeric setting is read by envInt, digits only, a safe integer within its range, on every profile. The quiet clamps are refusals. Tighter STIG ceilings are left to the ISSM (c08-mcen-weak-postures-not-refused)."
+      "note": "Confirmed and fixed (ADR-0040): every numeric setting is read by envInt, digits only, a safe integer within its range, on every profile; 0 stays in range where it meant never (VANTAGE_INTAKE_RETAIN_DAYS). The quiet clamps are refusals. Tighter STIG ceilings are left to the ISSM (c08-mcen-weak-postures-not-refused)."
     },
     {
       "id": "c08-mcen-weak-postures-not-refused",
@@ -1170,9 +1170,13 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "on MCEN a reset link never goes to a mail relay that will not start TLS, and an SMTP_URL that sets its own TLS terms stops the start"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an SMTP_URL whose sign-in holds a % that starts no escape stops the start and says how to write it, and a workbook retention of 0 still keeps them"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040): on MCEN the relay transport requires TLS 1.2 or later with a checked certificate, built from the address and sign-in only; an SMTP_URL that is empty, not smtp: or smtps:, or sets its own TLS terms stops the start."
+      "note": "Confirmed and fixed (ADR-0040): on MCEN the relay transport requires TLS 1.2 or later with a checked certificate, built from the address and sign-in only; an SMTP_URL that is empty, not smtp: or smtps:, sets its own TLS terms, or holds a % in its sign-in that starts no escape stops the start."
     },
     {
       "id": "c14-recent-titles-survive-sign-out",
@@ -1217,7 +1221,7 @@
           "test": "a session the limit pushes out, one that runs out on a request and one the prune finds are each in the trail once, under its id, by the service"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040): session_evicted for the session limit, session_expired for idle or absolute expiry, found by a request or by the prune, each once, under the session’s id, by the service."
+      "note": "Confirmed and fixed (ADR-0040): session_evicted for the session limit, session_expired for idle or absolute expiry, found by a request or by the prune, each once, under the session’s id, by the service. Sessions ended together by a change (signing out the others, a password or role change) are in that change’s entry, as before."
     },
     {
       "id": "c35-passkey-profile-and-removal",
@@ -1858,9 +1862,13 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a Unit Leader is not asked to rename the unit they lead, and is asked to end someone’s Unit Instance role or to move their unit under a parent they do not lead"
         }
       ],
-      "note": "Confirmed and fixed (ADR-0040). An /api/org change asks for step-up when it rests on Unit Instance authority: a Unit Instance structure role in the unit, and no full authority there from the chain of command. Naming a unit leader asks when it rests on the instance’s Manage units. A Unit Leader is not asked."
+      "note": "Confirmed and fixed (ADR-0040). An /api/org change asks for step-up when it rests on Unit Instance authority: a Unit Instance structure role in the unit, and no full authority there from the chain of command from a place as high. Naming a unit leader asks when it rests on the instance’s Manage units; taking someone out of their last unit asks whenever it ends a Unit Instance role, as the console does. A Unit Leader renaming their own unit is not asked."
     },
     {
       "id": "role-self-revoke-asymmetry",
@@ -2053,9 +2061,13 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "full unit authority from a role below a Unit Manager’s place does not stand in for confirming it is them, since whom they outrank comes from the instance"
         }
       ],
-      "note": "Found by the review of stepup-bypass-via-org-router. Fixed with it (ADR-0040); the route inventory marks these routes stepUp: instance_authority and its test reads the check from the code."
+      "note": "Found by the review of stepup-bypass-via-org-router. Fixed with it (ADR-0040); the route inventory marks these routes stepUp: instance_authority and its test reads the check from the code. The PR review found full unit authority from a role placed below a Unit Instance role passed as the chain’s; it asks now."
     },
     {
       "id": "member-page-last-login-to-non-managers",
@@ -2081,9 +2093,13 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "what a Marine does to a private entry stays out of every unit’s access log, in the Unit Instance trail, and a shared entry’s stays in its unit’s"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave"
         }
       ],
-      "note": "Found reading the statistics code. Fixed (ADR-0040): an entry about a private entry is filed under its Unit Instance and no unit, decided as it is written; a move by the row that survives it; a counseling a leader writes keeps its unit. Entries written before keep their unit, since the trail is sealed."
+      "note": "Found reading the statistics code. Fixed (ADR-0040): an entry about a private entry is filed under its Unit Instance and no unit, decided as it is written: a record or case, and a workbook, import, contact, thread, message, report draft, revision or saved report kept private. Each end of a move is filed as its own row was. A counseling a leader writes keeps its unit. Entries written before keep their unit, since the trail is sealed."
     }
   ],
   "external": [
