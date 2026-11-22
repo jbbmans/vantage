@@ -211,44 +211,68 @@ test('a start after a failed upgrade keeps the copy that start took, so restarts
 });
 
 test('a start after a failed upgrade takes a copy of its own once anything was written since, and keeps the failed start\u2019s', () => {
-  const { dir, path } = onDisk(fixture('v5.0.0'));
-  const copies = join(dir, 'copies');
-  try {
-    const d = new Database(path);
-    for (const on of ['INSERT', 'UPDATE']) d.exec(`CREATE TRIGGER refuse_30_${on.toLowerCase()} BEFORE ${on} ON meta WHEN NEW.key = 'schema_version' AND NEW.value = '30' BEGIN SELECT RAISE(ABORT, 'migration 30 cannot take this database'); END`);
-    d.close();
-    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
-    const [first] = upgradeCopiesIn(copies, path);
-    const failed = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!; } finally { h.close(); } })();
-    assert.equal(failed.status, 'failed');
-    assert.equal(failed.left?.schema, '29', 'the failed start records the database as it left it');
-    // The previous build serves the database again for a while: someone signs in.
-    const served = new Database(path);
+  // What the previous build, or someone by hand, might write meanwhile: a row added, a row only changed, a setting.
+  const writes: Record<string, string> = {
+    'someone signs in': `INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, absolute_expires_at, method)
+      SELECT 'served-again', id, '2026-11-22T00:00:00.000Z', '2026-11-22T00:00:00.000Z', '2026-11-23T00:00:00.000Z', '2026-11-23T00:00:00.000Z', 'password' FROM users LIMIT 1`,
+    'a name is corrected': "UPDATE users SET first_name = first_name || 'e' WHERE rowid = (SELECT MIN(rowid) FROM users)",
+    'a setting is written': "INSERT INTO meta (key, value) VALUES ('served_again', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  };
+  for (const [what, sql] of Object.entries(writes)) {
+    const { dir, path } = onDisk(fixture('v5.0.0'));
+    const copies = join(dir, 'copies');
     try {
-      served.prepare(`INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, absolute_expires_at, method)
-                      SELECT 'served-again', id, '2026-11-22T00:00:00.000Z', '2026-11-22T00:00:00.000Z', '2026-11-23T00:00:00.000Z', '2026-11-23T00:00:00.000Z', 'password' FROM users LIMIT 1`).run();
-    } finally { served.close(); }
-    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
-    const after = upgradeCopiesIn(copies, path);
-    assert.equal(after.length, 2, 'a copy of the database as it now is, and the failed start\u2019s, which is never pruned');
-    assert.ok(after.includes(first));
-    const second = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!.copy!.file; } finally { h.close(); } })();
-    assert.notEqual(second, first);
-    assert.match(second, /^vantage-before-upgrade-29-to-/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+      const d = new Database(path);
+      for (const on of ['INSERT', 'UPDATE']) d.exec(`CREATE TRIGGER refuse_30_${on.toLowerCase()} BEFORE ${on} ON meta WHEN NEW.key = 'schema_version' AND NEW.value = '30' BEGIN SELECT RAISE(ABORT, 'migration 30 cannot take this database'); END`);
+      d.close();
+      assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
+      const [first] = upgradeCopiesIn(copies, path);
+      const failed = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!; } finally { h.close(); } })();
+      assert.equal(failed.status, 'failed');
+      assert.equal(failed.left?.schema, '29', 'the failed start records the database as it left it');
+      const served = new Database(path);
+      try { assert.equal(served.prepare(sql).run().changes, 1, what); } finally { served.close(); }
+      assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
+      const after = upgradeCopiesIn(copies, path);
+      assert.equal(after.length, 2, `${what}: a copy of the database as it now is, and the failed start\u2019s, which is never pruned`);
+      assert.ok(after.includes(first), what);
+      const second = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!.copy!.file; } finally { h.close(); } })();
+      assert.notEqual(second, first, what);
+      assert.match(second, /^vantage-before-upgrade-29-to-/, what);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });
 
-test('a database that holds people but records no schema is neither copied nor migrated', () => {
-  const { dir, path } = onDisk(fixture('v5.0.0'));
-  try {
-    const d = new Database(path);
-    d.prepare('DELETE FROM meta WHERE key = ?').run('schema_version');
-    d.close();
-    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: join(dir, 'copies') } }), /holds \d+ accounts and \d+ audit entries but records no schema version.*Nothing was migrated/s);
-    assert.deepEqual(upgradeCopiesIn(join(dir, 'copies')), []);
-    const after = new Database(path, { readonly: true });
-    try { assert.equal(metaGet(after, 'schema_version'), null); } finally { after.close(); }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+test('a database that holds data but records no schema is neither copied nor migrated', () => {
+  // People and a trail; then rows only in other tables (units, records, ranks), which migration 15 would rebuild.
+  for (const empty of [false, true]) {
+    const { dir, path } = onDisk(fixture('v5.0.0'));
+    try {
+      const d = new Database(path);
+      d.pragma('foreign_keys = OFF');
+      d.prepare('DELETE FROM meta WHERE key = ?').run('schema_version');
+      if (empty) {
+        d.exec('DROP TRIGGER IF EXISTS audit_log_no_delete; DELETE FROM audit_log; DELETE FROM sessions; DELETE FROM member_roles; DELETE FROM users');
+      }
+      const count = (table: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+      const before = count('units');
+      const peopleAndTrail = count('users') + count('audit_log');
+      d.close();
+      assert.ok(before > 0);
+      assert.equal(peopleAndTrail === 0, empty);
+      let message = '';
+      assert.throws(() => openDatabase(path, { upgradeCopy: { dir: join(dir, 'copies') } }), (error: Error) => { message = error.message; return true; });
+      assert.match(message, /holds rows \(\d+ in activities, .*\) but records no schema version.*Nothing was migrated/s);
+      assert.match(message, empty ? /\d+ in awards/ : /\d+ in audit_log/);
+      if (empty) assert.doesNotMatch(message, / in audit_log\b/, 'it is refused for what the other tables hold');
+      assert.deepEqual(upgradeCopiesIn(join(dir, 'copies')), []);
+      const after = new Database(path, { readonly: true });
+      try {
+        assert.equal(metaGet(after, 'schema_version'), null);
+        assert.equal((after.prepare('SELECT COUNT(*) AS n FROM units').get() as { n: number }).n, before, 'nothing in it was touched');
+      } finally { after.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });
 
 test('a copy that cannot be made, or a database that fails its check, stops the start with nothing migrated', () => {

@@ -356,7 +356,7 @@ interface BackupView {
   sha256?: string | null; verified?: boolean; trail?: 'verified' | 'broken' | 'not_checked';
 }
 interface DrillView {
-  id: string; at: string; kind: 'drill' | 'dry_run'; ok: boolean; failure: string | null; refused?: 'authorization' | 'other_database' | 'space' | null;
+  id: string; at: string; kind: 'drill' | 'dry_run'; ok: boolean; failure: string | null; refused?: 'authorization' | 'other_database' | 'space' | null; stopped?: boolean;
   backup: { file: string; bytes: number | null; sha256: string | null; schema: number | null; seq: number | null; at: string | null; recorded: boolean };
   upgraded: { from: number; to: number; status: string } | null; trail: number | null; sameDatabase: boolean | null;
   wouldUndo: { entries: number; instances: number; changes: number } | null; by: string | null; hostUser: string | null; version: string; ms: number;
@@ -430,7 +430,7 @@ export function DataAdmin() {
           </ol>
           <pre className="mono mt-3 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{DRILL_COMMAND}</pre>
           <pre className="mono mt-2 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{RESTORE_COMMAND}</pre>
-          <p className="mt-2 text-xs text-ink-3">{backups.drills[0] ? `Last drill ${timeAgo(backups.drills[0].at)}: ${backups.drills[0].ok ? 'passed' : backups.drills[0].refused ? 'refused before the backup was rehearsed' : 'failed'}.` : 'No drill recorded yet.'} With <span className="mono">--dry-run</span> the restore command runs the same drill and checks who authorized it, with the service running too.</p>
+          <p className="mt-2 text-xs text-ink-3">{backups.drills[0] ? `Last drill ${timeAgo(backups.drills[0].at)}: ${backups.drills[0].ok ? 'passed' : backups.drills[0].refused ? 'refused before the backup was rehearsed' : backups.drills[0].stopped ? 'stopped before it finished, so drill it again' : 'failed'}.` : 'No drill recorded yet.'} With <span className="mono">--dry-run</span> the restore command runs the same drill and checks who authorized it, with the service running too.</p>
           <p className="mt-2 text-xs text-ink-3">The restore refuses while the service has the database open, a backup that fails its check or no longer matches the SHA-256 beside it, one that does not verify under this service’s secret, and a --by that does not name a Lead Vantage Administrator. It keeps the database it replaces beside it, signs everyone out and cancels support approvals waiting. At its next start the service writes the restore into the audit trail and tells Vantage staff and every Unit Instance’s Lead Unit Managers.</p>
           <p className="mt-2 text-xs text-ink-3">{restores.lineage.kept ? `The service notes its newest audit entry beside the database${restores.lineage.writtenAt ? ` (last ${timeAgo(restores.lineage.writtenAt)})` : ''}, so a database put back any other way is noticed at the next start.` : 'The lineage file is off (VANTAGE_LINEAGE_FILE=off), so a database put back outside the restore script is not noticed.'}</p>
         </Panel>
@@ -443,7 +443,7 @@ export function DataAdmin() {
               <tr key={d.id}>
                 <td className="fig text-xs">{formatStamp(d.at)}<span className="block text-2xs text-ink-3">{d.kind === 'dry_run' ? 'dry run' : 'drill'}</span></td>
                 <td className="text-xs"><span className="mono text-2xs">{d.backup.file}</span>{d.backup.sha256 && <span className="mono block text-2xs text-ink-3" title={`SHA-256 ${d.backup.sha256}`}>{d.backup.sha256.slice(0, 12)}{d.backup.recorded ? ', recorded here' : ''}</span>}</td>
-                <td className="text-xs">{d.ok ? <Badge tone="good">Passed</Badge> : d.refused ? <Badge tone="neutral">Refused</Badge> : <Badge tone="bad">Failed</Badge>}{d.ok && d.upgraded && <span className="block text-2xs text-ink-3">upgraded from schema {d.upgraded.from}</span>}{!d.ok && d.failure && <span className={`block max-w-[18rem] text-2xs ${d.refused ? 'text-ink-3' : 'text-bad'}`} title={d.failure}>{d.failure.length > 140 ? `${d.failure.slice(0, 140)}…` : d.failure}</span>}</td>
+                <td className="text-xs">{d.ok ? <Badge tone="good">Passed</Badge> : d.refused ? <Badge tone="neutral">Refused</Badge> : d.stopped ? <Badge tone="warn">Stopped</Badge> : <Badge tone="bad">Failed</Badge>}{d.ok && d.upgraded && <span className="block text-2xs text-ink-3">upgraded from schema {d.upgraded.from}</span>}{!d.ok && d.failure && <span className={`block max-w-[18rem] text-2xs ${d.refused || d.stopped ? 'text-ink-3' : 'text-bad'}`} title={d.failure}>{d.failure.length > 140 ? `${d.failure.slice(0, 140)}…` : d.failure}</span>}</td>
                 <td className="fig text-right text-xs">{d.wouldUndo ? `${d.wouldUndo.entries} entries` : d.sameDatabase === false ? 'another database' : NO_VALUE}{d.wouldUndo?.changes ? <span className="block text-2xs text-warn">{d.wouldUndo.changes} to review</span> : null}</td>
                 <td className="text-xs">{d.hostUser ? <span className="mono text-2xs">{d.hostUser}</span> : NO_VALUE}{d.by ? <span className="block text-2xs text-ink-3">for {d.by}</span> : null}</td>
               </tr>

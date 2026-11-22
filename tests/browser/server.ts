@@ -64,13 +64,15 @@ const server = createServer((req, res) => {
     return;
   }
   // A restore drill runs on the host (scripts/restore.ts DRILL), never through the product, so no spec can make one. This
-  // records one that passed and, after it, one that failed, as the script would, once (ADR-0041). Test server only.
+  // records one that passed, one that failed and, last, one that stopped before it finished, as the script would, once
+  // (ADR-0041). Test server only.
   if (req.method === 'POST' && req.url?.startsWith('/api/__test/drills')) {
     if (!drillHistory(ctx.db).length) {
       const backup = { file: 'nightly.db', bytes: 1_048_576, sha256: 'a'.repeat(64), schema: SCHEMA_VERSION, seq: 40, at: new Date().toISOString(), recorded: true };
       const drill = { kind: 'drill' as const, upgraded: null, sameDatabase: true, by: null, hostUser: 'vantage', version: VERSION, ms: 900 };
       recordDrill(ctx.db, { ...drill, ok: true, failure: null, backup, trail: 40, wouldUndo: { entries: 3, instances: 1, changes: 0 } });
       recordDrill(ctx.db, { ...drill, ok: false, failure: "The backup cannot be restored. It fails SQLite's integrity check: database disk image is malformed.", backup: { ...backup, file: 'damaged.db', recorded: false }, trail: null, sameDatabase: null, wouldUndo: null });
+      recordDrill(ctx.db, { ...drill, ok: false, stopped: true, failure: 'The drill stopped: SQLITE_FULL: database or disk is full', backup: { ...backup, file: 'interrupted.db' }, trail: null, wouldUndo: null });
     }
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: true }));

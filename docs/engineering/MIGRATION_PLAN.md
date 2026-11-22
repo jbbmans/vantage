@@ -61,8 +61,9 @@ and a start that cannot make one stops with nothing migrated. A start after a fa
 start took while nothing was written to the database since, and never prunes it. Each migration runs at startup inside its own transaction, so a failure leaves the database at the last
 migration that committed. There is no automatic downgrade: to roll back, drill that copy (or the backup) with the
 previous build, then restore it with that build (`docs/operations.md#upgrades`). This build's drill would upgrade it
-again, so it says nothing about the previous build. v5.0.0 has no `scripts/restore.ts`: from it, drill the copy with
-this build and put it back with this build's `restore.ts`, which does not upgrade what it puts in place.
+again (and fails again where the upgrade failed), so it says nothing about the previous build. v5.0.0 has no
+`scripts/restore.ts`: from it, check the copy with this build's `backup.ts --verify`, which does not upgrade it, and put
+it back with this build's `restore.ts`, which does not upgrade what it puts in place either.
 
 ## Engine migration (SQLite → PostgreSQL)
 

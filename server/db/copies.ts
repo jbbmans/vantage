@@ -88,21 +88,52 @@ export interface UpgradeCopyOptions {
 }
 
 /**
- * What a database holds, in brief: its name, its schema, its newest audit entry and how many rows it holds outside
- * `meta`. A failed upgrade records it as the start left the database, so the next start can tell whether anything was
- * written to the database since: a start, a restore or the previous build serving it all change one of these.
+ * What a database holds: its name, its schema, its newest audit entry, how many rows it holds outside `meta`, and a
+ * SHA-256 of every row of every table, `meta` included but for the upgrade history (which the failed start writes after
+ * this is taken). A failed upgrade records it as the start left the database, so the next start can tell whether
+ * anything at all was written to the database since: a row added, removed or changed, or a setting, by a restore, by
+ * the previous build serving it, or by hand. Reading every row takes a while on a large database; it is done only when
+ * an upgrade has failed, by that start and by the next.
  */
-export interface DatabaseState { databaseId: string | null; schema: string | null; seq: number | null; hash: string | null; rows: number }
+export interface DatabaseState { databaseId: string | null; schema: string | null; seq: number | null; hash: string | null; rows: number; contents?: string }
 
-export function databaseState(db: Db): DatabaseState {
-  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'").all() as Array<{ name: string }>).map((t) => t.name);
-  const rows = tables.reduce((n, t) => n + (db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n, 0);
-  let newest: { seq: number; entry_hash: string | null } | undefined;
-  try { newest = hasTable(db, 'audit_log') ? db.prepare('SELECT seq, entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1').get() as typeof newest : undefined; } catch { newest = undefined; }
-  return { databaseId: metaRead(db, 'database_id'), schema: metaRead(db, 'schema_version'), seq: newest?.seq ?? null, hash: newest?.entry_hash ?? null, rows };
+/** One value as the hash reads it: its type, then its bytes, so no two different rows can read alike. */
+function hashValue(hash: ReturnType<typeof createHash>, value: unknown) {
+  if (value === null || value === undefined) { hash.update('n;'); return; }
+  if (Buffer.isBuffer(value)) { hash.update(`b${value.length}:`); hash.update(value); hash.update(';'); return; }
+  const text = String(value);
+  hash.update(`${typeof value === 'number' || typeof value === 'bigint' ? 'i' : 's'}${Buffer.byteLength(text)}:`);
+  hash.update(text);
+  hash.update(';');
 }
 
+export function databaseState(db: Db): DatabaseState {
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+  let rows = 0;
+  const contents = createHash('sha256');
+  for (const table of tables) {
+    hashValue(contents, table);
+    const where = table === 'meta' ? " WHERE key <> 'upgrade_history'" : '';
+    // In the order the table keeps its rows; a table without row ids, in the order of its columns.
+    let read: Database.Statement;
+    try { read = db.prepare(`SELECT * FROM "${table}"${where} ORDER BY rowid`); }
+    catch {
+      const count = (db.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info(?)`).get(table) as { n: number }).n;
+      read = db.prepare(`SELECT * FROM "${table}"${where} ORDER BY ${Array.from({ length: count }, (_, i) => i + 1).join(', ')}`);
+    }
+    let n = 0;
+    for (const row of read.raw(true).iterate() as Iterable<unknown[]>) { n += 1; for (const value of row) hashValue(contents, value); contents.update('\n'); }
+    hashValue(contents, n);
+    if (table !== 'meta') rows += n;
+  }
+  let newest: { seq: number; entry_hash: string | null } | undefined;
+  try { newest = hasTable(db, 'audit_log') ? db.prepare('SELECT seq, entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1').get() as typeof newest : undefined; } catch { newest = undefined; }
+  return { databaseId: metaRead(db, 'database_id'), schema: metaRead(db, 'schema_version'), seq: newest?.seq ?? null, hash: newest?.entry_hash ?? null, rows, contents: contents.digest('hex') };
+}
+
+/** Whether two states are of the same database holding the same rows. A state recorded without its contents never is. */
 export const sameState = (a: DatabaseState, b: DatabaseState) =>
+  Boolean(a.contents && b.contents) && a.contents === b.contents &&
   a.databaseId === b.databaseId && a.schema === b.schema && a.seq === b.seq && a.hash === b.hash && a.rows === b.rows;
 
 /**

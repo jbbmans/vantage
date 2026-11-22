@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
+import fs, { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { SCHEMA_VERSION } from '../../server/db/index.ts';
 import { sha256File, writeChecksumFile } from '../../server/db/copies.ts';
@@ -81,8 +82,15 @@ test('a server backup is checked, keeps its SHA-256 beside it, and --verify know
     assert.match(plain.stdout, /The audit trail was not checked here: VANTAGE_SECRET is not set/);
     assert.equal(backupHistory(app.ctx.db).at(-1)!.trail, 'not_checked');
 
-    // A download carries its SHA-256 as its Content-Digest, and the record and the trail keep it.
-    const download = await app.call('GET', '/api/platform/backup', { token: owner.token, binary: true });
+    // A download carries its SHA-256 as its Content-Digest, and the record and the trail keep it. Its check runs on a
+    // thread of its own, and the service's thread keeps turning while the copy is read.
+    let answered = false;
+    const turned: boolean[] = [];
+    const onWorker = () => { setImmediate(() => turned.push(!answered)); };
+    process.on('worker', onWorker);
+    let download;
+    try { download = await app.call('GET', '/api/platform/backup', { token: owner.token, binary: true }); answered = true; } finally { process.off('worker', onWorker); }
+    assert.deepEqual(turned, [true], 'one check thread, and a turn of the event loop before the copy was answered');
     assert.equal(download.status, 200);
     const digest = createHash('sha256').update(download.buffer!).digest();
     assert.equal(download.headers.get('content-digest'), `sha-256=:${digest.toString('base64')}:`);
@@ -101,6 +109,21 @@ test('a server backup is checked, keeps its SHA-256 beside it, and --verify know
     const conditional = await app.call('GET', '/api/platform/backup', { token: owner.token, binary: true, headers: { 'if-none-match': '*', 'if-modified-since': new Date(Date.now() + 86_400_000).toUTCString() } });
     assert.equal(conditional.status, 200);
     assert.equal(conditional.headers.get('content-digest'), `sha-256=:${createHash('sha256').update(conditional.buffer!).digest('base64')}:`);
+    assert.match(download.headers.get('cache-control') ?? '', /no-store/, 'no cache on the way keeps a copy of the database');
+    assert.equal(download.headers.get('etag'), null);
+    // A copy that cannot be read out to the browser is answered, with none of the file's headers.
+    const streams = fs.createReadStream;
+    fs.createReadStream = ((file: Parameters<typeof streams>[0], options?: Parameters<typeof streams>[1]) => {
+      const stream = streams(file, options);
+      if (String(file).includes('vantage-backup-')) process.nextTick(() => stream.destroy(Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' })));
+      return stream;
+    }) as typeof streams;
+    let unsent;
+    try { unsent = await app.call('GET', '/api/platform/backup', { token: owner.token }); } finally { fs.createReadStream = streams; }
+    assert.equal(unsent.status, 500);
+    assert.equal(unsent.body.code, 'backup_send_failed');
+    for (const header of ['content-digest', 'content-disposition', 'etag', 'last-modified']) assert.equal(unsent.headers.get(header), null, header);
+    assert.match(unsent.headers.get('content-type') ?? '', /^application\/json/);
 
     // Taken again over the same file, the copy gets its own SHA-256. A run that fails keeps the copy that was there
     // with its own, so it is still told apart from anything else.
@@ -384,13 +407,32 @@ test('a dry run refused for who authorized it is audited but tells no one the ba
     assert.match(missing.stderr, /There is no backup at .*nigthly\.db/);
     assert.equal(drillHistory(app.ctx.db).at(-1)!.backup.file, 'nigthly.db');
 
-    // A drill that stopped on an error is told as stopped, with no word against the backup.
-    recordDrill(app.ctx.db, { ...drillHistory(app.ctx.db).at(-1)!, ok: false, failure: 'The drill stopped: disk I/O error', stopped: true, backup: { ...drillHistory(app.ctx.db).at(-1)!.backup, file: 'weekly.db' } });
+    // Staff who do not hold the backups see where it was looked for by its file name, not the host's directories.
+    const missed = (body: { backups: { drills: Array<{ backup: { file: string }; failure: string | null }> } }) => body.backups.drills.find((d) => d.backup.file === 'nigthly.db')!.failure;
+    assert.equal(missed((await app.call('GET', '/api/platform/operations', { token: support.token })).body), 'The backup cannot be restored. There is no backup at nigthly.db.');
+    assert.equal(missed((await app.call('GET', '/api/platform/operations', { token: owner.token })).body), `The backup cannot be restored. There is no backup at ${join(dir, 'nigthly.db')}.`);
+
+    // A drill that stops on an error it did not expect (here a trigger planted in a copy of the backup refuses the
+    // step that signs everyone out) is recorded as stopped, leaves no scratch copy, and is told with no word against
+    // the backup.
+    const planted = join(dir, 'planted.db');
+    copyFileSync(nightly, planted);
+    const plant = new Database(planted);
+    try {
+      assert.ok((plant.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n > 0);
+      plant.exec("CREATE TRIGGER stop_the_drill BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'planted to stop the drill'); END");
+    } finally { plant.close(); }
+    const halted = run(['scripts/restore.ts', 'DRILL', '--from', planted], envFor(path));
+    assert.equal(halted.status, 1, halted.stdout);
+    assert.match(halted.stderr, /^The drill stopped: planted to stop the drill\nNothing was replaced\./m);
+    const last = drillHistory(app.ctx.db).at(-1)!;
+    assert.deepEqual([last.backup.file, last.ok, last.stopped ?? false, last.failure], ['planted.db', false, true, 'The drill stopped: planted to stop the drill']);
+    assert.ok(!readdirSync(dir).some((f) => f.startsWith('.vantage-drill-')), 'no scratch copy is left');
     assert.equal(auditDrills(app.ctx), 3);
-    assert.match(entries(app, 'restore_drill').at(-1)!.detail, /^A restore drill of weekly\.db stopped at .* before it finished: The drill stopped: disk I\/O error$/);
+    assert.match(entries(app, 'restore_drill').at(-1)!.detail, /^A restore drill of planted\.db \(SHA-256 [0-9a-f]{64}\) stopped at .* before it finished: The drill stopped: planted to stop the drill$/);
     const notices = app.ctx.db.prepare("SELECT title, message FROM notifications WHERE title LIKE 'A restore drill of %'").all() as Array<{ title: string; message: string }>;
     assert.ok(notices.some((n) => n.title === 'A restore drill of nigthly.db failed'));
-    const stopped = notices.find((n) => n.title === 'A restore drill of weekly.db stopped')!;
+    const stopped = notices.find((n) => n.title === 'A restore drill of planted.db stopped')!;
     assert.match(stopped.message, /says nothing yet about the backup/);
     assert.doesNotMatch(stopped.message, /Take a new backup/);
   } finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -483,6 +525,63 @@ test('a restore over a database whose accounts cannot be read is authorized by t
     const safety = readdirSync(dir).find((f) => /^vantage-before-restore-.*\.db$/.test(f))!;
     assert.equal(readFileSync(join(dir, `${safety}.sha256`), 'utf8'), `${sha256File(join(dir, safety))}  ${safety}\n`);
     assert.equal(readDb(live, (d) => (d.prepare("SELECT COUNT(*) AS n FROM users WHERE username = 'boletz'").get() as { n: number }).n), 1, 'the accounts read again');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a drill goes on when what a restore would undo cannot be read from the live trail, and says so', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-verified-'));
+  try {
+    const live = join(dir, 'vantage.db');
+    copyFileSync(join(FIXTURE_DIR, 'main-caebfab.db'), live);
+    const good = join(dir, 'good.db');
+    assert.equal(run(['scripts/backup.ts', good], envFor(live)).status, 0);
+    // Enough entries after the backup to fill many pages of the trail, then one of those pages damaged: the newest entry
+    // still reads, the entries between the backup and it do not.
+    const later = new Database(live);
+    try {
+      const columns = (later.prepare('PRAGMA table_info(audit_log)').all() as Array<{ name: string }>).map((c) => c.name);
+      const pick = columns.map((c) => (c === 'seq' ? 'seq + 1' : c === 'id' ? 'lower(hex(randomblob(16)))' : c === 'detail' ? 'hex(randomblob(300))' : c));
+      const add = later.prepare(`INSERT INTO audit_log (${columns.join(', ')}) SELECT ${pick.join(', ')} FROM audit_log ORDER BY seq DESC LIMIT 1`);
+      later.transaction(() => { for (let i = 0; i < 400; i += 1) add.run(); })();
+      later.pragma('wal_checkpoint(TRUNCATE)');
+    } finally { later.close(); }
+    const { page, size } = readDb(live, (d) => {
+      const leaves = (d.prepare("SELECT pageno FROM dbstat WHERE name = 'audit_log' AND pagetype = 'leaf' ORDER BY path").all() as Array<{ pageno: number }>).map((r) => r.pageno);
+      return { page: leaves.at(-2)!, size: Number(d.pragma('page_size', { simple: true })) };
+    });
+    // The page no longer says what kind of page it is, so SQLite stops on it rather than read past it.
+    const fd = openSync(live, 'r+');
+    try { writeSync(fd, Buffer.from([0]), 0, 1, (page - 1) * size); } finally { closeSync(fd); }
+
+    const drill = run(['scripts/restore.ts', 'DRILL', '--from', good], envFor(live));
+    assert.equal(drill.status, 0, drill.stderr);
+    assert.match(drill.stdout, /What a restore would undo could not be read from .*vantage\.db \(.*malformed.*\)\./);
+    assert.doesNotMatch(drill.stdout, /Would undo:/);
+    assert.match(drill.stdout, /Drill passed: nothing was replaced\./);
+    assert.equal(readDb(live, (d) => drillHistory(d).at(-1)!.ok), true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a stop while a restore copies the database it replaces, byte by byte, removes the copy and replaces nothing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-verified-'));
+  try {
+    const live = join(dir, 'vantage.db');
+    copyFileSync(join(FIXTURE_DIR, 'main-caebfab.db'), live);
+    const good = join(dir, 'good.db');
+    assert.equal(run(['scripts/backup.ts', good], envFor(live)).status, 0);
+    const before = sha256File(live);
+    // SQLite's online copy fails, so the restore copies the files as they are, synchronously; Ctrl-C comes meanwhile.
+    const plant = join(dir, 'plant.mjs');
+    writeFileSync(plant, `import { createRequire } from 'node:module';
+const Database = createRequire(${JSON.stringify(join(process.cwd(), 'package.json'))})('better-sqlite3');
+Database.prototype.backup = function () { process.kill(process.pid, 'SIGINT'); return Promise.reject(new Error('the online copy failed')); };
+`);
+    const env = envFor(live, { VANTAGE_RESTORE: '1', NODE_OPTIONS: `--import=${pathToFileURL(plant).href}` });
+    const ran = run(['scripts/restore.ts', 'REPLACE-DATABASE', '--from', good, '--by', 'boletz', '--reason', 'Stopped while the safety copy is drawn'], env);
+    assert.equal(ran.status, 1, ran.stdout);
+    assert.match(ran.stderr, /The restore was interrupted \(SIGINT\) while the database it replaces was being copied\.\nNothing was replaced\./);
+    assert.equal(sha256File(live), before, 'the live database is as it was');
+    assert.deepEqual(readdirSync(dir).filter((f) => f.startsWith('vantage-before-restore-') || f.startsWith('.vantage-restore-')), [], 'nothing drawn is left');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -1429,15 +1429,18 @@ export function openDatabase(path: string, options: OpenOptions = {}): Db {
     throw new Error(`Database schema ${storedVersion} is invalid or newer than this build's ${SCHEMA_VERSION}. Use the matching build or the supported restore procedure.`);
   }
   let from = storedVersion === null ? 0 : Number(storedVersion);
-  // A database that already holds people or an audit trail but records no schema is not a new one: which migrations it
-  // ran cannot be told, so it is neither copied nor migrated as if it were empty (ADR-0041).
+  // A database that already holds anything outside its settings but records no schema is not a new one: which migrations
+  // it ran cannot be told, so it is neither copied nor migrated as if it were empty (ADR-0041). A new database has rows in
+  // no table but meta until its first migration records schema 1; the base schema creates tables and inserts nothing.
   if (path !== ':memory:' && from === 0 && !isLegacyDatabase(db)) {
-    const rows = (table: string) => (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) ? (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n : 0);
-    const people = rows('users');
-    const entries = rows('audit_log');
-    if (people || entries) {
+    const tables = (db.prepare("SELECT name FROM pragma_table_list WHERE schema = 'main' AND type = 'table' AND name <> 'meta' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    const held = tables.flatMap((name) => {
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM "${name.replace(/"/g, '""')}"`).get() as { n: number }).n;
+      return n ? [`${n} in ${name}`] : [];
+    });
+    if (held.length) {
       db.close();
-      throw new Error(`The database at ${path} holds ${people} accounts and ${entries} audit entries but records no schema version, so this build cannot tell which migrations it has run. Nothing was migrated. Restore the last good backup with node scripts/restore.ts, then start again.`);
+      throw new Error(`The database at ${path} holds rows (${held.slice(0, 5).join(', ')}${held.length > 5 ? `, and ${held.length - 5} more tables` : ''}) but records no schema version, so this build cannot tell which migrations it has run. Nothing was migrated. Restore the last good backup with node scripts/restore.ts, then start again.`);
     }
   }
   if (path !== ':memory:' && isLegacyDatabase(db)) {

@@ -295,6 +295,8 @@ if (!rehearse && liveDb) {
     copyFilePrivate(live, safetyCopy, heldOpen);
     if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`, heldOpen);
   } finally {
+    // A stop that came while the byte copy above ran (it is synchronous) is handled before the listeners go, on this turn.
+    await new Promise((done) => setImmediate(done));
     for (const signal of signals) process.removeListener(signal, interrupted);
   }
   chmodSync(safetyCopy, 0o600);

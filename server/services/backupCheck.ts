@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { closeSync, existsSync, mkdtempSync, openSync, readSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import type { AppConfig } from '../config.ts';
 import { SCHEMA_VERSION, copyFilePrivate } from '../db/index.ts';
 import { readChecksumFile, sha256File } from '../db/copies.ts';
@@ -65,7 +66,25 @@ function readHeader(path: string): Buffer | null {
  * cannot be checked a fault. `ignoreChecksumFile` is for a copy just taken over an older one: the `.sha256` beside it is
  * still the older copy's until this one passes.
  */
-export function checkBackup(path: string, options: { config?: Pick<AppConfig, 'secret' | 'previousSecrets'> | null; requireTrail?: boolean; ignoreChecksumFile?: boolean } = {}): BackupCheck {
+export interface CheckOptions { config?: Pick<AppConfig, 'secret' | 'previousSecrets'> | null; requireTrail?: boolean; ignoreChecksumFile?: boolean }
+
+/**
+ * The same check on a worker thread, for a check the service itself runs (the browser download): a large copy takes a
+ * while to read, and the service keeps answering everyone else meanwhile. Only the two secrets go to the thread. The
+ * scripts run in a process of their own and call checkBackup.
+ */
+export function checkBackupOffThread(path: string, options: CheckOptions = {}): Promise<BackupCheck> {
+  const config = options.config ? { secret: options.config.secret, previousSecrets: [...options.config.previousSecrets] } : null;
+  return new Promise((resolve, reject) => {
+    let result: BackupCheck | null = null;
+    const worker = new Worker(new URL('./backupCheckWorker.ts', import.meta.url), { workerData: { path, options: { ...options, config } } });
+    worker.once('message', (message: BackupCheck) => { result = message; });
+    worker.once('error', reject);
+    worker.once('exit', (code) => (result ? resolve(result) : reject(new Error(`The backup check stopped before it finished (exit code ${code}).`))));
+  });
+}
+
+export function checkBackup(path: string, options: CheckOptions = {}): BackupCheck {
   const result: BackupCheck = {
     ok: false, faults: [], file: basename(path), bytes: null, sha256: null, checksum: 'none', integrity: null, schema: null,
     databaseId: null, audit: null, trail: null, foreignKeyBreaks: null,

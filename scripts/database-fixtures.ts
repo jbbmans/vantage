@@ -109,10 +109,11 @@ try {
   try {
     printed = execFileSync(process.execPath, ['.vantage-fixture-scenario.ts', out], { cwd: tree, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
   } catch (error) {
-    // Ctrl+C reaches the old build too, which then ends on the signal.
-    const signal = (error as { signal?: NodeJS.Signals | null }).signal;
-    if (!signal) throw error;
-    stopped ??= signal;
+    // Ctrl+C reaches the old build and this script alike, so this script's handler has seen it once the event loop has a
+    // turn. A build that died on a signal of its own (a crash, the out-of-memory killer, output past the buffer) is a
+    // failure, and is said as one.
+    await new Promise((done) => setImmediate(done));
+    if (!stopped) throw error;
   }
   await stopIfAsked();
   const { steps } = JSON.parse(printed.trim().split('\n').at(-1) ?? '{}') as { steps: FixtureEntry['steps'] };

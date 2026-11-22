@@ -45,7 +45,7 @@ test('Unit Instance operations lists each Unit Instance, opens one, and reads cl
 });
 
 test('Backup and restore keeps infrastructure backups apart from the data exports, which are not backups', async ({ page }) => {
-  // A drill runs on the host; the test server records one that passed and one that failed, as the script would.
+  // A drill runs on the host; the test server records one that passed, one that failed and one that stopped, as the script would.
   expect((await page.request.post('/api/__test/drills')).ok()).toBeTruthy();
   await loginAs(page, OPERATOR.username);
   await openAdmin(page, 'data', 'Backup and restore');
@@ -57,7 +57,10 @@ test('Backup and restore keeps infrastructure backups apart from the data export
   await expect(drills.getByRole('row', { name: /nightly\.db/ })).toContainText('Passed');
   await expect(drills.getByRole('row', { name: /damaged\.db/ })).toContainText('Failed');
   await expect(drills.getByRole('row', { name: /damaged\.db/ })).toContainText("It fails SQLite's integrity check");
-  await expect(panel(page, 'Restore')).toContainText('Last drill');
+  // A drill that stopped on the host's error says nothing about its backup, and is not shown as a failed one.
+  await expect(drills.getByRole('row', { name: /interrupted\.db/ })).toContainText('Stopped');
+  await expect(drills.getByRole('row', { name: /interrupted\.db/ })).not.toContainText('Failed');
+  await expect(panel(page, 'Restore')).toContainText('stopped before it finished, so drill it again');
   const exports = panel(page, 'Not backups: data exports');
   for (const name of ['Personal export', 'Unit configuration', 'Roster']) await expect(exports.getByRole('cell', { name: new RegExp(`^${name}`) }).first(), name).toBeVisible();
   await expect(exports).not.toContainText('Database backup');
