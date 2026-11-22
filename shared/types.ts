@@ -313,7 +313,9 @@ export interface DirectoryResponse { results: DirectoryCandidate[]; more: boolea
 export interface MemberDetailResponse {
   person: {
     id: string; first_name: string; last_name: string; middle_initial: string | null; mos: string | null; eas: string | null;
-    rank_id: string | null; rank_abbr: string | null; rank_grade: string | null; rank_name: string | null; last_login_at: string | null;
+    rank_id: string | null; rank_abbr: string | null; rank_grade: string | null; rank_name: string | null;
+    /** On one's own page, and to those who manage the Marine, as the roster and the personnel record give it. */
+    last_login_at?: string | null;
     /** Only on one's own page. */
     email?: string | null;
   };

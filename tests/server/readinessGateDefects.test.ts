@@ -1058,3 +1058,87 @@ test('restoring someone else’s record from the bin names them in the trail, as
   assert.equal((await app.call('POST', `/api/records/activities/${id}/restore`, { token: kid.token })).status, 200);
   assert.deepEqual({ ...row('restore') }, { actor_id: kid.id, subject_id: null });
 });
+
+test('what a Marine does to a private entry stays out of every unit’s access log, in the Unit Instance trail, and a shared entry’s stays in its unit’s', async () => {
+  const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 7), Buffer.from('0000000049454e44ae426082', 'hex')]);
+  const call = (method: string, path: string, body?: unknown, token = kid.token) => app.call(method, path, { token, body });
+  const unitLog = async (unit: string) => {
+    const log = await app.call('GET', `/api/org/units/${unit}/audit?limit=500`, { token: op.token });
+    assert.equal(log.status, 200, JSON.stringify(log.body));
+    return log.body.rows as Array<{ action: string; entity: string; entity_id: string; detail: string | null }>;
+  };
+  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id, org_id FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null; org_id: string | null }>;
+
+  const made = await call('POST', '/api/records/activities', { title: 'ZZPRIVATE counseling notes to self', date: day(-1), visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  assert.equal(made.body.unit_id, 'FISCAL', 'a private entry still sits in its unit');
+  const edited = await call('PUT', `/api/records/activities/${id}`, { ...made.body, title: 'ZZPRIVATE notes, second pass' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  const file = await app.call('POST', `/api/records/activities/${id}/attachments`, { token: kid.token, raw: PNG, headers: { 'content-type': 'image/png', 'x-vantage-filename': 'private.png' } });
+  assert.equal(file.status, 201, JSON.stringify(file.body));
+  assert.equal((await call('DELETE', `/api/records/activities/${id}/attachments/${file.body.id}`)).status, 200);
+  assert.equal((await call('DELETE', `/api/records/activities/${id}`)).status, 200);
+  assert.equal((await call('POST', `/api/records/activities/${id}/restore`)).status, 200);
+  const moved = await call('POST', `/api/records/activities/${id}/move`, { to: 'trainings', fields: { title: 'ZZPRIVATE course', date: day(-1) } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  const trainingId = moved.body.id as string;
+
+  assert.equal((await app.call('GET', `/api/records/activities/${id}`, { token: op.token })).status, 404, 'the leader cannot open it');
+  for (const unit of ['FISCAL', 'G8']) {
+    const rows = await unitLog(unit);
+    assert.ok(!rows.some((r) => r.entity_id === id || r.entity_id === trainingId || (r.detail || '').includes(id)), `${unit}: nothing about the private entry`);
+  }
+  const trail = [...filed(id), ...filed(trainingId)];
+  assert.deepEqual([...new Set(trail.map((r) => r.action))].sort(), ['create', 'delete', 'delete_attachment', 'edit', 'record_moved', 'restore', 'upload_attachment']);
+  assert.ok(trail.every((r) => r.unit_id === null && r.org_id === 'G8'), 'every entry is under its Unit Instance and no unit');
+
+  // A shared entry's are its unit's to read, as before.
+  const shared = await call('POST', '/api/records/activities', { title: 'ZZSHARED reconciled the ULO list', date: day(-1), visibility: 'unit', unit_id: 'FISCAL' });
+  assert.equal(shared.status, 201, JSON.stringify(shared.body));
+  assert.ok((await unitLog('FISCAL')).some((r) => r.entity_id === shared.body.id && r.action === 'create'));
+  // Made private, what follows is not; what came before stays as it was written.
+  assert.equal((await call('PUT', `/api/records/activities/${shared.body.id}`, { ...shared.body, visibility: 'private' })).status, 200);
+  assert.equal((await call('DELETE', `/api/records/activities/${shared.body.id}`)).status, 200);
+  assert.deepEqual(filed(shared.body.id).map((r) => [r.action, r.unit_id]), [['create', 'FISCAL'], ['edit', null], ['delete', null]]);
+
+  // A counseling a leader writes keeps its unit, as its counselor reads it there; a Marine's own private one does not.
+  const { privateEntry } = await import('../../server/services/audit.ts');
+  const at = new Date().toISOString();
+  const counseling = app.ctx.db.prepare("INSERT INTO counselings (id, user_id, counselor_id, unit_id, visibility, type, date, summary, created_at, updated_at) VALUES (?, ?, ?, 'FISCAL', 'private', 'initial', ?, 'Talked it through.', ?, ?)");
+  counseling.run('zz-c-leader', kid.id, op.id, day(-1), at, at);
+  counseling.run('zz-c-own', kid.id, null, day(-1), at, at);
+  assert.equal(privateEntry(app.ctx, 'counselings', 'zz-c-leader'), false);
+  assert.equal(privateEntry(app.ctx, 'counselings', 'zz-c-own'), true);
+  assert.equal(privateEntry(app.ctx, 'duties', id), false, 'a duty is always its unit’s');
+  assert.equal(privateEntry(app.ctx, '__proto__', id), false);
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('when a Marine last signed in is on their page for them and those who manage them, never for a leader who only reads their records', async () => {
+  const page = async (token: string, id: string) => {
+    const r = await app.call('GET', `/api/org/team/${id}`, { token });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.person as Record<string, unknown>;
+  };
+  const m = await app.register('plainmember');
+  await enroll(app, op.token, 'G8', m.id);
+  const member = { id: m.id, token: (await app.login('plainmember')).body.token as string };
+  const signedIn = (app.ctx.db.prepare('SELECT last_login_at FROM users WHERE id = ?').get(member.id) as { last_login_at: string | null }).last_login_at;
+  assert.ok(signedIn, 'they have signed in');
+  assert.equal((await page(member.token, member.id)).last_login_at, signedIn, 'on their own page');
+  assert.equal((await page(op.token, member.id)).last_login_at, signedIn, 'to the leader who manages them');
+  // A section leader who reads the Marine's page and records, above them, and manages nobody.
+  const role = await app.call('POST', '/api/org/roles', { token: op.token, body: { unit_id: 'G8', name: 'Section Reader', position: 10, permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL } });
+  assert.equal(role.status, 201, JSON.stringify(role.body));
+  const r = await app.register('sectionreader');
+  await enroll(app, op.token, 'G8', r.id);
+  assert.equal((await app.call('POST', `/api/org/team/${r.id}/roles`, { token: op.token, body: { role_id: role.body.id, unit_id: 'G8' } })).status, 200);
+  const sectionReader = { id: r.id, token: (await app.login('sectionreader')).body.token as string };
+  const read = await page(sectionReader.token, member.id);
+  assert.equal(read.id, member.id, 'the reader opens the page');
+  assert.ok(!('last_login_at' in read) && !('email' in read), 'but learns neither when they signed in nor their email');
+  const roster = await app.call('GET', '/api/org/units/G8/personnel', { token: sectionReader.token });
+  assert.equal(roster.status, 200, JSON.stringify(roster.body));
+  assert.ok(!JSON.stringify(roster.body).includes(signedIn), 'nor from the roster, as before');
+});

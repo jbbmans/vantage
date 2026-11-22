@@ -645,7 +645,13 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   if (!isSelf && !units.length) throw forbidden('You can see this Marine on a roster but cannot open their record in any shared unit.');
   const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.eas, u.rank_id, u.email, u.last_login_at, r.abbr AS rank_abbr, r.grade AS rank_grade, r.name AS rank_name FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ? AND u.active = 1`).get(id) as MemberDetailResponse['person'] | undefined;
   if (!person) throw notFound('No such Marine.');
-  if (!isSelf) { delete person.email; audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) }); }
+  if (!isSelf) {
+    delete person.email;
+    // When they last signed in is account status: the Marine's, and theirs who manage the Marine, as the roster and the
+    // personnel record give it. Reading the Marine's records is not managing them (ADR-0040).
+    if (!personnelAccess(ctx, scope, req.user.id, id).manageIn.length) delete person.last_login_at;
+    audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) });
+  }
   const shared = JSON.stringify(units);
   const unitClause = isSelf ? '' : "AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))";
   const unitArgs = isSelf ? [] : [shared];

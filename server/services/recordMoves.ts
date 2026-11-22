@@ -11,7 +11,7 @@ import { assertFileableProject, canPlace, canPlaceOwnDuty, recordedByOther, type
 import { TABLES, activityFingerprint, assertCarriesNothingAcross, checkTimeframe, getRecord, mayLeaveInstance, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
 import { assertDutyWords, dutyColumns, dutyCandidates } from './duties.ts';
-import { audit } from './audit.ts';
+import { audit, privateEntry } from './audit.ts';
 import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { courseColumns } from './courses.ts';
@@ -110,9 +110,11 @@ function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq' | 'kept_
 }
 
 function auditMove(ctx: AppContext, undone: boolean, actorId: string, unitId: string | null, from: LineageTable, fromId: string, to: LineageTable, toId: string, ip?: string) {
-  // Each end names the other, so the trail of either id says where the entry went or came from.
-  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: from, entity_id: fromId, unit_id: unitId, detail: `to ${to} ${toId}`, ip });
-  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: to, entity_id: toId, unit_id: unitId, detail: `from ${from} ${fromId}`, ip });
+  // Each end names the other, so the trail of either id says where the entry went or came from. The row it left is gone
+  // by now, so the row that survives the move decides it for both entries (ADR-0040).
+  const kept = privateEntry(ctx, to, toId);
+  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: from, entity_id: fromId, unit_id: unitId, detail: `to ${to} ${toId}`, ip, privateEntry: kept });
+  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: to, entity_id: toId, unit_id: unitId, detail: `from ${from} ${fromId}`, ip, privateEntry: kept });
 }
 
 function movable(table: string): MovableTable {
