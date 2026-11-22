@@ -17,6 +17,7 @@ import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
 import { PRIVILEGED_ROUTES } from '../../server/authz/privilegedRoutes.ts';
+import { pruneSessions } from '../../server/auth/sessions.ts';
 
 const day = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const EDIPI_RUN = /(?<!\d)\d{10}(?!\d)/;
@@ -740,5 +741,79 @@ test('every unit change a Unit Manager makes on Unit Instance authority asks the
     unconfirm(manager.id);
     const preview = await post(manager.token, '/api/org/units/DISB/personnel/bulk', { items: [{ user_id: marine.id, unit_id: 'DISB' }], action: 'checked_in', value: today(), dry_run: true });
     assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  } finally { await app.close(); }
+});
+
+// Session ends and password step-up in the audit trail (ADR-0040)
+
+test('confirming it is them with a password is in the audit trail, naming the session it confirmed, and a wrong password is not', async () => {
+  const app = await startApp();
+  try {
+    const lead = await app.setupOperator();
+    const entries = () => app.ctx.db.prepare("SELECT actor_id, entity, entity_id, subject_id FROM audit_log WHERE action = 'password_step_up'").all() as Array<Record<string, string>>;
+    const wrong = await app.call('POST', '/api/auth/sudo', { token: lead.token, body: { password: 'not-the-password-at-all' } });
+    assert.equal(wrong.status, 403);
+    assert.deepEqual(entries(), []);
+    assert.equal((await app.call('POST', '/api/auth/sudo', { token: lead.token, body: { password: PASSWORD } })).status, 200);
+    const current = (await app.call('GET', '/api/me/sessions', { token: lead.token })).body.sessions.find((s: { current: boolean }) => s.current).id;
+    assert.deepEqual(entries(), [{ actor_id: lead.id, entity: 'sessions', entity_id: current, subject_id: lead.id }]);
+  } finally { await app.close(); }
+});
+
+test('signing out one session from the sessions list is in the trail under its id, and signing out this one there is a sign-out', async () => {
+  const app = await startApp();
+  try {
+    const lead = await app.setupOperator();
+    const second = (await app.login('boletz')).body.token as string;
+    const list = (await app.call('GET', '/api/me/sessions', { token: second })).body.sessions as Array<{ id: string; current: boolean }>;
+    const other = list.find((s) => !s.current)!.id;
+    const mine = list.find((s) => s.current)!.id;
+    // Each sign-in named its session. (Setting the service up writes an entry of its own about the platform.)
+    const signIns = (app.ctx.db.prepare("SELECT entity, entity_id, detail FROM audit_log WHERE action IN ('setup', 'login') AND entity IS NOT 'platform' ORDER BY seq").all() as Array<Record<string, string>>);
+    assert.deepEqual(signIns.map((e) => [e.entity, e.entity_id]), [['sessions', other], ['sessions', mine]]);
+    assert.equal(signIns[1].detail, 'password', 'the sign-in detail is the method alone');
+
+    assert.equal((await app.call('DELETE', `/api/me/sessions/${other}`, { token: second })).status, 200);
+    const revoked = app.ctx.db.prepare("SELECT actor_id, entity, entity_id, subject_id FROM audit_log WHERE action = 'session_revoked'").all();
+    assert.deepEqual(revoked, [{ actor_id: lead.id, entity: 'sessions', entity_id: other, subject_id: lead.id }]);
+    assert.equal((await app.call('GET', '/api/me', { token: lead.token })).status, 401, 'the other session is over');
+
+    const out = await app.call('DELETE', `/api/me/sessions/${mine}`, { token: second });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.current, true);
+    const logout = app.ctx.db.prepare("SELECT actor_id, entity, entity_id, detail FROM audit_log WHERE action = 'logout'").all();
+    assert.deepEqual(logout, [{ actor_id: lead.id, entity: 'sessions', entity_id: mine, detail: 'from the sessions list' }]);
+    assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'session_revoked'").get() as { n: number }).n, 1, 'this session is not counted as revoked too');
+  } finally { await app.close(); }
+});
+
+test('a session the limit pushes out, one that runs out on a request and one the prune finds are each in the trail once, under its id, by the service', async () => {
+  const app = await startApp({ VANTAGE_MAX_SESSIONS: '2' });
+  try {
+    const lead = await app.setupOperator();
+    const ids = () => (app.ctx.db.prepare('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at').all(lead.id) as Array<{ id: string }>).map((s) => s.id);
+    const first = ids()[0];
+    const second = (await app.login('boletz')).body.token as string;
+    assert.equal(ids().length, 2);
+    const third = (await app.login('boletz')).body.token as string;
+    assert.ok(!ids().includes(first), 'the oldest session went');
+    const ended = (action: string) => app.ctx.db.prepare('SELECT actor_id, entity, entity_id, subject_id, detail FROM audit_log WHERE action = ? ORDER BY seq').all(action) as Array<Record<string, string | null>>;
+    assert.deepEqual(ended('session_evicted'), [{ actor_id: null, entity: 'sessions', entity_id: first.slice(0, 12), subject_id: lead.id, detail: 'limit of 2 sessions' }]);
+
+    // Idle past its deadline: the next request on it finds it over, once.
+    const [secondId, thirdId] = ids();
+    app.ctx.db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), secondId);
+    assert.equal((await app.call('GET', '/api/me', { token: second })).status, 401);
+    assert.equal((await app.call('GET', '/api/me', { token: second })).status, 401);
+    assert.deepEqual(ended('session_expired'), [{ actor_id: null, entity: 'sessions', entity_id: secondId.slice(0, 12), subject_id: lead.id, detail: 'idle' }]);
+
+    // Past its absolute limit and found by the prune.
+    app.ctx.db.prepare('UPDATE sessions SET absolute_expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), thirdId);
+    pruneSessions(app.ctx);
+    pruneSessions(app.ctx);
+    assert.deepEqual(ended('session_expired').slice(1), [{ actor_id: null, entity: 'sessions', entity_id: thirdId.slice(0, 12), subject_id: lead.id, detail: 'absolute limit reached' }]);
+    assert.equal((await app.call('GET', '/api/me', { token: third })).status, 401);
+    assert.equal(ended('session_expired').length, 2);
+    assert.equal(verifyAuditChain(app.ctx).ok, true);
   } finally { await app.close(); }
 });
