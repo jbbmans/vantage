@@ -203,7 +203,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   unit('POST', '/units/:unitId/join-codes', ['MANAGE_MEMBERS'], writes('unit_invite_created')),
   unit('DELETE', '/units/:unitId/join-codes/:inviteId', ['MANAGE_MEMBERS'], writes('unit_invite_revoked')),
   unit('POST', '/join-codes/:code/join', ['self'], writes('unit_invite_redeemed', 'unit_role_withheld'), 'Anyone signed in who holds a live join code joins with it; a role it carries from the person who opened the account is held back.'),
-  unit('GET', '/units/:unitId/export', ['EXPORT_DATA'], writes('export'), 'The unit’s shared work, beneath it as well. Never private entries.'),
+  unit('GET', '/units/:unitId/export', ['EXPORT_DATA'], writes('export'), 'The unit’s shared work, beneath it as well, for the dates asked or every date. Never private entries.'),
 
   // Bulk downloads elsewhere: one’s own data, or another Marine’s through a unit permission
   { method: 'GET', path: '/api/me/export', kind: 'bulk', permission: ['self'], stepUp: true, audit: writes('export_personal'), note: 'Everything one keeps, or the categories one chooses: JSON, a ZIP with attachments, a workbook, or one category as CSV.' },

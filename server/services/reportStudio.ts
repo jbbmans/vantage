@@ -3,6 +3,7 @@ import type { Scope } from '../authz/scope.ts';
 import { can, detailUnitsFor, PERMISSIONS, orgOfUnit } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { checkNamedRange } from '../lib/dateRange.ts';
 import { newId, now } from '../lib/ids.ts';
 import { canRead, finalCounselings, readableClause } from '../authz/records.ts';
 import { isRecordTable, hydrate } from './records.ts';
@@ -36,6 +37,9 @@ function assertSubject(ctx: AppContext, user: SessionUser, scope: Scope, subject
   if (unitId && !units.includes(unitId)) throw forbidden('You cannot build a report for that Marine in that unit.');
 }
 
+/** The keys a package's period is sent under, so a refusal names the one at fault. */
+const PERIOD_FIELDS = { from: 'period_start', to: 'period_end' };
+
 export function createDraft(
   ctx: AppContext,
   user: SessionUser,
@@ -49,8 +53,8 @@ export function createDraft(
     if (!unitId) throw badRequest('Choose the unit to share this report with.');
     if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot share a report with that unit.');
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.period_start) || !/^\d{4}-\d{2}-\d{2}$/.test(input.period_end)) throw badRequest('Give the report a start and an end date.');
-  if (input.period_start > input.period_end) throw badRequest('The report cannot end before it starts.');
+  // A package's period follows the one range rule (ADR-0039), named at the field the request sent.
+  checkNamedRange(input.period_start, input.period_end, PERIOD_FIELDS);
   const title = String(input.title || '').trim().slice(0, 200);
   if (!title) throw badRequest('Give the report a title.');
 
@@ -241,7 +245,10 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
   const title = (input.title ?? draft.title).trim().slice(0, 200) || draft.title;
   const periodStart = input.period_start ?? draft.period_start;
   const periodEnd = input.period_end ?? draft.period_end;
-  if (periodStart > periodEnd) throw badRequest('The report cannot end before it starts.');
+  // A revision that names a period moves it, so the period it moves to follows the rule. One that names none keeps the
+  // package's own, which is never checked again: a package made before the rule still opens and saves.
+  if (input.period_start !== undefined || input.period_end !== undefined) checkNamedRange(periodStart, periodEnd, PERIOD_FIELDS);
+  else if (periodStart > periodEnd) throw badRequest('The report cannot end before it starts.');
 
   return ctx.db.transaction(() => {
     const current = getDraft(ctx, draftId);

@@ -14,6 +14,7 @@ import { standing } from '../../shared/procedures.ts';
 import { diagnosisFor } from './caseDiagnosis.ts';
 import { diagnosisForBrief } from '../../shared/caseDiagnosis.ts';
 import { periodClause } from './timeframes.ts';
+import { rangeProblems } from '../../shared/dateRange.ts';
 import { readableSubtree } from './dashboard.ts';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -194,9 +195,12 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       // The brief's totals are of shared records, read as the dashboard reads them: View shared records as well as Export
       // data, and the units beneath only where the reader reads them in their own right (readableSubtree) and may export.
       if (!unitId || !can(scope, PERMISSIONS.EXPORT_DATA, unitId) || !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw new AiError('You cannot generate an aggregate brief for that unit.', 403, 'forbidden');
+      // The window the dashboard shows, by the one range rule (ADR-0039): both days or neither, real ones, in order, two
+      // years at most. Neither is the last 30 days.
+      const problem = rangeProblems(safe.from, safe.to);
+      if (problem) throw new AiError(problem.message, 400, 'validation', { fieldErrors: problem.fieldErrors });
       const from = date(safe.from, windowStart(ctx, 30))!;
       const to = date(safe.to, nowDay)!;
-      if (from > to) throw new AiError('The brief start must be before its end.', 400, 'validation');
       const unit = ctx.db.prepare('SELECT short_name, name FROM units WHERE id = ? AND active = 1').get(unitId) as { short_name: string | null; name: string } | undefined;
       if (!unit) throw new AiError('No such unit.', 404, 'not_found');
       return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, readableSubtree(ctx, scope, unitId).units.filter((u) => can(scope, PERMISSIONS.EXPORT_DATA, u)), from, safe.to ? to : queryEnd) };

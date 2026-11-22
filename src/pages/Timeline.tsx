@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Award, BadgeCheck, BookOpen, CalendarRange, GraduationCap, Info, MessagesSquare, NotebookPen, Plus, Target, Timer, type LucideIcon } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { Badge, Button, EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
 import { DateText, StatusBadge, useParam } from '@/components/common';
 import { TimeframeText } from '@/components/Timeframe';
 import { QueryFailure } from '@/components/QueryFailure';
 import { useRecordTimeline } from '@/lib/queries';
 import { formatDate } from '../../shared/metrics';
-import { FIRST_YEAR, LAST_YEAR, rangeProblems } from '../../shared/dateRange';
 import { RECORD_KINDS, type TimelineItem, type TimelineResponse } from '../../shared/recordKinds';
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty';
 import { cn, humanize } from '@/lib/utils';
+import DateRangePicker from '@/components/DateRangePicker';
+import { periodDays, writePeriod } from '@/lib/periodParams';
+import { usePeriodParam } from '@/lib/usePeriodParam';
 import { usePlace } from '@/lib/place';
 import { placeName } from '@/config/nav';
 
@@ -58,27 +60,19 @@ const listed = (words: string[]) => (words.length < 2 ? words.join('') : `${word
 export default function Timeline() {
   const place = usePlace();
   const [kind, setKind] = useParam('kind', 'all');
-  const [from, setFrom] = useParam('from');
-  const [to, setTo] = useParam('to');
+  // The standard Period choice, All time by default (ADR-0039): an old link's two days open as custom dates, and the picker
+  // says what is wrong with days being typed while the page keeps the last good range.
+  const range = usePeriodParam('all');
+  const { period, from, to, custom } = range;
   const [, setParams] = useSearchParams();
-  // A window is both days, in the order and span every range keeps (ADR-0038); until it is one, none is asked for.
-  const problem = from || to ? rangeProblems(from, to, { required: true }) : null;
-  // A date field reports each part of a day as it is typed, so while a day is being typed the last window stands and
-  // what is wrong is said once the person leaves the field.
-  const [typing, setTyping] = useState(false);
-  const [lastWindow, setLastWindow] = useState<{ from: string; to: string } | null>(null);
-  useEffect(() => { if (from && to && !problem) setLastWindow({ from, to }); }, [from, to, problem]);
-  const span = from && to && !problem ? { from, to } : typing && problem ? lastWindow : null;
-  const spanFrom = span?.from;
-  const spanTo = span?.to;
-  const shownProblem = typing ? null : problem;
+  const span = useMemo(() => periodDays({ period, from, to, custom }), [period, from, to, custom]);
   // The kind goes to the server, so a kind with few entries shows its own newest rather than those among everything's newest.
-  const params = useMemo(() => ({ ...(spanFrom && spanTo ? { from: spanFrom, to: spanTo } : {}), kind: kind === 'all' ? undefined : kind }), [spanFrom, spanTo, kind]);
+  const params = useMemo(() => ({ ...(span ?? {}), kind: kind === 'all' ? undefined : kind }), [span, kind]);
   const timeline = useRecordTimeline(params);
   // While another kind is on its way, the last answer still counts every kind for the filters, but its entries are not this kind's.
   const switching = timeline.data ? (timeline.data.kind ?? 'all') !== kind : false;
-  // One change to the address for several filters: two in a row would each start from the same address, and the second win.
-  const clear = (...names: string[]) => setParams((p) => { const n = new URLSearchParams(p); names.forEach((k) => n.delete(k)); return n; }, { replace: true });
+  // One change to the address for both filters: two in a row would each start from the same address, and the second win.
+  const showEverything = () => setParams((p) => { const n = writePeriod(p, { period: 'all' }, 'all'); n.delete('kind'); return n; }, { replace: true });
 
   return (
     <div className="page">
@@ -88,15 +82,12 @@ export default function Timeline() {
       {timeline.isError ? <QueryFailure error={timeline.error} what="Your timeline" onRetry={() => timeline.refetch()} /> : (
         <>
           <Kinds data={timeline.data} kind={kind} onKind={setKind} />
-          <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
-            <Field label="From" className="w-40" error={shownProblem?.fieldErrors.from}><Input type="date" value={from} min={`${FIRST_YEAR}-01-01`} max={to || `${LAST_YEAR}-12-31`} onChange={(e) => { setTyping(true); setFrom(e.target.value); }} onBlur={() => setTyping(false)} /></Field>
-            <Field label="To" className="w-40" error={shownProblem?.fieldErrors.to}><Input type="date" value={to} min={from || `${FIRST_YEAR}-01-01`} max={`${LAST_YEAR}-12-31`} onChange={(e) => { setTyping(true); setTo(e.target.value); }} onBlur={() => setTyping(false)} /></Field>
-            {(from || to) && <Button variant="ghost" onClick={() => clear('from', 'to')}>Clear dates</Button>}
+          <div className="card mb-4 flex flex-wrap items-start gap-3 p-3">
+            <DateRangePicker value={range} ignored={range.ignored} onChange={range.set} className="w-44" />
             {timeline.data && <Pending kinds={timeline.data.pending} />}
           </div>
           {timeline.isPending || switching ? <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
-            : shownProblem ? <div className="card"><EmptyState icon={CalendarRange} title={shownProblem.message} description="Change the dates, or clear them, to see your timeline." /></div>
-              : <Entries data={timeline.data} kind={kind} dated={Boolean(span)} onClear={() => clear('kind', 'from', 'to')} />}
+            : <Entries data={timeline.data} kind={kind} dated={Boolean(span)} onClear={showEverything} />}
         </>
       )}
     </div>

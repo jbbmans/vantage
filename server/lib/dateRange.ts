@@ -23,3 +23,18 @@ export function checkRange(q: { from?: unknown; to?: unknown; period?: unknown }
   if (problem) throw badRequest(problem.message, { fieldErrors: problem.fieldErrors });
   return typeof q.from === 'string' && q.from && typeof q.to === 'string' && q.to ? { from: q.from, to: q.to } : null;
 }
+
+/**
+ * The same rule for a range a body names under keys of its own (a package's `period_start` and `period_end`), so the
+ * 400 names the field the request sent. Both days are needed unless `required` is false.
+ */
+export function checkNamedRange(start: unknown, end: unknown, names: { from: string; to: string }, { required = true }: { required?: boolean } = {}): CheckedRange | null {
+  const problem = rangeProblems(start, end, { required });
+  if (problem) {
+    const fieldErrors: Record<string, string> = {};
+    if (problem.fieldErrors.from) fieldErrors[names.from] = problem.fieldErrors.from;
+    if (problem.fieldErrors.to) fieldErrors[names.to] = problem.fieldErrors.to;
+    throw badRequest(problem.message, { fieldErrors });
+  }
+  return typeof start === 'string' && start && typeof end === 'string' && end ? { from: start, to: end } : null;
+}

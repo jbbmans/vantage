@@ -124,7 +124,8 @@ every time it is asked for:
   - `counts` by kind, `total`, and `truncated` when there were more than were returned;
   - `pending`: the timeline kinds that have no store yet, so an empty lane is not read as none. Duty had none until
     Task 17 (ADR-0023), and is now a timeline source.
-- **Its window:** `from` and `to` as `YYYY-MM-DD`, refused when invalid or reversed; `limit` 200 by default, 500 at
+- **Its window:** `from` and `to` as `YYYY-MM-DD`, by the one range rule (ADR-0038), chosen on the page with the
+  standard Period choice, All time by default (ADR-0039); `limit` 200 by default, 500 at
   most, taken as a whole number.
 - **One kind:** `kind` returns that kind's newest entries rather than those among everything's newest. `counts` stays
   every kind's, for the filters, and `truncated` is against that kind's count.

@@ -78,13 +78,15 @@ Before this change, each endpoint that reads records by days had its own check, 
 - A request from a browser still holding the build before this change sends All time to `/api/metrics` as 1970 to
   today, which is now refused; the page reads again once it is reloaded.
 - With one day set, the Timeline shows what is missing in place of the list, and an audit filter is not applied, until
-  the other day is set.
+  the other day is set. Since [ADR-0039](0039-window-ranges-and-export-dates.md) the Timeline uses the picker: a link
+  with one day opens on All time and says the link's dates were not used.
 - The rule's words are in one table, so the picker, the forms and the server cannot drift apart.
 
 ## Not done
 
-- The window selectors and the export dates, which are part 2, as above.
+- The window selectors and the export dates, which are part 2, as above. Done in [ADR-0039](0039-window-ranges-and-export-dates.md).
 - Presets on different endpoints still use different clocks (the user's zone on some, the instance's on others).
 - `/api/platform/usage` returns a 500 for a `to` that is not a day; it reads usage, not records, and is left as it was.
 - Date ranges inside AI assist request bodies and Report Studio's `period_start` and `period_end` are not checked by
-  this rule.
+  this rule. The Command brief and Report Studio follow it since [ADR-0039](0039-window-ranges-and-export-dates.md); the
+  other AI workflows still do not.

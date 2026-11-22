@@ -9,7 +9,7 @@ import { freshAuthority } from '../auth/fresh.ts';
 import { PERMISSIONS, can, detailUnitsFor, membersAcross, orgOfUnit, sameInstance, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
 import { getUnit, primaryOrgOf } from './org.ts';
 import { periodBounds } from './reports.ts';
-import { periodClause } from './timeframes.ts';
+import { periodClause, recordPeriodClause } from './timeframes.ts';
 import { buildAnalysisReport } from './analytics.ts';
 import { unitDashboard } from './dashboard.ts';
 import { teamWorkload } from './record.ts';
@@ -1366,15 +1366,9 @@ function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: Report
   const own = ownership(t, dataset);
   const where = [own.sql, 't.deleted_at IS NULL'];
   const params: unknown[] = [...own.params];
-  if (dataset === 'activities' || dataset === 'trainings' || dataset === 'awards' || dataset === 'goals') {
-    const span = periodClause(dataset, 't', period?.from, period?.to);
-    where.push(span.sql); params.push(...span.params);
-  } else {
-    // A task is in a period by its due date, a counseling by its date, as the record lists have them.
-    const col = dataset === 'tasks' ? 'due_date' : 'date';
-    if (period?.from) { where.push(`t.${col} >= ?`); params.push(period.from); }
-    if (period?.to) { where.push(`t.${col} <= ?`); params.push(period.to); }
-  }
+  // A task is in a period by its due date, a counseling by its date, as the record lists have them.
+  const span = recordPeriodClause(dataset, 't', period?.from, period?.to);
+  where.push(span.sql); params.push(...span.params);
   const table = { activities: 'activities', trainings: 'trainings', awards: 'awards', counselings: 'counselings', goals: 'goals', tasks: 'tasks' }[dataset]!;
   // A counseling counts once it is final (ADR-0027): a draft is its counselor's working copy.
   if (table === 'counselings') where.push("t.stage = 'final'");

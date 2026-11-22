@@ -2,7 +2,6 @@ import { useEffect, useId, useState } from 'react';
 import { Input, Select } from '@/components/ui/primitives';
 import { PERIOD_OPTIONS } from '../../shared/metrics';
 import { CUSTOM_LABEL, CUSTOM_PERIOD, FIRST_YEAR, LAST_YEAR, customSeed, rangeProblems, type PeriodChoice, type RangeProblem } from '../../shared/dateRange';
-import type { PeriodSelection } from '@/lib/periodParams';
 import { cn } from '@/lib/utils';
 
 /**
@@ -10,17 +9,26 @@ import { cn } from '@/lib/utils';
  * handed on only once both days pass the range rule; until then the field says what is wrong, in the words the server
  * uses, and the page keeps the last good range. A page that holds the days in a form until it runs (`everyEdit`) is
  * handed every edit instead, and checks the range itself before it runs. A Field around it reaches the select through
- * the aria props.
+ * the aria props. A page with choices of its own (a window of so many days, or a set of periods in its own words) passes
+ * them as `presets`, with `seed` for the days Custom dates starts from (ADR-0039).
  */
-export default function DateRangePicker({
+export default function DateRangePicker<P extends string = PeriodChoice>({
   value, onChange, everyEdit = false, includeAll = true, stacked = false, className, placeholder, errors, ignored,
+  presets, label = 'Period', seed = customSeed,
   'aria-describedby': describedBy, 'aria-labelledby': labelledBy, 'aria-invalid': invalid,
 }: {
   value: { period: string; from?: string; to?: string };
-  onChange: (next: PeriodSelection) => void;
+  onChange: (next: { period: P | typeof CUSTOM_PERIOD; from?: string; to?: string }) => void;
   /** Hand on every edit of the days, good or not. */
   everyEdit?: boolean;
+  /** All time among the standard periods; not used with `presets`. */
   includeAll?: boolean;
+  /** The page's own choices, in its own words, in place of the standard periods. Custom dates always follows them. */
+  presets?: ReadonlyArray<{ value: P; label: string }>;
+  /** The select's name, when it is not Period (a dashboard's Window). */
+  label?: string;
+  /** The days Custom dates starts from, given the choice before it. */
+  seed?: (previous: string) => { from: string; to: string };
   /** Under a Field's label, where the days go below the select rather than beside it. */
   stacked?: boolean;
   /** The select's width. */
@@ -47,11 +55,11 @@ export default function DateRangePicker({
   const described = [describedBy, ignored ? noticeId : null].filter(Boolean).join(' ') || undefined;
 
   const choose = (v: string) => {
-    if (v !== CUSTOM_PERIOD) { onChange({ period: v as PeriodChoice }); return; }
+    if (v !== CUSTOM_PERIOD) { onChange({ period: v as P }); return; }
     // Custom dates start from the days the period before covered, so neither field is empty.
-    const seed = customSeed(value.period);
-    setDraft(seed);
-    onChange({ period: CUSTOM_PERIOD, ...seed });
+    const days = seed(value.period);
+    setDraft(days);
+    onChange({ period: CUSTOM_PERIOD, ...days });
   };
   const edit = (field: 'from' | 'to', day: string) => {
     const next = { ...draft, [field]: day };
@@ -60,13 +68,13 @@ export default function DateRangePicker({
     if (everyEdit || !rangeProblems(next.from, next.to, { required: true })) onChange({ period: CUSTOM_PERIOD, ...next });
   };
   const options = [
-    ...PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all').map((p) => ({ value: p.value as string, label: p.label })),
+    ...(presets ?? PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all')).map((p) => ({ value: p.value as string, label: p.label })),
     { value: CUSTOM_PERIOD, label: CUSTOM_LABEL },
   ];
 
   return (
     <>
-      <Select aria-label="Period" aria-labelledby={labelledBy} aria-describedby={described} {...(invalid ? { 'aria-invalid': true } : {})} placeholder={placeholder} className={className} value={value.period} onValueChange={choose} options={options} />
+      <Select aria-label={label} aria-labelledby={labelledBy} aria-describedby={described} {...(invalid ? { 'aria-invalid': true } : {})} placeholder={placeholder} className={className} value={value.period} onValueChange={choose} options={options} />
       {custom && (
         <fieldset className={cn('flex min-w-0 flex-wrap items-start gap-2', stacked && 'mt-2')}>
           <legend className="sr-only">{CUSTOM_LABEL}</legend>

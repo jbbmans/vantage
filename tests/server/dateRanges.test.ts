@@ -1,10 +1,11 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, type TestApp } from './helpers.ts';
+import { startApp, mockGenAi, type TestApp } from './helpers.ts';
 import { zonedDay } from '../../server/lib/clock.ts';
 import { CUSTOM_PERIOD, MAX_RANGE_DAYS, RANGE_TEXT, customSeed, isRangeDay, presetDays, rangeLabel, rangeOfDays, rangeProblems, spanDays } from '../../shared/dateRange.ts';
 import { DEFAULT_PERIOD } from '../../shared/metrics.ts';
-import { metricsPeriod, periodDays, periodQuery, readPeriod, writePeriod } from '../../src/lib/periodParams.ts';
+import { lastDays, metricsPeriod, periodDays, periodQuery, readPeriod, readWindow, windowDays, windowLink, writePeriod, writeWindow } from '../../src/lib/periodParams.ts';
+import { DASHBOARD_WINDOW, RECORD_WINDOW, WORKLOAD_WINDOW, windowSeed } from '../../src/lib/windows.ts';
 
 // One range rule for every endpoint that reads records by days (ADR-0038): real calendar days, both or neither, the
 // first not after the last, at most 731 days with both ends counted. A preset is named, never capped.
@@ -112,6 +113,51 @@ test('a page keeps its period in its address, written as one change', () => {
   assert.deepEqual(metricsPeriod(custom), { from: '2026-01-01', to: '2026-01-31' });
 });
 
+test('a window page keeps its preset under its own key, and custom dates as a Period page does', () => {
+  const read = (q: string, keys = DASHBOARD_WINDOW) => readWindow(new URLSearchParams(q), keys);
+  assert.deepEqual(read(''), { period: '90', from: '', to: '', custom: false, ignored: null }, 'the dashboard opens on 90 days');
+  assert.equal(read('days=365').period, '365', 'a Last year link still opens on Last year');
+  assert.equal(read('window=365', RECORD_WINDOW).period, '365', 'a 12 months link still opens on 12 months');
+  assert.equal(read('', WORKLOAD_WINDOW).period, '30', 'Workload opens on 30 days');
+  assert.equal(read('days=45').period, '90', 'a window nobody offers is the default');
+  assert.equal(read('window=abc', RECORD_WINDOW).period, '90', 'a word for a window is the default, never a failure');
+  assert.deepEqual(read('period=custom&from=2026-01-01&to=2026-01-31'), { period: CUSTOM_PERIOD, from: '2026-01-01', to: '2026-01-31', custom: true, ignored: null });
+  assert.equal(read('from=2026-01-01&to=2026-01-31').custom, true, 'two days from a link are custom dates');
+  assert.equal(read('days=30&from=2026-01-01&to=2026-01-31').custom, false, 'a preset named with days is the preset');
+  for (const q of ['period=custom', 'period=custom&from=2026-01-01', 'from=2026-02-30&to=2026-03-01', 'from=2026-03-10&to=2026-03-01', `from=2025-01-01&to=${addDays('2025-01-01', MAX_RANGE_DAYS)}`]) {
+    const state = read(q);
+    assert.equal(state.custom, false, q);
+    assert.equal(state.period, '90', q);
+    assert.ok(state.ignored?.message, q);
+  }
+  assert.equal(read('days=180&period=custom&from=2026-03-10&to=2026-03-01').period, '180', 'refused days leave the preset the link named');
+
+  const write = (q: string, next: Parameters<typeof writeWindow>[1], keys = DASHBOARD_WINDOW) => writeWindow(new URLSearchParams(q), next, keys).toString();
+  assert.equal(write('tab=work&days=365', { period: CUSTOM_PERIOD, from: '2026-01-01', to: '2026-01-31' }), 'tab=work&period=custom&from=2026-01-01&to=2026-01-31', 'custom dates drop the preset and keep every other key');
+  assert.equal(write('period=custom&from=2026-01-01&to=2026-01-31&tab=work', { period: '365' }), 'tab=work&days=365', 'a preset drops the days');
+  assert.equal(write('days=365', { period: '90' }), '', 'the default is left out');
+  assert.equal(write('', { period: '365' }, RECORD_WINDOW), 'window=365');
+  assert.equal(write('window=90', { period: CUSTOM_PERIOD }), 'window=90', 'custom dates without their days write no range, and leave another key alone');
+  // What a page writes, it reads back.
+  for (const next of [{ period: '30' }, { period: '365' }, { period: CUSTOM_PERIOD, from: '2025-05-01', to: '2025-06-30' }]) {
+    const back = readWindow(writeWindow(new URLSearchParams(), next, DASHBOARD_WINDOW), DASHBOARD_WINDOW);
+    assert.equal(back.period, next.period, JSON.stringify(next));
+  }
+
+  const ref = new Date(2026, 5, 15, 12);
+  assert.deepEqual(lastDays(365, ref), { from: '2025-06-16', to: '2026-06-15' }, 'Last year is 365 days ending today');
+  assert.deepEqual(lastDays('30', ref), { from: '2026-05-17', to: '2026-06-15' });
+  assert.equal(spanDays(lastDays(365, ref).from, lastDays(365, ref).to), 365, 'never the 12 months period, which runs through tomorrow');
+  const preset = { period: '365', from: '', to: '', custom: false };
+  const custom = { period: CUSTOM_PERIOD, from: '2025-05-01', to: '2025-06-30', custom: true };
+  assert.deepEqual(windowDays(preset, ref), lastDays(365, ref));
+  assert.deepEqual(windowDays(custom, ref), { from: '2025-05-01', to: '2025-06-30' });
+  assert.deepEqual(windowLink(preset, ref), lastDays(365, ref), 'Print or file carries a preset as its days');
+  assert.deepEqual(windowLink(custom, ref), { period: CUSTOM_PERIOD, from: '2025-05-01', to: '2025-06-30' }, 'and custom dates by name');
+  assert.deepEqual(windowSeed(DASHBOARD_WINDOW)('180'), lastDays(180), 'custom dates start from the window before');
+  assert.deepEqual(windowSeed(DASHBOARD_WINDOW)(CUSTOM_PERIOD), lastDays(90));
+});
+
 // Every endpoint that reads records by days, with what else it needs to answer.
 const ENDPOINTS: Array<[string, string]> = [
   ['reports', '/api/reports?'],
@@ -138,6 +184,7 @@ const ENDPOINTS: Array<[string, string]> = [
   ['unit overview', '/api/org/units/G8/overview?'],
   ['unit analytics', '/api/org/units/G8/analytics/work?'],
   ['unit analytics drill', '/api/org/units/G8/analytics/training/drill?visual=training_now&key=courses&'],
+  ['unit export', '/api/org/units/G8/export?'],
 ];
 
 const longest = (from: string) => `from=${from}&to=${addDays(from, MAX_RANGE_DAYS - 1)}`;
@@ -177,6 +224,13 @@ test('custom dates need both days; presets and All time still answer', async () 
     assert.ok(res.body.fieldErrors?.from && res.body.fieldErrors?.to, `${path}: ${JSON.stringify(res.body)}`);
     assert.equal((await get(`${path}period=custom&${longest(day(-100))}`)).status, 200, path);
     for (const period of ['all', 'last30', 'last90', 'last12', 'fiscalYear']) assert.equal((await get(`${path}period=${period}`)).status, 200, `${path}${period}`);
+  }
+  // The window pages send `period=custom` with their days, as the Period pages do.
+  for (const path of ['/api/work/workload?unit_id=G8&', '/api/record/summary?', '/api/record/contributions?', '/api/record/timeline?', '/api/org/units/G8/dashboard?', '/api/org/units/G8/export?']) {
+    const res = await get(`${path}period=custom`);
+    assert.equal(res.status, 400, path);
+    assert.ok(res.body.fieldErrors?.from && res.body.fieldErrors?.to, `${path}: ${JSON.stringify(res.body)}`);
+    assert.equal((await get(`${path}period=custom&${longest(day(-100))}`)).status, 200, path);
   }
   assert.equal((await get('/api/reports?period=sometime')).status, 400, 'a period nobody offers is refused');
   assert.equal((await get('/api/reports/delta?period=all')).status, 200);
@@ -236,4 +290,85 @@ test('All time on the metrics counts work dated tomorrow on the instance clock, 
   assert.equal(figure(all.body)?.value, 7, 'All time holds it');
   const last30 = await get(`/api/metrics?scope=me&from=${zonedDay(app.ctx.config.timezone, -29)}&to=${tomorrow}`);
   assert.equal(figure(last30.body)?.value, 7, 'as the last 30 days do');
+});
+
+test('a unit export with two days holds only the shared records in them; with none, every one', async () => {
+  const post = (path: string, body: Record<string, unknown>) => app.call('POST', path, { token: op.token, body: { visibility: 'unit', unit_id: 'G8', ...body } });
+  const made = [
+    await post('/api/records/activities', { title: 'ZZEXPORT inside', date: '2024-06-10' }),
+    await post('/api/records/activities', { title: 'ZZEXPORT runs into the range', date: '2024-05-25', end_date: '2024-06-03' }),
+    await post('/api/records/activities', { title: 'ZZEXPORT before', date: '2024-04-10' }),
+    await post('/api/records/activities', { title: 'ZZEXPORT after', date: '2024-08-01' }),
+    await post('/api/records/activities', { title: 'ZZEXPORT kept private', date: '2024-06-12', visibility: 'private' }),
+    await post('/api/records/tasks', { title: 'ZZEXPORT task due inside', due_date: '2024-06-15' }),
+    await post('/api/records/tasks', { title: 'ZZEXPORT task due after', due_date: '2024-09-01' }),
+    await post('/api/records/tasks', { title: 'ZZEXPORT task with no due day' }),
+  ];
+  for (const r of made) assert.equal(r.status, 201, r.text);
+  const titles = (body: any) => [...body.activities, ...body.tasks].map((r: { title: string }) => r.title).filter((t: string) => t.startsWith('ZZEXPORT')).sort();
+
+  const ranged = await get('/api/org/units/G8/export?from=2024-06-01&to=2024-06-30');
+  assert.equal(ranged.status, 200, ranged.text);
+  assert.deepEqual(ranged.body.range, { from: '2024-06-01', to: '2024-06-30' }, 'the file says its range');
+  assert.deepEqual(titles(ranged.body), ['ZZEXPORT inside', 'ZZEXPORT runs into the range', 'ZZEXPORT task due inside'], 'a record counts by the days it covers, a task by its due day');
+  for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'duties']) assert.ok(Array.isArray(ranged.body[table]), table);
+  assert.ok(ranged.body.members.length > 0, 'the roster is the unit today, whatever the range');
+  const logged = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'export' AND entity = 'unit' AND entity_id = 'G8' ORDER BY seq DESC LIMIT 1").get() as { detail: string };
+  assert.match(logged.detail, /^2024-06-01\.\.2024-06-30; \d+ activities/, 'the audit entry names the range');
+
+  const everything = await get('/api/org/units/G8/export');
+  assert.equal(everything.status, 200);
+  assert.equal(everything.body.range, null);
+  assert.deepEqual(titles(everything.body), ['ZZEXPORT after', 'ZZEXPORT before', 'ZZEXPORT inside', 'ZZEXPORT runs into the range', 'ZZEXPORT task due after', 'ZZEXPORT task due inside', 'ZZEXPORT task with no due day'], 'no days, every shared record, undated ones too');
+  const all = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'export' AND entity = 'unit' AND entity_id = 'G8' ORDER BY seq DESC LIMIT 1").get() as { detail: string };
+  assert.match(all.detail, /^every date; /);
+});
+
+test('a report center file holds only the records in its range', async () => {
+  const add = (title: string, date: string) => app.call('POST', '/api/records/activities', { token: op.token, body: { title, date, visibility: 'private' } });
+  for (const [title, date] of [['ZZFILE inside', '2023-02-10'], ['ZZFILE before', '2023-01-05'], ['ZZFILE after', '2023-03-20']]) assert.equal((await add(title, date)).status, 201);
+  for (const q of ['period=custom&from=2023-02-01&to=2023-02-28', 'from=2023-02-01&to=2023-02-28']) {
+    const file = await get(`/api/report-center/export?type=individual&subject=self&format=csv&${q}`);
+    assert.equal(file.status, 200, file.text.slice(0, 200));
+    assert.match(file.text, /ZZFILE inside/, q);
+    assert.doesNotMatch(file.text, /ZZFILE before|ZZFILE after/, q);
+  }
+  const everything = await get('/api/report-center/export?type=individual&subject=self&format=csv&period=all');
+  assert.equal(everything.status, 200);
+  for (const t of ['inside', 'before', 'after']) assert.match(everything.text, new RegExp(`ZZFILE ${t}`), `All time holds ${t}`);
+});
+
+test('the command brief reads the window by the same rule, and only the records in it', async () => {
+  const mock = await mockGenAi(() => ({ json: { model: 'm', choices: [{ message: { content: '{"executive_summary":"x","highlights":[],"watch_items":[],"recommended_questions":[],"caveats":[]}' } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } } }));
+  const local = await startApp({ VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url });
+  try {
+    const lead = await local.setupOperator();
+    const add = (category: string, date: string) => local.call('POST', '/api/records/activities', { token: lead.token, body: { title: category, date, category, visibility: 'unit', unit_id: 'G8' } });
+    assert.equal((await add('ZZBRIEFIN', '2024-06-10')).status, 201);
+    assert.equal((await add('ZZBRIEFOUT', '2024-04-01')).status, 201);
+    const brief = (input: Record<string, string>) => local.call('POST', '/api/ai/assist', { token: lead.token, body: { workflow: 'command_brief', input: { unit_id: 'G8', ...input } } });
+
+    for (const [what, input, field] of [
+      ['732 days', { from: '2024-01-01', to: addDays('2024-01-01', MAX_RANGE_DAYS) }, 'to'],
+      ['the first day alone', { from: '2024-06-01' }, 'to'],
+      ['the last day alone', { to: '2024-06-30' }, 'from'],
+      ['a backwards range', { from: '2024-06-30', to: '2024-06-01' }, 'to'],
+    ] as const) {
+      const before = mock.calls.length;
+      const res = await brief(input);
+      assert.equal(res.status, 400, `${what}: ${res.text.slice(0, 200)}`);
+      assert.equal(res.body.code, 'validation', what);
+      assert.ok(res.body.fieldErrors?.[field], `${what}: ${JSON.stringify(res.body)}`);
+      assert.equal(mock.calls.length, before, `${what}: nothing reaches the provider`);
+    }
+
+    const before = mock.calls.length;
+    const ok = await brief({ from: '2024-06-01', to: '2024-06-30' });
+    assert.equal(ok.status, 200, ok.text.slice(0, 300));
+    const sent = mock.calls.slice(before).map((c) => JSON.stringify(c.body.messages)).join(' ');
+    assert.match(sent, /ZZBRIEFIN/, 'the window’s records are briefed');
+    assert.doesNotMatch(sent, /ZZBRIEFOUT/, 'and none from outside it');
+    assert.equal((await brief({ from: '2024-01-01', to: addDays('2024-01-01', MAX_RANGE_DAYS - 1) })).status, 200, '731 days are a window');
+    assert.equal((await brief({})).status, 200, 'no days is the last 30');
+  } finally { await local.close(); mock.close(); }
 });

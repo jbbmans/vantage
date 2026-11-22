@@ -1,4 +1,4 @@
-import { TIMEFRAMES, OPEN_END, OPEN_START, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
+import { TIMEFRAMES, OPEN_END, OPEN_START, isTimeframed, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
 
 /**
  * The SQL side of shared/timeframe.ts (ADR-0018): the first and last day a record covers, and the clause that picks the
@@ -25,4 +25,18 @@ export function periodClause(table: TimeframedTable, alias: string, from?: strin
   if (to) { bounds.push(`${first} <= ?`); params.push(to); }
   if (from) { bounds.push(`${last} >= ?`); params.push(from); }
   return bounds.length ? { sql: `(${[dated, ...bounds].join(' AND ')})`, params } : { sql: '1 = 1', params };
+}
+
+/**
+ * Where a record of any kind falls in the period from..to: by the days it covers when it has a timeframe, a task by its
+ * due day, anything else by its date. The one branch a list, the report center and an export use.
+ */
+export function recordPeriodClause(table: string, alias: string, from?: string | null, to?: string | null): { sql: string; params: string[] } {
+  if (isTimeframed(table)) return periodClause(table, alias, from, to);
+  const col = `${alias}.${table === 'tasks' ? 'due_date' : 'date'}`;
+  const bounds: string[] = [];
+  const params: string[] = [];
+  if (from) { bounds.push(`${col} >= ?`); params.push(from); }
+  if (to) { bounds.push(`${col} <= ?`); params.push(to); }
+  return bounds.length ? { sql: `(${bounds.join(' AND ')})`, params } : { sql: '1 = 1', params };
 }

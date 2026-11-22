@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, BookOpenCheck, CheckCircle2, FileText, Info, Lock, PenLine, Plus, Trash2, Users } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Textarea, Tooltip } from '@/components/ui/primitives';
+import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Skeleton, Textarea, Tooltip } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, DescriptionList, useParam } from '@/components/common';
@@ -10,18 +10,18 @@ import { DraftMeta, lostFrom } from '@/components/FormDrafts';
 import { StageBadge, WorkRow } from '@/components/work';
 import { useAssignedWork, useContributions, useDrafts, useFormDraft, useRecordDrafts, useRecordSummary, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { cn, formatRange, humanize, lastDays, timeAgo } from '@/lib/utils';
+import { cn, formatRange, humanize, timeAgo } from '@/lib/utils';
+import DateRangePicker from '@/components/DateRangePicker';
+import { windowDays, writeWindow } from '@/lib/periodParams';
+import { useWindowParam } from '@/lib/usePeriodParam';
+import { RECORD_WINDOW, windowSeed } from '@/lib/windows';
+import { CUSTOM_PERIOD } from '../../shared/dateRange';
 import { DRAFT_ACTIVE_DAYS, DRAFT_KIND_LABELS, DRAFT_KINDS, type DraftItem } from '../../shared/drafts';
 import { QueryFailure } from '@/components/QueryFailure';
 import { usePlace } from '@/lib/place';
 import { placeName } from '@/config/nav';
 
-
-const WINDOWS = [
-  { value: '30', label: '30 days' },
-  { value: '90', label: '90 days' },
-  { value: '365', label: '12 months' },
-] as const;
+const recordSeed = windowSeed(RECORD_WINDOW);
 
 
 export type RecordSection = 'overview' | 'contributions' | 'drafts';
@@ -35,8 +35,13 @@ const HEADINGS: Record<RecordSection, [string, string]> = {
 /** Three pages of Records: the overview at /record, and /record/contributions and /record/drafts. Activities is Records.tsx. */
 export default function RecordHub({ section }: { section: RecordSection }) {
   const place = usePlace();
-  const [days, setDays] = useParam('window', '90');
-  const params = useMemo(() => lastDays(days), [days]);
+  // The reporting window is in the address (?window=, or custom dates), and the links between these pages keep it (ADR-0039).
+  const range = useWindowParam(RECORD_WINDOW);
+  const { period, custom } = range;
+  const params = useMemo(() => windowDays({ period, from: range.from, to: range.to, custom }), [period, range.from, range.to, custom]);
+  const kept = useMemo(() => { const q = writeWindow(new URLSearchParams(), { period, from: range.from, to: range.to }, RECORD_WINDOW).toString(); return q ? `?${q}` : ''; }, [period, range.from, range.to]);
+  // The Timeline offers periods, not windows, so it is sent the window's days as custom dates, whichever window is shown.
+  const onTimeline = useMemo(() => `?${new URLSearchParams({ period: CUSTOM_PERIOD, from: params.from, to: params.to })}`, [params]);
   const summary = useRecordSummary(params, section === 'overview');
 
   return (
@@ -47,10 +52,10 @@ export default function RecordHub({ section }: { section: RecordSection }) {
       {section !== 'drafts' && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-ink-3">{formatRange(params.from, params.to)}</p>
-          <Segmented label="Reporting window" value={days as (typeof WINDOWS)[number]['value']} onChange={setDays} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} size="sm" />
+          <div className="flex flex-wrap items-center gap-2"><DateRangePicker label="Reporting window" presets={RECORD_WINDOW.options} seed={recordSeed} value={range} ignored={range.ignored} onChange={range.set} className="w-40" /></div>
         </div>
       )}
-      {section === 'overview' && (summary.isError ? <QueryFailure error={summary.error} what="Your Record" onRetry={() => summary.refetch()} /> : <Overview summary={summary.data} loading={summary.isPending} />)}
+      {section === 'overview' && (summary.isError ? <QueryFailure error={summary.error} what="Your Record" onRetry={() => summary.refetch()} /> : <Overview summary={summary.data} loading={summary.isPending} kept={kept} onTimeline={onTimeline} />)}
       {section === 'contributions' && <Contributions params={params} />}
       {section === 'drafts' && <Drafts />}
     </div>
@@ -99,7 +104,7 @@ function Practiced() {
   );
 }
 
-function Overview({ summary, loading }: { summary: any; loading: boolean }) {
+function Overview({ summary, loading, kept, onTimeline }: { summary: any; loading: boolean; /** The window, as the links from here carry it. */ kept: string; /** The window's days, for the Timeline. */ onTimeline: string }) {
   const navigate = useNavigate();
   const assigned = useAssignedWork();
   if (loading || !summary) return <div className="grid gap-3 sm:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}</div>;
@@ -111,11 +116,11 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
         <h2 id="contributed" className="mb-1 text-md font-semibold text-ink">What you contributed</h2>
         <p className="mb-3 text-xs text-ink-3">Read from the history of the work you did. One document counts once however many entries it has.</p>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <Figure label="Documents researched" value={c.documents_researched} definition={d.documents_researched} to="/record/contributions" />
-          <Figure label="Research entries" value={c.research_actions} definition={d.research_actions} to="/record/contributions" />
-          <Figure label="Submitted" value={c.submitted_actions} definition={d.submitted_actions} to="/record/contributions" />
-          <Figure label="Verified outcomes" value={c.verified_outcomes} definition={d.verified_outcomes} to="/record/contributions" />
-          <Figure label="Resolved" value={c.resolved_work} definition={d.resolved_work} to="/record/contributions" />
+          <Figure label="Documents researched" value={c.documents_researched} definition={d.documents_researched} to={`/record/contributions${kept}`} />
+          <Figure label="Research entries" value={c.research_actions} definition={d.research_actions} to={`/record/contributions${kept}`} />
+          <Figure label="Submitted" value={c.submitted_actions} definition={d.submitted_actions} to={`/record/contributions${kept}`} />
+          <Figure label="Verified outcomes" value={c.verified_outcomes} definition={d.verified_outcomes} to={`/record/contributions${kept}`} />
+          <Figure label="Resolved" value={c.resolved_work} definition={d.resolved_work} to={`/record/contributions${kept}`} />
         </div>
       </section>
 
@@ -130,7 +135,7 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
         </Panel>
 
         <Panel title="What you recorded yourself" subtitle={`Work that did not start as a tasker. Courses, PME and qualifications have their own records in ${placeName('/career/training')}, and awards in ${placeName('/career/awards')}.`}
-          action={<Link to="/record/timeline" className="text-xs text-accent hover:underline">Your timeline</Link>}>
+          action={<Link to={`/record/timeline${onTimeline}`} className="text-xs text-accent hover:underline">Your timeline</Link>}>
           <ul className="grid grid-cols-3 gap-3 text-sm">
             <li>
               <button type="button" onClick={() => navigate('/record/activities')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">

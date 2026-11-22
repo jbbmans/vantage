@@ -325,7 +325,8 @@ export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { f
   api.get<DrillResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}/drill?${qs({ from: q.from, to: q.to, visual: q.visual, key: q.key, series: q.series || undefined })}`);
 export interface UnitAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; actor_id: string | null; actor_first: string | null; actor_last: string | null; actor_rank: string | null; subject_first: string | null; subject_last: string | null }
 export const unitAudit = (id: string, before?: number | null) => api.get<AccessLogPage<UnitAccessRow> & { unit_id: string }>(`/org/units/${encodeURIComponent(id)}/audit${before ? `?before=${before}` : ''}`);
-export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);
+/** A unit's shared work: the records in two days, or every date with none (ADR-0039). */
+export const unitExport = (id: string, range?: { from: string; to: string }) => api.get(`/org/units/${encodeURIComponent(id)}/export${range ? `?${qs(range)}` : ''}`);
 /** "Why can they?": every grant behind someone's authority, in the units the caller manages. */
 export const whyCan = (userId: string) => api.get(`/org/team/${encodeURIComponent(userId)}/why`);
 

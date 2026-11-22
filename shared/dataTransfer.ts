@@ -81,7 +81,7 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
     who: 'Unit Managers (Personnel feed).', routes: ['POST /api/orgs/:orgId/personnel/sync'], restores: 'Keeps people current; planned first.',
   },
   {
-    id: 'unit_work', kind: 'data', label: 'A unit’s shared work', format: 'CSV', holds: 'The work shared with a unit and the units beneath it. Never private entries.',
+    id: 'unit_work', kind: 'data', label: 'A unit’s shared work', format: 'JSON', holds: 'The work shared with a unit and the units beneath it, for the dates chosen or every date. Never private entries.',
     who: 'Members whose unit role allows exporting.', routes: ['GET /api/org/units/:unitId/export'], restores: 'Not imported.',
   },
   {
