@@ -25,7 +25,9 @@ function secretThatSignedTheChain(db: Db, candidates: string[]): string | null {
   if (head?.mac) {
     for (const s of candidates) if (hmac(s, `audit-head:${head.hash}:${head.count}`) === head.mac) return s;
   }
-  const caseHead = db.prepare('SELECT work_item_id, hash, count, mac FROM work_event_heads LIMIT 1').get() as { work_item_id: string; hash: string; count: number; mac: string } | undefined;
+  // A backup from before case seals has no work_event_heads table, and so no case head: a backup is read as it is.
+  const caseHeads = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_event_heads'").get());
+  const caseHead = caseHeads ? db.prepare('SELECT work_item_id, hash, count, mac FROM work_event_heads LIMIT 1').get() as { work_item_id: string; hash: string; count: number; mac: string } | undefined : undefined;
   if (caseHead) {
     for (const s of candidates) if (hmac(s, `case-head:${caseHead.work_item_id}:${caseHead.hash}:${caseHead.count}`) === caseHead.mac) return s;
   }

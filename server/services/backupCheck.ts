@@ -174,34 +174,47 @@ export function checkBackup(path: string, options: CheckOptions = {}): BackupChe
       if (!result.faults.some((f) => f.fault === 'corrupt')) fault('corrupt', `It cannot be read through: ${(error as Error).message}.`);
       return done();
     }
-    // Entries with neither a chain key nor a head to check them against: whatever they say, nothing shows they were not
-    // changed. Case seals do not help, since they are sealed with the chain key that is missing.
-    const unchained = Boolean(result.audit?.count) && (() => {
-      try { return !db!.prepare("SELECT 1 FROM meta WHERE key IN ('chain_key', 'audit_head')").get(); } catch { return false; }
-    })();
-    if (options.config && unchained) {
-      result.trail = { ok: false, count: 0, reason: 'no chain key or audit head' };
-      fault('trail_broken', `Its audit trail does not verify: it holds ${result.audit!.count} entries but no chain key or head to check them against.`);
-    } else if (options.config) {
-      let opened: ReturnType<typeof readChainKey>;
-      try { opened = readChainKey(db, options.config); } catch { opened = { key: null, reason: 'sealed_elsewhere' }; }
-      if (opened.key === null && opened.reason === 'sealed_elsewhere') {
-        fault('sealed_elsewhere', 'Its audit trail is sealed under another secret: neither VANTAGE_SECRET nor VANTAGE_SECRET_PREVIOUS opens it.');
-      } else if (opened.key !== null) {
-        const chain = verifyAuditChainOf(db, opened.key);
-        result.trail = { ok: chain.ok, count: chain.count, ...(chain.ok ? {} : { reason: chain.reason }) };
-        if (!chain.ok) fault('trail_broken', `Its audit trail does not verify (${chain.reason}): it was changed after it was written, or it is damaged.`);
-      } else if (result.audit?.count) {
-        // Entries with no chain key or head to check them against: whatever they say, nothing shows they were not changed.
-        result.trail = { ok: false, count: 0, reason: 'no chain key or audit head' };
-        fault('trail_broken', `Its audit trail does not verify: it holds ${result.audit.count} entries but no chain key or head to check them against.`);
-      } else result.trail = { ok: true, count: 0 };
+    if (options.config) {
+      const found = checkTrailOf(db, options.config, result.audit?.count ?? 0);
+      result.trail = found.trail;
+      if (found.fault) fault(found.fault.fault, found.fault.message);
     } else if (options.requireTrail) fault('sealed_elsewhere', 'Its audit trail was not checked: VANTAGE_SECRET is not set here.');
     return done();
   } finally {
     try { db?.close(); } catch { /* already closed */ }
     if (scratch) rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+export interface TrailCheck { trail: BackupCheck['trail']; fault: { fault: BackupFault; message: string } | null }
+
+/**
+ * The audit trail of an open copy, checked under these secrets and never written: the backup check's, and the one a
+ * start runs on the copy it keeps before an upgrade (ADR-0041). A trail that cannot be read through (a head that is not
+ * JSON, a damaged row) is a trail that does not verify, never a throw.
+ */
+export function checkTrailOf(db: Database.Database, config: Pick<AppConfig, 'secret' | 'previousSecrets'>, entries?: number): TrailCheck {
+  if (entries === undefined) {
+    try { entries = (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n; } catch { entries = 0; }
+  }
+  const broken = (count: number, reason: string): TrailCheck => ({ trail: { ok: false, count, reason }, fault: { fault: 'trail_broken', message: `Its audit trail does not verify (${reason}): it was changed after it was written, or it is damaged.` } });
+  // Entries with neither a chain key nor a head to check them against: whatever they say, nothing shows they were not
+  // changed. Case seals do not help, since they are sealed with the chain key that is missing.
+  const unchained = (): TrailCheck => ({ trail: { ok: false, count: 0, reason: 'no chain key or audit head' }, fault: { fault: 'trail_broken', message: `Its audit trail does not verify: it holds ${entries} entries but no chain key or head to check them against.` } });
+  let keyed = true;
+  try { keyed = Boolean(db.prepare("SELECT 1 FROM meta WHERE key IN ('chain_key', 'audit_head')").get()); } catch { keyed = true; }
+  if (entries && !keyed) return unchained();
+  let opened: ReturnType<typeof readChainKey>;
+  try { opened = readChainKey(db, config); } catch (error) { return broken(0, `it cannot be read through: ${(error as Error).message}`); }
+  if (opened.key === null && opened.reason === 'sealed_elsewhere') {
+    return { trail: null, fault: { fault: 'sealed_elsewhere', message: 'Its audit trail is sealed under another secret: neither VANTAGE_SECRET nor VANTAGE_SECRET_PREVIOUS opens it.' } };
+  }
+  if (opened.key !== null) {
+    let chain: ReturnType<typeof verifyAuditChainOf>;
+    try { chain = verifyAuditChainOf(db, opened.key); } catch (error) { return broken(entries, `it cannot be read through: ${(error as Error).message}`); }
+    return chain.ok ? { trail: { ok: true, count: chain.count }, fault: null } : broken(chain.count, chain.reason ?? 'it does not match');
+  }
+  return entries ? unchained() : { trail: { ok: true, count: 0 }, fault: null };
 }
 
 /** The faults that make the file itself unusable, leaving out the trail's. */

@@ -11,6 +11,7 @@ import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
 import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
+import { checkTrailOf } from './services/backupCheck.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
 import { clientIp, sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
@@ -61,7 +62,10 @@ export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
   configurePasswordHashing(config.security.passwordIterations);
-  const db = openDatabase(config.databasePath, { upgradeCopy: config.operations.upgradeCopies });
+  // The copy kept before an upgrade has its trail checked under this secret, so a start says before it migrates when a
+  // restore would refuse that copy (ADR-0041).
+  const trail = (copy: Parameters<typeof checkTrailOf>[0]) => { const { fault } = checkTrailOf(copy, config); return fault ? { ok: false, reason: fault.message } : { ok: true }; };
+  const db = openDatabase(config.databasePath, { upgradeCopy: { ...config.operations.upgradeCopies, trail } });
   // Before anything is written: a database put in place outside the restore command is recorded (ADR-0014).
   detectReplacement({ db, config });
   const rotated = sealedUnderPreviousSecret(db, config);

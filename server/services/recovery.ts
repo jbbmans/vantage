@@ -25,7 +25,9 @@ const lossText = (changes: Array<{ table: string; before: number; after: number 
 // Upgrades
 
 /** The copy the start kept before it migrated (ADR-0041), as an upgrade entry names it. */
-const copied = (record: UpgradeRecord) => (record.copy ? `; copied first to ${record.copy.file} (SHA-256 ${record.copy.sha256})` : '');
+const copied = (record: UpgradeRecord) => (record.copy
+  ? `; copied first to ${record.copy.file} (SHA-256 ${record.copy.sha256})${record.copy.trail?.ok === false ? ", whose audit trail does not verify, as the database's did not, so a restore refuses it" : ''}`
+  : '');
 
 /** Audits each schema upgrade this database recorded and has not audited: one entry for the service, one per Unit Instance that lost rows. */
 export function auditUpgrades(ctx: AppContext) {

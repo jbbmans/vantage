@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import fs, { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
+import fs, { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -599,5 +599,61 @@ test('a SHA-256 file is written in place of a link planted at its name, never th
     assert.equal(readFileSync(`${copy}.sha256`, 'utf8'), `${'a'.repeat(64)}  copy.db\n`);
     assert.equal((statSync(`${copy}.sha256`).mode & 0o777).toString(8), '600');
     assert.deepEqual(readdirSync(dir).sort(), ['copy.db', 'copy.db.sha256', 'service-owned.conf'], 'no temporary file is left');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a trail that cannot be read through is a trail that does not verify, never a crash', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-unreadable-trail-'));
+  const config = { secret: SECRET, previousSecrets: [] as string[] };
+  const variant = (name: string, change: (d: Database.Database) => void) => {
+    const file = join(dir, name);
+    copyFileSync(join(FIXTURE_DIR, 'main-caebfab.db'), file);
+    const d = new Database(file);
+    try { d.pragma('foreign_keys = OFF'); change(d); } finally { d.close(); }
+    return file;
+  };
+  const faults = (file: string) => checkBackup(file, { config }).faults.map((f) => f.fault);
+  try {
+    // A head that is not JSON, or is JSON of nothing.
+    for (const [name, head] of [['junk-head.db', '{not json'], ['null-head.db', 'null']]) {
+      const file = variant(name, (d) => { d.prepare("UPDATE meta SET value = ? WHERE key = 'audit_head'").run(head); });
+      assert.deepEqual(faults(file), ['trail_broken'], name);
+      assert.equal(checkBackup(file, { config }).trail?.reason, 'audit head cannot be read', name);
+    }
+    // The same head with no chain key: nothing can tell what sealed it, so the trail does not verify.
+    const keyless = variant('keyless.db', (d) => { d.exec("DELETE FROM meta WHERE key = 'chain_key'; UPDATE meta SET value = '{not json' WHERE key = 'audit_head'"); });
+    assert.deepEqual(faults(keyless), ['trail_broken']);
+    assert.match(checkBackup(keyless, { config }).trail?.reason ?? '', /^it cannot be read through: /);
+    // A backup from before case seals, with no chain key and a head another secret signed, is sealed elsewhere, as before.
+    const older = variant('before-case-seals.db', (d) => { d.exec("DELETE FROM meta WHERE key = 'chain_key'; DROP TABLE work_event_heads"); });
+    assert.deepEqual(faults(older), ['sealed_elsewhere']);
+    // A damaged audit row that only the trail's walk reads: the first row's ip claims more bytes than its record holds.
+    const damaged = variant('damaged-row.db', () => {});
+    const d = new Database(damaged, { readonly: true });
+    const pageSize = Number(d.pragma('page_size', { simple: true }));
+    const { pageno } = d.prepare("SELECT pageno FROM dbstat WHERE name = 'audit_log' AND pagetype = 'leaf' ORDER BY path LIMIT 1").get() as { pageno: number };
+    const column = (d.prepare("SELECT cid FROM pragma_table_info('audit_log') WHERE name = 'ip'").get() as { cid: number }).cid;
+    d.close();
+    const fd = openSync(damaged, 'r+');
+    try {
+      const page = Buffer.alloc(pageSize);
+      const base = (pageno - 1) * pageSize;
+      readSync(fd, page, 0, pageSize, base);
+      // The first cell: its payload size, its rowid and its header's size, then one serial type per column.
+      let at = page.readUInt16BE(8);
+      const skip = () => { while (page[at] & 0x80) at += 1; at += 1; };
+      for (let i = 0; i < 3 + column; i += 1) skip();
+      assert.equal(page[at] & 0x80, 0, 'a one-byte serial type');
+      writeSync(fd, Buffer.from([0x7f]), 0, 1, base + at);
+    } finally { closeSync(fd); }
+    let check: ReturnType<typeof checkBackup> | null = null;
+    assert.doesNotThrow(() => { check = checkBackup(damaged, { config }); });
+    const found = (check as ReturnType<typeof checkBackup> | null)!.faults.map((f) => f.fault);
+    assert.ok(found.includes('corrupt') && found.includes('trail_broken'), found.join(', '));
+    // The script says so and exits 1, where it threw before.
+    const verified = run(['scripts/backup.ts', '--verify', join(dir, 'junk-head.db')], envFor(join(dir, 'none.db')));
+    assert.equal(verified.status, 1, verified.stderr);
+    assert.match(verified.stdout + verified.stderr, /Its audit trail does not verify \(audit head cannot be read\)/);
+    assert.doesNotMatch(verified.stderr, /SyntaxError|at walkChain/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

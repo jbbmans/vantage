@@ -1574,7 +1574,10 @@ export function runMigrations(db: Db, pending: readonly Migration[], from: numbe
     ...(copy ? { copy } : {}),
   });
   if (failure) {
-    console.error(`Migration ${failed!.name} failed and was rolled back; the database stays at schema ${record.schema.to}. The upgrade history records it. ${copy ? `Restore the copy taken before the upgrade, ${copy.file} (beside the database, or in VANTAGE_UPGRADE_COPY_DIR)` : 'Restore the backup taken before the upgrade'}, or run the build this database last ran.`);
+    const back = !copy ? 'Restore the backup taken before the upgrade'
+      : copy.trail?.ok === false ? `The copy taken before the upgrade, ${copy.file}, has an audit trail that does not verify, as this database's did not, so a restore refuses it: restore the last backup whose trail verifies`
+        : `Restore the copy taken before the upgrade, ${copy.file} (beside the database, or in VANTAGE_UPGRADE_COPY_DIR)`;
+    console.error(`Migration ${failed!.name} failed and was rolled back; the database stays at schema ${record.schema.to}. The upgrade history records it. ${back}, or run the build this database last ran.`);
     throw failure;
   }
   if (record.status === 'changed') console.warn(`The upgrade to schema ${record.schema.to} left fewer rows in ${record.service.map((c) => c.table).join(', ') || 'some Unit Instances'}. Review it under Operations in the Vantage Administrator console before relying on the data.`);

@@ -34,7 +34,8 @@ source would trip on every comment edit and miss what actually changed.
    database passes the same integrity check (if it does, the copy was damaged on its way; if not, the database is, and
    the last good backup is the way back); the download answers `500 backup_unsound` and sends nothing. A trail fault does
    not refuse a fresh copy, since the copy holds exactly what the live database holds; it is reported, and the record
-   says so. Audit entries with no chain key or head to check them against are a trail that does not verify. A file the
+   says so. Audit entries with no chain key or head to check them against are a trail that does not verify, and so is a
+   trail that cannot be read through (a head that is not JSON, a damaged entry): never a crash. A file the
    check cannot read, or a `.sha256` that is not a file, is a named fault, never a crash. A live database at a newer
    schema than this build's is refused as that, with no disk blamed. A sound copy gets its SHA-256 beside it as
    `<file>.sha256` (`sha256sum -c` format), in its backup record
@@ -95,7 +96,10 @@ source would trip on every comment edit and miss what actually changed.
    A file database that records no schema version but holds rows in any table other than its settings is refused
    with nothing copied or migrated, since this build cannot tell which migrations it ran; the error names the tables.
    A new database holds rows only in its settings until its first migration records schema 1. The upgrade record and its audit entries name the
-   copy. There is no setting that skips it; a new database, one at the current schema and an in-memory one need none.
+   copy. The start checks the copy's trail under the service's secret. A copy whose trail does not verify is kept, since
+   the database's own trail fails the same way and nothing mends an append-only chain, but a restore refuses it: the
+   start says so before it migrates, the record and its audit entry say so, and a failed migration's message points to
+   the last backup whose trail verifies instead of that copy. Refusing the upgrade would block every later one too. There is no setting that skips it; a new database, one at the current schema and an in-memory one need none.
 6. **Migrations are tested by the schema they produce.** `server/db/schemaShape.ts` reads every table, index, trigger
    and view from the database's own `sqlite_master`, drops comments, spacing and letter case outside quotes, keeps a
    table's column and constraint definitions as a sorted list (so a column an upgrade appended matches one a new
@@ -125,9 +129,9 @@ source would trip on every comment edit and miss what actually changed.
   damaged copy in log mode, a trail with no chain, the drill against a database being written, the upgrade of the
   schema 14 fixture during a drill, a drill and dry run against a pre-organization database, refused dry runs, the
   drill history's cap, who-ran redaction and host paths, a ranged or conditional download, one that cannot be sent, a
-  download checked on a thread of its own, a live database at a newer schema, a restore over damaged accounts, a drill over a live trail it cannot read past, a
+  download checked on a thread of its own, a trail that cannot be read through, a live database at a newer schema, a restore over damaged accounts, a drill over a live trail it cannot read past, a
   drill stopped by an error it did not expect, a stop while a restore copies the database it replaces) and `tests/server/databaseFixtures.test.ts` (the copy before an upgrade, per-database pruning, a copy
-  reused across failed starts and not once a row was added, changed or a setting written, an unversioned database refused for rows in any table, a refused start, a changed migration, a reworded one,
+  reused across failed starts and not once a row was added, changed or a setting written, an unversioned database refused for rows in any table, a copy whose trail a restore refuses, a refused start, a changed migration, a reworded one,
   no recorded version without a fixture).
 - Operators can rehearse a restore on any day without a maintenance window; the console shows when the last drill ran
   and what it found.

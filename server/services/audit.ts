@@ -203,7 +203,11 @@ function walkChain(db: Db, chainKey: string, walk: string): ChainCheck {
   }
   // A broken chain still reports how many entries the log holds, as it always has.
   if (broken) return { ok: false, count: (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n, reason: `audit entry ${broken} does not match the chain` };
-  const head = JSON.parse(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}') as { hash: string; count: number; mac?: string };
+  // A head that is not the object the chain writes (damaged, or written by hand) is one the chain does not match.
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(String(metaGet(db, 'audit_head') || '{"hash":"","count":0,"mac":""}')); } catch { parsed = null; }
+  if (!parsed || typeof parsed !== 'object') return { ok: false, count, reason: 'audit head cannot be read' };
+  const head = parsed as { hash: string; count: number; mac?: string };
   if (head.hash !== previous || head.count !== count) return { ok: false, count, reason: 'audit head does not match the chain' };
   if (count && head.mac !== hmac(chainKey, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count, reason: 'audit head signature is invalid' };
   return { ok: true, count };

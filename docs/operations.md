@@ -23,7 +23,8 @@ write-ahead log beside it, a Vantage schema this build knows, and the audit trai
 saying whether the live database passes the same check: if it does, the copy was damaged on its way to the backup
 disk; if it does not, the database itself is damaged and the last good backup is the way back. A live database at a
 newer schema than this build's is said to be one, for the build that runs it to back up. A trail that does not verify,
-including audit entries with no chain key or head to check them against, does not remove a fresh copy: the copy holds
+including audit entries with no chain key or head to check them against and a trail that cannot be read through,
+does not remove a fresh copy: the copy holds
 exactly what the live database holds, so it is kept, the script warns, and the record says the trail is broken. Look
 at **Audit integrity** before relying on it, since a restore refuses such a trail. A sound copy gets its
 SHA-256 beside it as `<copy>.sha256`, in the form `sha256sum -c` reads, and the record keeps it; a download carries it
@@ -149,7 +150,10 @@ copies failed starts named since the last upgrade that completed are never prune
 database as it was. A database file that holds rows in any table other than its settings but records no
 schema version is refused with nothing copied or migrated, naming the tables; restore the last good backup. The upgrade record, its
 `upgrade_verified`, `upgrade_rows_lost` or `upgrade_failed` entry and a failed migration's message name the copy:
-restoring it with the previous build is how a lossy or failed upgrade is undone. Drill it with that build first
+restoring it with the previous build is how a lossy or failed upgrade is undone. A database whose audit trail already
+does not verify is still upgraded, but its copy carries the same broken trail and a restore refuses it: the start
+warns before it migrates, the record and entry say so, and the way back is then the last backup whose trail verifies.
+Drill the copy with the previous build first
 (`restore.ts DRILL` from this release on; with an older build, `REPLACE-DATABASE --dry-run` with the service
 stopped), since this build's drill would upgrade it again, and an upgrade that failed or lost rows on the database
 fails or loses them again on its copy. A previous build with no `scripts/restore.ts` (v5.0.0) has no drill: check the

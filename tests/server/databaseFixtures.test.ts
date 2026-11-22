@@ -340,3 +340,45 @@ test('a schema is described by what it does: comments, spacing, case and column 
   assert.notDeepEqual(tableDefinitions("CREATE TABLE t (a TEXT CHECK (a IN ('x')))"), tableDefinitions("CREATE TABLE t (a TEXT CHECK (a IN ('y')))"));
   assert.deepEqual(tableDefinitions('CREATE TABLE t (a TEXT) STRICT').at(-1), 'options strict');
 });
+
+test('a start says before it migrates when the copy it keeps has a trail a restore refuses', async () => {
+  const warned: string[] = [];
+  const errors: string[] = [];
+  const { warn, error } = console;
+  console.warn = (...a: unknown[]) => { warned.push(a.map(String).join(' ')); };
+  console.error = (...a: unknown[]) => { errors.push(a.map(String).join(' ')); };
+  const breakTrail = (d: Database.Database) => { d.prepare("UPDATE audit_log SET detail = 'changed by hand' WHERE seq = 5").run(); };
+  try {
+    for (const broken of [false, true]) {
+      const { dir, path } = onDisk(fixture('v5.0.0'));
+      try {
+        if (broken) { const d = new Database(path); try { breakTrail(d); } finally { d.close(); } }
+        warned.length = 0;
+        const app = await startApp({ VANTAGE_DB: path, VANTAGE_UPGRADE_COPY_DIR: join(dir, 'copies') });
+        try {
+          const record = upgradeHistory(app.ctx.db).at(-1)!;
+          assert.equal(record.copy?.trail?.ok, !broken, `broken: ${broken}`);
+          const said = warned.filter((w) => w.includes(record.copy!.file));
+          if (broken) {
+            assert.equal(said.length, 1);
+            assert.match(said[0], /its audit trail fails its check, as the database's own does: Its audit trail does not verify \(audit entry .* does not match the chain\).*cannot be put back with scripts\/restore\.ts/s);
+          } else assert.deepEqual(said, []);
+          const entry = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action IN ('upgrade_verified', 'upgrade_rows_lost') AND detail LIKE '%copied first to%' ORDER BY seq DESC LIMIT 1").get() as { detail: string };
+          assert.equal(entry.detail.includes('whose audit trail does not verify'), broken, entry.detail);
+        } finally { await app.close(); }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    }
+    // A start that then fails does not send the operator to that copy.
+    const { dir, path } = onDisk(fixture('v5.0.0'));
+    try {
+      const d = new Database(path);
+      try {
+        breakTrail(d);
+        for (const on of ['INSERT', 'UPDATE']) d.exec(`CREATE TRIGGER refuse_30_${on.toLowerCase()} BEFORE ${on} ON meta WHEN NEW.key = 'schema_version' AND NEW.value = '30' BEGIN SELECT RAISE(ABORT, 'migration 30 cannot take this database'); END`);
+      } finally { d.close(); }
+      errors.length = 0;
+      await assert.rejects(startApp({ VANTAGE_DB: path, VANTAGE_UPGRADE_COPY_DIR: join(dir, 'copies') }), /migration 30 cannot take this database/);
+      assert.match(errors.join('\n'), /has an audit trail that does not verify, as this database's did not, so a restore refuses it: restore the last backup whose trail verifies/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { console.warn = warn; console.error = error; }
+});

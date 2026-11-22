@@ -78,13 +78,20 @@ export function copyDatabaseInto(db: Db, dest: string): void {
 }
 
 /** The copy a start kept before it upgraded the database, as the upgrade record names it. */
-export interface UpgradeCopy { file: string; bytes: number; sha256: string }
+/** A copy kept before an upgrade. `trail` says whether its audit trail verified when it was taken, where a start checked. */
+export interface UpgradeCopy { file: string; bytes: number; sha256: string; trail?: { ok: boolean; reason?: string } }
 
 export interface UpgradeCopyOptions {
   /** Where the copies go: the database's own directory unless VANTAGE_UPGRADE_COPY_DIR says otherwise. */
   dir?: string | null;
   /** How many of these copies stay in that directory, newest first (VANTAGE_UPGRADE_COPIES_KEPT). */
   keep?: number;
+  /**
+   * Checks the copy's audit trail under the service's secret (the start passes checkTrailOf). A copy whose trail does
+   * not verify is still kept, since the database's own trail fails the same way, but a restore refuses it, and the start
+   * says so before it migrates.
+   */
+  trail?: (copy: Database.Database) => { ok: boolean; reason?: string };
 }
 
 /**
@@ -199,6 +206,7 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   if (free !== null && free < needed + (1 << 20)) refuse(`${dir} has ${mb(free)} MB free where the copy needs about ${mb(needed)} MB. Make room there, or set VANTAGE_UPGRADE_COPY_DIR to a directory with room, and start again.`);
   const dest = join(dir, `vantage-before-upgrade-${from}-to-${to}-${stampNow()}-${copyTagOf(path)}.db`);
   try { copyDatabaseInto(db, dest); } catch (error) { refuse(`could not write it to ${dest}: ${(error as Error).message}. Make room there, or set VANTAGE_UPGRADE_COPY_DIR to a directory with room, and start again.`); }
+  let trail: UpgradeCopy['trail'];
   try {
     const copy = new Database(dest, { readonly: true, fileMustExist: true });
     try {
@@ -206,6 +214,9 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
       if (copied !== 'ok') throw new Error(`the copy fails SQLite's integrity check (${copied.slice(0, 300)})`);
       if (metaRead(copy, 'schema_version') !== String(from)) throw new Error(`the copy is not at schema ${from}`);
       if (auditCount(copy) !== auditCount(db)) throw new Error('the copy does not hold every audit entry');
+      if (options.trail) {
+        try { trail = options.trail(copy); } catch (error) { trail = { ok: false, reason: `Its audit trail could not be checked: ${(error as Error).message}.` }; }
+      }
     } finally { copy.close(); }
   } catch (error) {
     rmSync(dest, { force: true });
@@ -220,5 +231,10 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   for (const old of others.slice(0, Math.max(0, others.length - (keep - 1)))) {
     for (const f of [join(dir, old), checksumFileOf(join(dir, old)), `${join(dir, old)}-journal`]) rmSync(f, { force: true });
   }
-  return { file: basename(dest), bytes: statSync(dest).size, sha256 };
+  // Said before a single migration runs. The upgrade still goes ahead: the trail was broken before it, and refusing would
+  // stop every later upgrade too, since nothing mends an append-only chain.
+  if (trail && !trail.ok) {
+    console.warn(`Kept ${basename(dest)} before upgrading, but its audit trail fails its check, as the database's own does: ${trail.reason ?? 'it does not verify.'} A restore refuses a backup whose trail does not verify, so this copy cannot be put back with scripts/restore.ts. Keep the last backup whose trail verifies; see Upgrades in docs/operations.md.`);
+  }
+  return { file: basename(dest), bytes: statSync(dest).size, sha256, ...(trail ? { trail } : {}) };
 }
