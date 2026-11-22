@@ -61,12 +61,16 @@ under the current secret, sign-ins and queued mail dropped, support approvals ca
 the result with this build as the next start would (an older backup is upgraded, with its rows counted), checks it
 again under `VANTAGE_SECRET` alone, reads the live database to say what a restore would undo in each Unit Instance, and
 removes the scratch copy. It exits 0 when the backup restores. The live database records the drill and the running
-service writes it into the platform audit trail (`restore_drill`) within five minutes; a drill that fails tells the
-Vantage staff who hold the backups. **Backup and restore → Restore drills** lists them, and **Operations → Backups**
-shows the last one. The live database keeps every drill until the service has audited it, then the last twenty. Who
-ran each, and as which account on the host, is shown only to staff who hold the backups or read the audit trail.
+service writes it into the platform audit trail (`restore_drill`) within five minutes; a drill that fails, a drill
+of a backup that is not there among them, tells the Vantage staff who hold the backups. A drill that stops on an error
+before it finishes is recorded as stopped, and staff are told to drill again once that is put right, since it says
+nothing yet about the backup. A drill stopped for too little room is recorded as refused and tells no one.
+**Backup and restore → Restore drills** lists them, and **Operations → Backups** shows the last one. The live database
+keeps every drill until the service has audited it (up to 200), then the last twenty. Who ran each, as which account on
+the host, and the name a refused dry run gave are shown only to staff who hold the backups or read the audit trail.
 Drill the newest backup after each upgrade and at least monthly, and before any restore. The scratch copy needs as much
-free space beside the database as the backup's size.
+free space beside the database as the backup's size. Ctrl-C stops a drill at once; one stopped so can leave its
+scratch copy (`.vantage-drill-<stamp>-<pid>.db`) beside the database, to delete.
 
 ## Restoring from a backup
 
@@ -85,8 +89,9 @@ audited (ADR-0014). `node scripts/restore.ts` is the only supported way.
    or its accounts, cannot be read, `--by` is checked against the backup instead and the command says so; a backup or
    database from before platform roles names its Lead Vantage Administrators as that build did. It prints how many
    audit entries after the backup a restore would undo, in how many Unit Instances, and how many of them changed
-   accounts, authority or holds. A dry run stopped for who authorized it, for another database's backup or for too
-   little room is recorded and audited as refused, and tells no one the backup failed, since it never rehearsed it.
+   accounts, authority or holds; a damaged database it cannot read that from still restores. A dry run stopped for
+   who authorized it, for another database's backup or for too little room is recorded and audited as refused, and
+   tells no one the backup failed, since it never rehearsed it.
 2. **Vantage Administrator console → Maintenance → Start maintenance**, with the reason (the change or incident
    record's number, I-35). Then stop the service.
 3. **Run it** without `--dry-run`. It refuses while anything holds the database open. It keeps the database it
@@ -133,13 +138,19 @@ audit entry). `<tag>` is eight hexadecimal characters taken from the database's 
 in one directory are told apart. Only then does it migrate. A database that fails the check, or a copy that cannot be
 made or does not check out, stops the start with nothing migrated and says why; the database stays at its old schema
 for the previous build. There is no setting that skips the copy. A start after a failed upgrade keeps the copy the
-failed start took, while it is still there and matches its `.sha256`, and takes none of its own: restarting never
-prunes away the database as it was. A database file that holds accounts or audit entries but records no schema
+failed start took, and takes none of its own, while that copy is still there and matches its `.sha256` and nothing was
+written to the database since (its newest audit entry and its rows are as the failed start left them). Once anything
+was, after the previous build served it again or a restore, the start takes a copy of the database as it now is. The
+copies failed starts named since the last upgrade that completed are never pruned: restarting never removes the
+database as it was. A database file that holds accounts or audit entries but records no schema
 version is refused with nothing copied or migrated; restore the last good backup. The upgrade record, its
 `upgrade_verified`, `upgrade_rows_lost` or `upgrade_failed` entry and a failed migration's message name the copy:
 restoring it with the previous build is how a lossy or failed upgrade is undone. Drill it with that build first
 (`restore.ts DRILL` from this release on; with an older build, `REPLACE-DATABASE --dry-run` with the service
-stopped), since this build's drill would upgrade it again.
+stopped), since this build's drill would upgrade it again. A previous build with no `scripts/restore.ts` (v5.0.0) has
+no drill: drill the copy with this build's `restore.ts DRILL`, which upgrades the scratch copy and so shows the copy is
+sound and complete, then put it back with this build's `restore.ts` with the service stopped (a restore does not
+upgrade what it puts in place) and start the previous build.
 
 - `VANTAGE_UPGRADE_COPY_DIR`: where the copies go. Default: the database's own directory. Give it room for one more
   database; a start with too little stops and says how much it needs.

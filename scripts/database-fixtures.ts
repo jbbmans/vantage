@@ -88,9 +88,16 @@ if (existsSync(join(FIXTURE_DIR, name)) || manifest.fixtures.some((f) => f.file 
 
 const work = mkdtempSync(join(tmpdir(), 'vantage-fixture-'));
 const tree = join(work, 'tree');
-// Ctrl+C or a stop while the old build runs is held until it ends, so the worktree is always removed below.
+// A stop while the old build runs is held until it ends: the work here is synchronous, so the handlers run only when
+// the event loop is given a turn (below), and the run then stops before anything is written. The worktree is removed
+// either way.
 let stopped: NodeJS.Signals | null = null;
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => { stopped = signal; });
+class Stopped extends Error {}
+const stopIfAsked = async () => {
+  await new Promise((done) => setImmediate(done));
+  if (stopped) throw new Stopped(stopped);
+};
 git('worktree', 'add', '--detach', tree, commit);
 try {
   symlinkSync(join(repo, 'node_modules'), join(tree, 'node_modules'), 'dir');
@@ -98,7 +105,16 @@ try {
   const out = join(work, 'fixture.db');
   // Only what node needs: no VANTAGE_ setting of this host reaches the build that writes the fixture.
   const env = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? work, TZ: 'UTC' };
-  const printed = execFileSync(process.execPath, ['.vantage-fixture-scenario.ts', out], { cwd: tree, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  let printed = '';
+  try {
+    printed = execFileSync(process.execPath, ['.vantage-fixture-scenario.ts', out], { cwd: tree, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  } catch (error) {
+    // Ctrl+C reaches the old build too, which then ends on the signal.
+    const signal = (error as { signal?: NodeJS.Signals | null }).signal;
+    if (!signal) throw error;
+    stopped ??= signal;
+  }
+  await stopIfAsked();
   const { steps } = JSON.parse(printed.trim().split('\n').at(-1) ?? '{}') as { steps: FixtureEntry['steps'] };
   // One self-contained file, compacted.
   const db = new Database(out);
@@ -119,6 +135,7 @@ try {
     } catch { migration = null; }
   } finally { db.close(); }
   const version = /VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(tree, 'server', 'version.ts'), 'utf8'))?.[1] ?? 'unknown';
+  await stopIfAsked();
   const dest = join(FIXTURE_DIR, name);
   copyFilePrivate(out, dest);
   const entry: FixtureEntry = { file: name, ref, commit, version, schema, sha256: sha256File(dest), bytes: readFileSync(dest).length, frozenAt: new Date().toISOString(), rows, steps };
@@ -135,9 +152,11 @@ try {
   const refused = steps.filter((s) => typeof s.status !== 'number' || s.status >= 400);
   console.log(`Froze ${name}: ${ref} (${commit.slice(0, 7)}, Vantage ${version}), schema ${schema}, ${entry.bytes} bytes, SHA-256 ${entry.sha256}.`);
   console.log(`${steps.length - refused.length} of ${steps.length} scenario steps answered under 400${refused.length ? `; the others: ${refused.map((s) => `${s.step} ${s.status}`).join('; ')}` : ''}.`);
+} catch (error) {
+  if (!(error instanceof Stopped)) throw error;
 } finally {
   try { git('worktree', 'remove', '--force', tree); } catch { /* removed with the directory below */ }
   rmSync(work, { recursive: true, force: true });
   try { git('worktree', 'prune'); } catch { /* nothing to prune */ }
-  if (stopped) { console.error(`Stopped (${stopped}); the worktree was removed.`); process.exitCode = 130; }
+  if (stopped) { console.error(`Stopped (${stopped}) before anything was written; the worktree was removed.`); process.exitCode = 130; }
 }

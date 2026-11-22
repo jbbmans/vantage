@@ -59,8 +59,8 @@ const dest = resolve(args[0]);
 if (dest === resolve(source)) { console.error('That is the live database itself.'); process.exit(2); }
 // A directory made for the copies is the service account's alone; one that exists keeps its own permissions.
 mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
-// A copy taken over an older one is a new copy: the older one's SHA-256 goes with it.
-rmSync(checksumFileOf(dest), { force: true });
+// A copy taken over an older one keeps the older one's .sha256 beside it until it passes its check: if the copy fails on
+// the way, what is left is still told apart from the copy that was taken.
 const db = new Database(source, { readonly: true, fileMustExist: true });
 await backupDatabase(db, dest);
 db.close();
@@ -71,7 +71,7 @@ try {
   copy.close();
 } catch { /* the check below says what is wrong with it */ }
 
-const check = checkBackup(dest, { config: secrets });
+const check = checkBackup(dest, { config: secrets, ignoreChecksumFile: true });
 const broken = fileFaults(check);
 if (broken.length) {
   // Whether the live database passes the same check tells a fault on the way to the copy from one in the database.
@@ -82,7 +82,7 @@ if (broken.length) {
     live = check.schema && check.schema > SCHEMA_VERSION
       ? `The live database is at schema ${check.schema}, newer than this build's ${SCHEMA_VERSION}: take the backup with the build that runs it.`
       : `The live database is not one this build can back up: ${broken.map((f) => f.message).join(' ')}`;
-    for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${dest}${suffix}`, { force: true });
+    for (const suffix of ['', '-journal', '-wal', '-shm', '.sha256']) rmSync(`${dest}${suffix}`, { force: true });
     console.error(`The backup failed its check and was removed. ${live}`);
     process.exit(1);
   }
@@ -98,14 +98,14 @@ if (broken.length) {
     // SQLite stops a check it cannot read through, and says the file is malformed: that is a failed check too.
     live = /^SQLITE_(CORRUPT|NOTADB)/.test(String((error as { code?: string }).code ?? '')) ? liveFails((error as Error).message) : `The live database could not be checked: ${(error as Error).message}.`;
   }
-  for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${dest}${suffix}`, { force: true });
+  for (const suffix of ['', '-journal', '-wal', '-shm', '.sha256']) rmSync(`${dest}${suffix}`, { force: true });
   console.error(`The backup failed its check and was removed. ${broken.map((f) => f.message).join(' ')}\n${live}`);
   process.exit(1);
 }
 writeChecksumFile(dest, check.sha256!);
 const seq = check.audit?.seq ?? null;
 console.log(`Backed up ${source} to ${dest} (${check.bytes} bytes${seq ? `, through audit entry ${seq}` : ''}).`);
-console.log(`Checked: SQLite's integrity check passes, schema ${check.schema}${check.trail ? `, the audit trail verifies over ${check.trail.count} entries` : ''}${check.foreignKeyBreaks ? `; ${check.foreignKeyBreaks} rows name a row that is not there, as in the live database` : ''}.`);
+console.log(`Checked: SQLite's integrity check passes, schema ${check.schema}${check.trail?.ok ? `, the audit trail verifies over ${check.trail.count} entries` : ''}${check.foreignKeyBreaks ? `; ${check.foreignKeyBreaks} rows name a row that is not there, as in the live database` : ''}.`);
 console.log(`SHA-256 ${check.sha256}, kept beside it as ${basename(checksumFileOf(dest))}.`);
 const trailFaults = check.faults.filter((f) => TRAIL_FAULTS.has(f.fault));
 // A fresh copy's trail is the live database's: the copy is kept, and the fault is the live database's to answer.

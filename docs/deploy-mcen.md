@@ -160,7 +160,7 @@ Adding a unit never needs a source change.
 - **Upgrades keep a copy.** A start that migrates the database first keeps a checked copy of it as it was, owner-only,
   in `VANTAGE_UPGRADE_COPY_DIR` (default: beside the database), the newest `VANTAGE_UPGRADE_COPIES_KEPT` (default 3) of
   each database's copies; a start that cannot make one stops with nothing migrated, and a start after a failed upgrade
-  keeps the copy that start took. Give that directory room for one more database. The
+  keeps the copy that start took while nothing was written since, and never prunes it. Give that directory room for one more database. The
   start then checks every table's rows, and each Unit Instance's, and records, audits and tells the Lead Unit Managers
   about any it lost. The copy is for undoing the upgrade on this host; it does not replace the backup off it.
 - **Each Unit Instance's operations.** **Instance operations** in the Vantage Administrator console shows

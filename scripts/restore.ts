@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { chmodSync, closeSync, existsSync, renameSync, statfsSync, statSync, unlinkSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, renameSync, rmSync, statfsSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { loadConfig } from '../server/config.ts';
@@ -84,7 +84,8 @@ const config = loadConfig();
 const live = config.databasePath;
 if (live === ':memory:') fail('VANTAGE_DB is in memory here; there is nothing to restore into.');
 const source = resolve(from!);
-if (!existsSync(source)) fail(`No backup at ${source}.`);
+// A drill of a backup that is not there is a failed drill, recorded like any other: the check below names it.
+if (!existsSync(source) && !rehearse) fail(`No backup at ${source}.`);
 if (source === resolve(live)) fail('That is the live database itself.');
 
 const started = performance.now();
@@ -111,36 +112,35 @@ const releaseLive = () => {
 const removeTemp = () => { for (const suffix of ['', '-wal', '-shm', '-journal']) { try { if (existsSync(`${temp}${suffix}`)) unlinkSync(`${temp}${suffix}`); } catch { /* gone */ } } };
 /** Writes the drill into the live database, for the console and for the service to audit. Never a reason to fail it. */
 let recorded = false;
-const recordRehearsal = (ok: boolean, failure: string | null, refused: DrillRecord['refused'] = null) => {
+const recordRehearsal = (ok: boolean, failure: string | null, refused: DrillRecord['refused'] = null, stopped = false) => {
   if (!rehearse || recorded || !existsSync(live)) return;
   recorded = true;
   try {
     const db = new Database(live, { fileMustExist: true });
     try {
       db.pragma('busy_timeout = 5000');
-      recordDrill(db, { kind: drillOnly ? 'drill' : 'dry_run', ok, failure: failure?.slice(0, 1000) ?? null, ...(refused ? { refused } : {}), ...facts, by: drillOnly ? null : by, hostUser, version: VERSION, ms: Math.round(performance.now() - started) });
+      recordDrill(db, { kind: drillOnly ? 'drill' : 'dry_run', ok, failure: failure?.slice(0, 1000) ?? null, ...(refused ? { refused } : {}), ...(stopped ? { stopped } : {}), ...facts, by: drillOnly ? null : by, hostUser, version: VERSION, ms: Math.round(performance.now() - started) });
     } finally { db.close(); }
   } catch (error) {
     console.warn(`The drill ran, but the database could not record it: ${(error as Error).message}`);
   }
 };
-const abandon = (message: string, refused: DrillRecord['refused'] = null): never => {
+const abandon = (message: string, refused: DrillRecord['refused'] = null, stopped = false): never => {
   try { copy?.close(); } catch { /* closed */ }
   removeTemp();
   releaseLive();
-  recordRehearsal(false, message, refused);
+  recordRehearsal(false, message, refused, stopped);
   return fail(`${message}\nNothing was replaced.`);
 };
 /** Set once the restored copy is in place: from then on nothing is undone, and the temporary copy no longer exists. */
 let swapped = false;
-// Anything that throws before the swap, or a signal, leaves no scratch copy behind and is recorded like any failed drill.
+// Anything that throws before the swap leaves no scratch copy behind. A drill that stops so is recorded as stopped, not
+// as a backup that does not restore: the error may be the host's or the live database's. Signals keep their default
+// everywhere but the one wait in a restore (step 6), since a handler would only run once the synchronous work is done.
 process.on('uncaughtException', (error) => {
   if (swapped) { console.error(`The restored database is in place, but a later step failed: ${error.message}`); process.exit(1); }
-  abandon(`The ${rehearse ? 'drill' : 'restore'} stopped: ${error.message}`);
+  abandon(`The ${rehearse ? 'drill' : 'restore'} stopped: ${error.message}`, null, true);
 });
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-  process.once(signal, () => { if (swapped) process.exit(130); abandon(`The ${rehearse ? 'drill' : 'restore'} was interrupted (${signal}).`); });
-}
 
 // 1. A restore needs the service stopped: take the live database's lock, and hold it until the copy is ready. A drill
 //    only reads the live database, so it runs beside the service.
@@ -242,13 +242,21 @@ if (replaced) {
     // A backup from before databases were named is this database's only if the trail here still holds its newest entry,
     // with the same hash (ADR-0040). Anything else, an entry this trail does not reach or a backup with no trail at all,
     // is another database's: refused below without --different-database, and never given this database's name.
-    const row = restored.seq ? liveDb!.prepare('SELECT entry_hash FROM audit_log WHERE seq = ?').get(restored.seq) as { entry_hash: string } | undefined : undefined;
-    sameDatabase = Boolean(row && restored.hash && row.entry_hash === restored.hash);
+    // A trail here that cannot be read cannot say either way.
+    try {
+      const row = restored.seq ? liveDb!.prepare('SELECT entry_hash FROM audit_log WHERE seq = ?').get(restored.seq) as { entry_hash: string } | undefined : undefined;
+      sameDatabase = Boolean(row && restored.hash && row.entry_hash === restored.hash);
+    } catch { sameDatabase = null; }
   }
   facts.sameDatabase = sameDatabase;
   // A drill of another database's backup still says whether it restores; only a restore, or its dry run, refuses it.
   if (sameDatabase === false && !drillOnly && !flags.has('--different-database')) abandon('The backup is of another Vantage database than the one here. Pass --different-database to replace this one with it anyway.', 'other_database');
-  if (sameDatabase) ({ lost, undone } = lostSince(liveDb!, restored));
+  // What a restore undoes is read from the database it replaces. A damaged one may not give it; the restore still goes ahead.
+  if (sameDatabase) {
+    try { ({ lost, undone } = lostSince(liveDb!, restored)); } catch (error) {
+      console.log(`What a restore would undo could not be read from ${live} (${(error as Error).message}).`);
+    }
+  }
   if (lost) facts.wouldUndo = { entries: lost.entries, instances: Object.keys(lost.instances).length, changes: undone?.count ?? 0 };
 }
 
@@ -268,6 +276,14 @@ const summary = [
 let safetyCopy: string | null = null;
 if (!rehearse && liveDb) {
   safetyCopy = join(dir, `vantage-before-restore-${stamp}.db`);
+  const drawn = safetyCopy;
+  // The one wait in a restore: a stop while the copy is drawn removes what was drawn, and nothing is replaced.
+  const interrupted = (signal: NodeJS.Signals) => {
+    for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${drawn}${suffix}`, { force: true });
+    abandon(`The restore was interrupted (${signal}) while the database it replaces was being copied.`);
+  };
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  for (const signal of signals) process.once(signal, interrupted);
   let readable = true;
   try {
     await backupDatabase(liveDb, safetyCopy);
@@ -278,6 +294,8 @@ if (!rehearse && liveDb) {
     readable = false;
     copyFilePrivate(live, safetyCopy, heldOpen);
     if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`, heldOpen);
+  } finally {
+    for (const signal of signals) process.removeListener(signal, interrupted);
   }
   chmodSync(safetyCopy, 0o600);
   // The copy is what the database was, sound or not: a restore is often the answer to a damaged one, so it is kept and

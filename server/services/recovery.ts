@@ -102,6 +102,7 @@ export function auditServerBackups(ctx: AppContext): number {
 const drillText = (r: DrillRecord) => {
   const what = `${r.kind === 'dry_run' ? 'A dry run of a restore' : 'A restore drill'} of ${r.backup.file}${r.backup.sha256 ? ` (SHA-256 ${r.backup.sha256})` : ''}`;
   if (!r.ok && r.refused) return `${what} was refused at ${r.at}, before the backup was rehearsed: ${r.failure ?? 'no reason recorded'}`;
+  if (!r.ok && r.stopped) return `${what} stopped at ${r.at} before it finished: ${r.failure ?? 'no reason recorded'}`;
   if (!r.ok) return `${what} failed at ${r.at}: ${r.failure ?? 'no reason recorded'}`;
   const held = r.backup.schema ? `; it holds schema ${r.backup.schema}${r.backup.seq ? ` through audit entry ${r.backup.seq}` : ''}` : '';
   const upgraded = r.upgraded ? `, upgraded to schema ${r.upgraded.to}` : '';
@@ -130,7 +131,8 @@ export function auditDrills(ctx: AppContext): number {
     markDrillsAudited(ctx.db, done);
   }).immediate();
   for (const r of failed) {
-    notifyStaff(ctx, 'platform.data', { kind: 'system', title: `A restore drill of ${r.backup.file} failed`, message: `${r.failure ?? 'No reason was recorded.'} Take a new backup and drill it before relying on this one.`.slice(0, 500), actionUrl: '/admin/data', dedupeKey: `drill:${r.id}` });
+    const next = r.stopped ? 'It stopped before it finished, so it says nothing yet about the backup: put right what stopped it, then drill it again.' : 'Take a new backup and drill it before relying on this one.';
+    notifyStaff(ctx, 'platform.data', { kind: 'system', title: `A restore drill of ${r.backup.file} ${r.stopped ? 'stopped' : 'failed'}`, message: `${r.failure ?? 'No reason was recorded.'} ${next}`.slice(0, 500), actionUrl: '/admin/data', dedupeKey: `drill:${r.id}` });
   }
   return done.size;
 }

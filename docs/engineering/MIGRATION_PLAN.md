@@ -58,10 +58,11 @@ database's schema. It also checks the copy a start keeps before an upgrade.
 Before the first migration the start keeps a checked, owner-only copy of the database as it was
 (`vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db`, `VANTAGE_UPGRADE_COPY_DIR`, `VANTAGE_UPGRADE_COPIES_KEPT`),
 and a start that cannot make one stops with nothing migrated. A start after a failed upgrade keeps the copy the failed
-start took. Each migration runs at startup inside its own transaction, so a failure leaves the database at the last
+start took while nothing was written to the database since, and never prunes it. Each migration runs at startup inside its own transaction, so a failure leaves the database at the last
 migration that committed. There is no automatic downgrade: to roll back, drill that copy (or the backup) with the
 previous build, then restore it with that build (`docs/operations.md#upgrades`). This build's drill would upgrade it
-again, so it says nothing about the previous build.
+again, so it says nothing about the previous build. v5.0.0 has no `scripts/restore.ts`: from it, drill the copy with
+this build and put it back with this build's `restore.ts`, which does not upgrade what it puts in place.
 
 ## Engine migration (SQLite → PostgreSQL)
 

@@ -60,8 +60,12 @@ function readHeader(path: string): Buffer | null {
   } finally { closeSync(fd); }
 }
 
-/** Checks the backup at `path`. `config` brings the secret its trail is checked under; `requireTrail` makes a trail that cannot be checked a fault. */
-export function checkBackup(path: string, options: { config?: Pick<AppConfig, 'secret' | 'previousSecrets'> | null; requireTrail?: boolean } = {}): BackupCheck {
+/**
+ * Checks the backup at `path`. `config` brings the secret its trail is checked under; `requireTrail` makes a trail that
+ * cannot be checked a fault. `ignoreChecksumFile` is for a copy just taken over an older one: the `.sha256` beside it is
+ * still the older copy's until this one passes.
+ */
+export function checkBackup(path: string, options: { config?: Pick<AppConfig, 'secret' | 'previousSecrets'> | null; requireTrail?: boolean; ignoreChecksumFile?: boolean } = {}): BackupCheck {
   const result: BackupCheck = {
     ok: false, faults: [], file: basename(path), bytes: null, sha256: null, checksum: 'none', integrity: null, schema: null,
     databaseId: null, audit: null, trail: null, foreignKeyBreaks: null,
@@ -79,7 +83,8 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
     fault('unreadable', `${basename(path)} cannot be read here: ${(error as Error).message}.`);
     return done();
   }
-  try { recorded = readChecksumFile(path); } catch { recorded = 'unreadable'; }
+  if (options.ignoreChecksumFile) recorded = null;
+  else { try { recorded = readChecksumFile(path); } catch { recorded = 'unreadable'; } }
   if (recorded === 'unreadable' || recorded === 'other') {
     result.checksum = 'unreadable';
     fault('checksum_unreadable', `${basename(path)}.sha256 beside it ${recorded === 'other' ? 'names another file' : 'is not a SHA-256 line'}, so the copy cannot be matched to the one taken.`);
@@ -150,7 +155,15 @@ export function checkBackup(path: string, options: { config?: Pick<AppConfig, 's
       if (!result.faults.some((f) => f.fault === 'corrupt')) fault('corrupt', `It cannot be read through: ${(error as Error).message}.`);
       return done();
     }
-    if (options.config) {
+    // Entries with neither a chain key nor a head to check them against: whatever they say, nothing shows they were not
+    // changed. Case seals do not help, since they are sealed with the chain key that is missing.
+    const unchained = Boolean(result.audit?.count) && (() => {
+      try { return !db!.prepare("SELECT 1 FROM meta WHERE key IN ('chain_key', 'audit_head')").get(); } catch { return false; }
+    })();
+    if (options.config && unchained) {
+      result.trail = { ok: false, count: 0, reason: 'no chain key or audit head' };
+      fault('trail_broken', `Its audit trail does not verify: it holds ${result.audit!.count} entries but no chain key or head to check them against.`);
+    } else if (options.config) {
       let opened: ReturnType<typeof readChainKey>;
       try { opened = readChainKey(db, options.config); } catch { opened = { key: null, reason: 'sealed_elsewhere' }; }
       if (opened.key === null && opened.reason === 'sealed_elsewhere') {

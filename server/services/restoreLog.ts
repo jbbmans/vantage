@@ -127,8 +127,11 @@ export function lostSince(replaced: Db, restored: ChainPoint) {
   const instances = Object.fromEntries((replaced.prepare(`SELECT ${orgId} AS org_id, COUNT(*) AS n FROM audit_log a WHERE a.seq > ? AND ${orgId} IS NOT NULL GROUP BY ${orgId}`).all(after) as Array<{ org_id: string; n: number }>).map((r) => [r.org_id, r.n]));
   const actions = JSON.stringify(RESTORE_REVIEW_ACTIONS);
   const undoneCount = (replaced.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE seq > ? AND action IN (SELECT value FROM json_each(?))').get(after, actions) as { n: number }).n;
-  const undone = replaced.prepare(`SELECT a.seq, a.at, a.action, ${subjectId} AS subject_id, ${orgId} AS org_id, u.username AS subject_username FROM audit_log a LEFT JOIN users u ON u.id = ${subjectId}
-                                   WHERE a.seq > ? AND a.action IN (SELECT value FROM json_each(?)) ORDER BY a.seq LIMIT ${UNDONE_LISTED}`).all(after, actions) as UndoneChange[];
+  const listed = (named: boolean) => replaced.prepare(`SELECT a.seq, a.at, a.action, ${subjectId} AS subject_id, ${orgId} AS org_id, ${named ? 'u.username' : 'NULL'} AS subject_username FROM audit_log a
+                                   ${named ? `LEFT JOIN users u ON u.id = ${subjectId}` : ''} WHERE a.seq > ? AND a.action IN (SELECT value FROM json_each(?)) ORDER BY a.seq LIMIT ${UNDONE_LISTED}`).all(after, actions) as UndoneChange[];
+  // Accounts that cannot be read leave the changes listed without the username of whom each was about.
+  let undone: UndoneChange[];
+  try { undone = listed(true); } catch { undone = listed(false); }
   return { lost: { entries, since: restored.at, instances }, undone: { count: undoneCount, entries: undone } };
 }
 

@@ -136,7 +136,8 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
     version: versionStatus(ctx),
     schema: migrationStatus(ctx),
     // A drill names who authorized a dry run and the host account that ran it: for the same staff as who took a backup.
-    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous), drills: backups.drills.map((d) => (named ? d : { ...d, by: null, hostUser: null })) },
+    // Who ran a drill, as whom on the host, and the name a refused dry run gave are for those who hold the backups or read the trail.
+    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous), drills: backups.drills.map((d) => (named ? d : { ...d, by: null, hostUser: null, failure: d.refused === 'authorization' ? 'The person named as authorizing it is not an active Lead Vantage Administrator.' : d.failure })) },
     jobs: jobStatus(ctx),
   });
 }));
@@ -839,6 +840,8 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     const check = checkBackup(dest, { config: ctx.config });
     const broken = fileFaults(check);
     if (broken.length) throw new HttpError(500, `The copy failed its check, so it was not sent. ${broken.map((f) => f.message).join(' ')} Take the backup again; if it fails again, check the database with node scripts/backup.ts --verify on a server copy.`, 'backup_unsound');
+    // The check reads the whole copy, which takes a while on a large database: the session is asked again before it goes.
+    freshPlatformAuthority(ctx, req.sessionId, req.user.id, 'platform.data');
     const seq = check.audit?.seq ?? null;
     const bytes = check.bytes ?? statSync(dest).size;
     const trail = check.trail ? (check.trail.ok ? 'verified' : 'broken') : 'not_checked';
@@ -851,7 +854,14 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
     res.setHeader('Content-Digest', `sha-256=:${Buffer.from(check.sha256!, 'hex').toString('base64')}:`);
   } catch (e) { discard(); throw e; }
   // One copy, whole: no ranges, so the digest is always of what is sent and a resumed download cannot join two copies.
-  res.download(dest, `vantage-backup-${stamp}.db`, { acceptRanges: false }, discard);
+  // Each download is a new copy, so a conditional request has nothing to compare: it gets the copy too, never a 304 or a
+  // 412 carrying this copy's digest.
+  for (const header of ['if-match', 'if-none-match', 'if-modified-since', 'if-unmodified-since', 'if-range']) delete req.headers[header];
+  res.download(dest, `vantage-backup-${stamp}.db`, { acceptRanges: false, dotfiles: 'allow' }, (error) => {
+    discard();
+    // A copy that could not be sent is answered, never left hanging.
+    if (error) { if (!res.headersSent) res.status(500).json({ error: 'The backup could not be sent. Take it again.', code: 'backup_send_failed' }); else res.destroy(); }
+  });
 }));
 
 platformRouter.get('/export', requirePlatform('platform.data'), wrap((req, res) => {

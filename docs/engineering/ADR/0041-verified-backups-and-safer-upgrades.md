@@ -38,8 +38,12 @@ source would trip on every comment edit and miss what actually changed.
    check cannot read, or a `.sha256` that is not a file, is a named fault, never a crash. A live database at a newer
    schema than this build's is refused as that, with no disk blamed. A sound copy gets its SHA-256 beside it as
    `<file>.sha256` (`sha256sum -c` format), in its backup record
-   and audit entry, and on a download as `Content-Digest` (RFC 9530). `backup.ts --verify <file>` runs the check on any
-   backup, writes nothing, and says whether this database recorded taking it.
+   and audit entry, and on a download as `Content-Digest` (RFC 9530). A copy taken over an older one leaves the older
+   `.sha256` in place until it passes, so a run that fails still leaves a copy that can be told apart. Every `.sha256` is
+   written to a new file made exclusively and renamed into place, so a link planted at its name is never followed. A
+   download is sent whole whatever the request asks (no ranges, no conditional answer), after the session is checked
+   again once the copy has passed, and a copy that cannot be sent is answered with an error. `backup.ts --verify <file>`
+   runs the check on any backup, writes nothing, and says whether this database recorded taking it.
 3. **A restore drill runs beside the live service.** `restore.ts DRILL --from <file>` needs no `VANTAGE_RESTORE` and
    takes no lock: it opens the live database read-only, checks the backup with the trail required, copies it into a
    private scratch file beside the database (and refuses if the copy's SHA-256 differs from the backup's), applies every
@@ -49,15 +53,21 @@ source would trip on every comment edit and miss what actually changed.
    service up. Only a real restore takes the exclusive lock. A drill of another database's backup passes and says so; the
    dry run and the restore still refuse one without `--different-database`. Who may authorize is read from the live
    database, or from the backup when the live database or its accounts cannot be read; a database from before platform
-   roles names its owners by `users.is_operator`, as the migration to roles read them. A throw or a signal before the
-   restored copy is in place removes the scratch copy, and a drill or dry run that stops so is recorded as failed.
+   roles names its owners by `users.is_operator`, as the migration to roles read them. A throw before the restored copy
+   is in place removes the scratch copy, and a drill or dry run that stops so is recorded as stopped. Signals keep their
+   default in a drill, since the work is synchronous and a handler would only run once it was done: Ctrl-C stops a
+   drill at once and can leave its scratch copy. A restore handles a signal while it draws its safety copy, its one
+   wait, by removing what was drawn. What a restore undoes is read from the database it replaces; one too damaged to
+   give it still restores.
 4. **Drills are recorded and audited.** Each drill and dry run, passed or failed, is kept in the live database's
    `drill_history`: every one not yet audited (up to 200), and the last twenty audited; host history that a restore
    carries over. The running service writes each into the platform audit trail as `restore_drill` within five minutes
-   (the backup audit job), and a failed one notifies the staff who hold platform data. A dry run stopped for who
-   authorized it, another database's backup or too little room is recorded as refused, audited as refused before the
-   backup was rehearsed, and notifies no one. **Backup and restore → Restore drills** lists them and **Operations →
-   Backups** shows the last; there, who ran each and the host account are shown only to staff holding `platform.data`
+   (the backup audit job), and a failed one notifies the staff who hold platform data, a drill of a backup that is not
+   there among them. A dry run stopped for who authorized it or another database's backup, and a drill or dry run
+   stopped for too little room, is recorded as refused, audited as refused before the backup was rehearsed, and
+   notifies no one. One that stopped on an error is audited as stopped, and staff are told to drill again once that is
+   put right. **Backup and restore → Restore drills** lists them and **Operations → Backups** shows the last; there,
+   who ran each, the host account and the name a refused dry run gave are shown only to staff holding `platform.data`
    or `platform.audit`.
 5. **A start keeps a copy before it migrates.** When a file database is below this build's schema, `openDatabase` runs
    `quick_check`, vacuums the database into `vantage-before-upgrade-<from>-to-<to>-<stamp>-<tag>.db` in
@@ -67,9 +77,13 @@ source would trip on every comment edit and miss what actually changed.
    copies. Only then does the first migration run. A damaged database, too little room or a copy that does not check
    out stops the start before any migration, at the old schema. The newest `VANTAGE_UPGRADE_COPIES_KEPT` copies of each
    database stay (default 3, 1 to 20), the one just made always among them; older ones the service made of that
-   database are removed and nothing else in the directory is touched. A start after a failed upgrade reuses the copy the
-   failed start recorded while that file is there and matches its `.sha256`, and makes and prunes nothing: a migration
-   that fails on every start would otherwise prune the database as it was out of the directory within a few restarts.
+   database are removed and nothing else in the directory is touched. A failed upgrade records the database as the
+   start left it (`left`: its id, schema, newest audit entry and row count outside `meta`). A start after it reuses the
+   copy the failed start recorded, and makes and prunes nothing, while that file is there, matches its `.sha256` and the
+   database is still as `left` says: a migration that fails on every start would otherwise prune the database as it was
+   out of the directory within a few restarts. Once anything was written since (the previous build served it, or a
+   restore put another state in place), the start takes a copy of the database as it now is. The copies failed starts
+   named since the last upgrade that completed are never pruned.
    A file database that records no schema version but holds accounts or audit entries is refused with nothing copied
    or migrated, since this build cannot tell which migrations it ran. The upgrade record and its audit entries name the
    copy. There is no setting that skips it; a new database, one at the current schema and an in-memory one need none.

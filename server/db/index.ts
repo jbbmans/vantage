@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
 import { compareCounts, recordUpgrade, rowCounts, upgradeHistory, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
-import { copyBeforeUpgrade, type UpgradeCopy, type UpgradeCopyOptions } from './copies.ts';
+import { copyBeforeUpgrade, databaseState, sameState, type UpgradeCopy, type UpgradeCopyOptions } from './copies.ts';
 import { VERSION } from '../version.ts';
 import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
 import { REDACTED } from '../../shared/constants.ts';
@@ -1459,10 +1459,14 @@ export function openDatabase(path: string, options: OpenOptions = {}): Db {
   // schema is replayed over it (ADR-0041). Anything wrong stops the start here, with nothing migrated.
   let copy: UpgradeCopy | null = null;
   if (path !== ':memory:' && options.upgradeCopy !== false && from > 0 && from < SCHEMA_VERSION) {
-    // A start after a failed upgrade keeps the copy that start took, if it is still there unchanged.
-    const last = upgradeHistory(db).at(-1);
-    const kept = last?.status === 'failed' ? last.copy ?? null : null;
-    try { copy = copyBeforeUpgrade(db, path, from, SCHEMA_VERSION, { ...(options.upgradeCopy ?? {}), kept }); }
+    // A start after a failed upgrade keeps the copy that start took, while the copy is unchanged and nothing was written
+    // to the database since: a restore, or the previous build serving it, makes the next start take a copy of its own.
+    // The copies failed starts named since the last upgrade that completed are never pruned.
+    const history = upgradeHistory(db);
+    const last = history.at(-1);
+    const kept = last?.status === 'failed' && last.copy && last.left && sameState(last.left, databaseState(db)) ? last.copy : null;
+    const protect = history.slice(history.findLastIndex((r) => r.status !== 'failed') + 1).flatMap((r) => (r.copy ? [r.copy.file] : []));
+    try { copy = copyBeforeUpgrade(db, path, from, SCHEMA_VERSION, { ...(options.upgradeCopy ?? {}), kept, protect }); }
     catch (error) { db.close(); throw error; }
   }
   upgradeSchema(db, { copy });
@@ -1562,7 +1566,7 @@ export function runMigrations(db: Db, pending: readonly Migration[], from: numbe
     id: randomUUID(), at: new Date().toISOString(), kind: 'schema', version: VERSION,
     schema: { from, to: Number(metaGet(db, 'schema_version') || 0) },
     status: failed ? 'failed' : upgradeStatus(service, instances),
-    ms: Math.round(performance.now() - started), migrations: ran, ...(failed ? { failed } : {}),
+    ms: Math.round(performance.now() - started), migrations: ran, ...(failed ? { failed, left: databaseState(db) } : {}),
     service, instances, checked: before ? Object.keys(before.tables).length : 0, audited: false, reviewed: null,
     ...(copy ? { copy } : {}),
   });

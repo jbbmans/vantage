@@ -55,7 +55,12 @@ test('a new database has the schema the ledger records for the newest migration'
   // Every recorded version before the newest is reached by a frozen database, which ran its migrations as they shipped.
   const unfrozen = unfrozenVersions(manifest, ledger, SCHEMA_VERSION);
   assert.deepEqual(unfrozen, [], `schema ${unfrozen.join(', ')} is recorded but no database that build wrote is frozen, so a migration edited in place there would pass. Freeze one from the commit that shipped it: node scripts/database-fixtures.ts freeze <commit>`);
-  assert.deepEqual(unfrozenVersions(manifest, { ...ledger, versions: { ...ledger.versions, [String(SCHEMA_VERSION + 1)]: ledger.versions[String(SCHEMA_VERSION)] } }, SCHEMA_VERSION + 2), [SCHEMA_VERSION + 1], 'a version recorded past the newest fixture is named');
+  // A made-up register: fixtures at 14 and 22, versions recorded at 14, 22, 30 and 31. With 32 the newest, 30 and 31 lack one.
+  const entry = { fingerprint: 'x', migration: null, recordedAt: '2026-11-22T00:00:00.000Z', from: 'build' as const };
+  const made = { format: 'vantage-schema-fingerprints/1' as const, versions: { 14: entry, 22: entry, 30: entry, 31: entry } };
+  const frozen = { format: 'vantage-database-fixtures/1' as const, fixtures: manifest.fixtures.filter((f) => f.schema <= 22) };
+  assert.deepEqual(unfrozenVersions(frozen, made, 32), [30, 31], 'each recorded version past the newest fixture, short of the newest, is named');
+  assert.deepEqual(unfrozenVersions(frozen, made, 31), [30], 'the newest version needs no fixture yet');
   const recorded = ledger.versions[String(SCHEMA_VERSION)];
   assert.ok(recorded, `migration ${SCHEMA_VERSION} has no entry in tests/fixtures/databases/fingerprints.json. Record it with: node scripts/database-fixtures.ts fingerprint --write`);
   const { fingerprint } = buildFingerprint();
@@ -166,6 +171,13 @@ test('only the newest copies of each database are kept, the one just made always
     assert.deepEqual(upgradeCopiesIn(copies, other.path), others, 'another database\u2019s copies in the same directory are left alone');
     assert.ok(existsSync(join(copies, `${others[0]}.sha256`)));
     assert.ok(existsSync(keepMine), 'a file the service did not make is left alone');
+    // Keeping one, the copy just made is it, even beside one whose stamp sorts after it.
+    assert.ok(left.includes(later));
+    putBack(v5, mine.path);
+    const db = openDatabase(mine.path, { upgradeCopy: { dir: copies, keep: 1 } });
+    let newest: string;
+    try { newest = upgradeHistory(db).at(-1)!.copy!.file; } finally { db.close(); }
+    assert.deepEqual(upgradeCopiesIn(copies, mine.path), [newest]);
   } finally {
     for (const d of [copies, other.dir, mine.dir]) rmSync(d, { recursive: true, force: true });
   }
@@ -195,6 +207,34 @@ test('a start after a failed upgrade keeps the copy that start took, so restarts
     const db = openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } });
     try { assert.equal(upgradeHistory(db).at(-1)!.copy?.file, kept[0]); } finally { db.close(); }
     assert.deepEqual(upgradeCopiesIn(copies, path), kept);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a start after a failed upgrade takes a copy of its own once anything was written since, and keeps the failed start\u2019s', () => {
+  const { dir, path } = onDisk(fixture('v5.0.0'));
+  const copies = join(dir, 'copies');
+  try {
+    const d = new Database(path);
+    for (const on of ['INSERT', 'UPDATE']) d.exec(`CREATE TRIGGER refuse_30_${on.toLowerCase()} BEFORE ${on} ON meta WHEN NEW.key = 'schema_version' AND NEW.value = '30' BEGIN SELECT RAISE(ABORT, 'migration 30 cannot take this database'); END`);
+    d.close();
+    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
+    const [first] = upgradeCopiesIn(copies, path);
+    const failed = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!; } finally { h.close(); } })();
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.left?.schema, '29', 'the failed start records the database as it left it');
+    // The previous build serves the database again for a while: someone signs in.
+    const served = new Database(path);
+    try {
+      served.prepare(`INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, absolute_expires_at, method)
+                      SELECT 'served-again', id, '2026-11-22T00:00:00.000Z', '2026-11-22T00:00:00.000Z', '2026-11-23T00:00:00.000Z', '2026-11-23T00:00:00.000Z', 'password' FROM users LIMIT 1`).run();
+    } finally { served.close(); }
+    assert.throws(() => openDatabase(path, { upgradeCopy: { dir: copies, keep: 1 } }), /migration 30 cannot take this database/);
+    const after = upgradeCopiesIn(copies, path);
+    assert.equal(after.length, 2, 'a copy of the database as it now is, and the failed start\u2019s, which is never pruned');
+    assert.ok(after.includes(first));
+    const second = (() => { const h = new Database(path, { readonly: true }); try { return upgradeHistory(h).at(-1)!.copy!.file; } finally { h.close(); } })();
+    assert.notEqual(second, first);
+    assert.match(second, /^vantage-before-upgrade-29-to-/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

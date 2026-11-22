@@ -23,6 +23,11 @@ export interface DrillRecord {
    * the backup restores, so it is audited but no one is told the backup failed.
    */
   refused?: 'authorization' | 'other_database' | 'space' | null;
+  /**
+   * Set when the run stopped on an error before it finished: it may be the host's or the live database's, so the backup
+   * is neither cleared nor blamed, and staff are told to drill it again once that is put right.
+   */
+  stopped?: boolean;
   /** The backup rehearsed: its file name, size and SHA-256, the schema and newest audit entry it holds, and whether this database recorded taking it. */
   backup: { file: string; bytes: number | null; sha256: string | null; schema: number | null; seq: number | null; at: string | null; recorded: boolean };
   /** The upgrade this build ran on the restored copy, when it was at an older schema: from, to, and what the upgrade check found. */
@@ -43,7 +48,7 @@ export interface DrillRecord {
   audited: boolean;
 }
 
-/** Drills already in the audit trail that are kept here, newest first; one not yet audited is never dropped, up to CAP in all. */
+/** Drills already in the audit trail that are kept here; one not yet audited is dropped only past CAP in all, oldest first. */
 const KEPT = 20;
 const CAP = 200;
 

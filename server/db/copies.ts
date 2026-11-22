@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, closeSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statfsSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 type Db = Database.Database;
@@ -25,11 +25,25 @@ export function sha256File(path: string): string {
 /** Where a copy's SHA-256 is kept: beside it, in the form `sha256sum -c` reads. */
 export const checksumFileOf = (file: string) => `${file}.sha256`;
 
-/** Writes `<file>.sha256` beside a copy, owner-only like the copy: `<hex>  <file name>`. */
+/**
+ * Writes `<file>.sha256` beside a copy, owner-only like the copy: `<hex>  <file name>`. It is written into a new file of
+ * its own, made exclusively, and renamed into place, so a link another account planted at either name is replaced and
+ * never followed, and a reader sees the old line or the new one, never half of one.
+ */
 export function writeChecksumFile(file: string, sha256: string): string {
   const path = checksumFileOf(file);
-  writeFileSync(path, `${sha256}  ${basename(file)}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600);
+  const temp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
+  const fd = openSync(temp, 'wx', 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+    writeSync(fd, `${sha256}  ${basename(file)}\n`);
+    closeSync(fd);
+    renameSync(temp, path);
+  } catch (error) {
+    try { closeSync(fd); } catch { /* closed */ }
+    rmSync(temp, { force: true });
+    throw error;
+  }
   return path;
 }
 
@@ -74,6 +88,24 @@ export interface UpgradeCopyOptions {
 }
 
 /**
+ * What a database holds, in brief: its name, its schema, its newest audit entry and how many rows it holds outside
+ * `meta`. A failed upgrade records it as the start left the database, so the next start can tell whether anything was
+ * written to the database since: a start, a restore or the previous build serving it all change one of these.
+ */
+export interface DatabaseState { databaseId: string | null; schema: string | null; seq: number | null; hash: string | null; rows: number }
+
+export function databaseState(db: Db): DatabaseState {
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'").all() as Array<{ name: string }>).map((t) => t.name);
+  const rows = tables.reduce((n, t) => n + (db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n, 0);
+  let newest: { seq: number; entry_hash: string | null } | undefined;
+  try { newest = hasTable(db, 'audit_log') ? db.prepare('SELECT seq, entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1').get() as typeof newest : undefined; } catch { newest = undefined; }
+  return { databaseId: metaRead(db, 'database_id'), schema: metaRead(db, 'schema_version'), seq: newest?.seq ?? null, hash: newest?.entry_hash ?? null, rows };
+}
+
+export const sameState = (a: DatabaseState, b: DatabaseState) =>
+  a.databaseId === b.databaseId && a.schema === b.schema && a.seq === b.seq && a.hash === b.hash && a.rows === b.rows;
+
+/**
  * The copy names: the schemas, when, and a tag for the database they were taken of (from its path), so databases that
  * share a directory each prune only their own copies.
  */
@@ -96,9 +128,10 @@ export function upgradeCopiesIn(dir: string, of?: string): string[] {
 }
 
 /**
- * The copy an earlier start took before an upgrade that then failed, when it is still there and still the file it took:
- * a start after a failed one keeps that copy rather than taking another of the half-upgraded database, since the
- * service served nothing in between and only that copy is the database as the previous build left it (ADR-0041).
+ * The copy an earlier start took before an upgrade that then failed, when it is still there and still the file it took.
+ * The caller passes it only when the database is as that failed start left it (databaseState): then a start keeps that
+ * copy rather than taking another of the half-upgraded database, since only that copy is the database as the previous
+ * build left it (ADR-0041).
  */
 export function copyStillKept(copy: UpgradeCopy | null | undefined, dir: string): UpgradeCopy | null {
   if (!copy?.file || basename(copy.file) !== copy.file) return null;
@@ -116,7 +149,7 @@ export function copyStillKept(copy: UpgradeCopy | null | undefined, dir: string)
  * `.sha256`. Only the newest `keep` of these copies stay. Anything that goes wrong throws, before a single migration
  * runs: a database that fails the check is not migrated, and neither is one that cannot be copied.
  */
-export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number, options: UpgradeCopyOptions & { kept?: UpgradeCopy | null } = {}): UpgradeCopy {
+export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number, options: UpgradeCopyOptions & { kept?: UpgradeCopy | null; protect?: readonly string[] } = {}): UpgradeCopy {
   const dir = resolve(options.dir || dirname(path));
   const keep = Math.max(1, Math.floor(options.keep ?? 3));
   const refuse = (why: string): never => {
@@ -149,8 +182,10 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   }
   const sha256 = sha256File(dest);
   writeChecksumFile(dest, sha256);
-  // This database's copies only, and never the one just made: it and the newest keep - 1 others stay.
-  const others = upgradeCopiesIn(dir, path).filter((f) => f !== basename(dest));
+  // This database's copies only, never the one just made, and never one a failed start since the last upgrade that
+  // completed named: one of those is the database as the previous build left it. The newest keep - 1 others stay.
+  const protect = new Set(options.protect ?? []);
+  const others = upgradeCopiesIn(dir, path).filter((f) => f !== basename(dest) && !protect.has(f));
   for (const old of others.slice(0, Math.max(0, others.length - (keep - 1)))) {
     for (const f of [join(dir, old), checksumFileOf(join(dir, old)), `${join(dir, old)}-journal`]) rmSync(f, { force: true });
   }
