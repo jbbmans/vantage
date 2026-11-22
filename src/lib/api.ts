@@ -1,5 +1,6 @@
 import { clearDrafts } from './drafts.ts';
 import { clearRecentVisits } from './recent.ts';
+import { withSudo } from './sudo.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { DirectoryResponse, MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { OrgMembersPage } from './tenancy';
@@ -275,25 +276,26 @@ export const editComment = (store: Store, id: string, commentId: string, body: s
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 
 export const team = () => api.get<TeamResponse>('/org/team');
+// A unit change made on Unit Instance authority asks the person to confirm it is them, as the console does (ADR-0040).
 export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/${encodeURIComponent(id)}`);
-export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
+export const updateMemberProfile = (id: string, payload: unknown) => withSudo(() => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload));
 export const directory = (unitId: string, q: string) => api.get<DirectoryResponse>(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
-export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
-export const updateMembership = (unitId: string, userId: string, payload: unknown, draft?: DraftRef | null) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}${fromDraft(draft)}`, payload);
+export const addMember = (unitId: string, payload: unknown) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload));
+export const updateMembership = (unitId: string, userId: string, payload: unknown, draft?: DraftRef | null) => withSudo(() => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}${fromDraft(draft)}`, payload));
 // Personnel records (ADR-0017).
 export const personnelRoster = (unitId: string) => api.get<PersonnelRosterResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel`);
 export const personnelRecord = (userId: string) => api.get<PersonnelRecordResponse>(`/org/team/${encodeURIComponent(userId)}/personnel`);
 export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[]; more: boolean }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
-export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload);
-export const endResponsibility = (id: string, reason?: string | null) => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null });
-export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload);
+export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => withSudo(() => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload));
+export const endResponsibility = (id: string, reason?: string | null) => withSudo(() => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null }));
+export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => withSudo(() => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload));
 export const teamAudience = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/message`);
-export const messageTeam = (unitId: string, payload: { subject: string; body: string }) => api.post(`/org/units/${encodeURIComponent(unitId)}/message`, payload);
-export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload);
-export const removeMember = (unitId: string, userId: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`);
-export const createInvite = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload);
+export const messageTeam = (unitId: string, payload: { subject: string; body: string }) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/message`, payload));
+export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload));
+export const removeMember = (unitId: string, userId: string) => withSudo(() => api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`));
+export const createInvite = (unitId: string, payload: unknown) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload));
 export const listInvites = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/invites`);
-export const revokeInvite = (id: string) => api.del(`/org/invites/${encodeURIComponent(id)}`);
+export const revokeInvite = (id: string) => withSudo(() => api.del(`/org/invites/${encodeURIComponent(id)}`));
 export const supportTickets = (mine = false) => api.get(`/support/tickets${mine ? '?mine=1' : ''}`);
 export const supportTicket = (id: string) => api.get(`/support/tickets/${encodeURIComponent(id)}`);
 export const raiseSupportTicket = (payload: { subject: string; body: string; category: string; unit_id: string | null }) => api.post('/support/tickets', payload);
@@ -301,21 +303,21 @@ export const replySupportTicket = (id: string, payload: { body: string; internal
 export const updateSupportTicket = (id: string, payload: { state?: string; priority?: string; assigned_to?: string | null; version?: number }) => api.patch(`/support/tickets/${encodeURIComponent(id)}`, payload);
 /** For someone who cannot sign in: no account needed, and the answer says nothing about whether one exists. */
 export const askForHelp = (payload: { subject: string; body: string; category: 'sign_in' | 'bug'; requester_name?: string; requester_email: string }) => api.post('/public-support/tickets', payload);
-export const createJoinCode = (unitId: string, payload: { role_id?: string | null; note?: string | null; max_uses?: number | null; expires_in_hours?: number | null }) => api.post(`/org/units/${encodeURIComponent(unitId)}/join-codes`, payload);
+export const createJoinCode = (unitId: string, payload: { role_id?: string | null; note?: string | null; max_uses?: number | null; expires_in_hours?: number | null }) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/join-codes`, payload));
 export const listJoinCodes = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/join-codes`);
-export const revokeJoinCode = (unitId: string, id: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/join-codes/${encodeURIComponent(id)}`);
+export const revokeJoinCode = (unitId: string, id: string) => withSudo(() => api.del(`/org/units/${encodeURIComponent(unitId)}/join-codes/${encodeURIComponent(id)}`));
 export const peekJoinCode = (code: string) => api.get(`/org/join-codes/${encodeURIComponent(code)}`);
 export const joinWithCode = (code: string) => api.post(`/org/join-codes/${encodeURIComponent(code)}/join`);
 export const roles = () => api.get<RolesResponse>('/org/roles');
-export const createRole = (payload: unknown) => api.post('/org/roles', payload);
-export const updateRole = (id: string, payload: unknown) => api.put(`/org/roles/${encodeURIComponent(id)}`, payload);
-export const deleteRole = (id: string) => api.del(`/org/roles/${encodeURIComponent(id)}`);
-export const grantRole = (userId: string, payload: unknown) => api.post(`/org/team/${encodeURIComponent(userId)}/roles`, payload);
-export const revokeRole = (userId: string, roleId: string) => api.del(`/org/team/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`);
-export const createUnit = (payload: unknown) => api.post('/org/units', payload);
-export const updateUnit = (id: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(id)}`, payload);
-export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURIComponent(id)}`);
-export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
+export const createRole = (payload: unknown) => withSudo(() => api.post('/org/roles', payload));
+export const updateRole = (id: string, payload: unknown) => withSudo(() => api.put(`/org/roles/${encodeURIComponent(id)}`, payload));
+export const deleteRole = (id: string) => withSudo(() => api.del(`/org/roles/${encodeURIComponent(id)}`));
+export const grantRole = (userId: string, payload: unknown) => withSudo(() => api.post(`/org/team/${encodeURIComponent(userId)}/roles`, payload));
+export const revokeRole = (userId: string, roleId: string) => withSudo(() => api.del(`/org/team/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`));
+export const createUnit = (payload: unknown) => withSudo(() => api.post('/org/units', payload));
+export const updateUnit = (id: string, payload: unknown) => withSudo(() => api.put(`/org/units/${encodeURIComponent(id)}`, payload));
+export const archiveUnit = (id: string) => withSudo(() => api.del(`/org/units/${encodeURIComponent(id)}`));
+export const transferOwnership = (id: string, userId: string) => withSudo(() => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId }));
 export const unitOverview = (id: string, opts: { roster?: boolean } = {}) => api.get(`/org/units/${encodeURIComponent(id)}/overview${opts.roster ? '?roster=1' : ''}`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
 /** The unit's analytics: one section's figures over a window, and the records behind one of them. */

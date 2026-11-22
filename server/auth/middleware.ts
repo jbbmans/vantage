@@ -5,6 +5,7 @@ import { limiters } from './limiter.ts';
 import { HttpError, unauthorized, forbidden } from '../lib/errors.ts';
 import type { PlatformPermission } from '../../shared/permissions.ts';
 import { maintenanceNotice } from '../services/maintenance.ts';
+import { restsOnInstanceAuthority, type Scope } from '../authz/scope.ts';
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -61,9 +62,23 @@ export const requirePlatform = (permission: PlatformPermission) => (req: Request
   next();
 };
 
-/** Step-up: the session must have re-authenticated recently. */
-export function requireSudo(req: Request, _res: Response, next: NextFunction) {
+/** Step-up: the session must have re-authenticated recently. requireSudo is this as a route's guard. */
+export function assertSudo(req: Request): void {
   const until = req.sessionRow?.sudo_until;
-  if (!until || new Date(until).getTime() < Date.now()) return next(new HttpError(403, 'Confirm your password to continue.', 'sudo_required'));
+  if (!until || new Date(until).getTime() < Date.now()) throw new HttpError(403, 'Confirm your password to continue.', 'sudo_required');
+}
+
+export function requireSudo(req: Request, _res: Response, next: NextFunction) {
+  try { assertSudo(req); } catch (error) { return next(error); }
   next();
+}
+
+/**
+ * A unit change made on Unit Instance authority asks for step-up, as the Unit Manager console does (ADR-0040): when every
+ * unit it could rest on is one the caller reaches through a Unit Instance role and not the chain of command. A change that
+ * needs several units at once calls this for each.
+ */
+export function stepUpOnInstanceAuthority(req: Request, scope: Scope, unitIds: ReadonlyArray<string | null | undefined>): void {
+  const units = unitIds.filter((u): u is string => Boolean(u));
+  if (units.length && units.every((u) => restsOnInstanceAuthority(scope, u))) assertSudo(req);
 }

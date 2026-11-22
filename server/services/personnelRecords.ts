@@ -457,7 +457,11 @@ export type AssignmentChange = z.infer<typeof assignmentSchema>;
 /** Fields only someone else may change: one's own billet and primary unit stay one's own to correct, as they always have. */
 const OTHERS_ONLY = ['billet_id', 'assignment_start', 'assignment_end', 'supervisor_id', 'checked_in_on'] as const;
 
-interface ChangeContext { actor: SessionUser; scope: Scope; batchId?: string | null }
+interface ChangeContext {
+  actor: SessionUser; scope: Scope; batchId?: string | null;
+  /** Asks for step-up when the change rests on Unit Instance authority in these units (ADR-0040): the route's check. */
+  stepUp?: (unitIds: string[]) => void;
+}
 
 /**
  * Changes one membership and the Marine's personnel record in its Unit Instance. Manage members in the unit, and above
@@ -590,7 +594,9 @@ export function endResponsibility(ctx: AppContext, c: ChangeContext, id: string,
   const units = r && targetScope ? endableIn(ctx, targetScope, r) : [];
   if (!r || !units.some((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u))) throw notFound('No such responsibility.');
   if (r.user_id === actor.id) throw forbidden('A second authorized person must change your own assignment.', 'self_membership_change');
-  if (!units.some((u) => mayManageIn(ctx, scope, actor.id, targetScope!, u))) throw forbidden('You cannot change the assignment of a Marine at or above your own position.', 'hierarchy');
+  const manageable = units.filter((u) => mayManageIn(ctx, scope, actor.id, targetScope!, u));
+  if (!manageable.length) throw forbidden('You cannot change the assignment of a Marine at or above your own position.', 'hierarchy');
+  c.stepUp?.(manageable);
   if (r.ended_at) throw conflict('That responsibility has already ended.', 'already_ended');
   ctx.db.prepare('UPDATE personnel_responsibilities SET ended_at = ?, ended_by = ?, end_reason = ? WHERE id = ? AND ended_at IS NULL').run(now(), actor.id, reason || 'ended', id);
   audit(ctx, { actor_id: actor.id, action: 'end_responsibility', entity: 'personnel_responsibility', entity_id: id, subject_id: r.user_id, unit_id: r.unit_id, org_id: r.org_id, detail: `${r.title}${reason ? `; ${reason}` : ''}`, ip });

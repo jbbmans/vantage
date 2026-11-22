@@ -16,6 +16,7 @@ import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
+import { PRIVILEGED_ROUTES } from '../../server/authz/privilegedRoutes.ts';
 
 const day = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const EDIPI_RUN = /(?<!\d)\d{10}(?!\d)/;
@@ -619,4 +620,125 @@ test('a change of VANTAGE_SECRET is in the trail, once, with what it sealed agai
     assert.equal(rotations(again).length, 1, 'a start with nothing left to seal writes nothing');
     again.db.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Step-up on Unit Instance authority (ADR-0040): the unit routes ask what the Unit Manager console asks
+
+/** A Unit Instance with a Lead Unit Manager who leads it, a Unit Manager who does not, and Marines in DISB beneath G8. */
+async function instanceWithUnitManager() {
+  const app = await startApp({ VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' });
+  const post = (token: string, path: string, body: unknown = {}) => app.call('POST', path, { token, body });
+  const lead = await app.setupOperator();
+  assert.equal((await post(lead.token, '/api/org/units', { name: 'Disbursing', short_name: 'DISB', code: 'disb', parent_id: 'G8' })).status, 201);
+  const manager = await app.register('unitmanager');
+  await enroll(app, lead.token, 'G8', manager.id);
+  assert.equal((await post(lead.token, '/api/orgs/G8/roles', { user_id: manager.id, role: 'admin' })).status, 201);
+  const signedIn = await app.login('unitmanager');
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  manager.token = signedIn.body.token;
+  const marine = await app.register('rifleman');
+  await enroll(app, lead.token, 'DISB', marine.id);
+  const other = await app.register('newjoin');
+  await enroll(app, lead.token, 'G8', other.id);
+  /** Every sign-in confirms the person for ten minutes; this ends that window, as time would. */
+  const unconfirm = (userId: string) => app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL WHERE user_id = ?').run(userId);
+  return { app, post, lead, manager, marine, other, unconfirm };
+}
+
+test('a Unit Manager who has not confirmed it is them names no unit leader and removes no Marine through the unit routes, as the console refuses them; a Unit Leader still needs no confirmation', async () => {
+  const { app, post, lead, manager, marine, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    unconfirm(manager.id);
+    const named = await post(manager.token, '/api/org/units/DISB/owner', { user_id: marine.id });
+    assert.equal(named.status, 403, JSON.stringify(named.body));
+    assert.equal(named.body.code, 'sudo_required');
+    const removed = await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    // The console refuses the same person for the same change.
+    assert.equal((await app.call('DELETE', `/api/orgs/G8/members/${marine.id}`, { token: manager.token })).body?.code, 'sudo_required');
+    const owner = app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'DISB'").get() as { owner_user_id: string };
+    assert.equal(owner.owner_user_id, lead.id, 'nobody new leads DISB');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE unit_id = 'DISB' AND user_id = ?").get(marine.id), 'the Marine is still in DISB');
+
+    // Confirmed, the same changes go through.
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await post(manager.token, '/api/org/units/DISB/owner', { user_id: marine.id })).status, 200);
+    assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'DISB'").get() as { owner_user_id: string }).owner_user_id, marine.id);
+
+    // The Unit Leader acts on the chain of command, unconfirmed: enrolling and removing a Marine in the unit they lead.
+    // Handing DISB on ended their sessions, so they sign in again first.
+    lead.token = (await app.login('boletz')).body.token;
+    unconfirm(lead.id);
+    const enrolled = await post(lead.token, '/api/org/units/G8/members', { user_id: other.id, role_id: 'G8:nco' });
+    assert.ok(enrolled.status === 201 || enrolled.status === 200, JSON.stringify(enrolled.body));
+    const gone = await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token });
+    assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  } finally { await app.close(); }
+});
+
+test('every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do', async () => {
+  const { app, post, lead, manager, marine, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    // What the changes need to find before they ask: a unit to archive, a responsibility, an invitation, a join code, a role.
+    assert.equal((await post(lead.token, '/api/org/units', { name: 'Temporary', short_name: 'TMP', code: 'tmp', parent_id: 'G8' })).status, 201);
+    const responsibility = await post(lead.token, `/api/org/units/DISB/members/${marine.id}/responsibilities`, { title: 'Safety NCO' });
+    assert.equal(responsibility.status, 201, JSON.stringify(responsibility.body));
+    const invite = await post(lead.token, '/api/org/units/DISB/invites', { first_name: 'Pending', last_name: 'Invitee' });
+    assert.equal(invite.status, 201, JSON.stringify(invite.body));
+    const code = await post(lead.token, '/api/org/units/DISB/join-codes', {});
+    assert.equal(code.status, 201, JSON.stringify(code.body));
+    const role = await post(lead.token, '/api/org/roles', { unit_id: 'DISB', name: 'Paying Agent', position: 1, permissions: PERMISSIONS.VIEW_UNIT });
+    assert.equal(role.status, 201, JSON.stringify(role.body));
+    assert.equal((await post(lead.token, `/api/org/team/${marine.id}/roles`, { role_id: role.body.id, unit_id: 'DISB' })).status, 200);
+
+    const calls: Array<[string, string, unknown?]> = [
+      ['POST', '/api/org/units', { name: 'Sweep Section', short_name: 'SWP', code: 'swp', parent_id: 'DISB' }],
+      ['PUT', '/api/org/units/DISB', { name: 'Disbursing Office' }],
+      ['DELETE', '/api/org/units/TMP'],
+      ['POST', '/api/org/units/DISB/owner', { user_id: marine.id }],
+      ['POST', '/api/org/units/DISB/members', { user_id: other.id }],
+      ['PUT', `/api/org/units/DISB/members/${marine.id}`, { billet: 'Clerk' }],
+      ['POST', `/api/org/units/DISB/members/${marine.id}/responsibilities`, { title: 'Fire Warden' }],
+      ['POST', `/api/org/responsibilities/${responsibility.body.id}/end`, {}],
+      ['POST', '/api/org/units/DISB/personnel/bulk', { items: [{ user_id: marine.id, unit_id: 'DISB' }], action: 'checked_in', value: today() }],
+      ['POST', '/api/org/units/DISB/message', { subject: 'Formation', body: 'Formation at 0700.' }],
+      ['POST', `/api/org/units/DISB/members/${marine.id}/move`, { to: 'G8' }],
+      ['DELETE', `/api/org/units/DISB/members/${marine.id}`],
+      ['POST', '/api/org/units/DISB/invites', { first_name: 'New', last_name: 'Join' }],
+      ['DELETE', `/api/org/invites/${invite.body.id}`],
+      ['POST', '/api/org/roles', { unit_id: 'DISB', name: 'Sweep Role', position: 1, permissions: 0 }],
+      ['PUT', `/api/org/roles/${role.body.id}`, { name: 'Paying Agent Officer' }],
+      ['DELETE', `/api/org/roles/${role.body.id}`],
+      ['POST', `/api/org/team/${marine.id}/roles`, { role_id: 'DISB:nco', unit_id: 'DISB' }],
+      ['DELETE', `/api/org/team/${marine.id}/roles/${encodeURIComponent(role.body.id)}`],
+      ['PUT', `/api/org/team/${marine.id}/profile`, { first_name: 'Changed' }],
+      ['POST', '/api/org/units/DISB/join-codes', {}],
+      ['DELETE', `/api/org/units/DISB/join-codes/${code.body.id}`],
+    ];
+    // Every change the route inventory says asks on Unit Instance authority is here.
+    const pattern = (path: string) => new RegExp(`^${path.replace(/:\w+/g, '[^/]+')}$`);
+    const asking = PRIVILEGED_ROUTES.filter((r) => r.stepUp === 'instance_authority');
+    for (const r of asking) assert.ok(calls.some(([m, p]) => m === r.method && pattern(r.path).test(p)), `${r.method} ${r.path} is tried`);
+    assert.equal(calls.length, asking.length);
+
+    const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('audit_log', 'sessions', 'product_events', 'meta') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    const snapshot = () => Object.fromEntries(tables.map((t) => [t, JSON.stringify(app.ctx.db.prepare(`SELECT * FROM "${t}"`).all())]));
+    unconfirm(manager.id);
+    const before = snapshot();
+    for (const [method, path, body] of calls) {
+      const res = await app.call(method, path, { token: manager.token, body });
+      assert.equal(res.status, 403, `${method} ${path}: ${res.status} ${JSON.stringify(res.body)}`);
+      assert.equal(res.body?.code, 'sudo_required', `${method} ${path}: ${JSON.stringify(res.body)}`);
+    }
+    const after = snapshot();
+    assert.deepEqual(tables.filter((t) => before[t] !== after[t]), [], 'nothing changed');
+
+    // Confirmed, a change goes through; a dry run of a bulk change never asked.
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await post(manager.token, '/api/org/units/DISB/message', { subject: 'Formation', body: 'Formation at 0700.' })).status, 200);
+    unconfirm(manager.id);
+    const preview = await post(manager.token, '/api/org/units/DISB/personnel/bulk', { items: [{ user_id: marine.id, unit_id: 'DISB' }], action: 'checked_in', value: today(), dry_run: true });
+    assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  } finally { await app.close(); }
 });

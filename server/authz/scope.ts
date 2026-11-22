@@ -309,6 +309,14 @@ export const chainBits = (scope: Scope, unitId: string) =>
   (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
 
 /**
+ * Whether what a person may change in a unit comes from a Unit Instance role rather than the chain of command (ADR-0040):
+ * they hold one there, and their own place in units does not give them full authority in it. guardSelfReach draws the
+ * same line.
+ */
+export const restsOnInstanceAuthority = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).some((s) => s.kind === 'org') && !has(chainBits(scope, unitId), PERMISSIONS.ADMINISTRATOR);
+
+/**
  * What a person holds by their own place in units, leaving out Vantage access (ADR-0031): read-only access lets staff read
  * a Unit Instance's records, never speak on them, be asked about them or be told what is said on them.
  */
