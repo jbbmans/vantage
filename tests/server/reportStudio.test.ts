@@ -210,3 +210,44 @@ test('an explicit track still overrides what the rank would have chosen', async 
   const token = (await app.login('sgt-override')).body.token;
   assert.equal((await draft(token, { track: 'jepes' })).track, 'jepes');
 });
+
+test('a package’s period follows the one range rule, and the refusal names the field it was sent in', async () => {
+  const addDays = (from: string, n: number) => new Date(Date.parse(`${from}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const start = (period_start: unknown, period_end: unknown) => app.call('POST', '/api/studio/reports', { token: op.token, body: { title: 'Range check', period_start, period_end } });
+  for (const [what, from, to, field] of [
+    ['732 days', '2024-01-01', addDays('2024-01-01', 731), 'period_end'],
+    ['a backwards period', '2024-06-30', '2024-06-01', 'period_end'],
+    ['a day that does not exist', '2024-02-30', '2024-03-10', 'period_start'],
+    ['a word for a day', '2024-03-01', 'soon', 'period_end'],
+    ['a year out of reach', '1939-12-31', '1940-01-10', 'period_start'],
+    ['no first day', '', '2024-03-10', 'period_start'],
+    ['no last day', '2024-03-01', undefined, 'period_end'],
+  ] as const) {
+    const res = await start(from, to);
+    assert.equal(res.status, 400, `${what}: ${res.text.slice(0, 200)}`);
+    assert.equal(res.body.code, 'validation', what);
+    assert.ok(res.body.fieldErrors?.[field], `${what}: ${field} is named in ${JSON.stringify(res.body)}`);
+  }
+  const longest = await start('2024-01-01', addDays('2024-01-01', 730));
+  assert.equal(longest.status, 201, `731 days, both ends counted: ${longest.text}`);
+  assert.equal(longest.body.period_end, addDays('2024-01-01', 730), 'the days are kept exactly as sent');
+
+  // A revision that names a period meets the same rule; one that does not keeps the package's own.
+  const revise = (period: Record<string, string>) => app.call('POST', `/api/studio/reports/${longest.body.id}/revisions`, { token: op.token, body: { sections: section('Within the rule.'), sources: [], ...period } });
+  const tooLong = await revise({ period_end: addDays('2024-01-01', 731) });
+  assert.equal(tooLong.status, 400);
+  assert.ok(tooLong.body.fieldErrors?.period_end, JSON.stringify(tooLong.body));
+  assert.equal((await revise({ period_start: '2024-02-01' })).status, 201, 'a shorter period is a revision');
+});
+
+test('a package stored before the two-year rule still opens and saves', async () => {
+  const older = await draft(op.token, { title: 'Older long package', period_start: '2023-01-01', period_end: '2023-12-31' });
+  // A package created before the rule may cover more than two years.
+  app.ctx.db.prepare('UPDATE report_drafts SET period_start = ?, period_end = ? WHERE id = ?').run('2020-01-01', '2024-12-31', older.id);
+  assert.equal((await app.call('GET', `/api/studio/reports/${older.id}`, { token: op.token })).status, 200);
+  const saved = await app.call('POST', `/api/studio/reports/${older.id}/revisions`, { token: op.token, body: { sections: section('Saved as it was.'), sources: [] } });
+  assert.equal(saved.status, 201, saved.text);
+  const read = await app.call('GET', `/api/studio/reports/${older.id}/revisions/1`, { token: op.token });
+  assert.equal(read.body.revision.period_start, '2020-01-01');
+  assert.equal(read.body.revision.period_end, '2024-12-31');
+});

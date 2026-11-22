@@ -15,10 +15,9 @@ import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
 import { DEFAULT_PERIOD, dayKey, previousRange, rangeForPeriod } from '../../shared/metrics.ts';
 import { rangeOfDays } from '../../shared/dateRange.ts';
-import { checkRange, periodField, rangeFields } from '../lib/dateRange.ts';
+import { checkRange, periodField, rangeDay, rangeFields } from '../lib/dateRange.ts';
 import { areasFor } from '../../shared/evaluation.ts';
 import { plain } from '../../shared/writer/realize.ts';
-import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
 import { periodClause } from '../services/timeframes.ts';
@@ -95,10 +94,11 @@ function stillReportable(req: Parameters<Parameters<typeof wrap>[0]>[0], userId:
   }
 }
 
+// The period's days stay plain text here, so a bad one reaches the range rule, which names its field (ADR-0039).
 const draftSchema = z.object({
   title: z.string().max(200),
-  period_start: isoDate,
-  period_end: isoDate,
+  period_start: rangeDay,
+  period_end: rangeDay,
   subject_id: z.string().max(64).nullable().optional(),
   unit_id: z.string().max(64).nullable().optional(),
   track: z.enum(['jepes', 'fitrep']).optional(),
@@ -115,7 +115,7 @@ miscRouter.get('/studio/reports', wrap((req, res) => {
 miscRouter.post('/studio/reports', wrap((req, res) => {
   const q = parse(draftSchema, req.body);
   const scope = scopeFor(req.ctx, req.user, req);
-  const draft = createDraft(req.ctx, req.user, scope, { ...q, subject_id: q.subject_id ?? null, unit_id: q.unit_id ?? null });
+  const draft = createDraft(req.ctx, req.user, scope, { ...q, period_start: q.period_start ?? '', period_end: q.period_end ?? '', subject_id: q.subject_id ?? null, unit_id: q.unit_id ?? null });
   audit(req.ctx, { actor_id: req.user.id, action: 'create_report', entity: 'report_drafts', entity_id: draft.id, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
   res.status(201).json(draft);
 }));
@@ -134,8 +134,8 @@ miscRouter.get('/studio/reports/:id', wrap((req, res) => {
 
 const revisionSchema = z.object({
   title: z.string().max(200).optional(),
-  period_start: isoDate.optional(),
-  period_end: isoDate.optional(),
+  period_start: rangeDay,
+  period_end: rangeDay,
   note: z.string().max(500).nullable().optional(),
   base_revision: z.coerce.number().int().nullable().optional(),
   sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(20000), source_ids: z.array(z.string().max(64)).max(200).optional() })).max(40),

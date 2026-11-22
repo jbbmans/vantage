@@ -8,7 +8,7 @@ import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/err
 import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isLineageTable, kindText, recordKindOf, type LineageTable } from '../../shared/recordKinds.ts';
 import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/timeframe.ts';
-import { periodClause } from './timeframes.ts';
+import { recordPeriodClause } from './timeframes.ts';
 import { assertDutyOpen, assertDutyWords, dutyColumns, rescoresDuty, withDutyNames } from './duties.ts';
 import { RESUBMIT_SETS, resubmittedByCorrection } from './dutyReview.ts';
 import { assertFinalizable, editRefusal, finalizedColumns, mayEditRecord, tellFinal, withCounselingDetail } from './counselings.ts';
@@ -132,14 +132,8 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   if (opts.deleted) params.splice(0, params.length, ...(table === 'counselings' ? [user.id, user.id] : [user.id]));
   if (opts.unitId) { where.push('t.unit_id = ?'); params.push(opts.unitId); }
   // A record with a timeframe is in the period when any day of it is (ADR-0018); a task by its due date, a counseling by its date.
-  if (isTimeframed(table)) {
-    const period = periodClause(table, 't', opts.from, opts.to);
-    where.push(period.sql); params.push(...period.params);
-  } else {
-    const dateCol = table === 'tasks' ? 'due_date' : 'date';
-    if (opts.from) { where.push(`t.${dateCol} >= ?`); params.push(opts.from); }
-    if (opts.to) { where.push(`t.${dateCol} <= ?`); params.push(opts.to); }
-  }
+  const period = recordPeriodClause(table, 't', opts.from, opts.to);
+  if (period.params.length) { where.push(period.sql); params.push(...period.params); }
   const cap = ctx.config.limits.maxRecordsPerUser;
   const limit = Math.min(Math.max(Number(opts.limit) || cap, 1), cap);
   const offset = Math.max(Number(opts.offset) || 0, 0);

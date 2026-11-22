@@ -19,6 +19,7 @@ import { withCourseDetail } from '../services/courses.ts';
 import { canRead, type RecordRow } from '../authz/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readableSubtree, unitDashboard, unitOverview } from '../services/dashboard.ts';
+import { recordPeriodClause } from '../services/timeframes.ts';
 import { unitAnalytics, unitAnalyticsDrill } from '../services/unitAnalytics.ts';
 import { isAnalyticsSection, type AnalyticsSection } from '../../shared/unitAnalytics.ts';
 import { listPermissions, NAMED_ONLY_BITS, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
@@ -140,13 +141,20 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   // right and may export, as the dashboard and the report center decide it (readableSubtree). A role that does not reach
   // down (position 0) exports its own unit alone, and exporting needs View shared records as well as Export data.
   if (!can(scope, PERMISSIONS.EXPORT_DATA, unitId) || !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot export that unit.');
+  // Two days hold only the records in them, each by the days it covers (ADR-0018), a task by its due day; neither day,
+  // every shared record, as the export has always held (ADR-0039). The roster is the unit's today either way.
+  const range = checkRange(req.query);
   const unitIds = readableSubtree(req.ctx, scope, unitId).units.filter((u) => can(scope, PERMISSIONS.EXPORT_DATA, u));
   const members = membersAcross(req.ctx, unitIds).map((m) => ({ id: m.id, first_name: m.first_name, last_name: m.last_name, mos: m.mos, billet: m.billet, rank_abbr: m.rank_abbr, unit_id: m.unit_id, team: m.team }));
-  const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, units: unitIds, generated_at: now(), members };
+  const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, units: unitIds, range, generated_at: now(), members };
+  const counts: string[] = [];
   for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'duties'] as const) {
-    out[table] = (req.ctx.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC`).all(JSON.stringify(unitIds)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
+    const span = recordPeriodClause(table, table, range?.from, range?.to);
+    const rows = (req.ctx.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) AND ${span.sql} ORDER BY created_at DESC`).all(JSON.stringify(unitIds), ...span.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
+    out[table] = rows;
+    counts.push(`${rows.length} ${table}`);
   }
-  audit(req.ctx, { actor_id: req.user.id, action: 'export', entity: 'unit', entity_id: unitId, unit_id: unitId, ip: clientIp(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'export', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${range ? `${range.from}..${range.to}` : 'every date'}; ${counts.join(', ')}`, ip: clientIp(req) });
   res.json(out);
 }));
 
