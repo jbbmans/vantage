@@ -72,6 +72,17 @@ export const ATTACHMENT_EXTENSIONS: Record<string, string[]> = { 'application/pd
 export const ATTACHMENT_TYPE_NAMES: Record<string, string> = { 'application/pdf': 'PDF', 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'text/plain': 'TXT', 'text/csv': 'CSV' };
 
 /** A file on a record, as the API lists it. Never its content: that is the download. */
+/**
+ * What the malware scan said of a file (ADR-0040). `clean`: scanned, nothing found. `skipped`: kept without a verdict,
+ * because no scanner is configured, or it timed out or could not be reached while scanning is optional. `unrecorded`:
+ * kept before Vantage recorded verdicts. A file the scanner rejected is never kept. Only `clean` is clean.
+ */
+export const SCAN_STATUSES = ['clean', 'skipped', 'unrecorded'] as const;
+export type ScanStatus = (typeof SCAN_STATUSES)[number];
+export const SCAN_STATUS_LABELS: Record<ScanStatus, string> = { clean: 'Scanned clean', skipped: 'Not scanned', unrecorded: 'No scan on record' };
+/** A scanner's verdict as a file keeps it: clean, or kept without one. */
+export const scanStatusOf = (verdict: string): ScanStatus => (verdict === 'clean' ? 'clean' : 'skipped');
+
 export interface AttachmentRow {
   id: string;
   record_table: string;
@@ -84,6 +95,8 @@ export interface AttachmentRow {
   /** What it is evidence of; null on a record type that takes no evidence type, and on a training's file not yet typed. */
   kind: EvidenceKind | null;
   description: string | null;
+  /** What the malware scan said of it. */
+  scan_status: ScanStatus;
   uploaded_by: string;
   /** Who added it, by rank and name, for anyone who may read the record. */
   uploader_name: string | null;

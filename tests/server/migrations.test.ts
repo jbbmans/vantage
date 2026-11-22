@@ -687,8 +687,8 @@ test('033 gives a file its evidence type and description, empty on every file al
   const KEPT = 'id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, hex(content) AS content, created_at, deleted_at';
   let before: unknown[] = [];
   const { path, cleanup } = atVersion(32, (db) => {
-    // The database as it was before 033: files that do not say what they are evidence of.
-    for (const column of ['description', 'kind']) db.exec(`ALTER TABLE attachments DROP COLUMN ${column}`);
+    // The database as it was before 033: files that do not say what they are evidence of, nor what a scan said of them.
+    for (const column of ['scan_status', 'description', 'kind']) db.exec(`ALTER TABLE attachments DROP COLUMN ${column}`);
     const had = (db.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name);
     assert.ok(!had.includes('kind') && !had.includes('description'));
     db.pragma('foreign_keys = OFF');
@@ -710,7 +710,7 @@ test('033 gives a file its evidence type and description, empty on every file al
     let db = openDatabase(path);
     assert.ok(migrationHistory(db).some((m) => m.id === 33 && m.name === '033_attachment_evidence'));
     const columns = (db.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name);
-    assert.deepEqual(columns.slice(-2), ['kind', 'description'], 'added last, in the order a new database has them');
+    assert.deepEqual(columns.slice(-3), ['kind', 'description', 'scan_status'], 'added last, in the order a new database has them');
     const fresh = new Database(':memory:');
     fresh.exec(readFileSync(new URL('../../server/db/schema.sql', import.meta.url), 'utf8'));
     assert.deepEqual(columns, (fresh.prepare('PRAGMA table_info(attachments)').all() as Array<{ name: string }>).map((c) => c.name), 'an upgraded database and a new one have the same file columns in the same order');
@@ -1175,5 +1175,31 @@ test('041 gives accounts and sessions an authentication epoch of 0, so every ses
     assert.equal(migrationHistory(again.db).filter((m) => m.id === 41).length, 1, 'a second boot runs it once');
     assert.equal(Number((again.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
     again.db.close();
+  } finally { cleanup(); }
+});
+
+test('042 gives every file kept before it a scan status of unrecorded, takes only the three statuses, and changes no other value', () => {
+  const at = '2026-11-20T12:00:00.000Z';
+  const { path, cleanup } = atVersion(41, (db) => {
+    // The table as 041 left it: no verdict column.
+    db.exec('ALTER TABLE attachments DROP COLUMN scan_status');
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at, kind) VALUES ('f1', 'trainings', 't1', 'u1', 'cert.pdf', 'application/pdf', 4, 'abcd', x'25504446', ?, 'certificate')").run(at);
+  });
+  try {
+    const raw = new Database(path, { readonly: true });
+    const before = raw.prepare('SELECT * FROM attachments ORDER BY id').all();
+    raw.close();
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 42 && m.name === '042_attachment_scan'));
+    const after = db.prepare('SELECT * FROM attachments ORDER BY id').all() as Array<Record<string, unknown>>;
+    assert.deepEqual(after.map(({ scan_status: _, ...rest }) => rest), before, 'every other value as it was');
+    assert.deepEqual(after.map((r) => r.scan_status), ['unrecorded'], 'no file kept before is said to have been scanned');
+    assert.throws(() => db.prepare("UPDATE attachments SET scan_status = 'rejected'").run(), /CHECK/);
+    assert.throws(() => db.prepare('UPDATE attachments SET scan_status = NULL').run(), /NOT NULL/);
+    db.close();
+    const again = openDatabase(path);
+    assert.equal(migrationHistory(again).filter((m) => m.id === 42).length, 1, 'a second boot runs it once');
+    again.close();
   } finally { cleanup(); }
 });

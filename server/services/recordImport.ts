@@ -853,8 +853,9 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     room -= inspected.size;
     const id = newId();
     // What the file is evidence of comes with it where its record takes one (a training); its description comes anywhere.
-    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, target.table, target.id, user.id, record.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, a.data, now(), takesEvidenceKind(target.table) ? a.kind : null, a.description);
+    // And what its scan at upload said, as a file added on its own keeps (ADR-0040).
+    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description, scan_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, target.table, target.id, user.id, record.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, a.data, now(), takesEvidenceKind(target.table) ? a.kind : null, a.description, scanned);
     attachments.included += 1;
     state.results.attachments += 1;
     state.origins.push({ table: 'attachments', id, action: 'attached', sourceId: a.ref.replace(/^file:/, ''), ref: a.path, author: null, before: null, versionAfter: null });

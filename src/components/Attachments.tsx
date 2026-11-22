@@ -7,12 +7,18 @@ import { useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatStamp } from '@/lib/utils';
 import {
-  ATTACHMENT_EXTENSIONS, ATTACHMENT_LIMITS, ATTACHMENT_TYPE_NAMES, EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, formatFileSize, takesEvidenceKind,
-  type AttachmentDetails, type AttachmentRow, type AttachmentsResponse, type EvidenceKind,
+  ATTACHMENT_EXTENSIONS, ATTACHMENT_LIMITS, ATTACHMENT_TYPE_NAMES, EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, SCAN_STATUS_LABELS, formatFileSize, takesEvidenceKind,
+  type AttachmentDetails, type AttachmentRow, type AttachmentsResponse, type EvidenceKind, type ScanStatus,
 } from '../../shared/attachments';
 
 const KIND_OPTIONS = EVIDENCE_KINDS.map((k) => ({ value: k, label: EVIDENCE_KIND_LABELS[k] }));
 const FILE_INPUT = 'block w-full min-w-0 text-sm text-ink-2 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink';
+
+/** A file kept without a clean malware scan says so beside its name; a clean one says nothing more. */
+export function ScanBadge({ status }: { status: ScanStatus | undefined }) {
+  if (!status || status === 'clean') return null;
+  return <Badge tone={status === 'skipped' ? 'warn' : 'neutral'}>{SCAN_STATUS_LABELS[status]}</Badge>;
+}
 
 /** "PDF, JPEG, PNG, TXT or CSV": the file types this service takes, as a sentence reads them. */
 function typeList(allowed: string[]): string {
@@ -257,6 +263,7 @@ function AttachmentsPanel({ table, id, canEdit }: { table: api.Store; id: string
                               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                                 {evidence && (f.kind ? <Badge tone="accent">{EVIDENCE_KIND_LABELS[f.kind]}</Badge> : <Badge tone="warn">Type not set</Badge>)}
                                 <a href={api.attachmentUrl(table, id, f.id)} className="link min-w-0 text-sm [overflow-wrap:anywhere]">{f.original_name}</a>
+                                <ScanBadge status={f.scan_status} />
                               </div>
                               {f.description && <p className="mt-1 text-sm text-ink-2 [overflow-wrap:anywhere]">{f.description}</p>}
                               <p className="mt-1 text-2xs text-ink-3">{facts.filter(Boolean).join(' · ')}</p>

@@ -979,3 +979,32 @@ test('a backup that names no database is this one’s only when the trail here h
     assert.notEqual(named(live), liveId);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// A file keeps what its scan said (ADR-0040)
+
+test('a file keeps what the malware scan said of it, clean or kept without a verdict, in the answer, the list, the trail and the personal export', async () => {
+  const { fakeClamd } = await import('./helpers.ts');
+  const { buildPersonalExport } = await import('../../server/services/personalExport.ts');
+  const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 7), Buffer.from('0000000049454e44ae426082', 'hex')]);
+  const upload = async (app: TestApp, token: string, record: string, name: string, bytes: Buffer) =>
+    app.call('POST', `/api/records/activities/${record}/attachments`, { token, raw: bytes, headers: { 'content-type': 'image/png', 'x-vantage-filename': name } });
+  const clamd = await fakeClamd();
+  const scanned = await startApp({ VANTAGE_CLAMD: clamd.address });
+  const unscanned = await startApp();
+  const unreachable = await startApp({ VANTAGE_CLAMD: 'tcp://127.0.0.1:1' });
+  try {
+    for (const [app, expected] of [[scanned, 'clean'], [unscanned, 'skipped'], [unreachable, 'skipped']] as const) {
+      const lead = await app.setupOperator();
+      const record = await app.call('POST', '/api/records/activities', { token: lead.token, body: { title: 'Reconciled the ULO list', visibility: 'private' } });
+      const added = await upload(app, lead.token, record.body.id, 'proof.png', PNG);
+      assert.equal(added.status, 201, JSON.stringify(added.body));
+      assert.equal(added.body.scan_status, expected, 'the answer says');
+      const listed = await app.call('GET', `/api/records/activities/${record.body.id}/attachments`, { token: lead.token });
+      assert.equal(listed.body.attachments[0].scan_status, expected, 'the list says');
+      const logged = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'upload_attachment' ORDER BY seq DESC").get() as { detail: string };
+      assert.ok(logged.detail.endsWith(`; scan ${expected}`), logged.detail);
+      const exported = buildPersonalExport(app.ctx, lead.id, { attachments: false }) as unknown as { attachments: Array<{ id: string; scan_status: string }> };
+      assert.equal(exported.attachments.find((a) => a.id === added.body.id)?.scan_status, expected, 'the personal export says');
+    }
+  } finally { await scanned.close(); await unscanned.close(); await unreachable.close(); clamd.close(); }
+});

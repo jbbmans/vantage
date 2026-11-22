@@ -584,6 +584,18 @@ const MIGRATIONS: Migration[] = [
       if (!columnsOf(db, 'oidc_states').has('browser_hash')) db.exec('ALTER TABLE oidc_states ADD COLUMN browser_hash TEXT');
     },
   },
+  {
+    id: 42,
+    name: '042_attachment_scan',
+    // What the malware scan said of each file (ADR-0040): `clean`, or `skipped` when it was kept without a verdict (no
+    // scanner, or one that timed out or could not be reached while scanning is optional). A file kept before this has no
+    // verdict on record, so every existing row takes `unrecorded`; nothing claims a scan it cannot show. One column,
+    // added with that default; no other value is changed. Rolled back by restoring the pre-upgrade backup with the
+    // previous build.
+    run: (db) => {
+      if (!columnsOf(db, 'attachments').has('scan_status')) db.exec("ALTER TABLE attachments ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'unrecorded' CHECK (scan_status IN ('clean', 'skipped', 'unrecorded'))");
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

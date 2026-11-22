@@ -465,7 +465,10 @@ CREATE TABLE IF NOT EXISTS attachments (
   -- What the file is evidence of, and a line on what it shows (ADR-0025). The list is shared/attachments.ts
   -- EVIDENCE_KINDS. Not tied to record_table: a file follows an entry that moves between record types (ADR-0015).
   kind          TEXT CHECK (kind IS NULL OR kind IN ('certificate', 'transcript', 'completion', 'qualification', 'roster', 'other')),
-  description   TEXT CHECK (description IS NULL OR length(description) <= 500)
+  description   TEXT CHECK (description IS NULL OR length(description) <= 500),
+  -- What the malware scan said (ADR-0040, migration 042): clean; skipped, kept without a verdict; unrecorded, kept
+  -- before verdicts were. The list is shared/attachments.ts SCAN_STATUSES.
+  scan_status   TEXT NOT NULL DEFAULT 'unrecorded' CHECK (scan_status IN ('clean', 'skipped', 'unrecorded'))
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_record ON attachments(record_table, record_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_live_digest ON attachments(record_table, record_id, sha256) WHERE deleted_at IS NULL;
