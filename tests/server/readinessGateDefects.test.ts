@@ -1008,3 +1008,53 @@ test('a file keeps what the malware scan said of it, clean or kept without a ver
     }
   } finally { await scanned.close(); await unscanned.close(); await unreachable.close(); clamd.close(); }
 });
+
+test('a case closed or reopened from its row, or closed with an action, is in the trail as one closed from its stage is, and sending the same state again adds nothing', async () => {
+  const made = await app.call('POST', '/api/work/items', { token: op.token, body: { title: 'Close me out from the row', unit_id: 'G8', visibility: 'unit' } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  const trail = () => app.ctx.db.prepare("SELECT action, actor_id, unit_id, detail FROM audit_log WHERE entity = 'work_items' AND entity_id = ? AND action IN ('work_closed', 'work_reopened') ORDER BY seq").all(id)
+    .map((r) => ({ ...(r as object) }));
+  const patch = (body: Record<string, unknown>) => app.call('PATCH', `/api/work/items/${id}`, { token: op.token, body });
+
+  assert.equal((await patch({ state: 'resolved' })).status, 200);
+  assert.deepEqual(trail(), [{ action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'resolved' }]);
+  assert.equal((await patch({ state: 'resolved' })).status, 200);
+  assert.equal(trail().length, 1, 'the same closed state again closes nothing');
+  assert.equal((await patch({ state: 'in_progress' })).status, 200);
+  assert.deepEqual(trail().at(-1), { action: 'work_reopened', actor_id: op.id, unit_id: 'G8', detail: 'researching' });
+  assert.equal((await patch({ state: 'not_applicable' })).status, 200);
+  assert.deepEqual(trail().at(-1), { action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'not_applicable' });
+  assert.equal((await patch({ state: 'open' })).status, 200);
+  assert.equal(trail().length, 4);
+
+  const action = await app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: { kind: 'worked', note: 'Cleared with the vendor', resolve: true } });
+  assert.equal(action.status, 201, JSON.stringify(action.body));
+  assert.equal(action.body.item.state, 'resolved');
+  assert.deepEqual(trail().at(-1), { action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'resolved' });
+  const again = await app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: { kind: 'noted', note: 'Filed the receipt', resolve: true } });
+  assert.equal(again.status, 201, JSON.stringify(again.body));
+  assert.equal(trail().length, 5, 'an action on a case already resolved closes nothing');
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('restoring someone else’s record from the bin names them in the trail, as deleting it does, and the Marine sees it in their own trail', async () => {
+  const entry = await app.call('POST', '/api/records/activities', { token: kid.token, body: { title: 'ZZFISCAL restore me', date: day(-1), visibility: 'unit', unit_id: 'FISCAL' } });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const id = entry.body.id as string;
+  const row = (action: string) => app.ctx.db.prepare('SELECT actor_id, subject_id FROM audit_log WHERE entity = ? AND entity_id = ? AND action = ? ORDER BY seq DESC LIMIT 1').get('activities', id, action) as { actor_id: string; subject_id: string | null };
+
+  assert.equal((await app.call('DELETE', `/api/records/activities/${id}`, { token: op.token })).status, 200);
+  assert.equal((await app.call('POST', `/api/records/activities/${id}/restore`, { token: op.token })).status, 200);
+  assert.deepEqual({ ...row('delete') }, { actor_id: op.id, subject_id: kid.id });
+  assert.deepEqual({ ...row('restore') }, { actor_id: op.id, subject_id: kid.id }, 'the restore names whose record it was');
+  const mine = await app.call('GET', '/api/me/audit', { token: kid.token });
+  assert.equal(mine.status, 200, JSON.stringify(mine.body));
+  const seen = mine.body.rows as Array<{ action: string; entity_id: string }>;
+  assert.ok(seen.some((e) => e.action === 'restore' && e.entity_id === id), 'the Marine sees their record was restored');
+
+  // Their own restore names nobody else.
+  assert.equal((await app.call('DELETE', `/api/records/activities/${id}`, { token: kid.token })).status, 200);
+  assert.equal((await app.call('POST', `/api/records/activities/${id}/restore`, { token: kid.token })).status, 200);
+  assert.deepEqual({ ...row('restore') }, { actor_id: kid.id, subject_id: null });
+});

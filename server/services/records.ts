@@ -684,7 +684,7 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
     if (twin) throw conflict(`An identical live entry already exists (“${twin.title}”). Delete that one first, or leave this copy to purge.`, 'duplicate', { duplicate_id: twin.id });
   }
   ctx.db.prepare(`UPDATE ${table} SET deleted_at = NULL, updated_at = ? WHERE id = ?`).run(now(), id);
-  audit(ctx, { actor_id: user.id, action: 'restore', entity: table, entity_id: id, unit_id: row.unit_id, ip });
+  audit(ctx, { actor_id: user.id, action: 'restore', entity: table, entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: row.unit_id, ip });
   return readBack(ctx, table, id, user.id);
 }
 

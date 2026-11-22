@@ -405,6 +405,8 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
         appendEvent(ctx, { item: row, actorId: user.id, kind: 'stage_changed', body: { from: fromStage, to: toStage, reason: null } });
         if (toStage === 'resolved') appendEvent(ctx, { item: row, actorId: user.id, kind: 'resolved', body: {} });
         if (CLOSED_STATES.has(row.state) && !closing) appendEvent(ctx, { item: row, actorId: user.id, kind: 'reopened', body: {} });
+        // A case closed or reopened here is in the trail as one moved from its stage is (ADR-0040), once the change is made.
+        if (closing || reopening) after.push(() => audit(ctx, { actor_id: user.id, action: closing ? 'work_closed' : 'work_reopened', entity: 'work_items', entity_id: id, unit_id: row.unit_id, detail: toStage }));
       }
     }
 
@@ -560,6 +562,7 @@ export function recordAction(
       if (fromStage !== 'resolved') {
         appendEvent(ctx, { item: row, actorId: user.id, kind: 'stage_changed', body: { from: fromStage, to: 'resolved', reason: null } });
         appendEvent(ctx, { item: row, actorId: user.id, kind: 'resolved', body: {} });
+        audit(ctx, { actor_id: user.id, action: 'work_closed', entity: 'work_items', entity_id: itemId, unit_id: row.unit_id, detail: 'resolved' });
       }
     } else {
       ctx.db.prepare(`UPDATE work_items SET state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
