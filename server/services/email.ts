@@ -20,6 +20,36 @@ export interface Mailer {
 /** How long a message is worth retrying: a reset link is dead after 30 minutes, so its email is too. */
 const RETRY_WINDOW_MINUTES: Record<string, number> = { reset: 30, test: 60, digest: 12 * 60, email_change: 24 * 60, invite: 48 * 60, team_message: 48 * 60, sign_in: 72 * 60 };
 const BACKOFF_MINUTES = [2, 10, 30, 60, 120, 240, 480];
+
+/**
+ * The relay connection on MCEN (ADR-0040): from SMTP_URL's address and sign-in only, with TLS required. smtps:// starts
+ * in TLS; smtp:// must upgrade with STARTTLS or nothing is sent. TLS 1.2 or later, and the relay's certificate checked
+ * against Node's bundled roots and NODE_EXTRA_CA_CERTS (the host's own store only under --use-system-ca). These are set
+ * after everything the URL gives, so no part of it can weaken them; the start already refused a URL that tried, or one
+ * whose sign-in cannot be read.
+ */
+/** A user name or password from SMTP_URL as written, its %-escapes read; one the start would refuse is kept as it is. */
+export function smtpUserinfo(part: string): string {
+  try { return decodeURIComponent(part); } catch { return part; }
+}
+
+export function tlsOnlyTransport(smtpUrl: string) {
+  const url = new URL(smtpUrl);
+  const secure = url.protocol === 'smtps:';
+  const name = url.searchParams.get('name');
+  return {
+    host: url.hostname.replace(/^\[|\]$/g, ''),
+    port: url.port ? Number(url.port) : secure ? 465 : 587,
+    ...(url.username ? { auth: { user: smtpUserinfo(url.username), pass: smtpUserinfo(url.password) } } : {}),
+    ...(name ? { name } : {}),
+    secure,
+    requireTLS: true,
+    ignoreTLS: false,
+    opportunisticTLS: false,
+    tls: { minVersion: 'TLSv1.2' as const, rejectUnauthorized: true },
+  };
+}
+
 const RESEND_ATTEMPTS = 4;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -55,7 +85,7 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
       }
     };
   } else if (provider === 'smtp' && smtpUrl) {
-    const transporter = nodemailer.createTransport(smtpUrl);
+    const transporter = nodemailer.createTransport(config.email.requireTls ? tlsOnlyTransport(smtpUrl) : smtpUrl);
     transport = async (mail) => { await transporter.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail) }); };
   } else if (provider === 'direct') {
     transport = async (mail) => {

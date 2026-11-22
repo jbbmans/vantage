@@ -204,7 +204,7 @@ test('a training’s file says what it is, and the list shows its type, descript
   const logged = entries('upload_attachment').at(-1)!;
   assert.equal(logged.entity, 'trainings');
   assert.equal(logged.entity_id, id);
-  assert.equal(logged.detail, `attachment ${up.body.id}; ${up.body.size_bytes} bytes; application/pdf; certificate`);
+  assert.equal(logged.detail, `attachment ${up.body.id}; ${up.body.size_bytes} bytes; application/pdf; certificate; scan skipped`);
   assert.doesNotMatch(logged.detail, /Signed|Corporals/);
 
   // Any other record type takes a description, and no evidence type.

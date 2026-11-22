@@ -99,7 +99,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     ? db.prepare(`SELECT ${columns} FROM ${from} WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?))`).all(table, JSON.stringify([...ids])) as Row[]
     : []));
   // What a file is evidence of and what was written about it travel with it (ADR-0025).
-  const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at, kind, description';
+  const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at, kind, description, scan_status';
   const byOwnRecord = onOwnRecords(attachmentColumns, 'attachments');
   const byUpload = db.prepare(`SELECT ${attachmentColumns} FROM attachments WHERE uploaded_by = ?`).all(userId) as Row[];
   const seenAttachments = new Set<string>();
@@ -435,7 +435,7 @@ export function buildPersonalExportCsv(ctx: AppContext, userId: string, key: str
 export function buildRecordExport(ctx: AppContext, table: ImportTable, row: Row, format: 'json' | 'csv' | 'zip', { files = true } = {}): { body: Buffer | string; filename: string; contentType: string; attachments: number } {
   // Each file with what is tracked about it (ADR-0025): what it is, what was written about it, and who added it by name,
   // never by id, which is this instance's.
-  const meta = (ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at, kind, description, uploaded_by FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at').all(table, String(row.id)) as Row[])
+  const meta = (ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at, kind, description, scan_status, uploaded_by FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at').all(table, String(row.id)) as Row[])
     .map(({ uploaded_by, ...a }) => ({ ...a, uploader_label: personLabel(ctx, uploaded_by), file: attachmentPath(a) }) as Row);
   const record: Row = { ...row };
   if (table === 'counselings' && row.counselor_id && row.counselor_id !== row.user_id) record.counselor_label = personLabel(ctx, row.counselor_id);

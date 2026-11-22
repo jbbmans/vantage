@@ -11,6 +11,7 @@ import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, StatusBadge, CategoryDot } from '@/components/common';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { Discussion } from '@/components/Comments';
+import { ScanBadge } from '@/components/Attachments';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
 import DownloadMenu, { recordDownloads } from '@/components/DownloadMenu';
@@ -143,7 +144,7 @@ export default function RecordDetail() {
             <input ref={fileInput} type="file" className="sr-only" aria-label="Attach a file" tabIndex={-1} accept={(files?.allowedTypes || []).join(',')} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
             {!identity?.instance.attachmentsEnabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p> : !files?.attachments?.length ? <p className="text-sm text-ink-3">{filesWithheld ? 'No files. Vantage has turned attachments off for this Unit Instance; use evidence links instead.' : `No files yet. Attach the LOA, the screenshot, or the signed sheet. Max ${Math.round((files?.maxBytes || 0) / 1_048_576) || 8} MB each.`}</p> : (
               <ul className="space-y-1.5">{files.attachments.map((f: any) => (
-                <li key={f.id} className="flex items-center gap-2 text-sm"><a href={api.attachmentUrl('activities', id, f.id)} className="link min-w-0 flex-1 truncate">{f.original_name}</a><span className="fig text-2xs text-ink-3">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>{canEdit && <button type="button" className="text-ink-3 hover:text-bad" aria-label={`Remove ${f.original_name}`} onClick={async () => { try { await api.deleteAttachment('activities', id, f.id); refetchFiles(); } catch (e) { toast.error(api.errorText(e)); } }}>×</button>}</li>
+                <li key={f.id} className="flex items-center gap-2 text-sm"><a href={api.attachmentUrl('activities', id, f.id)} className="link min-w-0 flex-1 truncate">{f.original_name}</a><ScanBadge status={f.scan_status} /><span className="fig text-2xs text-ink-3">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>{canEdit && <button type="button" className="text-ink-3 hover:text-bad" aria-label={`Remove ${f.original_name}`} onClick={async () => { try { await api.deleteAttachment('activities', id, f.id); refetchFiles(); } catch (e) { toast.error(api.errorText(e)); } }}>×</button>}</li>
               ))}</ul>
             )}
           </Panel>

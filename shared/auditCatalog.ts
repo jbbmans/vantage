@@ -43,6 +43,9 @@ const USER = [
   // Signing in and out, as oneself, and every refusal on the way.
   ...AUDIT_ACTION_FAMILIES.sign_in.filter((a) => a !== 'setup'),
   'logout', 'login_failed', 'self_register', 'recovery_code_used', 'password_reset_requested', 'password_reset', 'invite_accepted',
+  // A session confirmed by password, one of one's own ended from the sessions list, and those the service ends: pushed
+  // out by the session limit, or run out (idle or at its absolute limit). Each names the session (ADR-0040).
+  'password_step_up', 'session_revoked', 'session_evicted', 'session_expired',
   'oidc_rejected', 'oidc_provisioned', 'oidc_linked', 'cac_rejected', 'cac_provisioned', 'cac_verified', 'cac_step_up',
   'cac_step_up_refused', 'console_sign_in_refused', 'login_lockout', 'cross_instance_refused', 'unit_invite_redeemed',
   // One's own account and settings.

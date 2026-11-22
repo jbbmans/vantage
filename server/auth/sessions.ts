@@ -3,6 +3,7 @@ import { sha256 } from '../lib/crypto.ts';
 import { randomToken, now } from '../lib/ids.ts';
 import { withPlatform } from '../authz/platform.ts';
 import { forbidden, HttpError, unauthorized } from '../lib/errors.ts';
+import { audit } from '../services/audit.ts';
 
 export const SESSION_COOKIE = 'vantage_session';
 export const SIGNED_IN_COOKIE = 'vantage_signed_in';
@@ -14,6 +15,9 @@ export const sessionDigest = (token: string) => sha256(`session:${token}`);
  * token under its own label, so it opens nothing and does not give away the session's id.
  */
 export const signedInMarker = (token: string) => sha256(`signed-in:${token}`).slice(0, 16);
+
+/** A session as the sessions list and the audit trail name it: the first 12 characters of its id, never the whole. */
+export const sessionRef = (id: string) => id.slice(0, 12);
 
 /** How long a session may sit unused. Vantage staff's is never longer than anyone else's. */
 export const idleMinutesFor = (config: AppContext['config'], isStaff: boolean | number) =>
@@ -43,7 +47,12 @@ export function createSession(ctx: AppContext, userId: string, { ip, userAgent, 
     const account = db.prepare('SELECT active, auth_epoch FROM users WHERE id = ?').get(userId) as { active: number; auth_epoch: number } | undefined;
     if (!account || account.active !== 1 || (epoch != null && account.auth_epoch !== epoch)) throw credentialsChanged();
     const keep = Math.max(1, config.sessions.maxActive - 1);
-    db.prepare(`DELETE FROM sessions WHERE user_id = ? AND id NOT IN (SELECT id FROM sessions WHERE user_id = ? ORDER BY last_used_at DESC LIMIT ?)`).run(userId, userId, keep);
+    // The oldest go when a sign-in would pass the limit, each in the trail under its own id (ADR-0040).
+    const evicted = db.prepare(`SELECT id FROM sessions WHERE user_id = ? AND id NOT IN (SELECT id FROM sessions WHERE user_id = ? ORDER BY last_used_at DESC LIMIT ?)`).all(userId, userId, keep) as Array<{ id: string }>;
+    for (const s of evicted) {
+      if (!db.prepare('DELETE FROM sessions WHERE id = ?').run(s.id).changes) continue;
+      audit(ctx, { actor_id: null, action: 'session_evicted', entity: 'sessions', entity_id: sessionRef(s.id), subject_id: userId, detail: `limit of ${config.sessions.maxActive} sessions` });
+    }
     db.prepare(
       `INSERT INTO sessions (id, user_id, created_at, last_used_at, expires_at, absolute_expires_at, sudo_until, method, ip, user_agent, auth_epoch)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -56,6 +65,19 @@ export function createSession(ctx: AppContext, userId: string, { ip, userAgent, 
 /** A session past either deadline is over; at the very instant of a deadline it still stands. resolveSession and liveSession share this. */
 const pastDeadline = (row: { expires_at: string; absolute_expires_at: string }, nowMs: number) =>
   new Date(row.expires_at).getTime() < nowMs || new Date(row.absolute_expires_at).getTime() < nowMs;
+
+/**
+ * Ends a session that ran out, whoever found it (a request on it, or the prune), with one entry in the trail by the
+ * service: which deadline it passed. Only the call that removed the row writes it, so it is written once.
+ */
+function expireSession(ctx: AppContext, row: { id: string; user_id: string; expires_at: string; absolute_expires_at: string }, nowMs: number): void {
+  if (!ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(row.id).changes) return;
+  // The deadline it passed first is the one that ended it, though both may have passed by the time it is found.
+  const idle = new Date(row.expires_at).getTime();
+  const absolute = new Date(row.absolute_expires_at).getTime();
+  const which = absolute < nowMs && !(idle < absolute) ? 'absolute limit reached' : 'idle';
+  audit(ctx, { actor_id: null, action: 'session_expired', entity: 'sessions', entity_id: sessionRef(row.id), subject_id: row.user_id, detail: which });
+}
 
 export interface LiveSession { id: string; userId: string; sudoUntil: string | null; method: string; epoch: number }
 
@@ -102,8 +124,8 @@ export function assertConfirmedProof(ctx: AppContext, sessionId: string | null |
 /** liveSession as a yes or no: the check every continuation makes after its wait (attachments, saved messages, imports). */
 export const sessionStands = (ctx: AppContext, id: string | null | undefined, userId?: string | null) => Boolean(liveSession(ctx, id, userId));
 
-export function destroySession(ctx: AppContext, id: string) {
-  ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+export function destroySession(ctx: AppContext, id: string): number {
+  return ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(id).changes;
 }
 
 /**
@@ -127,7 +149,9 @@ export function invalidateUserSessions(ctx: AppContext, userId: string, exceptId
 
 export function pruneSessions(ctx: AppContext) {
   const t = now();
-  ctx.db.prepare('DELETE FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').run(t, t);
+  const nowMs = Date.parse(t);
+  const ended = ctx.db.prepare('SELECT id, user_id, expires_at, absolute_expires_at FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').all(t, t) as Array<{ id: string; user_id: string; expires_at: string; absolute_expires_at: string }>;
+  for (const row of ended) expireSession(ctx, row, nowMs);
   ctx.db.prepare('DELETE FROM tokens WHERE expires_at < ? OR used_at IS NOT NULL').run(new Date(Date.now() - 86_400_000).toISOString());
   ctx.db.prepare('DELETE FROM passkey_challenges WHERE expires_at <= ?').run(t);
 }
@@ -137,12 +161,13 @@ export function listSessions(ctx: AppContext, userId: string, currentId: string 
     .map((s) => ({ id: String(s.id).slice(0, 12), current: s.id === currentId, created_at: s.created_at, last_used_at: s.last_used_at, expires_at: s.expires_at, absolute_expires_at: s.absolute_expires_at, method: s.method, ip: s.ip, user_agent: s.user_agent }));
 }
 
-export function revokeSessionByPrefix(ctx: AppContext, userId: string, prefix: string): number {
-  if (!prefix || prefix.length < 12) return 0;
+/** Ends one of a person's sessions by the id its list shows. Returns the session's full id, or null when there is none. */
+export function revokeSessionByPrefix(ctx: AppContext, userId: string, prefix: string): string | null {
+  if (!prefix || prefix.length < 12) return null;
   const rows = ctx.db.prepare('SELECT id FROM sessions WHERE user_id = ?').all(userId) as Array<{ id: string }>;
   const hit = rows.find((r) => r.id.startsWith(prefix));
-  if (!hit) return 0;
-  return ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(hit.id).changes;
+  if (!hit) return null;
+  return ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(hit.id).changes ? hit.id : null;
 }
 
 /**
@@ -176,11 +201,10 @@ export function resolveSession(ctx: AppContext, token: string | undefined, { tou
   ).get(id) as (SessionUser & { password_hash: string; totp_secret: string | null; totp_pending: string | null; totp_last_step: number | null; expires_at: string; absolute_expires_at: string; last_used_at: string; sudo_until: string | null; method: string; session_epoch: number; auth_epoch: number }) | undefined;
   if (!row) return null;
   const nowMs = Date.now();
-  // Past a deadline, or opened under an epoch its account has since left (ADR-0035): over either way.
-  if (pastDeadline(row, nowMs) || row.session_epoch !== row.auth_epoch) {
-    destroySession(ctx, id);
-    return null;
-  }
+  // Past a deadline, or opened under an epoch its account has since left (ADR-0035): over either way. Only running out is
+  // news for the trail; a new epoch was written by the change that moved it.
+  if (pastDeadline(row, nowMs)) { expireSession(ctx, { id, user_id: row.id, expires_at: row.expires_at, absolute_expires_at: row.absolute_expires_at }, nowMs); return null; }
+  if (row.session_epoch !== row.auth_epoch) { destroySession(ctx, id); return null; }
   let expiresAt = row.expires_at;
   if (touch && nowMs - new Date(row.last_used_at).getTime() > 15_000) {
     expiresAt = new Date(Math.min(nowMs + idleMinutesFor(config, holdsPlatformRole(ctx, row.id)) * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString();

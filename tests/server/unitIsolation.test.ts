@@ -483,6 +483,18 @@ test('an owner moving their own record across carries no one else’s comments, 
   assert.deepEqual(imported2.map((t) => [t.org_id, t.detail]), [['G1', 'import; moved in from another Unit Instance'], ['G8', 'import; moved out to another Unit Instance']]);
 });
 
+test('an entry kept private in one Unit Instance and shared in another by the same edit is filed in the first as it was there, in no unit’s log', async () => {
+  const kept = await post(reyes.token, '/api/records/activities', { title: 'Reyes kept a G8 note', date: '2026-09-08', visibility: 'private', unit_id: 'G8' });
+  assert.equal(kept.status, 201, JSON.stringify(kept.body));
+  const moved = await put(reyes.token, `/api/records/activities/${kept.body.id}`, { unit_id: 'G1', visibility: 'unit' });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  const trail = app.ctx.db.prepare("SELECT org_id, unit_id, detail FROM audit_log WHERE entity_id = ? AND action = 'edit' ORDER BY seq").all(kept.body.id) as Array<{ org_id: string; unit_id: string | null; detail: string }>;
+  assert.deepEqual(trail.map((t) => [t.org_id, t.unit_id, t.detail]), [['G1', 'G1', 'author edit; moved in from another Unit Instance'], ['G8', null, 'author edit; moved out to another Unit Instance']]);
+  const log = await get(op.token, '/api/org/units/G8/audit?limit=500');
+  assert.equal(log.status, 200, JSON.stringify(log.body));
+  assert.ok(!JSON.stringify(log.body).includes(kept.body.id), 'G8’s leaders never learn it was there');
+});
+
 test('a file goes only where it was added, whoever added it and wherever they serve now', async () => {
   app.ctx.runtime.attachmentsEnabled = true;
   const d = await dualMarine();

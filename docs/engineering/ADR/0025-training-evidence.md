@@ -21,7 +21,8 @@ What main held before this Task (at `3efe3c1`):
   `/api/records/:table/:id/attachments`. Reading a record's files took `canRead` on the record; adding or removing one
   took `canEdit`. Uploads were gated by the service switch and by the per-Unit-Instance withhold (John's "Per
   instance" decision, ADR-0014), size-limited, type-checked by signature, hashed, scanned when a scanner is configured,
-  and served as downloads. Files follow an entry that moves to another record type (ADR-0015) and travel in the
+  and served as downloads. Since [ADR-0040](0040-security-fixes-for-later-features.md) each file keeps what the scan
+  said of it (`scan_status`), and the file lists mark one that was not scanned clean. Files follow an entry that moves to another record type (ADR-0015) and travel in the
   personal export, the single-record export and the import (ADR-0019).
 - **Training** already showed a generic Files panel in its dialog.
 

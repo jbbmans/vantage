@@ -197,7 +197,14 @@ test('a Unit Manager manages the roster without opening a record, and a Marine r
   await um.getByRole('button', { name: `Change ${last}’s assignment in G8` }).click();
   const dialog = um.getByRole('dialog', { name: /billet and assignment/ });
   await dialog.getByLabel('Assignment start').fill('2026-10-01');
+  // The change rests on the Unit Instance role, so once the confirmation from signing in has lapsed, it asks again and
+  // then saves, as the Unit Manager console does.
+  expect((await um.request.post(`/api/__test/end-step-up?user=${managerMe.user.id}`)).ok()).toBeTruthy();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  const sudo = um.getByRole('dialog', { name: 'Confirm it is you' });
+  await expect(sudo).toBeVisible();
+  await sudo.getByLabel('Current password').fill(PASSWORD);
+  await sudo.getByRole('button', { name: 'Confirm' }).click();
   await toast(um, 'Assignment start saved');
   expect((await um.request.get(`/api/org/team/${marine.id}`)).status(), 'their records stay closed').toBe(403);
   await umContext.close();

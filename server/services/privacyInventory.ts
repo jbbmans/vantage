@@ -495,7 +495,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: {
       id: 'technical', record_table: 'none', record_id: 'technical', uploaded_by: 'identifier', unit_id: 'employment', original_name: 'performance',
       mime_type: 'technical', size_bytes: 'technical', sha256: 'technical', content: 'performance', created_at: 'technical', deleted_at: 'technical',
-      kind: 'performance', description: 'performance',
+      kind: 'performance', description: 'performance', scan_status: 'technical',
     },
   },
   notifications: {

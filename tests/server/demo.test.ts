@@ -96,9 +96,13 @@ test('the synthetic section tells the intended story, and counts shared document
     assert.equal(summary.contributions.documents_researched, 39);
     assert.equal(summary.assigned.total, 2, 'Avery holds a 2-Way UMT and an open MIPR commitment, both in research');
 
+    const sessions = await app.call('GET', '/api/me/sessions', { token, headers: H });
+    assert.equal(sessions.status, 200, JSON.stringify(sessions.body));
+    const ended = sessions.body.sessions.find((s: { current: boolean }) => s.current).id as string;
     const leader = await app.call('POST', '/api/demo/persona', { token, headers: H, body: { persona: 'leader' } });
     assert.equal(leader.status, 200, JSON.stringify(leader.body));
     const lead = leader.body.token as string;
+    assert.deepEqual({ ...(app.ctx.db.prepare("SELECT entity, entity_id FROM audit_log WHERE action = 'demo_persona'").get() as object) }, { entity: 'sessions', entity_id: ended }, 'the switch names the session it ended');
     const me = (await app.call('GET', '/api/me', { token: lead })).body;
     assert.equal(me.user.last_name, 'Diaz');
     assert.equal((await app.call('GET', '/api/me', { token })).status, 401, 'the previous persona’s session ended');

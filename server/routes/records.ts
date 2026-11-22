@@ -10,7 +10,7 @@ import { canEdit, canRead, unfinalized } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { withCourseDetail } from '../services/courses.ts';
 import { inspectAttachment, attachmentDisposition, attachmentContentType, filenameFromHeader } from '../services/attachments.ts';
-import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind } from '../../shared/attachments.ts';
+import { EVIDENCE_KINDS, EVIDENCE_KIND_LABELS, isAttachable, scanStatusOf, takesEvidenceKind, type AttachmentRow, type AttachmentsResponse, type EvidenceKind, type ScanStatus } from '../../shared/attachments.ts';
 import { attachmentDetailsSchema } from '../../shared/schemas.ts';
 import { audit, auditListedRecords } from '../services/audit.ts';
 import { MalwareRejected, scanUpload } from '../services/scanner.ts';
@@ -236,7 +236,7 @@ function uploadDetails(req: express.Request, table: string): { kind: EvidenceKin
   return { kind: details.kind ?? null, description: details.description ?? null };
 }
 
-const ATTACHMENT_SELECT = `SELECT a.id, a.record_table, a.record_id, a.original_name, a.mime_type, a.size_bytes, a.sha256, a.created_at, a.kind, a.description, a.uploaded_by,
+const ATTACHMENT_SELECT = `SELECT a.id, a.record_table, a.record_id, a.original_name, a.mime_type, a.size_bytes, a.sha256, a.created_at, a.kind, a.description, a.scan_status, a.uploaded_by,
                                   u.last_name AS uploader_last, r.abbr AS uploader_rank
                              FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by LEFT JOIN ranks r ON r.id = u.rank_id`;
 type AttachmentRecord = Omit<AttachmentRow, 'uploader_name'> & { uploader_last: string | null; uploader_rank: string | null };
@@ -267,8 +267,9 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
   const inspected = inspectAttachment({ body: req.body, filename: filenameFromHeader(req.get('x-vantage-filename')), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
   if (!inspected.ok) throw badRequest(inspected.error);
   try { if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size + inspected.size >= ctx.config.limits.maxDatabaseBytes) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity'); } catch (e) { if (e instanceof HttpError) throw e; }
-  // Evidence is scanned like any other upload: a rejected file is never stored.
-  try { await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename); }
+  // Evidence is scanned like any other upload: a rejected file is never stored, and the file keeps what the scan said.
+  let scanStatus: ScanStatus;
+  try { scanStatus = scanStatusOf((await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename)).verdict); }
   catch (e) {
     // The trail holds what the scanner found, never the file's name.
     if (e instanceof MalwareRejected) audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `rejected by the malware scanner: ${e.finding}`.slice(0, 300), ip: clientIp(req) });
@@ -289,14 +290,14 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
   const id = newId();
   try {
     // The file keeps the unit its record sits in now, so a later move is judged by where it was added (ADR-0008).
-    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, table, current.id, req.user.id, current.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now(), details.kind, details.description);
+    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at, kind, description, scan_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, table, current.id, req.user.id, current.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now(), details.kind, details.description, scanStatus);
   } catch (error) {
     if (String((error as Error).message).includes('UNIQUE')) throw conflict('That exact file is already attached.', 'duplicate_attachment');
     throw error;
   }
   // The trail names the file and what it is, never its name or what was written about it.
-  audit(ctx, { actor_id: req.user.id, action: 'upload_attachment', entity: table, entity_id: current.id, subject_id: current.user_id !== req.user.id ? current.user_id : null, unit_id: current.unit_id, detail: `attachment ${id}; ${inspected.size} bytes; ${inspected.mime}${details.kind ? `; ${details.kind}` : ''}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'upload_attachment', entity: table, entity_id: current.id, subject_id: current.user_id !== req.user.id ? current.user_id : null, unit_id: current.unit_id, detail: `attachment ${id}; ${inspected.size} bytes; ${inspected.mime}${details.kind ? `; ${details.kind}` : ''}; scan ${scanStatus}`, ip: clientIp(req) });
   const saved = ctx.db.prepare(`${ATTACHMENT_SELECT} WHERE a.id = ?`).get(id) as AttachmentRecord;
   res.status(201).json(attachmentMeta(saved));
 }));

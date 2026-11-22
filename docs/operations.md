@@ -14,7 +14,7 @@ and the audit trail. It is not the same thing as a data export (see [Backups are
 Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before
 every upgrade, and store it somewhere the data classification allows. Render disks are not backed up for you.
 
-- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db node scripts/backup.ts /backups/vantage-$(date +%F).db`. The copy is one self-contained file, readable by its owner only, and the script prints the newest audit entry it holds; encrypt it before it leaves the host.
+- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db node scripts/backup.ts /backups/vantage-$(date +%F).db`. The copy is one self-contained file, readable by its owner only from its first page (a copy that fails is removed), and a directory the script makes for it is the service account's alone; the script prints the newest audit entry it holds. Encrypt it before it leaves the host.
 - **From the browser**: **Vantage Administrator console → Backup and restore → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
 Each backup taken either way is recorded in the database it copied: when, how, its size, file name and newest audit
@@ -47,7 +47,8 @@ audited (ADR-0014). `node scripts/restore.ts` is the only supported way.
 3. **Run it** without `--dry-run`. It refuses while anything holds the database open. It keeps the database it
    replaces as `vantage-before-restore-<stamp>.db` beside it, signs everyone out, drops the backup's sign-in links
    and queued mail, cancels support approvals waiting, and records the restore in the database it puts in place.
-   A backup of another Vantage database is refused unless `--different-database` says so.
+   A backup of another Vantage database is refused unless `--different-database` says so. A backup that names no
+   database is this one's only when this database's trail holds its newest entry with the same hash.
 4. **Start the service, then end maintenance.** At its start the service writes `database_restored` into the platform
    trail and every Unit Instance's, and tells Vantage staff, every Unit Instance's Lead Unit Managers and the
    administrator who authorized it. **Backup and restore → Restores** lists each restore, with the account, authority
@@ -244,5 +245,5 @@ The same page shows the build and when each build first served this database, ev
 ## Retention
 
 - Deleted records sit in a recycle bin for 30 days, then purge nightly.
-- Sessions expire after 15 minutes idle (10 for an owner) and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_OPERATOR_IDLE_MINUTES`, `VANTAGE_SESSION_HOURS`). Background polls do not count as activity.
+- Sessions expire after 15 minutes idle (10 for Vantage staff and the consoles) and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_STAFF_IDLE_MINUTES`, whose old name `VANTAGE_OPERATOR_IDLE_MINUTES` is read only when it is not set, `VANTAGE_SESSION_HOURS`). Background polls do not count as activity.
 - The audit log is append-only and never purged.

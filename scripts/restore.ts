@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
-import { chmodSync, copyFileSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { loadConfig } from '../server/config.ts';
-import { SCHEMA_VERSION, metaGet, metaSet } from '../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase, copyFilePrivate, metaGet, metaSet } from '../server/db/index.ts';
 import { loadChainKey, resealStoredSecrets, sealedUnderPreviousSecret } from '../server/lib/keys.ts';
 import { verifyAuditChain } from '../server/services/audit.ts';
 import { appendRestore, chainPoint, lostSince, writeLineageFile, type ChainPoint, type RestoreRecord } from '../server/services/restoreLog.ts';
@@ -78,7 +78,13 @@ if (existsSync(live)) {
     fail(`Something has ${live} open (${(error as Error).message}). Stop Vantage, and anything else using the database, then run this again.`);
   }
 }
-const releaseLive = () => { try { liveDb?.close(); } catch { /* closed */ } liveDb = null; };
+// A byte copy of the live files keeps its descriptors here, open until the lock goes: closing one would drop it.
+const heldOpen: number[] = [];
+const releaseLive = () => {
+  try { liveDb?.close(); } catch { /* closed */ }
+  liveDb = null;
+  for (const fd of heldOpen.splice(0)) { try { closeSync(fd); } catch { /* closed */ } }
+};
 
 // 2. A private copy of the backup beside the live database: the backup is never written, and the swap is one rename
 const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 18);
@@ -90,9 +96,8 @@ const abandon = (message: string): never => { try { copy?.close(); } catch { /* 
 
 try {
   const backup = new Database(source, { readonly: true, fileMustExist: true });
-  await backup.backup(temp);
+  await backupDatabase(backup, temp);
   backup.close();
-  chmodSync(temp, 0o600);
   copy = new Database(temp);
 } catch (error) {
   abandon(`The backup could not be read as a SQLite database: ${(error as Error).message}`);
@@ -142,10 +147,12 @@ if (liveDb && liveReadable) {
 }
 if (replaced) {
   if (replaced.database_id && restored.database_id) sameDatabase = replaced.database_id === restored.database_id;
-  else if (restored.seq) {
-    // A backup from before databases were named: the same database still holds its newest entry, with the same hash.
-    const row = liveDb!.prepare('SELECT entry_hash FROM audit_log WHERE seq = ?').get(restored.seq) as { entry_hash: string } | undefined;
-    sameDatabase = row ? row.entry_hash === restored.hash : null;
+  else {
+    // A backup from before databases were named is this database's only if the trail here still holds its newest entry,
+    // with the same hash (ADR-0040). Anything else, an entry this trail does not reach or a backup with no trail at all,
+    // is another database's: refused below without --different-database, and never given this database's name.
+    const row = restored.seq ? liveDb!.prepare('SELECT entry_hash FROM audit_log WHERE seq = ?').get(restored.seq) as { entry_hash: string } | undefined : undefined;
+    sameDatabase = Boolean(row && restored.hash && row.entry_hash === restored.hash);
   }
   if (sameDatabase === false && !flags.has('--different-database')) abandon('The backup is of another Vantage database than the one here. Pass --different-database to replace this one with it anyway.');
   if (sameDatabase) ({ lost, undone } = lostSince(liveDb!, restored));
@@ -175,11 +182,11 @@ let safetyCopy: string | null = null;
 if (liveDb) {
   safetyCopy = join(dir, `vantage-before-restore-${stamp}.db`);
   try {
-    await liveDb.backup(safetyCopy);
+    await backupDatabase(liveDb, safetyCopy);
   } catch {
-    // A database SQLite cannot read through is kept as its files are.
-    copyFileSync(live, safetyCopy);
-    if (existsSync(`${live}-wal`)) copyFileSync(`${live}-wal`, `${safetyCopy}-wal`);
+    // A database SQLite cannot read through is kept as its files are, each owner-only before a byte is copied.
+    copyFilePrivate(live, safetyCopy, heldOpen);
+    if (existsSync(`${live}-wal`)) copyFilePrivate(`${live}-wal`, `${safetyCopy}-wal`, heldOpen);
   }
   chmodSync(safetyCopy, 0o600);
 }
@@ -190,7 +197,7 @@ const at = new Date().toISOString();
 db.transaction(() => {
   if (liveDb && liveReadable) {
     for (const key of HOST_HISTORY) { const value = metaGet(liveDb, key); if (value !== null) metaSet(db, key, value); }
-    if (!metaGet(db, 'database_id') && replaced?.database_id && sameDatabase !== false) metaSet(db, 'database_id', replaced.database_id);
+    if (!metaGet(db, 'database_id') && replaced?.database_id && sameDatabase === true) metaSet(db, 'database_id', replaced.database_id);
   }
   // A session, a link or a queued message from the backup's day would sign someone in, or send, as of then.
   for (const table of ['sessions', 'tokens', 'passkey_challenges', 'email_queue', 'oidc_states', 'connector_auth_states']) if (hasTable(table)) db.prepare(`DELETE FROM ${table}`).run();

@@ -11,7 +11,7 @@ import { assertFileableProject, canPlace, canPlaceOwnDuty, recordedByOther, type
 import { TABLES, activityFingerprint, assertCarriesNothingAcross, checkTimeframe, getRecord, mayLeaveInstance, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
 import { assertDutyWords, dutyColumns, dutyCandidates } from './duties.ts';
-import { audit } from './audit.ts';
+import { audit, privateEntry } from './audit.ts';
 import { parse } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { courseColumns } from './courses.ts';
@@ -109,10 +109,16 @@ function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq' | 'kept_
   return id;
 }
 
-function auditMove(ctx: AppContext, undone: boolean, actorId: string, unitId: string | null, from: LineageTable, fromId: string, to: LineageTable, toId: string, ip?: string) {
-  // Each end names the other, so the trail of either id says where the entry went or came from.
-  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: from, entity_id: fromId, unit_id: unitId, detail: `to ${to} ${toId}`, ip });
-  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: to, entity_id: toId, unit_id: unitId, detail: `from ${from} ${fromId}`, ip });
+type MoveEnd = { table: LineageTable; id: string; unitId: string | null };
+
+function auditMove(ctx: AppContext, undone: boolean, actorId: string, from: MoveEnd & { private: boolean }, to: MoveEnd, ip?: string) {
+  // Each end names the other, so the trail of either id says where the entry went or came from. Each is filed as its own
+  // row was (ADR-0040), under its own unit: the one it left as it was before the move, since it is gone by now, and the
+  // one it became as it is. A shared end names a private other end by its type alone, so a duty undone back to a
+  // private activity is seen leaving its unit and the activity is not seen at all.
+  const toPrivate = privateEntry(ctx, to.table, to.id);
+  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: from.table, entity_id: from.id, unit_id: from.unitId, detail: toPrivate && !from.private ? `to ${to.table}` : `to ${to.table} ${to.id}`, ip, privateEntry: from.private });
+  audit(ctx, { actor_id: actorId, action: undone ? 'record_move_undone' : 'record_moved', entity: to.table, entity_id: to.id, unit_id: to.unitId, detail: from.private && !toPrivate ? `from ${from.table}` : `from ${from.table} ${from.id}`, ip, privateEntry: toPrivate });
 }
 
 function movable(table: string): MovableTable {
@@ -171,7 +177,7 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
     carry(ctx, from, id, to, toId);
     ctx.db.prepare(`DELETE FROM ${from} WHERE id = ?`).run(id);
     lineageId = writeLineage(ctx, { user_id: row.user_id, unit_id: row.unit_id, from_table: from, from_id: id, to_table: to, to_id: toId, snapshot, method: 'move', reason: input.reason || null, moved_by: user.id, at });
-    auditMove(ctx, false, user.id, row.unit_id, from, id, to, toId, ip);
+    auditMove(ctx, false, user.id, { table: from, id, unitId: row.unit_id, private: row.visibility === 'private' }, { table: to, id: toId, unitId: row.unit_id }, ip);
   })();
   return { table: to, id: toId, lineage_id: lineageId, record: getRecord(ctx, to, toId) };
 }
@@ -238,7 +244,7 @@ export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable,
     carry(ctx, current, id, back, last.from_id);
     ctx.db.prepare(`DELETE FROM ${current} WHERE id = ?`).run(id);
     writeLineage(ctx, { user_id: row.user_id, unit_id: row.unit_id, from_table: current, from_id: id, to_table: back, to_id: last.from_id, snapshot, method: 'undo', reason: null, moved_by: user.id, at });
-    auditMove(ctx, true, user.id, row.unit_id, current, id, back, last.from_id, ip);
+    auditMove(ctx, true, user.id, { table: current, id, unitId: row.unit_id, private: row.visibility === 'private' }, { table: back, id: last.from_id, unitId: row.unit_id }, ip);
   })();
   return { table: back, id: last.from_id, record: getRecord(ctx, back, last.from_id) };
 }
@@ -336,7 +342,7 @@ function moveToDuty(ctx: AppContext, user: SessionUser, id: string, input: z.inf
     carry(ctx, 'activities', id, 'duties', toId);
     ctx.db.prepare('DELETE FROM activities WHERE id = ?').run(id);
     lineageId = writeLineage(ctx, { user_id: row.user_id, unit_id: unitId, from_table: 'activities', from_id: id, to_table: 'duties', to_id: toId, snapshot, method: 'move', reason: input.reason || null, moved_by: user.id, at });
-    auditMove(ctx, false, user.id, unitId, 'activities', id, 'duties', toId, ip);
+    auditMove(ctx, false, user.id, { table: 'activities', id, unitId: row.unit_id, private: row.visibility === 'private' }, { table: 'duties', id: toId, unitId }, ip);
   })();
   return { table: 'duties' as const, id: toId, lineage_id: lineageId, record: getRecord(ctx, 'duties', toId) };
 }

@@ -11,7 +11,7 @@ import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
-import { assertConfirmedProof, assertProofCurrent, credentialsChanged, invalidateUserSessions, listSessions, liveSession, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
+import { assertConfirmedProof, assertProofCurrent, credentialsChanged, invalidateUserSessions, listSessions, liveSession, revokeSessionByPrefix, sessionRef, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
@@ -240,9 +240,12 @@ meRouter.post('/sessions/revoke-others', wrap((req, res) => {
   res.json({ ok: true, revoked });
 }));
 meRouter.delete('/sessions/:sid', wrap((req, res) => {
-  const isCurrent = req.sessionId.startsWith(String(req.params.sid));
-  const n = revokeSessionByPrefix(req.ctx, req.user.id, String(req.params.sid));
-  if (!n) throw notFound('No such session.');
+  const ended = revokeSessionByPrefix(req.ctx, req.user.id, String(req.params.sid));
+  if (!ended) throw notFound('No such session.');
+  const isCurrent = ended === req.sessionId;
+  // Signing this session out from the list is signing out; another one is ended (ADR-0040). Each names the session.
+  if (isCurrent) audit(req.ctx, { actor_id: req.user.id, action: 'logout', entity: 'sessions', entity_id: sessionRef(ended), ip: clientIp(req), detail: 'from the sessions list' });
+  else audit(req.ctx, { actor_id: req.user.id, action: 'session_revoked', entity: 'sessions', entity_id: sessionRef(ended), subject_id: req.user.id, ip: clientIp(req) });
   if (isCurrent) { res.clearCookie(SESSION_COOKIE, { path: '/' }); res.clearCookie(SIGNED_IN_COOKIE, { path: '/' }); }
   res.json({ ok: true, current: isCurrent });
 }));

@@ -11,6 +11,8 @@ export interface Source {
   /** The unit the grant was made in (a role reaches the units beneath it). */
   unitId: string;
   bits: number;
+  /** The place in the unit this grant gives: a role's position, 100 for leading the unit or a Unit Instance role. */
+  position?: number;
   role?: { id: string; name: string } | null;
   orgRole?: OrgRole;
   expiresAt?: string | null;
@@ -175,7 +177,7 @@ function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, acces
     permissions[g.unit_id] = (permissions[g.unit_id] || 0) | bits;
     positions[g.unit_id] = Math.max(positions[g.unit_id] || 0, g.position);
     if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | bits;
-    source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
+    source(g.unit_id, { kind: 'role', unitId: g.unit_id, bits, position: g.position, role: { id: g.id, name: g.name }, expiresAt: g.expires_at });
   }
   // Leading a unit is every permission in it but the ones a role must name (approving one's own duty, ADR-0024 §2):
   // those stay as the leader's roles give them, here and in the units beneath.
@@ -183,7 +185,7 @@ function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, acces
     permissions[id] = (permissions[id] || 0) | FULL_UNIT_AUTHORITY;
     positions[id] = Math.max(positions[id] || 0, 100);
     authority[id] = (authority[id] || 0) | FULL_UNIT_AUTHORITY;
-    source(id, { kind: 'owner', unitId: id, bits: FULL_UNIT_AUTHORITY });
+    source(id, { kind: 'owner', unitId: id, bits: FULL_UNIT_AUTHORITY, position: 100 });
   }
 
   // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
@@ -193,7 +195,7 @@ function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, acces
     for (const below of subtreeIds(ctx, unitId, tree).slice(1)) {
       permissions[below] = (permissions[below] || 0) | bits;
       positions[below] = Math.max(positions[below] || 0, rank + 1);
-      source(below, { kind: 'inherited', unitId, bits });
+      source(below, { kind: 'inherited', unitId, bits, position: rank + 1 });
     }
   }
 
@@ -215,7 +217,7 @@ function buildScope(ctx: AppContext, { memberships, roles, owned, orgRows, acces
     for (const unitId of orgUnits(o.orgId)) {
       permissions[unitId] = (permissions[unitId] || 0) | bits;
       positions[unitId] = Math.max(positions[unitId] || 0, 100);
-      source(unitId, { kind: 'org', unitId, bits, orgRole: role, expiresAt: o.expiresAt });
+      source(unitId, { kind: 'org', unitId, bits, position: 100, orgRole: role, expiresAt: o.expiresAt });
     }
   }
 
@@ -307,6 +309,20 @@ export const unitsWith = (scope: Scope, flag: number) => Object.entries(scope.pe
 /** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
 export const chainBits = (scope: Scope, unitId: string) =>
   (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+
+/** The place in a unit the chain of command alone gives a person, leaving out what a Unit Instance role adds. */
+export const chainPosition = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((p, s) => Math.max(p, s.position ?? 0), 0);
+
+/**
+ * Whether what a person may change in a unit comes from a Unit Instance role rather than the chain of command (ADR-0040):
+ * they hold one there, and their own place in units does not give them full authority in it, or gives it from a lower
+ * place than the Unit Instance role does, so whom they outrank there may come from the instance. guardSelfReach draws
+ * the same line on what a role gives.
+ */
+export const restsOnInstanceAuthority = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).some((s) => s.kind === 'org')
+  && (!has(chainBits(scope, unitId), PERMISSIONS.ADMINISTRATOR) || chainPosition(scope, unitId) < positionIn(scope, unitId));
 
 /**
  * What a person holds by their own place in units, leaving out Vantage access (ADR-0031): read-only access lets staff read

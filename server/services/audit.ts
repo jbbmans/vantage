@@ -15,6 +15,45 @@ export interface AuditEntry {
    * shared/auditCatalog.ts when not given; a platform route that shares an action with a unit's passes 'enterprise'.
    */
   category?: AuditCategory;
+  /**
+   * Whether the entry is about a private entry, filed under its Unit Instance but no unit (privateEntry). Read from the
+   * record when not given; a caller whose record is gone by then (a move) says it from the row that survives.
+   */
+  privateEntry?: boolean;
+}
+
+/**
+ * The things a Marine can keep private, each with the question that finds one that is: private, and nobody's but its
+ * owner's. Records, cases, work intake and its imports, contacts and correspondence (a message by its thread), report
+ * drafts (a revision by its draft) and saved reports. A counseling a leader writes keeps its unit, as the counselor
+ * reads it there (ADR-0027).
+ */
+const PRIVATE_ENTRY: Readonly<Record<string, string>> = {
+  activities: "SELECT 1 FROM activities WHERE id = ? AND visibility = 'private'",
+  projects: "SELECT 1 FROM projects WHERE id = ? AND visibility = 'private'",
+  tasks: "SELECT 1 FROM tasks WHERE id = ? AND visibility = 'private'",
+  goals: "SELECT 1 FROM goals WHERE id = ? AND visibility = 'private'",
+  trainings: "SELECT 1 FROM trainings WHERE id = ? AND visibility = 'private'",
+  awards: "SELECT 1 FROM awards WHERE id = ? AND visibility = 'private'",
+  counselings: "SELECT 1 FROM counselings WHERE id = ? AND visibility = 'private' AND (counselor_id IS NULL OR counselor_id = user_id)",
+  work_items: "SELECT 1 FROM work_items WHERE id = ? AND visibility = 'private'",
+  source_files: "SELECT 1 FROM source_files WHERE id = ? AND visibility = 'private'",
+  import_jobs: "SELECT 1 FROM import_jobs WHERE id = ? AND visibility = 'private'",
+  contacts: "SELECT 1 FROM contacts WHERE id = ? AND visibility = 'private'",
+  threads: "SELECT 1 FROM threads WHERE id = ? AND visibility = 'private'",
+  thread_messages: "SELECT 1 FROM thread_messages m JOIN threads t ON t.id = m.thread_id WHERE m.id = ? AND t.visibility = 'private'",
+  report_drafts: "SELECT 1 FROM report_drafts WHERE id = ? AND visibility = 'private'",
+  report_revisions: "SELECT 1 FROM report_revisions r JOIN report_drafts d ON d.id = r.report_id WHERE r.id = ? AND d.visibility = 'private'",
+  report_definitions: "SELECT 1 FROM report_definitions WHERE id = ? AND visibility = 'private'",
+};
+
+/**
+ * Whether a record is a private entry: one a unit's access log never lists (ADR-0040). What is done to it stays in the
+ * trail under its Unit Instance, so the instance's own trail and the Marine's keep it; no unit's leaders learn it exists.
+ */
+export function privateEntry(ctx: AppContext, table: string | null | undefined, id: string | null | undefined): boolean {
+  const sql = table && id && Object.hasOwn(PRIVATE_ENTRY, table) ? PRIVATE_ENTRY[table] : undefined;
+  return Boolean(sql && ctx.db.prepare(sql).get(id));
 }
 
 function entryHash(secret: string, row: Record<string, unknown>, previous: string): string {
@@ -60,9 +99,12 @@ function subjectOf(ctx: AppContext, entry: AuditEntry): string | null {
 export function audit(ctx: AppContext, entry: AuditEntry) {
   const { db, config, chainKey } = ctx;
   const category = categoryFor(ctx, entry);
+  // An entry about a private entry keeps its Unit Instance and loses its unit, decided as it is written: the trail is
+  // sealed, so one written before keeps what it had.
+  const filedUnder = entry.unit_id && !(entry.privateEntry ?? privateEntry(ctx, entry.entity, entry.entity_id)) ? entry.unit_id : null;
   const row = {
     id: newId(), actor_id: entry.actor_id ?? null, action: entry.action, entity: entry.entity ?? null, entity_id: entry.entity_id ?? null,
-    subject_id: subjectOf(ctx, entry), unit_id: entry.unit_id ?? null, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
+    subject_id: subjectOf(ctx, entry), unit_id: filedUnder, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
     ip: entry.ip ?? null, at: now(),
     org_id: entry.org_id ?? (entry.unit_id ? ((db.prepare('SELECT org_id FROM units WHERE id = ?').get(entry.unit_id) as { org_id: string | null } | undefined)?.org_id ?? null) : null),
     category,

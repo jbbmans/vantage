@@ -34,8 +34,12 @@ export interface PrivilegedRoute {
   /** change: a POST, PUT, PATCH or DELETE on an administration router. bulk: a download of many records or the whole service. */
   kind: 'change' | 'bulk';
   permission: readonly RouteAuthority[];
-  /** The session must have confirmed the person recently (password, CAC or the organization's sign-in): sudo_required otherwise. */
-  stepUp: boolean;
+  /**
+   * The session must have confirmed the person recently (password, CAC or the organization's sign-in): sudo_required
+   * otherwise. instance_authority: only when the change rests on Unit Instance authority rather than the chain of command
+   * (ADR-0040), as the Unit Manager console asks for every change.
+   */
+  stepUp: boolean | 'instance_authority';
   /** Every action the route can write, including those its services write on its behalf. Empty only with a reason in note. */
   audit: readonly AuditWrite[];
   note?: string;
@@ -78,9 +82,12 @@ const platform = (method: Method, path: string, permission: PlatformPermission, 
 const orgs = (method: Method, path: string, permission: OrgPermission[], audit: AuditWrite[], note?: string): PrivilegedRoute =>
   ({ method, path: `/api/orgs${path}`, kind: kindOf(method), permission, stepUp: true, audit, ...(note ? { note } : {}) });
 
-/** Unit administration: a unit permission in the unit the call names, decided in the route or its service. No step-up. */
+/**
+ * Unit administration: a unit permission in the unit the call names, decided in the route or its service. A change asks
+ * for step-up when it rests on Unit Instance authority; joining with one's own code and the unit export never do.
+ */
 const unit = (method: Method, path: string, permission: RouteAuthority[], audit: AuditWrite[], note?: string): PrivilegedRoute =>
-  ({ method, path: `/api/org${path}`, kind: kindOf(method), permission, stepUp: false, audit, ...(note ? { note } : {}) });
+  ({ method, path: `/api/org${path}`, kind: kindOf(method), permission, stepUp: kindOf(method) === 'change' && !permission.includes('self') ? 'instance_authority' : false, audit, ...(note ? { note } : {}) });
 
 /** What a removal from a unit writes besides its own entry: a leadership it ends, Unit Instance roles, claimed work. */
 const DEPARTURE = ['unit_leader_ended', 'org_role_ended', 'work_claim_released_on_departure'];

@@ -20,7 +20,7 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const read = (file: string) => readFileSync(join(ROOT, file), 'utf8');
 const key = (r: { method: string; path: string }) => `${r.method} ${r.path}`;
 
-interface SourceRoute { method: string; path: string; routePath: string; file: string; router: string; text: string; stepUp: boolean }
+interface SourceRoute { method: string; path: string; routePath: string; file: string; router: string; text: string; stepUp: PrivilegedRoute['stepUp'] }
 
 /** Where each router is mounted, read from server/app.ts. */
 function mounts(): Map<string, string> {
@@ -51,8 +51,10 @@ function sourceRoutes(): SourceRoute[] {
         const end = rest.slice(1).search(/\n(?=[^\s})\]])/);
         const text = end < 0 ? rest : rest.slice(0, end + 1);
         const routePath = m[2];
-        const stepUp = /\brequireSudo\b/.test(text.split('wrap(')[0])
+        const always = /\brequireSudo\b/.test(text.split('wrap(')[0])
           || sudo.some((u) => u.at < m.index! && (!u.prefix || u.prefix === '/' || routePath === u.prefix || routePath.startsWith(`${u.prefix}/`)));
+        // A handler that asks only when the change rests on Unit Instance authority (ADR-0040).
+        const stepUp = always || (/\b(?:stepUpOnInstanceAuthority|assertSudo)\(/.test(text) ? 'instance_authority' as const : false);
         out.push({ method: m[1].toUpperCase(), path: `${mount === '/' ? '' : mount}${routePath === '/' && mount !== '/' ? '' : routePath}`, routePath, file, router, text, stepUp });
       }
     }
@@ -106,7 +108,7 @@ test('each entry names the permission and step-up the source applies', () => {
     assert.ok(src, `${key(r)} is declared`);
     assert.ok(r.permission.length, `${key(r)} names who may call it`);
     for (const p of r.permission) assert.ok(known.has(p), `${key(r)}: ${p} is a permission`);
-    assert.equal(r.stepUp, src.stepUp, `${key(r)}: step-up ${src.stepUp ? 'applies' : 'does not apply'} in ${src.file}`);
+    assert.equal(r.stepUp, src.stepUp, `${key(r)}: step-up ${src.stepUp === 'instance_authority' ? 'applies on Unit Instance authority' : src.stepUp ? 'applies' : 'does not apply'} in ${src.file}`);
     // The console routers name their permission on the route itself: the entry says the same.
     const platform = /requirePlatform\('([^']+)'\)/.exec(src.text);
     if (src.router === 'platformRouter') assert.deepEqual(r.permission, [platform?.[1]], `${key(r)} requires ${platform?.[1]}`);

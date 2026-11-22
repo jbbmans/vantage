@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
-import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
+import { requireAuth, stepUpOnInstanceAuthority, assertSudo } from '../auth/middleware.ts';
+import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, membersAcross, sameInstance, orgOfUnit, orgCan } from '../authz/scope.ts';
+import { createUnit, updateUnit, parentIdIn, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { auditQuery } from '../services/auditQuery.ts';
@@ -51,19 +51,36 @@ function dashboardWindow(req: Request) {
 
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [parentIdIn(req.body || {}) ?? null]);
   res.status(201).json(createUnit(req.ctx, req.user, scope, req.body || {}, clientIp(req)));
 }));
-orgRouter.put('/units/:unitId', wrap((req, res) => res.json(updateUnit(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), req.body || {}, clientIp(req)))));
+orgRouter.put('/units/:unitId', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const unitId = String(req.params.unitId);
+  // Moving a unit under another parent needs authority in both; the page sends the parent it has, so the same one is
+  // no move.
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
+  const parentId = parentIdIn(req.body || {});
+  if (parentId && parentId !== getUnit(req.ctx, unitId)?.parent_id) stepUpOnInstanceAuthority(req, scope, [parentId]);
+  res.json(updateUnit(req.ctx, req.user, scope, unitId, req.body || {}, clientIp(req)));
+}));
 orgRouter.delete('/units/:unitId', wrap((req, res) => {
   const unitId = String(req.params.unitId);
+  const scope = scopeFor(req.ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   // Archiving the last unit you belong to in a Unit Instance takes you out of it, and your Unit Instance roles with you
   // (ADR-0010), so its last Lead Unit Manager cannot. Archiving its top unit closes the instance itself, which is not that.
   const member = req.ctx.db.prepare('SELECT 1 FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND m.unit_id = ? AND u.parent_id IS NOT NULL').get(req.user.id, unitId);
-  if (member && lastUnitInInstance(req.ctx, req.user.id, unitId)) assertMayEndInstanceRoles(req.ctx, req.user, orgOfUnit(req.ctx, unitId), req.user.id);
-  archiveUnit(req.ctx, req.user, scopeFor(req.ctx, req.user, req), unitId, clientIp(req));
+  if (member && lastUnitInInstance(req.ctx, req.user.id, unitId) && assertMayEndInstanceRoles(req.ctx, req.user, orgOfUnit(req.ctx, unitId), req.user.id).length) assertSudo(req);
+  archiveUnit(req.ctx, req.user, scope, unitId, clientIp(req));
   res.json({ ok: true });
 }));
-orgRouter.post('/units/:unitId/owner', wrap((req, res) => res.json(transferOwnership(req.ctx, req.user, String(req.params.unitId), String(req.body?.user_id || ''), clientIp(req)))));
+orgRouter.post('/units/:unitId/owner', wrap((req, res) => {
+  const unitId = String(req.params.unitId);
+  // The Unit Leader hands leadership on by their own authority; a Unit Manager names one by the instance's (ADR-0040).
+  if (!isUnitOwner(req.ctx, req.user.id, unitId) && orgCan(scopeFor(req.ctx, req.user, req), 'org.units', orgOfUnit(req.ctx, unitId))) assertSudo(req);
+  res.json(transferOwnership(req.ctx, req.user, unitId, String(req.body?.user_id || ''), clientIp(req)));
+}));
 
 orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   const unitId = String(req.params.unitId);
@@ -214,6 +231,7 @@ orgRouter.post('/units/:unitId/members', wrap((req, res) => {
   const scope = scopeFor(ctx, req.user, req);
   const { user_id, role_id, billet, primary } = parse(z.object({ user_id: z.string().max(64), role_id: z.string().max(120).nullish(), billet: z.string().max(80).nullish(), primary: z.boolean().optional() }), req.body);
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot add members to that unit.');
   if (user_id === req.user.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(user_id) as { id: string; first_name: string; last_name: string } | undefined;
@@ -243,10 +261,12 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const userId = String(req.params.userId);
   const body = parse(assignmentSchema, req.body);
-  const change = () => changeAssignment(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, unitId, userId, body);
+  const scope = scopeFor(ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
+  const change = () => changeAssignment(ctx, { actor: req.user, scope }, unitId, userId, body);
   // A change saved as a draft is made here like any other, and its draft goes with it, in the same transaction (ADR-0030).
   const draftId = draftParam(req.query);
-  const changed = draftId ? consumeDraft(ctx, req.user, scopeFor(ctx, req.user, req), draftId, { kind: 'personnel_change', subjectId: userId, unitId }, change) : change();
+  const changed = draftId ? consumeDraft(ctx, req.user, scope, draftId, { kind: 'personnel_change', subjectId: userId, unitId }, change) : change();
   audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `${changed.join(', ') || 'no change'}${body.reason ? `; ${body.reason}` : ''}${draftId ? '; from saved form' : ''}`, ip: clientIp(req) });
   res.json({ ok: true, changed });
 }));
@@ -269,14 +289,19 @@ orgRouter.get('/units/:unitId/supervisor-candidates', wrap((req, res) => {
 orgRouter.post('/units/:unitId/personnel/bulk', wrap((req, res) => {
   const ctx = req.ctx;
   const body = parse(bulkSchema, req.body);
-  const out = bulkPersonnel(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, String(req.params.unitId), body, clientIp(req));
+  const scope = scopeFor(ctx, req.user, req);
+  // A dry run changes nothing, so it asks for nothing.
+  if (!body.dry_run) stepUpOnInstanceAuthority(req, scope, [String(req.params.unitId)]);
+  const out = bulkPersonnel(ctx, { actor: req.user, scope }, String(req.params.unitId), body, clientIp(req));
   res.status(out.dry_run || out.applied ? 200 : 409).json(out.dry_run || out.applied ? out : { ...out, error: `${out.refused} of ${out.results.length} could not be changed, so nothing was.`, code: 'bulk_refused' });
 }));
 
 orgRouter.post('/units/:unitId/members/:userId/responsibilities', wrap((req, res) => {
   const ctx = req.ctx;
   const body = parse(responsibilitySchema, req.body);
-  const id = addResponsibility(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, String(req.params.unitId), String(req.params.userId), body, clientIp(req));
+  const scope = scopeFor(ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [String(req.params.unitId)]);
+  const id = addResponsibility(ctx, { actor: req.user, scope }, String(req.params.unitId), String(req.params.userId), body, clientIp(req));
   res.status(201).json({ id });
 }));
 
@@ -286,7 +311,7 @@ orgRouter.post('/responsibilities/:id/end', wrap((req, res) => {
   // Authority first: someone who manages no members anywhere learns nothing about which responsibilities exist.
   if (!unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS).length) throw forbidden('You cannot manage members.');
   const { reason } = parse(z.object({ reason: z.string().trim().max(200).nullish() }), req.body || {});
-  endResponsibility(ctx, { actor: req.user, scope }, String(req.params.id), reason || null, clientIp(req));
+  endResponsibility(ctx, { actor: req.user, scope, stepUp: (units) => stepUpOnInstanceAuthority(req, scope, units) }, String(req.params.id), reason || null, clientIp(req));
   res.json({ ok: true });
 }));
 
@@ -311,7 +336,9 @@ orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
   const unitId = String(req.params.unitId);
   const body = parse(z.object({ subject: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(5000) }), req.body);
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
-  if (!can(scopeFor(ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  const scope = scopeFor(ctx, req.user, req);
+  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   const limited = limiters.teamMail.limited(req.user.id);
   if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
   limiters.teamMail.bump(req.user.id);
@@ -325,7 +352,11 @@ orgRouter.post('/units/:unitId/members/:userId/move', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const userId = String(req.params.userId);
   const body = parse(z.object({ to: z.string().max(64), entries: z.enum(['stay', 'move']).optional(), billet: z.string().max(80).nullish() }), req.body);
-  const moved = moveMember(ctx, req.user, scopeFor(ctx, req.user, req), userId, unitId, body.to, { entries: body.entries, billet: body.billet });
+  const scope = scopeFor(ctx, req.user, req);
+  // A move needs authority in both teams; resting on the instance's in either asks.
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
+  stepUpOnInstanceAuthority(req, scope, [body.to]);
+  const moved = moveMember(ctx, req.user, scope, userId, unitId, body.to, { entries: body.entries, billet: body.billet });
   const from = getUnit(ctx, unitId)!;
   const to = getUnit(ctx, body.to)!;
   audit(ctx, { actor_id: req.user.id, action: 'move_member', entity: 'unit', entity_id: body.to, subject_id: userId, unit_id: unitId, detail: `from ${from.short_name || from.name} to ${to.short_name || to.name}; roles kept: ${moved.roles.join(', ') || 'none'}; not carried: ${moved.rolesSkipped.join(', ') || 'none'}; entries ${body.entries === 'move' ? `moved: ${moved.entriesMoved}` : `stayed (frozen: ${moved.recordsFrozen})`}; sessions revoked: ${moved.sessionsRevoked}`, ip: clientIp(req) });
@@ -341,10 +372,13 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
   if (!ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId)) throw notFound('That Marine is not a member of this unit.');
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot remove members from that unit.');
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   if (isUnitOwner(ctx, userId, unitId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot remove a Marine whose role is at or above your own.', 'hierarchy');
   // Their last unit in the Unit Instance takes them out of it, and ends any Unit Instance role they hold there (ADR-0010).
-  if (lastUnitInInstance(ctx, userId, unitId)) assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId);
+  // Ending one rests on the instance's own authority, never the unit's, so it asks as the console does (ADR-0040), one's
+  // own included.
+  if (lastUnitInInstance(ctx, userId, unitId) && assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId).length) assertSudo(req);
   const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; responsibilities ended: ${removed.responsibilitiesEnded}; supervisions ended: ${removed.supervisionsEnded}; sessions revoked: ${revoked}`, ip: clientIp(req) });
@@ -359,6 +393,7 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   const unit = getUnit(ctx, unitId);
   if (!unit) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot invite members to that unit.');
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   // An address that already has an account is invited all the same, and its holder accepts with that account, so a
   // Marine who transfers keeps one record (ADR-0009).
   if (body.role_id) {
@@ -401,7 +436,9 @@ orgRouter.delete('/invites/:id', wrap((req, res) => {
   const row = req.ctx.db.prepare(`SELECT id, payload FROM tokens WHERE id = ? AND kind = 'invite' AND used_at IS NULL`).get(String(req.params.id)) as { id: string; payload: string } | undefined;
   if (!row) throw notFound('No such invitation.');
   const unitId = String(JSON.parse(row.payload || '{}').unit_id || '');
-  if (!can(scopeFor(req.ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot revoke that invitation.');
+  const scope = scopeFor(req.ctx, req.user, req);
+  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot revoke that invitation.');
+  stepUpOnInstanceAuthority(req, scope, [unitId]);
   req.ctx.db.prepare('UPDATE tokens SET used_at = ? WHERE id = ?').run(now(), row.id);
   audit(req.ctx, { actor_id: req.user.id, action: 'invite_revoked', entity: 'invite', entity_id: row.id, unit_id: unitId || null, ip: clientIp(req) });
   res.json({ ok: true });
@@ -420,6 +457,7 @@ orgRouter.post('/roles', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
   const body = parse(roleBody, req.body);
+  stepUpOnInstanceAuthority(req, scope, [body.unit_id]);
   const { name } = validateRoleDefinition(ctx, req.user, scope, body);
   const id = `${body.unit_id}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${newId().slice(0, 6)}`.slice(0, 120);
   ctx.db.prepare('INSERT INTO roles (id, unit_id, name, description, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, body.unit_id, name, body.description || null, body.color || '#6b7a8f', body.position, body.permissions, now());
@@ -433,6 +471,7 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(String(req.params.roleId)) as RoleRow | undefined;
   if (!role) throw notFound('No such role.');
   const body = parse(roleBody.partial().omit({ unit_id: true }), req.body);
+  stepUpOnInstanceAuthority(req, scope, [role.unit_id]);
   const def = { name: body.name ?? role.name, position: body.position ?? role.position, permissions: body.permissions ?? role.permissions, unit_id: role.unit_id };
   const { name } = validateRoleDefinition(ctx, req.user, scope, def, role);
   // Widening a role you hold is giving it to yourself.
@@ -489,6 +528,7 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
   if (!role) throw notFound('No such role.');
   if (!canManageRoleDefinition(ctx, req.user, scope, role)) throw forbidden('That role is outside your authority.');
   if (role.is_default || role.key === 'unit-leader') throw badRequest('The default and Unit Leader roles cannot be deleted.');
+  stepUpOnInstanceAuthority(req, scope, [role.unit_id]);
   let revoked = 0;
   ctx.db.transaction(() => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
@@ -505,6 +545,7 @@ orgRouter.post('/team/:userId/roles', wrap((req, res) => {
   const { role_id, unit_id, expires_at } = parse(z.object({ role_id: z.string().max(120), unit_id: z.string().max(64), expires_at: z.string().max(40).nullish() }), req.body);
   const userId = String(req.params.userId);
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined;
+  stepUpOnInstanceAuthority(req, scope, [unit_id]);
   validateRoleGrant(ctx, req.user, scope, role, unit_id, userId);
   // validateRoleGrant refuses granting yourself authority the chain of command has not given you (ADR-0010). Nor is a new end date on a role you hold: making your own acting billet permanent is another person's call.
   if (userId === req.user.id && !has(chainBits(scope, unit_id), PERMISSIONS.ADMINISTRATOR) && ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, role_id)) {
@@ -541,6 +582,7 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(String(req.params.roleId)) as RoleRow | undefined;
   if (!role) throw notFound('No such role.');
   if (role.is_default || role.key === 'unit-leader') throw badRequest('That role is tied to membership or ownership.');
+  stepUpOnInstanceAuthority(req, scope, [role.unit_id]);
   if (!isUnitOwner(ctx, req.user.id, role.unit_id)) {
     if (!can(scope, PERMISSIONS.MANAGE_ROLES, role.unit_id)) throw forbidden('You cannot manage roles there.');
     if (role.position >= positionIn(scope, role.unit_id)) throw forbidden('That role is at or above your own.', 'hierarchy');
@@ -607,7 +649,13 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   if (!isSelf && !units.length) throw forbidden('You can see this Marine on a roster but cannot open their record in any shared unit.');
   const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.eas, u.rank_id, u.email, u.last_login_at, r.abbr AS rank_abbr, r.grade AS rank_grade, r.name AS rank_name FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ? AND u.active = 1`).get(id) as MemberDetailResponse['person'] | undefined;
   if (!person) throw notFound('No such Marine.');
-  if (!isSelf) { delete person.email; audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) }); }
+  if (!isSelf) {
+    delete person.email;
+    // When they last signed in is account status: the Marine's, and theirs who manage the Marine, as the roster and the
+    // personnel record give it. Reading the Marine's records is not managing them (ADR-0040).
+    if (!personnelAccess(ctx, scope, req.user.id, id).manageIn.length) delete person.last_login_at;
+    audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) });
+  }
   const shared = JSON.stringify(units);
   const unitClause = isSelf ? '' : "AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))";
   const unitArgs = isSelf ? [] : [shared];
@@ -675,6 +723,7 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   // in another instance is no claim on the name and rank every instance they serve in reads. The refusal does not say where.
   const units = profileUnitsFor(ctx, managed, id);
   if (!units.length) throw forbidden('Their profile is kept by the command that holds their primary unit.', 'cross_instance');
+  stepUpOnInstanceAuthority(req, scope, units);
   const body = parse(profileSchema.omit({ email: true }), req.body);
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
   // What the personnel feed sets, only the feed changes, for a leader as for the Marine (ADR-0009).
@@ -702,6 +751,7 @@ const joinCodeSchema = z.object({
 
 orgRouter.post('/units/:unitId/join-codes', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [String(req.params.unitId)]);
   res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), parse(joinCodeSchema, req.body), clientIp(req)));
 }));
 
@@ -711,6 +761,7 @@ orgRouter.get('/units/:unitId/join-codes', wrap((req, res) => {
 
 orgRouter.delete('/units/:unitId/join-codes/:inviteId', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
+  stepUpOnInstanceAuthority(req, scope, [String(req.params.unitId)]);
   res.json(revokeInvite(req.ctx, req.user, scope, String(req.params.unitId), String(req.params.inviteId), clientIp(req)));
 }));
 

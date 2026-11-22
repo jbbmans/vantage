@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, renameSync, chmodSync, rmSync, writeFileSync, openSync, closeSync, fchmodSync, readSync, writeSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
@@ -582,6 +582,18 @@ const MIGRATIONS: Migration[] = [
       if (!columnsOf(db, 'users').has('auth_epoch')) db.exec('ALTER TABLE users ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 0 CHECK (auth_epoch >= 0)');
       if (!columnsOf(db, 'sessions').has('auth_epoch')) db.exec('ALTER TABLE sessions ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 0 CHECK (auth_epoch >= 0)');
       if (!columnsOf(db, 'oidc_states').has('browser_hash')) db.exec('ALTER TABLE oidc_states ADD COLUMN browser_hash TEXT');
+    },
+  },
+  {
+    id: 42,
+    name: '042_attachment_scan',
+    // What the malware scan said of each file (ADR-0040): `clean`, or `skipped` when it was kept without a verdict (no
+    // scanner, or one that timed out or could not be reached while scanning is optional). A file kept before this has no
+    // verdict on record, so every existing row takes `unrecorded`; nothing claims a scan it cannot show. One column,
+    // added with that default; no other value is changed. Rolled back by restoring the pre-upgrade backup with the
+    // previous build.
+    run: (db) => {
+      if (!columnsOf(db, 'attachments').has('scan_status')) db.exec("ALTER TABLE attachments ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'unrecorded' CHECK (scan_status IN ('clean', 'skipped', 'unrecorded'))");
     },
   },
 ];
@@ -1345,6 +1357,50 @@ function isLegacyDatabase(db: Db): boolean {
   if (!hasUsers) return false;
   const columns = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);
   return !columns.includes('is_operator');
+}
+
+/**
+ * A copy of a database that is the service's alone from its first page (ADR-0040): the file is made owner-only before
+ * SQLite writes a byte to it, so no other account on the host reads the copy while it is drawn, and a copy that fails is
+ * removed when this call made the file. Every copy the service or its scripts take comes through here.
+ */
+export async function backupDatabase(db: { backup: (destination: string) => Promise<unknown> }, dest: string): Promise<void> {
+  const existed = existsSync(dest);
+  writeFileSync(dest, '', { flag: 'a', mode: 0o600 });
+  chmodSync(dest, 0o600);
+  try { await db.backup(dest); }
+  catch (error) {
+    if (!existed) for (const suffix of ['', '-journal', '-wal', '-shm']) rmSync(`${dest}${suffix}`, { force: true });
+    throw error;
+  }
+  chmodSync(dest, 0o600);
+}
+
+/**
+ * A database file copied as its bytes, for one SQLite cannot read through (ADR-0040): owner-only before the first byte,
+ * whatever the source's mode, since copyFile gives the copy the source's permissions. A copy that fails is removed.
+ * Closing any descriptor on a file drops every POSIX lock this process holds on it, a SQLite lock included, so a copy
+ * of a database this process holds locked passes `keepOpen`: the source's descriptor is added to it, still open, for
+ * the caller to close once the lock may go.
+ */
+export function copyFilePrivate(src: string, dest: string, keepOpen?: number[]): void {
+  const out = openSync(dest, 'w', 0o600);
+  try {
+    fchmodSync(out, 0o600);
+    const input = openSync(src, 'r');
+    keepOpen?.push(input);
+    try {
+      const chunk = Buffer.allocUnsafe(1 << 20);
+      for (let n = readSync(input, chunk, 0, chunk.length, 0), at = 0; n > 0; at += n, n = readSync(input, chunk, 0, chunk.length, at)) {
+        for (let w = 0; w < n;) w += writeSync(out, chunk, w, n - w);
+      }
+    } finally { if (!keepOpen) closeSync(input); }
+  } catch (error) {
+    closeSync(out);
+    rmSync(dest, { force: true });
+    throw error;
+  }
+  closeSync(out);
 }
 
 export function openDatabase(path: string): Db {

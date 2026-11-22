@@ -323,15 +323,17 @@ export function allOrgMembers(ctx: AppContext, orgId: string) {
 
 /**
  * Taking someone out of the last unit they hold in a Unit Instance ends any Unit Instance role they hold there, so on a
- * role holder it is a Lead Unit Manager's to do (`org.owners`), and never on the last Lead Unit Manager. Throws otherwise.
+ * role holder it is a Lead Unit Manager's to do (`org.owners`), and never on the last Lead Unit Manager. Throws otherwise;
+ * returns the roles it would end.
  */
-export function assertMayEndInstanceRoles(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string | null, userId: string) {
-  if (!orgId) return;
+export function assertMayEndInstanceRoles(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string | null, userId: string): string[] {
+  if (!orgId) return [];
   const held = (ctx.db.prepare('SELECT role FROM org_roles WHERE org_id = ? AND user_id = ?').all(orgId, userId) as Array<{ role: string }>).map((r) => r.role);
-  if (!held.length) return;
+  if (!held.length) return held;
   if (userId !== actor.id && !orgCan(scopeFor(ctx, actor), 'org.owners', orgId)) throw forbidden('They hold a Unit Instance role, which ends when they leave its last unit. A Lead Unit Manager removes them.', 'org_permission');
   const owners = liveOwners(ctx, orgId);
   if (held.includes('owner') && owners.includes(userId) && owners.length === 1) throw badRequest('They are the Unit Instance’s only Lead Unit Manager. Name another first.', { code: 'last_owner' });
+  return held;
 }
 
 /** Take someone out of every unit of the Unit Instance: their claims are released, their account is theirs to keep. */

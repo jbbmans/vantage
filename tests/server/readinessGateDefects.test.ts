@@ -4,18 +4,20 @@
  */
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { startApp, enroll, today, mockGenAi, PASSWORD, type TestApp } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
-import { SCHEMA_VERSION, openDatabase } from '../../server/db/index.ts';
+import { SCHEMA_VERSION, backupDatabase, copyFilePrivate, metaGet, openDatabase } from '../../server/db/index.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
+import { PRIVILEGED_ROUTES } from '../../server/authz/privilegedRoutes.ts';
+import { pruneSessions } from '../../server/auth/sessions.ts';
 
 const day = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const EDIPI_RUN = /(?<!\d)\d{10}(?!\d)/;
@@ -619,4 +621,710 @@ test('a change of VANTAGE_SECRET is in the trail, once, with what it sealed agai
     assert.equal(rotations(again).length, 1, 'a start with nothing left to seal writes nothing');
     again.db.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Step-up on Unit Instance authority (ADR-0040): the unit routes ask what the Unit Manager console asks
+
+/** A Unit Instance with a Lead Unit Manager who leads it, a Unit Manager who does not, and Marines in DISB beneath G8. */
+async function instanceWithUnitManager() {
+  const app = await startApp({ VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' });
+  const post = (token: string, path: string, body: unknown = {}) => app.call('POST', path, { token, body });
+  const lead = await app.setupOperator();
+  assert.equal((await post(lead.token, '/api/org/units', { name: 'Disbursing', short_name: 'DISB', code: 'disb', parent_id: 'G8' })).status, 201);
+  const manager = await app.register('unitmanager');
+  await enroll(app, lead.token, 'G8', manager.id);
+  assert.equal((await post(lead.token, '/api/orgs/G8/roles', { user_id: manager.id, role: 'admin' })).status, 201);
+  const signedIn = await app.login('unitmanager');
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  manager.token = signedIn.body.token;
+  const marine = await app.register('rifleman');
+  await enroll(app, lead.token, 'DISB', marine.id);
+  const other = await app.register('newjoin');
+  await enroll(app, lead.token, 'G8', other.id);
+  /** Every sign-in confirms the person for ten minutes; this ends that window, as time would. */
+  const unconfirm = (userId: string) => app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL WHERE user_id = ?').run(userId);
+  return { app, post, lead, manager, marine, other, unconfirm };
+}
+
+test('a Unit Manager who has not confirmed it is them names no unit leader and removes no Marine through the unit routes, as the console refuses them; a Unit Leader still needs no confirmation', async () => {
+  const { app, post, lead, manager, marine, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    unconfirm(manager.id);
+    const named = await post(manager.token, '/api/org/units/DISB/owner', { user_id: marine.id });
+    assert.equal(named.status, 403, JSON.stringify(named.body));
+    assert.equal(named.body.code, 'sudo_required');
+    const removed = await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    // The console refuses the same person for the same change.
+    assert.equal((await app.call('DELETE', `/api/orgs/G8/members/${marine.id}`, { token: manager.token })).body?.code, 'sudo_required');
+    const owner = app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'DISB'").get() as { owner_user_id: string };
+    assert.equal(owner.owner_user_id, lead.id, 'nobody new leads DISB');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE unit_id = 'DISB' AND user_id = ?").get(marine.id), 'the Marine is still in DISB');
+
+    // Confirmed, the same changes go through.
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await post(manager.token, '/api/org/units/DISB/owner', { user_id: marine.id })).status, 200);
+    assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'DISB'").get() as { owner_user_id: string }).owner_user_id, marine.id);
+
+    // The Unit Leader acts on the chain of command, unconfirmed: enrolling and removing a Marine in the unit they lead.
+    // Handing DISB on ended their sessions, so they sign in again first.
+    lead.token = (await app.login('boletz')).body.token;
+    unconfirm(lead.id);
+    const enrolled = await post(lead.token, '/api/org/units/G8/members', { user_id: other.id, role_id: 'G8:nco' });
+    assert.ok(enrolled.status === 201 || enrolled.status === 200, JSON.stringify(enrolled.body));
+    const gone = await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token });
+    assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  } finally { await app.close(); }
+});
+
+test('every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do', async () => {
+  const { app, post, lead, manager, marine, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    // What the changes need to find before they ask: a unit to archive, a responsibility, an invitation, a join code, a role.
+    assert.equal((await post(lead.token, '/api/org/units', { name: 'Temporary', short_name: 'TMP', code: 'tmp', parent_id: 'G8' })).status, 201);
+    const responsibility = await post(lead.token, `/api/org/units/DISB/members/${marine.id}/responsibilities`, { title: 'Safety NCO' });
+    assert.equal(responsibility.status, 201, JSON.stringify(responsibility.body));
+    const invite = await post(lead.token, '/api/org/units/DISB/invites', { first_name: 'Pending', last_name: 'Invitee' });
+    assert.equal(invite.status, 201, JSON.stringify(invite.body));
+    const code = await post(lead.token, '/api/org/units/DISB/join-codes', {});
+    assert.equal(code.status, 201, JSON.stringify(code.body));
+    const role = await post(lead.token, '/api/org/roles', { unit_id: 'DISB', name: 'Paying Agent', position: 1, permissions: PERMISSIONS.VIEW_UNIT });
+    assert.equal(role.status, 201, JSON.stringify(role.body));
+    assert.equal((await post(lead.token, `/api/org/team/${marine.id}/roles`, { role_id: role.body.id, unit_id: 'DISB' })).status, 200);
+
+    const calls: Array<[string, string, unknown?]> = [
+      ['POST', '/api/org/units', { name: 'Sweep Section', short_name: 'SWP', code: 'swp', parent_id: 'DISB' }],
+      ['PUT', '/api/org/units/DISB', { name: 'Disbursing Office' }],
+      ['DELETE', '/api/org/units/TMP'],
+      ['POST', '/api/org/units/DISB/owner', { user_id: marine.id }],
+      ['POST', '/api/org/units/DISB/members', { user_id: other.id }],
+      ['PUT', `/api/org/units/DISB/members/${marine.id}`, { billet: 'Clerk' }],
+      ['POST', `/api/org/units/DISB/members/${marine.id}/responsibilities`, { title: 'Fire Warden' }],
+      ['POST', `/api/org/responsibilities/${responsibility.body.id}/end`, {}],
+      ['POST', '/api/org/units/DISB/personnel/bulk', { items: [{ user_id: marine.id, unit_id: 'DISB' }], action: 'checked_in', value: today() }],
+      ['POST', '/api/org/units/DISB/message', { subject: 'Formation', body: 'Formation at 0700.' }],
+      ['POST', `/api/org/units/DISB/members/${marine.id}/move`, { to: 'G8' }],
+      ['DELETE', `/api/org/units/DISB/members/${marine.id}`],
+      ['POST', '/api/org/units/DISB/invites', { first_name: 'New', last_name: 'Join' }],
+      ['DELETE', `/api/org/invites/${invite.body.id}`],
+      ['POST', '/api/org/roles', { unit_id: 'DISB', name: 'Sweep Role', position: 1, permissions: 0 }],
+      ['PUT', `/api/org/roles/${role.body.id}`, { name: 'Paying Agent Officer' }],
+      ['DELETE', `/api/org/roles/${role.body.id}`],
+      ['POST', `/api/org/team/${marine.id}/roles`, { role_id: 'DISB:nco', unit_id: 'DISB' }],
+      ['DELETE', `/api/org/team/${marine.id}/roles/${encodeURIComponent(role.body.id)}`],
+      ['PUT', `/api/org/team/${marine.id}/profile`, { first_name: 'Changed' }],
+      ['POST', '/api/org/units/DISB/join-codes', {}],
+      ['DELETE', `/api/org/units/DISB/join-codes/${code.body.id}`],
+    ];
+    // Every change the route inventory says asks on Unit Instance authority is here.
+    const pattern = (path: string) => new RegExp(`^${path.replace(/:\w+/g, '[^/]+')}$`);
+    const asking = PRIVILEGED_ROUTES.filter((r) => r.stepUp === 'instance_authority');
+    for (const r of asking) assert.ok(calls.some(([m, p]) => m === r.method && pattern(r.path).test(p)), `${r.method} ${r.path} is tried`);
+    assert.equal(calls.length, asking.length);
+
+    const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('audit_log', 'sessions', 'product_events', 'meta') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    const snapshot = () => Object.fromEntries(tables.map((t) => [t, JSON.stringify(app.ctx.db.prepare(`SELECT * FROM "${t}"`).all())]));
+    unconfirm(manager.id);
+    const before = snapshot();
+    for (const [method, path, body] of calls) {
+      const res = await app.call(method, path, { token: manager.token, body });
+      assert.equal(res.status, 403, `${method} ${path}: ${res.status} ${JSON.stringify(res.body)}`);
+      assert.equal(res.body?.code, 'sudo_required', `${method} ${path}: ${JSON.stringify(res.body)}`);
+    }
+    const after = snapshot();
+    assert.deepEqual(tables.filter((t) => before[t] !== after[t]), [], 'nothing changed');
+
+    // Confirmed, a change goes through; a dry run of a bulk change never asked.
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await post(manager.token, '/api/org/units/DISB/message', { subject: 'Formation', body: 'Formation at 0700.' })).status, 200);
+    unconfirm(manager.id);
+    const preview = await post(manager.token, '/api/org/units/DISB/personnel/bulk', { items: [{ user_id: marine.id, unit_id: 'DISB' }], action: 'checked_in', value: today(), dry_run: true });
+    assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  } finally { await app.close(); }
+});
+
+test('a Unit Leader is not asked to rename the unit they lead, and is asked to end a Unit Instance role, their own too, or to move their unit under a parent they do not lead', async () => {
+  const { app, post, lead, manager, other, unconfirm } = await instanceWithUnitManager();
+  try {
+    // The founder leads G8 and is its Lead Unit Manager. Taking a Unit Manager out of their last unit ends that role,
+    // which rests on the instance, never on leading the unit.
+    assert.equal((await post(lead.token, '/api/orgs/G8/roles', { user_id: other.id, role: 'admin' })).status, 201);
+    unconfirm(lead.id);
+    const removed = await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(other.id), 'they are still a Unit Manager');
+    assert.equal((await post(lead.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/G8/members/${other.id}`, { token: lead.token })).status, 200);
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(other.id), undefined);
+
+    // A Unit Manager named to lead DISB renames it unasked, though the page sends its parent with the name.
+    await enroll(app, lead.token, 'DISB', manager.id);
+    assert.equal((await post(lead.token, '/api/org/units/DISB/owner', { user_id: manager.id })).status, 200);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    const renamed = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: 'G8' } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+    // Moving it under a unit they reach only as a Unit Manager asks.
+    lead.token = (await app.login('boletz')).body.token;
+    const tmp = await post(lead.token, '/api/org/units', { name: 'Temporary', short_name: 'TMP', code: 'tmp', parent_id: 'G8' });
+    assert.equal(tmp.status, 201, JSON.stringify(tmp.body));
+    const under = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id: tmp.body.id } });
+    assert.equal(under.status, 403, JSON.stringify(under.body));
+    assert.equal(under.body.code, 'sudo_required');
+    // A parent named any way but by its id is refused before either check, never read as that unit.
+    for (const parent_id of [[tmp.body.id], { id: tmp.body.id }, 7]) {
+      const odd = await app.call('PUT', '/api/org/units/DISB', { token: manager.token, body: { name: 'Disbursing Office', parent_id } });
+      assert.equal(odd.status, 400, JSON.stringify(odd.body));
+      const made = await post(manager.token, '/api/org/units', { name: 'Odd Section', short_name: 'ODD', code: 'odd', parent_id });
+      assert.equal(made.status, 400, JSON.stringify(made.body));
+    }
+    assert.equal((app.ctx.db.prepare("SELECT parent_id FROM units WHERE id = 'DISB'").get() as { parent_id: string }).parent_id, 'G8');
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM units WHERE id = 'odd'").get(), undefined);
+
+    // Their own role too: they lead the team they make beneath DISB, and archiving it, the last unit they serve in
+    // here, takes them out of the instance and ends their Unit Manager role, which leading a unit never gave.
+    const team = await post(manager.token, '/api/org/units', { name: 'Cashiers', short_name: 'CSH', code: 'csh', parent_id: 'DISB' });
+    assert.equal(team.status, 201, JSON.stringify(team.body));
+    app.ctx.db.prepare("DELETE FROM unit_members WHERE user_id = ? AND unit_id IN ('G8', 'DISB')").run(manager.id);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    const archived = await app.call('DELETE', `/api/org/units/${team.body.id}`, { token: manager.token });
+    assert.equal(archived.status, 403, JSON.stringify(archived.body));
+    assert.equal(archived.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(manager.id), 'they are still a Unit Manager');
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/${team.body.id}`, { token: manager.token })).status, 200);
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(manager.id), undefined);
+  } finally { await app.close(); }
+});
+
+test('full unit authority from a role below a Unit Manager’s place does not stand in for confirming it is them, since whom they outrank comes from the instance', async () => {
+  const { app, post, lead, manager, marine, unconfirm } = await instanceWithUnitManager();
+  try {
+    const role = async (name: string, position: number, permissions: number, userId: string) => {
+      const made = await post(lead.token, '/api/org/roles', { unit_id: 'DISB', name, position, permissions });
+      assert.equal(made.status, 201, JSON.stringify(made.body));
+      assert.equal((await post(lead.token, `/api/org/team/${userId}/roles`, { role_id: made.body.id, unit_id: 'DISB' })).status, 200);
+    };
+    await enroll(app, lead.token, 'DISB', manager.id);
+    await role('Deputy', 50, PERMISSIONS.ADMINISTRATOR, manager.id);
+    await role('Senior Clerk', 60, PERMISSIONS.VIEW_UNIT, marine.id);
+    manager.token = (await app.login('unitmanager')).body.token;
+    unconfirm(manager.id);
+    // Removing the Senior Clerk needs a place above 60: the Deputy role alone does not give it, the Unit Manager role does.
+    const removed = await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token });
+    assert.equal(removed.status, 403, JSON.stringify(removed.body));
+    assert.equal(removed.body.code, 'sudo_required');
+    assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE unit_id = 'DISB' AND user_id = ?").get(marine.id), 'the Marine is still in DISB');
+    assert.equal((await post(manager.token, '/api/auth/sudo', { password: PASSWORD })).status, 200);
+    assert.equal((await app.call('DELETE', `/api/org/units/DISB/members/${marine.id}`, { token: manager.token })).status, 200);
+  } finally { await app.close(); }
+});
+
+// Session ends and password step-up in the audit trail (ADR-0040)
+
+test('confirming it is them with a password is in the audit trail, naming the session it confirmed, and a wrong password is not', async () => {
+  const app = await startApp();
+  try {
+    const lead = await app.setupOperator();
+    const entries = () => app.ctx.db.prepare("SELECT actor_id, entity, entity_id, subject_id FROM audit_log WHERE action = 'password_step_up'").all() as Array<Record<string, string>>;
+    const wrong = await app.call('POST', '/api/auth/sudo', { token: lead.token, body: { password: 'not-the-password-at-all' } });
+    assert.equal(wrong.status, 403);
+    assert.deepEqual(entries(), []);
+    assert.equal((await app.call('POST', '/api/auth/sudo', { token: lead.token, body: { password: PASSWORD } })).status, 200);
+    const current = (await app.call('GET', '/api/me/sessions', { token: lead.token })).body.sessions.find((s: { current: boolean }) => s.current).id;
+    assert.deepEqual(entries(), [{ actor_id: lead.id, entity: 'sessions', entity_id: current, subject_id: lead.id }]);
+  } finally { await app.close(); }
+});
+
+test('signing out one session from the sessions list is in the trail under its id, and signing out this one there is a sign-out', async () => {
+  const app = await startApp();
+  try {
+    const lead = await app.setupOperator();
+    const second = (await app.login('boletz')).body.token as string;
+    const list = (await app.call('GET', '/api/me/sessions', { token: second })).body.sessions as Array<{ id: string; current: boolean }>;
+    const other = list.find((s) => !s.current)!.id;
+    const mine = list.find((s) => s.current)!.id;
+    // Each sign-in named its session. (Setting the service up writes an entry of its own about the platform.)
+    const signIns = (app.ctx.db.prepare("SELECT entity, entity_id, detail FROM audit_log WHERE action IN ('setup', 'login') AND entity IS NOT 'platform' ORDER BY seq").all() as Array<Record<string, string>>);
+    assert.deepEqual(signIns.map((e) => [e.entity, e.entity_id]), [['sessions', other], ['sessions', mine]]);
+    assert.equal(signIns[1].detail, 'password', 'the sign-in detail is the method alone');
+
+    assert.equal((await app.call('DELETE', `/api/me/sessions/${other}`, { token: second })).status, 200);
+    const revoked = app.ctx.db.prepare("SELECT actor_id, entity, entity_id, subject_id FROM audit_log WHERE action = 'session_revoked'").all();
+    assert.deepEqual(revoked, [{ actor_id: lead.id, entity: 'sessions', entity_id: other, subject_id: lead.id }]);
+    assert.equal((await app.call('GET', '/api/me', { token: lead.token })).status, 401, 'the other session is over');
+
+    const out = await app.call('DELETE', `/api/me/sessions/${mine}`, { token: second });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.current, true);
+    const logout = app.ctx.db.prepare("SELECT actor_id, entity, entity_id, detail FROM audit_log WHERE action = 'logout'").all();
+    assert.deepEqual(logout, [{ actor_id: lead.id, entity: 'sessions', entity_id: mine, detail: 'from the sessions list' }]);
+    assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'session_revoked'").get() as { n: number }).n, 1, 'this session is not counted as revoked too');
+  } finally { await app.close(); }
+});
+
+test('a session the limit pushes out, one that runs out on a request and one the prune finds are each in the trail once, under its id, by the service', async () => {
+  const app = await startApp({ VANTAGE_MAX_SESSIONS: '2' });
+  try {
+    const lead = await app.setupOperator();
+    const ids = () => (app.ctx.db.prepare('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at').all(lead.id) as Array<{ id: string }>).map((s) => s.id);
+    const first = ids()[0];
+    const second = (await app.login('boletz')).body.token as string;
+    assert.equal(ids().length, 2);
+    const third = (await app.login('boletz')).body.token as string;
+    assert.ok(!ids().includes(first), 'the oldest session went');
+    const ended = (action: string) => app.ctx.db.prepare('SELECT actor_id, entity, entity_id, subject_id, detail FROM audit_log WHERE action = ? ORDER BY seq').all(action) as Array<Record<string, string | null>>;
+    assert.deepEqual(ended('session_evicted'), [{ actor_id: null, entity: 'sessions', entity_id: first.slice(0, 12), subject_id: lead.id, detail: 'limit of 2 sessions' }]);
+
+    // Idle past its deadline: the next request on it finds it over, once.
+    const [secondId, thirdId] = ids();
+    app.ctx.db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), secondId);
+    assert.equal((await app.call('GET', '/api/me', { token: second })).status, 401);
+    assert.equal((await app.call('GET', '/api/me', { token: second })).status, 401);
+    assert.deepEqual(ended('session_expired'), [{ actor_id: null, entity: 'sessions', entity_id: secondId.slice(0, 12), subject_id: lead.id, detail: 'idle' }]);
+
+    // Past its absolute limit and found by the prune.
+    app.ctx.db.prepare('UPDATE sessions SET absolute_expires_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), thirdId);
+    pruneSessions(app.ctx);
+    pruneSessions(app.ctx);
+    assert.deepEqual(ended('session_expired').slice(1), [{ actor_id: null, entity: 'sessions', entity_id: thirdId.slice(0, 12), subject_id: lead.id, detail: 'absolute limit reached' }]);
+    assert.equal((await app.call('GET', '/api/me', { token: third })).status, 401);
+    assert.equal(ended('session_expired').length, 2);
+    // Found only after both deadlines passed, it is put down to the one it passed first.
+    const fourth = (await app.login('boletz')).body.token as string;
+    const fourthId = ids().find((s) => s !== thirdId && s !== secondId)!;
+    app.ctx.db.prepare('UPDATE sessions SET expires_at = ?, absolute_expires_at = ? WHERE id = ?').run(new Date(Date.now() - 120_000).toISOString(), new Date(Date.now() - 60_000).toISOString(), fourthId);
+    assert.equal((await app.call('GET', '/api/me', { token: fourth })).status, 401);
+    assert.deepEqual(ended('session_expired').slice(2).map((e) => [e.entity_id, e.detail]), [[fourthId.slice(0, 12), 'idle']]);
+    assert.equal(verifyAuditChain(app.ctx).ok, true);
+  } finally { await app.close(); }
+});
+
+// Settings in range, and mail to the relay over TLS only (ADR-0040)
+
+const TEST_ENV = { NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_PUBLIC_URL: 'http://localhost:5173' };
+const MCEN_ENV = {
+  NODE_ENV: 'production', VANTAGE_TEST: '', VANTAGE_SECRET: 's'.repeat(40), VANTAGE_SETUP_TOKEN: 't'.repeat(30), VANTAGE_DEPLOYMENT_PROFILE: 'mcen',
+  VANTAGE_APP_URL: 'https://vantage.example.mil', VANTAGE_PUBLIC_URL: '', VANTAGE_SITE_URL: '', VANTAGE_CONSOLE_URL: '', VANTAGE_ADMIN_URL: '',
+};
+const refusal = (env: Record<string, string>) => { try { loadConfig(env as NodeJS.ProcessEnv); return null; } catch (e) { return (e as Error).message; } };
+
+test('a security setting that is negative, a fraction, written as an exponent or hex, or past its range stops the start and names it, on every profile', () => {
+  const bad: Array<[string, string]> = [
+    ['VANTAGE_IDLE_MINUTES', '-5'], ['VANTAGE_IDLE_MINUTES', '1.5'], ['VANTAGE_IDLE_MINUTES', '1e3'], ['VANTAGE_IDLE_MINUTES', '0x10'], ['VANTAGE_IDLE_MINUTES', '0'],
+    ['VANTAGE_SESSION_HOURS', '1e20'], ['VANTAGE_LOCKOUT_MINUTES', '1e20'], ['VANTAGE_LOCKOUT_ATTEMPTS', '2.5'], ['VANTAGE_SUDO_MINUTES', '-10'],
+    ['VANTAGE_MAX_SESSIONS', '0'], ['VANTAGE_ATTACHMENT_MAX_BYTES', '-1'], ['VANTAGE_PBKDF2_ITERATIONS', '600000.5'], ['VANTAGE_DEMO_TTL_HOURS', '500'],
+    ['VANTAGE_BACKUP_MAX_AGE_HOURS', '0'], ['VANTAGE_MUTATIONS_PER_15_MINUTES', '1e12'], ['VANTAGE_STAFF_IDLE_MINUTES', '-1'],
+  ];
+  for (const base of [TEST_ENV, MCEN_ENV]) {
+    for (const [name, value] of bad) {
+      const message = refusal({ ...base, [name]: value });
+      assert.ok(message, `${name}=${value} was accepted`);
+      assert.match(message!, new RegExp(`^${name} must be a whole number from`), `${name}=${value}: ${message}`);
+    }
+  }
+  // In range, the setting is read as written.
+  const ok = loadConfig({ ...MCEN_ENV, VANTAGE_IDLE_MINUTES: '15', VANTAGE_LOCKOUT_MINUTES: ' 30 ', VANTAGE_LOCKOUT_ATTEMPTS: '5' } as NodeJS.ProcessEnv);
+  assert.deepEqual([ok.sessions.idleMinutes, ok.security.lockoutMinutes, ok.security.lockoutAttempts], [15, 30, 5]);
+  // An older name is read only when its new name is not set, so a value the new name replaces stops nothing.
+  const renamed = loadConfig({ ...MCEN_ENV, VANTAGE_STAFF_IDLE_MINUTES: '5', VANTAGE_OPERATOR_IDLE_MINUTES: '2.5' } as NodeJS.ProcessEnv);
+  assert.equal(renamed.sessions.operatorIdleMinutes, 5);
+  assert.equal(loadConfig({ ...MCEN_ENV, VANTAGE_OPERATOR_IDLE_MINUTES: '7' } as NodeJS.ProcessEnv).sessions.operatorIdleMinutes, 7);
+  assert.match(refusal({ ...MCEN_ENV, VANTAGE_OPERATOR_IDLE_MINUTES: '2.5' }) ?? '', /^VANTAGE_OPERATOR_IDLE_MINUTES must be/);
+});
+
+/** A relay that offers no STARTTLS and keeps everything it is sent, in clear text. */
+async function plainRelay() {
+  const { createServer } = await import('node:net');
+  const seen: string[] = [];
+  const server = createServer((sock) => {
+    let data = false;
+    sock.write('220 relay.example.mil ESMTP\r\n');
+    sock.on('data', (buf) => {
+      const text = buf.toString('utf8');
+      seen.push(text);
+      if (data) { if (/\r\n\.\r\n$/.test(text)) { data = false; sock.write('250 queued\r\n'); } return; }
+      for (const line of text.split('\r\n').filter(Boolean)) {
+        if (/^EHLO/i.test(line)) sock.write('250-relay.example.mil\r\n250 SIZE 10000000\r\n');
+        else if (/^STARTTLS/i.test(line)) sock.write('454 TLS not available\r\n');
+        else if (/^DATA/i.test(line)) { data = true; sock.write('354 go ahead\r\n'); }
+        else if (/^QUIT/i.test(line)) { sock.write('221 bye\r\n'); sock.end(); }
+        else sock.write('250 ok\r\n');
+      }
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return { port: (server.address() as { port: number }).port, seen, close: () => new Promise<void>((r) => server.close(() => r())) };
+}
+
+test('on MCEN a reset link never goes to a mail relay that will not start TLS, and an SMTP_URL that sets its own TLS terms stops the start', async () => {
+  const relay = await plainRelay();
+  const app = await startApp({ VANTAGE_DEPLOYMENT_PROFILE: 'mcen', VANTAGE_SELF_REGISTRATION: '', VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: `smtp://127.0.0.1:${relay.port}` });
+  try {
+    const sent = await app.ctx.mailer.send({ to: 'marine@example.mil', subject: 'Reset your password', text: 'Reset link: https://vantage.example.mil/reset?token=SECRET-RESET-TOKEN', html: '<p>SECRET-RESET-TOKEN</p>', kind: 'reset' });
+    assert.equal(sent.ok, false, 'the message is not sent');
+    const heard = relay.seen.join('');
+    assert.ok(!heard.includes('SECRET-RESET-TOKEN'), 'the relay never received the link');
+    assert.ok(!/^(MAIL FROM|RCPT TO|DATA)/im.test(heard), 'nothing past the greeting was sent in the clear');
+    assert.equal((app.ctx.db.prepare("SELECT status FROM email_log WHERE kind = 'reset'").get() as { status: string }).status, 'failed');
+  } finally { await app.close(); await relay.close(); }
+
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtp://relay.example.mil:587' }), null);
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:pa55@relay.example.mil:465' }), null);
+  for (const url of ['', 'http://relay.example.mil', 'not a url', 'smtp://relay.example.mil:25?ignoreTLS=true', 'smtp://relay.example.mil?requireTLS=false', 'smtps://relay.example.mil?tls.rejectUnauthorized=false', 'smtp://relay.example.mil?secure=false', 'smtp://relay.example.mil?TLS.minVersion=TLSv1']) {
+    const message = refusal({ ...smtp, SMTP_URL: url });
+    assert.ok(message?.startsWith('VANTAGE_DEPLOYMENT_PROFILE=mcen refuses:'), `${JSON.stringify(url)} was accepted`);
+    assert.match(message!, /SMTP_URL/);
+  }
+  // Elsewhere the URL is taken as written: the commercial site sends through its provider over HTTPS.
+  assert.equal(refusal({ ...TEST_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.com:25?ignoreTLS=true' }), null);
+});
+
+test('an SMTP_URL whose sign-in holds a % that starts no escape stops the start and says how to write it, and a workbook retention of 0 still keeps them', async () => {
+  const { tlsOnlyTransport } = await import('../../server/services/email.ts');
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  const message = refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%off@relay.example.mil:465' });
+  assert.match(message ?? '', /SMTP_URL has a % in its user name or password/);
+  assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%25off@relay.example.mil:465' }), null);
+  assert.deepEqual(tlsOnlyTransport('smtps://mailer:50%25off@relay.example.mil:465').auth, { user: 'mailer', pass: '50%off' });
+  assert.doesNotThrow(() => tlsOnlyTransport('smtps://mailer:50%off@relay.example.mil:465'), 'the transport never throws on what the start would refuse');
+  // 0 keeps uploaded workbooks until their owners remove them, as it did.
+  assert.equal(refusal({ ...MCEN_ENV, VANTAGE_INTAKE_RETAIN_DAYS: '0' }), null);
+  assert.equal(loadConfig({ ...TEST_ENV, VANTAGE_INTAKE_RETAIN_DAYS: '0' } as NodeJS.ProcessEnv).intake.retainDays, 0);
+});
+
+// Database copies and restores (ADR-0040)
+
+test('every copy of the database is its owner’s alone from its first page, the script’s new directory too, and a copy that fails leaves nothing', async () => {
+  const previous = process.umask(0o022);
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-copies-'));
+  try {
+    const db = openDatabase(join(dir, 'data', 'vantage.db'));
+    db.exec('CREATE TABLE gate_filler (b BLOB)');
+    const fill = db.prepare('INSERT INTO gate_filler VALUES (randomblob(4000))');
+    for (let i = 0; i < 600; i += 1) fill.run();
+    // Watched while SQLite writes it, page by page: never readable by anyone else.
+    const dest = join(dir, 'copy.db');
+    const seen = new Set<string>();
+    let done = false;
+    const watch = () => { for (const f of [dest, `${dest}-journal`]) if (existsSync(f)) seen.add(`${basename(f)} ${(statSync(f).mode & 0o777).toString(8)}`); if (!done) setImmediate(watch); };
+    setImmediate(watch);
+    await backupDatabase(db, dest);
+    done = true;
+    assert.ok([...seen].some((m) => m.startsWith('copy.db ')), 'the copy was watched');
+    for (const m of seen) assert.match(m, / 600$/, m);
+    const copy = new Database(dest, { readonly: true });
+    assert.equal(copy.pragma('quick_check', { simple: true }), 'ok');
+    copy.close();
+    // A copy that fails takes its file with it.
+    const failed = join(dir, 'failed.db');
+    await assert.rejects(backupDatabase({ backup: async () => { throw new Error('disk full'); } }, failed), /disk full/);
+    assert.equal(existsSync(failed), false);
+    db.close();
+
+    // A database SQLite cannot read through is copied as its bytes, owner-only before the first, whatever the source's mode.
+    const loose = join(dir, 'loose.db');
+    writeFileSync(loose, Buffer.alloc(3 << 20, 1), { mode: 0o644 });
+    chmodSync(loose, 0o644);
+    const bytes = join(dir, 'bytes.db');
+    copyFilePrivate(loose, bytes);
+    assert.equal((statSync(bytes).mode & 0o777).toString(8), '600', 'copyFile would have given it the source’s 644');
+    assert.ok(readFileSync(bytes).equals(readFileSync(loose)), 'every byte came');
+    assert.throws(() => copyFilePrivate(join(dir, 'missing.db'), join(dir, 'never.db')));
+    assert.equal(existsSync(join(dir, 'never.db')), false, 'a copy that fails leaves nothing');
+    // Copied while this process holds the database locked, as a restore does, the lock holds until the caller lets go.
+    const locked = join(dir, 'locked.db');
+    const holder = new Database(locked);
+    holder.exec('CREATE TABLE t (x)');
+    holder.pragma('locking_mode = EXCLUSIVE');
+    holder.exec('BEGIN EXCLUSIVE');
+    holder.exec('COMMIT');
+    const write = () => spawnSync(process.execPath, ['-e', `const D = require('better-sqlite3'); try { new D(${JSON.stringify(locked)}, { timeout: 0 }).exec('INSERT INTO t VALUES (1)'); console.log('written'); } catch (e) { console.log(e.code); }`], { encoding: 'utf8' }).stdout.trim();
+    assert.equal(write(), 'SQLITE_BUSY', 'locked before the copy');
+    const keepOpen: number[] = [];
+    copyFilePrivate(locked, join(dir, 'locked-copy.db'), keepOpen);
+    assert.equal(keepOpen.length, 1);
+    assert.equal(write(), 'SQLITE_BUSY', 'and still locked after it');
+    holder.close();
+    for (const fd of keepOpen) closeSync(fd);
+    assert.equal(write(), 'written', 'until it is let go');
+
+    // The backup script makes the directory it is given the service account’s alone.
+    const env = { ...process.env, VANTAGE_DB: join(dir, 'data', 'vantage.db') };
+    const nightly = join(dir, 'backups', 'nightly', 'vantage.db');
+    execFileSync(process.execPath, ['scripts/backup.ts', nightly], { env, stdio: 'pipe' });
+    assert.equal((statSync(nightly).mode & 0o777).toString(8), '600');
+    assert.equal((statSync(join(dir, 'backups', 'nightly')).mode & 0o777).toString(8), '700');
+  } finally { process.umask(previous); rmSync(dir, { recursive: true, force: true }); }
+
+  // Nothing copies the database any other way.
+  const sources = ['server', 'scripts'].flatMap((root) => readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter((f) => f.isFile() && f.name.endsWith('.ts')).map((f) => join(f.parentPath, f.name)));
+  const direct = sources.filter((f) => /\.backup\(|copyFileSync|\bcpSync/.test(readFileSync(f, 'utf8').replace(/export async function backupDatabase[\s\S]*?\n\}\n/, '')));
+  assert.deepEqual(direct, [], 'database copies go through backupDatabase or copyFilePrivate');
+});
+
+test('a backup that names no database is this one’s only when the trail here holds its newest entry, so another database’s is refused and never takes this one’s name', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-gate-unnamed-'));
+  try {
+    const live = join(dir, 'vantage.db');
+    const other = join(dir, 'other.db');
+    const own = join(dir, 'own.db');
+    // Another database with a longer trail, named nothing, as a build before databases were named left it.
+    const b = await startApp({ VANTAGE_DB: other });
+    const bop = await b.setupOperator();
+    for (let i = 0; i < 40; i += 1) audit(b.ctx, { actor_id: bop.id, action: 'backup', entity: 'database', detail: `filler ${i}` });
+    b.ctx.db.prepare("DELETE FROM meta WHERE key = 'database_id'").run();
+    await b.close();
+    // This database, with a shorter trail of its own, and a copy of it named nothing.
+    const a = await startApp({ VANTAGE_DB: live });
+    await a.setupOperator();
+    const liveId = metaGet(a.ctx.db, 'database_id');
+    await backupDatabase(a.ctx.db, own);
+    await a.close();
+    const unnamed = new Database(own);
+    unnamed.prepare("DELETE FROM meta WHERE key = 'database_id'").run();
+    unnamed.close();
+
+    const env = { ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: live, VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false', VANTAGE_RESTORE: '1' };
+    const restore = (from: string, ...extra: string[]) => spawnSync(process.execPath, ['scripts/restore.ts', 'REPLACE-DATABASE', '--from', from, '--by', 'boletz', '--reason', 'Checking which database a backup is of', ...extra], { env, encoding: 'utf8' });
+    const refused = restore(other);
+    assert.notEqual(refused.status, 0, refused.stdout);
+    assert.match(refused.stderr, /another Vantage database than the one here/);
+    const named = (file: string) => { const d = new Database(file, { readonly: true }); try { return metaGet(d as never, 'database_id'); } finally { d.close(); } };
+    assert.equal(named(live), liveId, 'nothing was replaced');
+
+    // Its own unnamed copy is this database's, and keeps its name.
+    const back = restore(own);
+    assert.equal(back.status, 0, back.stderr);
+    assert.equal(named(live), liveId);
+
+    // Another database's, on purpose: it comes in, and does not take this database's name.
+    const anyway = restore(other, '--different-database');
+    assert.equal(anyway.status, 0, anyway.stderr);
+    assert.notEqual(named(live), liveId);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A file keeps what its scan said (ADR-0040)
+
+test('a file keeps what the malware scan said of it, clean or kept without a verdict, in the answer, the list, the trail and the personal export', async () => {
+  const { fakeClamd } = await import('./helpers.ts');
+  const { buildPersonalExport } = await import('../../server/services/personalExport.ts');
+  const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 7), Buffer.from('0000000049454e44ae426082', 'hex')]);
+  const upload = async (app: TestApp, token: string, record: string, name: string, bytes: Buffer) =>
+    app.call('POST', `/api/records/activities/${record}/attachments`, { token, raw: bytes, headers: { 'content-type': 'image/png', 'x-vantage-filename': name } });
+  const clamd = await fakeClamd();
+  const scanned = await startApp({ VANTAGE_CLAMD: clamd.address });
+  const unscanned = await startApp();
+  const unreachable = await startApp({ VANTAGE_CLAMD: 'tcp://127.0.0.1:1' });
+  try {
+    for (const [app, expected] of [[scanned, 'clean'], [unscanned, 'skipped'], [unreachable, 'skipped']] as const) {
+      const lead = await app.setupOperator();
+      const record = await app.call('POST', '/api/records/activities', { token: lead.token, body: { title: 'Reconciled the ULO list', visibility: 'private' } });
+      const added = await upload(app, lead.token, record.body.id, 'proof.png', PNG);
+      assert.equal(added.status, 201, JSON.stringify(added.body));
+      assert.equal(added.body.scan_status, expected, 'the answer says');
+      const listed = await app.call('GET', `/api/records/activities/${record.body.id}/attachments`, { token: lead.token });
+      assert.equal(listed.body.attachments[0].scan_status, expected, 'the list says');
+      const logged = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'upload_attachment' ORDER BY seq DESC").get() as { detail: string };
+      assert.ok(logged.detail.endsWith(`; scan ${expected}`), logged.detail);
+      const exported = buildPersonalExport(app.ctx, lead.id, { attachments: false }) as unknown as { attachments: Array<{ id: string; scan_status: string }> };
+      assert.equal(exported.attachments.find((a) => a.id === added.body.id)?.scan_status, expected, 'the personal export says');
+    }
+  } finally { await scanned.close(); await unscanned.close(); await unreachable.close(); clamd.close(); }
+});
+
+test('a case closed or reopened from its row, or closed with an action, is in the trail as one closed from its stage is, and sending the same state again adds nothing', async () => {
+  const made = await app.call('POST', '/api/work/items', { token: op.token, body: { title: 'Close me out from the row', unit_id: 'G8', visibility: 'unit' } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  const trail = () => app.ctx.db.prepare("SELECT action, actor_id, unit_id, detail FROM audit_log WHERE entity = 'work_items' AND entity_id = ? AND action IN ('work_closed', 'work_reopened') ORDER BY seq").all(id)
+    .map((r) => ({ ...(r as object) }));
+  const patch = (body: Record<string, unknown>) => app.call('PATCH', `/api/work/items/${id}`, { token: op.token, body });
+
+  assert.equal((await patch({ state: 'resolved' })).status, 200);
+  assert.deepEqual(trail(), [{ action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'resolved' }]);
+  assert.equal((await patch({ state: 'resolved' })).status, 200);
+  assert.equal(trail().length, 1, 'the same closed state again closes nothing');
+  assert.equal((await patch({ state: 'in_progress' })).status, 200);
+  assert.deepEqual(trail().at(-1), { action: 'work_reopened', actor_id: op.id, unit_id: 'G8', detail: 'researching' });
+  assert.equal((await patch({ state: 'not_applicable' })).status, 200);
+  assert.deepEqual(trail().at(-1), { action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'not_applicable' });
+  assert.equal((await patch({ state: 'open' })).status, 200);
+  assert.equal(trail().length, 4);
+
+  const action = await app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: { kind: 'worked', note: 'Cleared with the vendor', resolve: true } });
+  assert.equal(action.status, 201, JSON.stringify(action.body));
+  assert.equal(action.body.item.state, 'resolved');
+  assert.deepEqual(trail().at(-1), { action: 'work_closed', actor_id: op.id, unit_id: 'G8', detail: 'resolved' });
+  const again = await app.call('POST', `/api/work/items/${id}/actions`, { token: op.token, body: { kind: 'noted', note: 'Filed the receipt', resolve: true } });
+  assert.equal(again.status, 201, JSON.stringify(again.body));
+  assert.equal(trail().length, 5, 'an action on a case already resolved closes nothing');
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('restoring someone else’s record from the bin names them in the trail, as deleting it does, and the Marine sees it in their own trail', async () => {
+  const entry = await app.call('POST', '/api/records/activities', { token: kid.token, body: { title: 'ZZFISCAL restore me', date: day(-1), visibility: 'unit', unit_id: 'FISCAL' } });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const id = entry.body.id as string;
+  const row = (action: string) => app.ctx.db.prepare('SELECT actor_id, subject_id FROM audit_log WHERE entity = ? AND entity_id = ? AND action = ? ORDER BY seq DESC LIMIT 1').get('activities', id, action) as { actor_id: string; subject_id: string | null };
+
+  assert.equal((await app.call('DELETE', `/api/records/activities/${id}`, { token: op.token })).status, 200);
+  assert.equal((await app.call('POST', `/api/records/activities/${id}/restore`, { token: op.token })).status, 200);
+  assert.deepEqual({ ...row('delete') }, { actor_id: op.id, subject_id: kid.id });
+  assert.deepEqual({ ...row('restore') }, { actor_id: op.id, subject_id: kid.id }, 'the restore names whose record it was');
+  const mine = await app.call('GET', '/api/me/audit', { token: kid.token });
+  assert.equal(mine.status, 200, JSON.stringify(mine.body));
+  const seen = mine.body.rows as Array<{ action: string; entity_id: string }>;
+  assert.ok(seen.some((e) => e.action === 'restore' && e.entity_id === id), 'the Marine sees their record was restored');
+
+  // Their own restore names nobody else.
+  assert.equal((await app.call('DELETE', `/api/records/activities/${id}`, { token: kid.token })).status, 200);
+  assert.equal((await app.call('POST', `/api/records/activities/${id}/restore`, { token: kid.token })).status, 200);
+  assert.deepEqual({ ...row('restore') }, { actor_id: kid.id, subject_id: null });
+});
+
+test('what a Marine does to a private entry stays out of every unit’s access log, in the Unit Instance trail, and a shared entry’s stays in its unit’s', async () => {
+  const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 7), Buffer.from('0000000049454e44ae426082', 'hex')]);
+  const call = (method: string, path: string, body?: unknown, token = kid.token) => app.call(method, path, { token, body });
+  const unitLog = async (unit: string) => {
+    const log = await app.call('GET', `/api/org/units/${unit}/audit?limit=500`, { token: op.token });
+    assert.equal(log.status, 200, JSON.stringify(log.body));
+    return log.body.rows as Array<{ action: string; entity: string; entity_id: string; detail: string | null }>;
+  };
+  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id, org_id FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null; org_id: string | null }>;
+
+  const made = await call('POST', '/api/records/activities', { title: 'ZZPRIVATE counseling notes to self', date: day(-1), visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  assert.equal(made.body.unit_id, 'FISCAL', 'a private entry still sits in its unit');
+  const edited = await call('PUT', `/api/records/activities/${id}`, { ...made.body, title: 'ZZPRIVATE notes, second pass' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  const file = await app.call('POST', `/api/records/activities/${id}/attachments`, { token: kid.token, raw: PNG, headers: { 'content-type': 'image/png', 'x-vantage-filename': 'private.png' } });
+  assert.equal(file.status, 201, JSON.stringify(file.body));
+  assert.equal((await call('DELETE', `/api/records/activities/${id}/attachments/${file.body.id}`)).status, 200);
+  assert.equal((await call('DELETE', `/api/records/activities/${id}`)).status, 200);
+  assert.equal((await call('POST', `/api/records/activities/${id}/restore`)).status, 200);
+  const moved = await call('POST', `/api/records/activities/${id}/move`, { to: 'trainings', fields: { title: 'ZZPRIVATE course', date: day(-1) } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  const trainingId = moved.body.id as string;
+
+  assert.equal((await app.call('GET', `/api/records/activities/${id}`, { token: op.token })).status, 404, 'the leader cannot open it');
+  for (const unit of ['FISCAL', 'G8']) {
+    const rows = await unitLog(unit);
+    assert.ok(!rows.some((r) => r.entity_id === id || r.entity_id === trainingId || (r.detail || '').includes(id)), `${unit}: nothing about the private entry`);
+  }
+  const trail = [...filed(id), ...filed(trainingId)];
+  assert.deepEqual([...new Set(trail.map((r) => r.action))].sort(), ['create', 'delete', 'delete_attachment', 'edit', 'record_moved', 'restore', 'upload_attachment']);
+  assert.ok(trail.every((r) => r.unit_id === null && r.org_id === 'G8'), 'every entry is under its Unit Instance and no unit');
+
+  // A shared entry's are its unit's to read, as before.
+  const shared = await call('POST', '/api/records/activities', { title: 'ZZSHARED reconciled the ULO list', date: day(-1), visibility: 'unit', unit_id: 'FISCAL' });
+  assert.equal(shared.status, 201, JSON.stringify(shared.body));
+  assert.ok((await unitLog('FISCAL')).some((r) => r.entity_id === shared.body.id && r.action === 'create'));
+  // Made private, what follows is not; what came before stays as it was written.
+  assert.equal((await call('PUT', `/api/records/activities/${shared.body.id}`, { ...shared.body, visibility: 'private' })).status, 200);
+  assert.equal((await call('DELETE', `/api/records/activities/${shared.body.id}`)).status, 200);
+  assert.deepEqual(filed(shared.body.id).map((r) => [r.action, r.unit_id]), [['create', 'FISCAL'], ['edit', null], ['delete', null]]);
+
+  // A counseling a leader writes keeps its unit, as its counselor reads it there; a Marine's own private one does not.
+  const { privateEntry } = await import('../../server/services/audit.ts');
+  const at = new Date().toISOString();
+  const counseling = app.ctx.db.prepare("INSERT INTO counselings (id, user_id, counselor_id, unit_id, visibility, type, date, summary, created_at, updated_at) VALUES (?, ?, ?, 'FISCAL', 'private', 'initial', ?, 'Talked it through.', ?, ?)");
+  counseling.run('zz-c-leader', kid.id, op.id, day(-1), at, at);
+  counseling.run('zz-c-own', kid.id, null, day(-1), at, at);
+  assert.equal(privateEntry(app.ctx, 'counselings', 'zz-c-leader'), false);
+  assert.equal(privateEntry(app.ctx, 'counselings', 'zz-c-own'), true);
+  assert.equal(privateEntry(app.ctx, 'duties', id), false, 'a duty is always its unit’s');
+  assert.equal(privateEntry(app.ctx, '__proto__', id), false);
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave without its id', async () => {
+  const { privateEntry } = await import('../../server/services/audit.ts');
+  const call = (method: string, path: string, body?: unknown) => app.call(method, path, { token: kid.token, body });
+  const unitLog = async () => {
+    const log = await app.call('GET', '/api/org/units/FISCAL/audit?limit=500', { token: op.token });
+    assert.equal(log.status, 200, JSON.stringify(log.body));
+    return log.body.rows as Array<{ action: string; entity: string; entity_id: string }>;
+  };
+  const filed = (id: string) => app.ctx.db.prepare('SELECT action, unit_id, detail FROM audit_log WHERE entity_id = ? ORDER BY seq').all(id).map((r) => ({ ...(r as object) })) as Array<{ action: string; unit_id: string | null; detail: string | null }>;
+
+  const contact = await call('POST', '/api/correspondence/contacts', { name: 'ZZ Private Contact', visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(contact.status, 201, JSON.stringify(contact.body));
+  const thread = await call('POST', '/api/correspondence/threads', { subject: 'ZZ private follow-up', visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(thread.status, 201, JSON.stringify(thread.body));
+  assert.equal((await call('POST', `/api/correspondence/threads/${thread.body.id}/state`, { state: 'resolved' })).status, 200);
+  const draft = await call('POST', '/api/studio/reports', { title: 'ZZ private draft', period_start: day(-30), period_end: day(-1), unit_id: 'FISCAL', visibility: 'private' });
+  assert.equal(draft.status, 201, JSON.stringify(draft.body));
+  const rows = await unitLog();
+  for (const r of [contact.body.id, thread.body.id, draft.body.id]) assert.ok(!rows.some((x) => x.entity_id === r), `${r} is not in the unit's log`);
+  assert.deepEqual(filed(thread.body.id).map((r) => [r.action, r.unit_id]), [['create_thread', null], ['thread_state', null]]);
+
+  // Every kind of thing a Marine can keep private is decided the same way: a workbook and its import, a message by its
+  // thread, a revision by its draft.
+  const at = new Date().toISOString();
+  const db = app.ctx.db;
+  db.prepare("INSERT INTO source_files (id, user_id, unit_id, visibility, filename, content_type, kind, byte_size, sha256, content, created_at) VALUES ('zz-src', ?, 'FISCAL', 'private', 'mine.csv', 'text/csv', 'delimited', 1, 'x', x'00', ?)").run(kid.id, at);
+  db.prepare("INSERT INTO import_jobs (id, source_file_id, user_id, unit_id, visibility, sheet_name, created_at, updated_at) VALUES ('zz-job', 'zz-src', ?, 'FISCAL', 'private', 'Sheet1', ?, ?)").run(kid.id, at, at);
+  db.prepare("INSERT INTO thread_messages (id, thread_id, direction, created_at) VALUES ('zz-msg', ?, 'inbound', ?)").run(thread.body.id, at);
+  db.prepare("INSERT INTO report_revisions (id, report_id, revision, title, period_start, period_end, created_by, created_at) VALUES ('zz-rev', ?, 1, 't', ?, ?, ?, ?)").run(draft.body.id, day(-30), day(-1), kid.id, at);
+  for (const [table, id] of [['source_files', 'zz-src'], ['import_jobs', 'zz-job'], ['contacts', contact.body.id], ['threads', thread.body.id], ['thread_messages', 'zz-msg'], ['report_drafts', draft.body.id], ['report_revisions', 'zz-rev']]) {
+    assert.equal(privateEntry(app.ctx, table, id), true, `${table} kept private`);
+  }
+  db.prepare("UPDATE threads SET visibility = 'unit' WHERE id = ?").run(thread.body.id);
+  assert.equal(privateEntry(app.ctx, 'thread_messages', 'zz-msg'), false, 'a message in a shared thread is its unit’s');
+
+  // A private activity moved to Duty, which is always its unit's, then undone: each end is filed as its own row was.
+  db.prepare("INSERT OR IGNORE INTO duty_types (id, org_id, code, name, description, active, created_at, updated_at) VALUES ('zz-dnco', 'G8', 'ZZDN', 'Duty NCO', NULL, 1, ?, ?)").run(at, at);
+  const made = await call('POST', '/api/records/activities', { title: 'ZZPRIVATE stood duty', date: day(-2), visibility: 'private', unit_id: 'FISCAL' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const moved = await call('POST', `/api/records/activities/${made.body.id}/move`, { to: 'duties', fields: { duty_type_id: 'zz-dnco', start_time: '0800', end_time: '1600', unit_id: 'FISCAL' } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  assert.equal((await call('POST', `/api/records/duties/${moved.body.id}/undo-move`)).status, 200);
+  assert.deepEqual(filed(moved.body.id).map((r) => [r.action, r.unit_id]), [['record_moved', 'FISCAL'], ['record_move_undone', 'FISCAL']], 'the unit sees the duty come and go');
+  assert.ok(filed(made.body.id).every((r) => r.unit_id === null), 'the private activity is in no unit’s log');
+  assert.deepEqual(filed(moved.body.id).map((r) => r.detail), ['from activities', 'to activities'], 'nor is its id, in the duty’s entries the unit sees');
+  assert.deepEqual(filed(made.body.id).map((r) => r.detail).slice(-2), [`to duties ${moved.body.id}`, `from duties ${moved.body.id}`], 'the instance trail links the two');
+  // A shared activity moved to a duty in another of its owner's units is seen leaving its own unit.
+  const shared = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'ZZSHARED stood duty', date: day(-2), visibility: 'unit', unit_id: 'FISCAL' } });
+  assert.equal(shared.status, 201, JSON.stringify(shared.body));
+  const across = await app.call('POST', `/api/records/activities/${shared.body.id}/move`, { token: op.token, body: { to: 'duties', fields: { duty_type_id: 'zz-dnco', start_time: '0800', end_time: '1600', unit_id: 'G8' } } });
+  assert.equal(across.status, 201, JSON.stringify(across.body));
+  assert.deepEqual(filed(shared.body.id).map((r) => [r.action, r.unit_id, r.detail]), [['create', 'FISCAL', null], ['record_moved', 'FISCAL', `to duties ${across.body.id}`]]);
+  assert.deepEqual(filed(across.body.id).map((r) => [r.action, r.unit_id, r.detail]), [['record_moved', 'G8', `from activities ${shared.body.id}`]]);
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+});
+
+test('when a Marine last signed in is on their page for them and those who manage them, never for a leader who only reads their records', async () => {
+  const page = async (token: string, id: string) => {
+    const r = await app.call('GET', `/api/org/team/${id}`, { token });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.person as Record<string, unknown>;
+  };
+  const m = await app.register('plainmember');
+  await enroll(app, op.token, 'G8', m.id);
+  const member = { id: m.id, token: (await app.login('plainmember')).body.token as string };
+  const signedIn = (app.ctx.db.prepare('SELECT last_login_at FROM users WHERE id = ?').get(member.id) as { last_login_at: string | null }).last_login_at;
+  assert.ok(signedIn, 'they have signed in');
+  assert.equal((await page(member.token, member.id)).last_login_at, signedIn, 'on their own page');
+  assert.equal((await page(op.token, member.id)).last_login_at, signedIn, 'to the leader who manages them');
+  // A section leader who reads the Marine's page and records, above them, and manages nobody.
+  const role = await app.call('POST', '/api/org/roles', { token: op.token, body: { unit_id: 'G8', name: 'Section Reader', position: 10, permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL } });
+  assert.equal(role.status, 201, JSON.stringify(role.body));
+  const r = await app.register('sectionreader');
+  await enroll(app, op.token, 'G8', r.id);
+  assert.equal((await app.call('POST', `/api/org/team/${r.id}/roles`, { token: op.token, body: { role_id: role.body.id, unit_id: 'G8' } })).status, 200);
+  const sectionReader = { id: r.id, token: (await app.login('sectionreader')).body.token as string };
+  const read = await page(sectionReader.token, member.id);
+  assert.equal(read.id, member.id, 'the reader opens the page');
+  assert.ok(!('last_login_at' in read) && !('email' in read), 'but learns neither when they signed in nor their email');
+  const roster = await app.call('GET', '/api/org/units/G8/personnel', { token: sectionReader.token });
+  assert.equal(roster.status, 200, JSON.stringify(roster.body));
+  assert.ok(!JSON.stringify(roster.body).includes(signedIn), 'nor from the roster, as before');
 });

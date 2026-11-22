@@ -63,7 +63,11 @@ export interface AppConfig {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
   };
-  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string; allowPrivate: boolean };
+  email: {
+    provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string; allowPrivate: boolean;
+    /** Mail to the relay only over TLS 1.2 or later, to a certificate that checks: the MCEN profile (ADR-0040). */
+    requireTls: boolean;
+  };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   /** How the public page presents itself to search engines. */
   search: {
@@ -154,7 +158,7 @@ export interface SecurityConfig {
 }
 
 function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean, profile: DeploymentProfile): SecurityConfig {
-  const passwordIterations = envNumber(env, 'VANTAGE_PBKDF2_ITERATIONS', test ? 1_000 : 600_000);
+  const passwordIterations = envInt(env, 'VANTAGE_PBKDF2_ITERATIONS', test ? 1_000 : 600_000, 1_000, 10_000_000);
   if (production && passwordIterations < 210_000) throw new Error('VANTAGE_PBKDF2_ITERATIONS must be at least 210000 in production.');
   // A DoD information system shows the Notice and Consent Banner, so on MCEN it is on unless custom text replaces it.
   const banner = (env.VANTAGE_CONSENT_BANNER || (profile === 'mcen' ? 'dod' : 'off')).trim().toLowerCase();
@@ -163,8 +167,8 @@ function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: b
   if (banner === 'custom' && !consentText) throw new Error('VANTAGE_CONSENT_BANNER=custom needs the notice in VANTAGE_CONSENT_TEXT.');
   return {
     passwordIterations,
-    lockoutAttempts: Math.max(1, envNumber(env, 'VANTAGE_LOCKOUT_ATTEMPTS', 3)),
-    lockoutMinutes: Math.max(1, envNumber(env, 'VANTAGE_LOCKOUT_MINUTES', 15)),
+    lockoutAttempts: envInt(env, 'VANTAGE_LOCKOUT_ATTEMPTS', 3, 1, 100),
+    lockoutMinutes: envInt(env, 'VANTAGE_LOCKOUT_MINUTES', 15, 1, 7 * 24 * 60),
     consentBanner: banner as SecurityConfig['consentBanner'],
     consentText,
     // On MCEN, backups are the hosting environment's job; a whole-database download through a browser is opt-in.
@@ -249,13 +253,23 @@ function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
   return cfg;
 }
 
-function envNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+/**
+ * A numeric setting: a whole number written in digits, from `min` to `max`, on every profile. A sign, a fraction, an
+ * exponent, hex or anything out of range stops the start and names the setting, so no limit is ever negative, a
+ * fraction or so large that the date it makes is not a date (ADR-0040). Unset or empty is the fallback.
+ */
+function envInt(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number, max: number): number {
   const raw = env[name];
   if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) throw new Error(`${name} must be numeric.`);
+  const text = raw.trim();
+  const n = /^\d{1,16}$/.test(text) ? Number(text) : Number.NaN;
+  if (!Number.isSafeInteger(n) || n < min || n > max) throw new Error(`${name} must be a whole number from ${min.toLocaleString('en-US')} to ${max.toLocaleString('en-US')}.`);
   return n;
 }
+
+const KIB = 1024;
+const MIB = 1024 * KIB;
+const GIB = 1024 * MIB;
 
 function envBool(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
   const raw = env[name];
@@ -319,10 +333,31 @@ function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emai
   if ((env.VANTAGE_GOOGLE_SITE_VERIFICATION || '').trim() || (env.VANTAGE_BING_SITE_VERIFICATION || '').trim()) problems.push('VANTAGE_GOOGLE_SITE_VERIFICATION / VANTAGE_BING_SITE_VERIFICATION: there is no public site to verify.');
   if (values.clientIp === 'cloudflare') problems.push('VANTAGE_CLIENT_IP=cloudflare: client addresses come from the enterprise proxy chain (TRUST_PROXY), not Cloudflare.');
   if (values.emailProvider === 'resend' || values.emailProvider === 'direct') problems.push(`VANTAGE_EMAIL_PROVIDER=${values.emailProvider}: mail leaves through the enterprise relay. Use smtp with SMTP_URL, or none.`);
+  if (values.emailProvider === 'smtp') { const smtp = smtpUrlProblem(env.SMTP_URL); if (smtp) problems.push(smtp); }
   if (envBool(env, 'VANTAGE_SELF_REGISTRATION', false)) problems.push('VANTAGE_SELF_REGISTRATION=true: accounts come from invitations, the personnel roster or CAC provisioning.');
   if ((env.VANTAGE_CONSENT_BANNER || '').trim().toLowerCase() === 'off') problems.push('VANTAGE_CONSENT_BANNER=off: a DoD information system shows the Notice and Consent Banner (dod, or custom text).');
   if (values.site !== values.app) problems.push('VANTAGE_SITE_URL / VANTAGE_PUBLIC_URL: MCEN serves no public site, so the site address is the application\'s. Leave both unset, or equal to VANTAGE_APP_URL.');
   return problems;
+}
+
+/**
+ * Query settings in SMTP_URL that would decide the connection's security. On MCEN the service sets those itself, TLS
+ * required and its certificate checked, so a URL that names one is refused rather than quietly overridden.
+ */
+const SMTP_SECURITY_QUERY = /^(?:secure|requiretls|ignoretls|opportunistictls|tls(?:\..*)?)$/i;
+
+/** What is wrong with SMTP_URL for the MCEN profile, or null: a smtp:// or smtps:// relay address, nothing deciding TLS. */
+function smtpUrlProblem(raw: string | undefined): string | null {
+  const value = String(raw ?? '').trim();
+  const example = 'such as smtp://relay.example.mil:587 (STARTTLS) or smtps://relay.example.mil:465';
+  if (!value) return `VANTAGE_EMAIL_PROVIDER=smtp needs SMTP_URL, the enterprise relay's address, ${example}.`;
+  let url: URL;
+  try { url = new URL(value); } catch { return `SMTP_URL must be the enterprise relay's address, ${example}.`; }
+  if ((url.protocol !== 'smtp:' && url.protocol !== 'smtps:') || !url.hostname) return `SMTP_URL must be the enterprise relay's address, ${example}.`;
+  const named = [...url.searchParams.keys()].filter((k) => SMTP_SECURITY_QUERY.test(k));
+  if (named.length) return `SMTP_URL sets ${[...new Set(named)].join(', ')}: on MCEN mail to the relay always uses TLS 1.2 or later with its certificate checked. Remove ${named.length === 1 ? 'it' : 'them'} from the address.`;
+  try { decodeURIComponent(url.username); decodeURIComponent(url.password); } catch { return 'SMTP_URL has a % in its user name or password that starts no escape. Write a % there as %25.'; }
+  return null;
 }
 
 function resolveTrustProxy(raw: string | undefined, production: boolean): boolean | number | string {
@@ -413,10 +448,10 @@ export function loadConfig(env = process.env): AppConfig {
     deployment,
     accessMode: accessMode as AccessMode,
     demo: {
-      ttlHours: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_TTL_HOURS', 24), 1), 168),
-      maxWorkspaces: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_MAX_WORKSPACES', 200), 1), 5000),
+      ttlHours: envInt(env, 'VANTAGE_DEMO_TTL_HOURS', 24, 1, 168),
+      maxWorkspaces: envInt(env, 'VANTAGE_DEMO_MAX_WORKSPACES', 200, 1, 5000),
     },
-    port: envNumber(env, 'PORT', 8787),
+    port: envInt(env, 'PORT', 8787, 0, 65_535),
     databasePath,
     urls: { site, app, console: consoleUrl, admin: adminUrl },
     rpId,
@@ -429,42 +464,46 @@ export function loadConfig(env = process.env): AppConfig {
     trustProxy: resolveTrustProxy(env.TRUST_PROXY, production),
     clientIp,
     sessions: {
-      idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 15),
-      // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations.
-      operatorIdleMinutes: envNumber(env, 'VANTAGE_STAFF_IDLE_MINUTES', envNumber(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10)),
-      absoluteHours: envNumber(env, 'VANTAGE_SESSION_HOURS', 12),
-      maxActive: envNumber(env, 'VANTAGE_MAX_SESSIONS', 8),
-      sudoMinutes: envNumber(env, 'VANTAGE_SUDO_MINUTES', 10),
+      idleMinutes: envInt(env, 'VANTAGE_IDLE_MINUTES', 15, 1, 24 * 60),
+      // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations, read
+      // only when the new name is not set.
+      operatorIdleMinutes: env.VANTAGE_STAFF_IDLE_MINUTES
+        ? envInt(env, 'VANTAGE_STAFF_IDLE_MINUTES', 10, 1, 24 * 60)
+        : envInt(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10, 1, 24 * 60),
+      absoluteHours: envInt(env, 'VANTAGE_SESSION_HOURS', 12, 1, 7 * 24),
+      maxActive: envInt(env, 'VANTAGE_MAX_SESSIONS', 8, 1, 100),
+      sudoMinutes: envInt(env, 'VANTAGE_SUDO_MINUTES', 10, 1, 60),
     },
     limits: {
-      mutationsPer15Minutes: envNumber(env, 'VANTAGE_MUTATIONS_PER_15_MINUTES', 300),
-      registrationsPer15Minutes: envNumber(env, 'VANTAGE_REGISTRATIONS_PER_15_MINUTES', 20),
+      mutationsPer15Minutes: envInt(env, 'VANTAGE_MUTATIONS_PER_15_MINUTES', 300, 1, 1_000_000),
+      registrationsPer15Minutes: envInt(env, 'VANTAGE_REGISTRATIONS_PER_15_MINUTES', 20, 1, 100_000),
       // Reads from the two consoles, per person: two a second for fifteen minutes is more than anyone clicks (ADR-0013).
-      consoleReadsPer15Minutes: envNumber(env, 'VANTAGE_CONSOLE_READS_PER_15_MINUTES', 1800),
-      maxRecordsPerUser: envNumber(env, 'VANTAGE_MAX_RECORDS_PER_USER', 20000),
-      maxDatabaseBytes: envNumber(env, 'VANTAGE_MAX_DB_BYTES', 800 * 1024 * 1024),
+      consoleReadsPer15Minutes: envInt(env, 'VANTAGE_CONSOLE_READS_PER_15_MINUTES', 1800, 1, 1_000_000),
+      maxRecordsPerUser: envInt(env, 'VANTAGE_MAX_RECORDS_PER_USER', 20000, 1, 10_000_000),
+      maxDatabaseBytes: envInt(env, 'VANTAGE_MAX_DB_BYTES', 800 * MIB, MIB, 1024 * GIB),
     },
     attachments: {
       enabled: envBool(env, 'VANTAGE_ATTACHMENTS_ENABLED', true),
-      maxBytes: envNumber(env, 'VANTAGE_ATTACHMENT_MAX_BYTES', 10 * 1024 * 1024),
-      maxPerRecord: envNumber(env, 'VANTAGE_ATTACHMENTS_PER_RECORD', 10),
+      maxBytes: envInt(env, 'VANTAGE_ATTACHMENT_MAX_BYTES', 10 * MIB, 1, GIB),
+      maxPerRecord: envInt(env, 'VANTAGE_ATTACHMENTS_PER_RECORD', 10, 1, 1000),
       allowedTypes: ['application/pdf', 'image/jpeg', 'image/png', 'text/plain', 'text/csv'],
     },
     intake: {
       enabled: envBool(env, 'VANTAGE_INTAKE_ENABLED', true),
-      maxBytes: envNumber(env, 'VANTAGE_INTAKE_MAX_BYTES', 25 * 1024 * 1024),
-      maxRows: envNumber(env, 'VANTAGE_INTAKE_MAX_ROWS', 20000),
-      maxColumns: envNumber(env, 'VANTAGE_INTAKE_MAX_COLUMNS', 128),
-      maxBytesPerUser: envNumber(env, 'VANTAGE_INTAKE_MAX_BYTES_PER_USER', 250 * 1024 * 1024),
-      retainDays: envNumber(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400),
+      maxBytes: envInt(env, 'VANTAGE_INTAKE_MAX_BYTES', 25 * MIB, 1, GIB),
+      maxRows: envInt(env, 'VANTAGE_INTAKE_MAX_ROWS', 20000, 1, 10_000_000),
+      maxColumns: envInt(env, 'VANTAGE_INTAKE_MAX_COLUMNS', 128, 1, 10_000),
+      maxBytesPerUser: envInt(env, 'VANTAGE_INTAKE_MAX_BYTES_PER_USER', 250 * MIB, 1, 1024 * GIB),
+      // 0 keeps uploaded workbooks until their owners remove them.
+      retainDays: envInt(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400, 0, 36_500),
       scannerCommand: env.VANTAGE_SCANNER_COMMAND ? String(env.VANTAGE_SCANNER_COMMAND) : null,
       clamd: (env.VANTAGE_CLAMD || '').trim() || null,
       // Accredited hosts: refuse a file that could not be scanned rather than keep it marked as not scanned.
       scanRequired: envBool(env, 'VANTAGE_SCAN_REQUIRED', false),
     },
     recordImports: {
-      maxBytes: envNumber(env, 'VANTAGE_RECORD_IMPORT_MAX_BYTES', 50 * 1024 * 1024),
-      stagedHours: envNumber(env, 'VANTAGE_RECORD_IMPORT_STAGED_HOURS', 24),
+      maxBytes: envInt(env, 'VANTAGE_RECORD_IMPORT_MAX_BYTES', 50 * MIB, 1, GIB),
+      stagedHours: envInt(env, 'VANTAGE_RECORD_IMPORT_STAGED_HOURS', 24, 1, 30 * 24),
     },
     ai: {
       enabled: envBool(env, 'VANTAGE_AI_ENABLED', false),
@@ -472,12 +511,13 @@ export function loadConfig(env = process.env): AppConfig {
       baseUrl,
       models,
       defaultModel: env.VANTAGE_GENAI_DEFAULT_MODEL || models[0],
-      maxOutputTokens: envNumber(env, 'VANTAGE_GENAI_MAX_OUTPUT_TOKENS', 2000),
-      timeoutMs: envNumber(env, 'VANTAGE_GENAI_TIMEOUT_MS', 45000),
-      requestsPerMinute: envNumber(env, 'VANTAGE_GENAI_REQUESTS_PER_MINUTE', 100),
-      perUserRequestsPerMinute: envNumber(env, 'VANTAGE_GENAI_PER_USER_REQUESTS_PER_MINUTE', 12),
-      dailyTokenBudget: envNumber(env, 'VANTAGE_GENAI_DAILY_TOKEN_BUDGET', 45_000_000),
-      perUserDailyTokens: envNumber(env, 'VANTAGE_GENAI_PER_USER_DAILY_TOKENS', 250_000),
+      maxOutputTokens: envInt(env, 'VANTAGE_GENAI_MAX_OUTPUT_TOKENS', 2000, 1, 1_000_000),
+      timeoutMs: envInt(env, 'VANTAGE_GENAI_TIMEOUT_MS', 45000, 1000, 600_000),
+      requestsPerMinute: envInt(env, 'VANTAGE_GENAI_REQUESTS_PER_MINUTE', 100, 1, 100_000),
+      perUserRequestsPerMinute: envInt(env, 'VANTAGE_GENAI_PER_USER_REQUESTS_PER_MINUTE', 12, 1, 10_000),
+      // A budget of 0 spends nothing: the assistant answers that the day's budget is used.
+      dailyTokenBudget: envInt(env, 'VANTAGE_GENAI_DAILY_TOKEN_BUDGET', 45_000_000, 0, 1_000_000_000_000),
+      perUserDailyTokens: envInt(env, 'VANTAGE_GENAI_PER_USER_DAILY_TOKENS', 250_000, 0, 1_000_000_000_000),
     },
     email: {
       provider: emailProvider,
@@ -491,6 +531,7 @@ export function loadConfig(env = process.env): AppConfig {
       resendUrl: (test && env.VANTAGE_RESEND_URL) || 'https://api.resend.com/emails',
       // Direct delivery to a private address is refused unless the network's mail hosts really are private.
       allowPrivate: envBool(env, 'VANTAGE_EMAIL_ALLOW_PRIVATE', false),
+      requireTls: deployment.profile === 'mcen',
     },
     search: {
       googleVerification: verificationToken(env, 'VANTAGE_GOOGLE_SITE_VERIFICATION'),
@@ -502,7 +543,7 @@ export function loadConfig(env = process.env): AppConfig {
     securityContact: securityContact(env.VANTAGE_SECURITY_CONTACT),
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
-      refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
+      refreshMinutes: envInt(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30, 1, 7 * 24 * 60),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
     m365: readM365Config(env, production, test, app),
@@ -514,7 +555,7 @@ export function loadConfig(env = process.env): AppConfig {
     security: readSecurityConfig(env, production, test, deployment.profile),
     oidc: readOidcConfig(env, production, test),
     operations: {
-      backupMaxAgeHours: Math.min(Math.max(1, envNumber(env, 'VANTAGE_BACKUP_MAX_AGE_HOURS', 168)), 24 * 366),
+      backupMaxAgeHours: envInt(env, 'VANTAGE_BACKUP_MAX_AGE_HOURS', 168, 1, 24 * 366),
       lineageFile: databasePath === ':memory:' || lineage.toLowerCase() === 'off' ? null : lineage ? (isAbsolute(lineage) ? lineage : resolve(ROOT, lineage)) : `${databasePath}.lineage`,
     },
   };

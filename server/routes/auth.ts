@@ -8,7 +8,7 @@ import { assertNotLocked, assertNameNotLocked, recordFailure, recordNameFailure,
 import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
-import { createSession, credentialsChanged, destroySession, invalidateUserSessions, resolveSession, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
+import { createSession, credentialsChanged, destroySession, invalidateUserSessions, resolveSession, sessionRef, signedInMarker, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { matchTotp } from '../auth/totp.ts';
@@ -67,8 +67,9 @@ function openSession(req: Request, res: Response, user: { id: string; auth_epoch
     }
   }
   clearFailures(ctx, user.id);
-  const { token, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true, epoch: user.auth_epoch });
-  audit(ctx, { actor_id: user.id, action, ip: clientIp(req), detail: method });
+  const { token, id, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true, epoch: user.auth_epoch });
+  // The session by the id its list shows, so its end can be matched to it; the detail stays the method, which sign-in health counts.
+  audit(ctx, { actor_id: user.id, action, entity: 'sessions', entity_id: sessionRef(id), ip: clientIp(req), detail: method });
   res.cookie(SESSION_COOKIE, token, cookieOptions(req));
   setSignedInMarker(req, res, token);
   return { token, expires };
@@ -337,7 +338,7 @@ authRouter.post('/passkey/verify', wrap(async (req, res) => {
 
 authRouter.post('/logout', requireAuth, wrap((req, res) => {
   destroySession(req.ctx, req.sessionId);
-  audit(req.ctx, { actor_id: req.user.id, action: 'logout', ip: clientIp(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'logout', entity: 'sessions', entity_id: sessionRef(req.sessionId), ip: clientIp(req) });
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.clearCookie(SIGNED_IN_COOKIE, { path: '/' });
   res.json({ ok: true });
@@ -364,6 +365,8 @@ authRouter.post('/sudo', requireAuth, wrap(async (req, res) => {
   clearFailures(ctx, req.user.id);
   rehashIfOld(ctx, req.user.id, password, row.password_hash);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
+  // In the trail as the card's is (ADR-0040). A wrong password is counted toward the lockout, which is audited, not here.
+  audit(ctx, { actor_id: req.user.id, action: 'password_step_up', entity: 'sessions', entity_id: sessionRef(req.sessionId), subject_id: req.user.id, ip: clientIp(req), detail: `until ${until}` });
   res.json({ ok: true, until });
 }));
 
@@ -704,6 +707,6 @@ authRouter.post('/cac/step-up', requireAuth, wrap((req, res) => {
   markEdipiVerified(ctx, req.user.id, identity.edipi);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'cac' }, { id: req.user.id });
-  audit(ctx, { actor_id: req.user.id, action: 'cac_step_up', subject_id: req.user.id, ip, detail: `edipi=${identity.edipi} issuer=${identity.issuer ?? '(none)'} serial=${identity.serial ?? '(none)'}` });
+  audit(ctx, { actor_id: req.user.id, action: 'cac_step_up', entity: 'sessions', entity_id: sessionRef(req.sessionId), subject_id: req.user.id, ip, detail: `edipi=${identity.edipi} issuer=${identity.issuer ?? '(none)'} serial=${identity.serial ?? '(none)'}` });
   res.json({ ok: true, until });
 }));

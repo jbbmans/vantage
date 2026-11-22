@@ -1060,27 +1060,42 @@
       "title": "Database copies are world-readable while they are written; the start-over backup is never restricted, and browser backups are staged in shared tmpdir",
       "severity": "low",
       "area": "Audit, migrations and recovery",
-      "status": "open",
-      "evidence": [],
-      "note": "Browser backups are now drawn in a private directory (fixed with c15-live-database-world-readable). The backup and restore scripts set 0600 after the copy, and the start-over backup is not restricted."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "every copy of the database is its owner’s alone from its first page, the script’s new directory too, and a copy that fails leaves nothing"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): backupDatabase makes every copy owner-only before SQLite writes to it and removes a copy it made that fails. The browser download, the server backup, both restore copies and the start-over copy use it; a database SQLite cannot read through is kept by copyFilePrivate, owner-only before its first byte, its write-ahead log too; the script makes a new directory 0700."
     },
     {
       "id": "pre022-other-database-not-refused",
       "title": "restore.ts does not refuse a pre-022 backup of another database when the live trail is shorter than the backup's",
       "severity": "low",
       "area": "Audit, migrations and recovery",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a backup that names no database is this one’s only when the trail here holds its newest entry, so another database’s is refused and never takes this one’s name"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): a backup that names no database is this one’s only when the trail here holds its newest entry with the same hash; otherwise it is refused without --different-database and never takes this database’s name."
     },
     {
       "id": "single-session-revoke-unaudited",
       "title": "Signing out one of one's own sessions is not audited",
       "severity": "low",
       "area": "Audit, migrations and recovery",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "signing out one session from the sessions list is in the trail under its id, and signing out this one there is a sign-out"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): another session signed out from the list is session_revoked under its id; this session signed out there is a logout."
     },
     {
       "id": "c06-passkey-accepted-under-exclusive-modes",
@@ -1096,9 +1111,14 @@
       "title": "The MCEN production profile starts with negative, fractional or huge session, lockout and size limits",
       "severity": "medium",
       "area": "Security review C06-C20",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a security setting that is negative, a fraction, written as an exponent or hex, or past its range stops the start and names it, on every profile"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): every numeric setting is read by envInt, digits only, a safe integer within its range, on every profile; 0 stays in range where it meant never (VANTAGE_INTAKE_RETAIN_DAYS). The quiet clamps are refusals. Tighter STIG ceilings are left to the ISSM (c08-mcen-weak-postures-not-refused)."
     },
     {
       "id": "c08-mcen-weak-postures-not-refused",
@@ -1107,7 +1127,7 @@
       "area": "Security review C06-C20",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "note": "Reported with a probe; not independently verified. Plain SMTP to the relay is refused on MCEN since ADR-0040 (c18-mcen-smtp-cleartext). The rest are policy for the ISSM: CAC revocation, required scanning, syslog over TLS, an enterprise identity and STIG ceilings on session settings (an idle limit of 15 minutes at most, for example). Left open until the ISSM sets them."
     },
     {
       "id": "c09-default-proxy-trust-forges-client-ip",
@@ -1145,9 +1165,18 @@
       "title": "On the MCEN profile, mail including password-reset links is sent in clear text to a relay that offers no STARTTLS",
       "severity": "medium",
       "area": "Security review C06-C20",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "on MCEN a reset link never goes to a mail relay that will not start TLS, and an SMTP_URL that sets its own TLS terms stops the start"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "an SMTP_URL whose sign-in holds a % that starts no escape stops the start and says how to write it, and a workbook retention of 0 still keeps them"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): on MCEN the relay transport requires TLS 1.2 or later with a checked certificate, built from the address and sign-in only; an SMTP_URL that is empty, not smtp: or smtps:, sets its own TLS terms, or holds a % in its sign-in that starts no escape stops the start."
     },
     {
       "id": "c14-recent-titles-survive-sign-out",
@@ -1185,9 +1214,14 @@
       "title": "Session cap eviction, idle or absolute expiry and the scheduled prune end sessions with no audit entry, and sign-in entries carry no session correlation",
       "severity": "medium",
       "area": "Security review C21-C35",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a session the limit pushes out, one that runs out on a request and one the prune finds are each in the trail once, under its id, by the service"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): session_evicted for the session limit, session_expired for idle or absolute expiry, whichever came first, found by a request or by the prune, each once, under the session’s id, by the service. A demo persona switch names the session it ends. Sessions ended together by a change (signing out the others, a password or role change) are in that change’s entry, as before."
     },
     {
       "id": "c35-passkey-profile-and-removal",
@@ -1284,9 +1318,18 @@
       "title": "An attachment stored without a scan carries no 'not scanned' mark anywhere",
       "severity": "medium",
       "area": "Attachments",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a file keeps what the malware scan said of it, clean or kept without a verdict, in the answer, the list, the trail and the personal export"
+        },
+        {
+          "file": "tests/server/migrations.test.ts",
+          "test": "042 gives every file kept before it a scan status of unrecorded, takes only the three statuses, and changes no other value"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040, migration 042): attachments.scan_status is clean, skipped or unrecorded, in the answer, the lists, the trail detail and the personal export. Both file lists mark a file that is not clean."
     },
     {
       "id": "eml-scan-before-authorization",
@@ -1810,9 +1853,22 @@
       "title": "Unit Manager changes refused without step-up on /api/orgs succeed through /api/org",
       "severity": "medium",
       "area": "Route sweep (accounts, units, consoles)",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a Unit Manager who has not confirmed it is them names no unit leader and removes no Marine through the unit routes, as the console refuses them; a Unit Leader still needs no confirmation"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a Unit Leader is not asked to rename the unit they lead, and is asked to end a Unit Instance role, their own too, or to move their unit under a parent they do not lead"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040). An /api/org change asks for step-up when it rests on Unit Instance authority: a Unit Instance structure role in the unit, and no full authority there from the chain of command from a place as high. Naming a unit leader asks when it rests on the instance’s Manage units; taking someone out of their last unit asks whenever it ends a Unit Instance role, as the console does. A Unit Leader renaming their own unit is not asked."
     },
     {
       "id": "role-self-revoke-asymmetry",
@@ -1828,9 +1884,14 @@
       "title": "Password step-up is not on the audit trail, while the card step-up is",
       "severity": "low",
       "area": "Route sweep (accounts, units, consoles)",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "confirming it is them with a password is in the audit trail, naming the session it confirmed, and a wrong password is not"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): password_step_up, naming the session it confirmed. A wrong password counts toward the lockout and is not written one by one, as docs/security/ASVS.md records."
     },
     {
       "id": "member-removal-membership-oracle",
@@ -1874,9 +1935,14 @@
       "title": "Closing and reopening a case through PATCH /api/work/items/:id (or an action with resolve:true) writes no work_closed or work_reopened audit entry",
       "severity": "medium",
       "area": "Route sweep (records, work, reports)",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a case closed or reopened from its row, or closed with an action, is in the trail as one closed from its stage is, and sending the same state again adds nothing"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): work_closed and work_reopened with the stage it moved to, from the row and from an action, as from its stage."
     },
     {
       "id": "unaudited-connector-delete-and-unlink",
@@ -1892,9 +1958,14 @@
       "title": "The record restore audit omits subject_id, while the delete audit records it",
       "severity": "low",
       "area": "Route sweep (records, work, reports)",
-      "status": "open",
-      "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "restoring someone else’s record from the bin names them in the trail, as deleting it does, and the Marine sees it in their own trail"
+        }
+      ],
+      "note": "Confirmed and fixed (ADR-0040): the restore names whose record it was, as the delete does."
     },
     {
       "id": "oidc-link-leaves-card",
@@ -1979,6 +2050,60 @@
         }
       ],
       "note": "Found by the review of the fix above: once a dead cookie counts as signed out, an install in that window was one more way in. Older than this branch for a browser with no session. The install now keeps / only when it is the application (from / or /login), the rule navigations already followed."
+    },
+    {
+      "id": "org-router-instance-authority-without-stepup",
+      "title": "Every unit, member, role, invitation, join-code and profile change through /api/org made on Unit Instance authority went through without step-up, not only the unit routes the register named",
+      "severity": "medium",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "every unit change a Unit Manager makes on Unit Instance authority asks them to confirm it is them first, and nothing changes until they do"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "full unit authority from a role below a Unit Manager’s place does not stand in for confirming it is them, since whom they outrank comes from the instance"
+        }
+      ],
+      "note": "Found by the review of stepup-bypass-via-org-router. Fixed with it (ADR-0040); the route inventory marks these routes stepUp: instance_authority and its test reads the check from the code. The PR review found full unit authority from a role placed below a Unit Instance role passed as the chain’s; it asks now."
+    },
+    {
+      "id": "member-page-last-login-to-non-managers",
+      "title": "A Marine’s page sent when they last signed in to every leader who could open it, while the roster and the personnel record give it only to those who manage the Marine",
+      "severity": "low",
+      "area": "Route sweep (accounts, units, consoles)",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "when a Marine last signed in is on their page for them and those who manage them, never for a leader who only reads their records"
+        }
+      ],
+      "note": "Found reading the statistics code. No page showed it. Fixed (ADR-0040): only the Marine and those who manage them (personnelAccess().manageIn) receive it."
+    },
+    {
+      "id": "unit-access-log-private-entries",
+      "title": "A unit’s access log listed what a Marine did to a private entry (created, edited, deleted, restored, moved, its files), so a leader refused the entry learned it existed and when it changed",
+      "severity": "medium",
+      "area": "Audit, migrations and recovery",
+      "status": "fixed",
+      "evidence": [
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "what a Marine does to a private entry stays out of every unit’s access log, in the Unit Instance trail, and a shared entry’s stays in its unit’s"
+        },
+        {
+          "file": "tests/server/readinessGateDefects.test.ts",
+          "test": "a private contact, thread, workbook, import or report draft stays out of every unit’s access log as a private record does, and so does a duty’s way back to a private activity, which its unit sees leave without its id"
+        },
+        {
+          "file": "tests/server/unitIsolation.test.ts",
+          "test": "an entry kept private in one Unit Instance and shared in another by the same edit is filed in the first as it was there, in no unit’s log"
+        }
+      ],
+      "note": "Found reading the statistics code. Fixed (ADR-0040): an entry about a private entry is filed under its Unit Instance and no unit, decided as it is written: a record or case, and a workbook, import, contact, thread, message, report draft, revision or saved report kept private. Each end of a move is filed as its own row was, under its own unit, and a shared end names a private one by its type alone. An edit into another Unit Instance is filed in the one it left as the entry was there. A counseling a leader writes keeps its unit. Entries written before keep their unit, since the trail is sealed."
     }
   ],
   "external": [

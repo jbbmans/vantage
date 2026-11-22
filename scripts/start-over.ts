@@ -11,7 +11,7 @@ import { readRoster, applyAccounts, type RosterRow } from '../server/services/ac
 import { passwordProblem } from '../shared/password.ts';
 import type { SessionUser } from '../server/context.ts';
 import { withPlatform } from '../server/authz/platform.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers } from '../server/db/index.ts';
+import { auditAppendOnlyTriggers, backupDatabase, dropAuditAppendOnlyTriggers } from '../server/db/index.ts';
 
 const USAGE = `Usage:
   VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<password>' node scripts/start-over.ts ERASE-EVERYTHING \\
@@ -60,7 +60,7 @@ const { db } = ctx;
 if (!flags.has('--no-backup') && db.name !== ':memory:') {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
   const backup = join(dirname(db.name), `vantage-before-start-over-${stamp}.db`);
-  await db.backup(backup);
+  await backupDatabase(db, backup);
   console.log(`Backed up the current database to ${backup}`);
 }
 

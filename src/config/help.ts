@@ -126,6 +126,15 @@ export const HELP: HelpSection[] = [
         also: ['undo', 'recycle bin', 'restore', 'recover'],
       },
       {
+        id: 'not-scanned',
+        q: 'Why does a file say Not scanned?',
+        a: [
+          'Where the service has a malware scanner, every file is checked as it is added. A file attached to an entry that the scanner finds something in is never kept, and a workbook it finds something in is never opened. Not scanned means the file was kept without a result: no scanner is set up, or it did not answer in time. No scan on record means the file was added before Vantage kept scan results.',
+          'Open a file marked either way only if you know where it came from, as you would a file sent by email.',
+        ],
+        also: ['virus', 'malware', 'scan', 'attachment'],
+      },
+      {
         id: 'csv',
         q: 'Can I import or export a spreadsheet of records?',
         a: [
@@ -358,6 +367,15 @@ export const HELP: HelpSection[] = [
           'Supported, with recovery codes. Each recovery code works once. Store them somewhere that is not the device running the authenticator.',
         ],
         also: ['totp', '2fa', 'two factor', 'recovery codes'],
+      },
+      {
+        id: 'confirm',
+        q: 'Why am I asked to confirm it is me?',
+        a: [
+          'Some changes ask for your password, or your CAC, once more before they go through: security settings, exports, the consoles, and a change a Unit Manager makes to a unit, its people or its roles. One confirmation covers ten minutes.',
+          'A Unit Leader changing their own unit is not asked, unless the change ends a Unit Manager role, yours too, or moves the unit under one they do not lead. Nothing changes until you confirm, so a change you cancel there is left undone.',
+        ],
+        also: ['password again', 'step-up', 'sudo', 'confirm password'],
       },
       {
         id: 'audit',

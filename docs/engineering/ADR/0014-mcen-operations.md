@@ -177,7 +177,9 @@ VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE --from <backup.db> --by <u
 - The backup's schema is one this build can run.
 - Its chain key opens under the secret, and every entry of its audit trail verifies.
 - It is the same database (by `database_id`, or by the hash at its newest entry), unless
-  `--different-database` says otherwise.
+  `--different-database` says otherwise. A backup that names no database is this one's only when the trail here holds
+  its newest entry with the same hash, and is never given this database's name otherwise
+  ([ADR-0040](0040-security-fixes-for-later-features.md)). Every copy it takes is owner-only from its first page.
 
 **It never writes the backup.** It works on a private copy beside the live database, then:
 
