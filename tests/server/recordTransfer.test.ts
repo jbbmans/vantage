@@ -171,6 +171,26 @@ test('a spreadsheet Vantage ID updates only the importer’s own record, and und
   assert.equal(entries('record_import_undone').length, 1);
 });
 
+test('a blank progress or current value cell over a 0 changes nothing, and over another value saves 0', async () => {
+  const idle = (await post(marine.token, '/api/records/projects', { name: 'Not started' })).body;
+  const going = (await post(marine.token, '/api/records/projects', { name: 'Under way', progress: 60 })).body;
+  const goal = (await post(marine.token, '/api/records/goals', { title: 'Fresh goal', target_value: 40 })).body;
+  const book = writeWorkbook([
+    { name: 'Projects', rows: [['Vantage ID', 'Name', 'Progress'], [idle.id, 'Not started', ''], [going.id, 'Under way', '']] },
+    { name: 'Goals', rows: [['Vantage ID', 'Title', 'Current Value', 'Target Value'], [goal.id, 'Fresh goal', '', 40]] },
+  ]);
+  const staged = await upload(marine.token, book, 'records.xlsx');
+  const outcome = (id: string) => staged.body.rows.find((r: { duplicateOf?: { id: string } }) => r.duplicateOf?.id === id)?.outcome;
+  assert.equal(outcome(idle.id), 'unchanged', JSON.stringify(staged.body.rows));
+  assert.equal(outcome(goal.id), 'unchanged');
+  assert.equal(outcome(going.id), 'update');
+  assert.equal((await commit(marine.token, staged.body.id, expected(staged.body))).status, 200);
+  const now = (table: string, id: string) => ({ ...app.ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown> });
+  assert.deepEqual([now('projects', idle.id).progress, now('projects', idle.id).version], [0, idle.version]);
+  assert.deepEqual([now('goals', goal.id).current_value, now('goals', goal.id).version], [0, goal.version]);
+  assert.equal(now('projects', going.id).progress, 0);
+});
+
 test('an import never reaches another person’s import, another Unit Instance, or a backup', async () => {
   const staged = await upload(marine.token, 'Title,Date\nShared entry,2026-07-01\n', 'mine.csv', 'text/csv');
   // Another person cannot read, change, import or cancel it.

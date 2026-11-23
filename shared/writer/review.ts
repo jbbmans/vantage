@@ -1,6 +1,13 @@
-import { BILLET_OPENERS, CLICHE, FIRST_PERSON, GLOSSARY, PASSIVE, RS_JUDGMENT, SUPERLATIVE, VAGUE, WEAK_OPENERS } from './lexicon.ts';
-import { nameOf, type AreaKind, type AreaNames, type Fact } from './facts.ts';
+import { GLOSSARY, IN_PROGRESS, PRIOR_AWARD, VERB_FORMS } from './lexicon.ts';
+import { nameOf, readEntry, type AreaKind, type AreaNames, type Fact } from './facts.ts';
 import type { Held, Sentence } from './compose.ts';
+import { strengthOf } from './strength.ts';
+import { gradeOf, type Grade, type Reading, type ReviewPart } from './grade.ts';
+import { piecesOf } from './edited.ts';
+import { TRACKS } from '../evaluation.ts';
+import { DEFAULT_METRICS, type MetricsConfig } from '../constants.ts';
+
+export type { ReviewPart } from './grade.ts';
 
 export type FindingTone = 'fix' | 'consider' | 'good';
 
@@ -25,9 +32,7 @@ export interface Finding {
   action?: { kind: 'open' | 'log' | 'tag'; prompt?: string };
 }
 
-export interface ReviewPart { key: 'coverage' | 'outcomes' | 'measured' | 'verbs' | 'fit'; label: string; earned: number; of: number; note: string }
-
-export interface Review { score: number; grade: 'Strong' | 'Solid' | 'Needs work' | 'Thin' | 'Empty'; parts: ReviewPart[]; findings: Finding[] }
+export interface Review { score: number; grade: Grade; parts: ReviewPart[]; findings: Finding[] }
 
 /**
  * What each area looks for when it is empty, as prompts for the Marine. Coaching from what the areas name, not text
@@ -41,8 +46,6 @@ export const AREA_PROMPTS: Record<AreaKind, { ask: string; prompt: string }> = {
   evaluations: { ask: 'Evaluations you were responsible for (FITREPs as reporting senior or reviewing officer, JEPES command input, proficiency and conduct marks): how many, and whether they were on time.', prompt: 'Submitted ' },
 };
 
-const grade = (score: number, any: boolean): Review['grade'] => (!any ? 'Empty' : score >= 85 ? 'Strong' : score >= 70 ? 'Solid' : score >= 50 ? 'Needs work' : 'Thin');
-const pct = (n: number, d: number) => (d ? n / d : 0);
 const short = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 function kindOf(area: string, names: AreaNames): AreaKind {
@@ -52,59 +55,17 @@ function kindOf(area: string, names: AreaNames): AreaKind {
 
 interface Written { text: string; length: number; limit: number; fits: boolean; sentences: Sentence[]; left: Sentence[]; facts: Fact[]; held: Held[]; spellOut: boolean }
 
+export interface ReviewContext { areas: readonly string[]; labels: Record<string, string>; names: AreaNames; track: 'jepes' | 'fitrep'; facts: Fact[] }
+
 const APP_E = 'MCO 1616.1, App. E';
 const SECTION_C = 'NAVMC 10835, Section C';
 const GAZETTE = 'Marine Corps Gazette';
 
-/**
- * Grades what was written and says what would make it stronger, most useful first. The grade weighs coverage of the
- * areas, outcomes, numbers, verbs and fit; each finding names the entries that would fix it.
- */
-export function reviewWriting(n: Written, ctx: { areas: readonly string[]; labels: Record<string, string>; names: AreaNames; track: 'jepes' | 'fitrep'; facts: Fact[] }): Review {
-  const jepes = ctx.track === 'jepes';
-  const findings: Finding[] = [];
-  const claims = n.sentences.filter((s) => s.kind === 'entry' || s.kind === 'group' || s.kind === 'casework');
-  // The areas a narrative is expected to cover: the track's own, less evaluation duty unless there is some.
-  const expected = ctx.areas.filter((a) => !/evaluation/i.test(a) || n.facts.some((f) => f.area === a));
-  const covered = expected.filter((a) => n.sentences.some((s) => s.area === a));
+type CheckCode = 'rs_judgment' | 'superlative' | 'speculative' | 'cliche' | 'vague' | 'billet' | 'no_verb' | 'weak_verb' | 'passive';
 
-  const parts: ReviewPart[] = [
-    { key: 'coverage', label: 'Areas covered', earned: Math.round(25 * pct(covered.length, expected.length)), of: 25, note: `${covered.length} of ${expected.length}` },
-    { key: 'outcomes', label: 'Outcomes stated', earned: Math.round(25 * pct(claims.filter((s) => s.hasResult).length, claims.length)), of: 25, note: `${claims.filter((s) => s.hasResult).length} of ${claims.length} sentences` },
-    { key: 'measured', label: 'Numbers', earned: Math.round(20 * pct(claims.filter((s) => s.measured).length, claims.length)), of: 20, note: `${claims.filter((s) => s.measured).length} of ${claims.length} sentences` },
-    { key: 'verbs', label: 'Strong openings', earned: Math.round(15 * pct(claims.filter((s) => (s.verbStrength ?? 2) >= 2).length, claims.length)), of: 15, note: `${claims.filter((s) => (s.verbStrength ?? 2) >= 2).length} of ${claims.length} sentences` },
-    { key: 'fit', label: 'Length', earned: !n.fits ? 0 : n.length >= n.limit * 0.6 ? 15 : n.length >= n.limit * 0.35 ? 10 : n.length ? 5 : 0, of: 15, note: `${n.length} of ${n.limit} characters` },
-  ];
-  const score = parts.reduce((t, p) => t + p.earned, 0);
-
-  if (!n.fits) findings.push({ id: 'over', tone: 'fix', basis: 'data', title: `${n.length - n.limit} characters over the limit`, detail: 'Pinned sentences are kept even when they do not fit. Unpin one, or leave one out.' });
-  for (const h of n.held) {
-    // Routed to another block of the worksheet: nothing to fix.
-    if (h.route) continue;
-    findings.push({ id: `held:${h.key}`, tone: 'consider', basis: h.basis, cite: h.cite, title: `Held back: “${short(h.text, 52)}”`, detail: `${h.reason} Keep it from Left out if your chain wants it anyway.`, sources: h.sources, area: h.area });
-  }
-
-  for (const area of expected) {
-    if (n.sentences.some((s) => s.area === area)) continue;
-    const kind = kindOf(area, ctx.names);
-    findings.push({
-      id: `empty:${area}`, tone: 'consider', title: `Nothing for ${area} yet`, area, action: { kind: 'log', prompt: AREA_PROMPTS[kind].prompt },
-      detail: jepes ? `${AREA_PROMPTS[kind].ask} Command input is marked on all three lines, and accomplishments should relate directly to them.` : AREA_PROMPTS[kind].ask,
-      ...(jepes ? { basis: 'order' as const, cite: APP_E } : { basis: 'style' as const }),
-    });
-  }
-
-  const used = new Set(n.sentences.flatMap((s) => s.covers));
-  const inText = n.facts.filter((f) => used.has(f.key));
-  const byScore = (a: Fact, b: Fact) => b.issues.length - a.issues.length;
-  const noOutcome = inText.filter((f) => !f.result).sort(byScore);
-  for (const f of noOutcome.slice(0, 4)) {
-    findings.push({ id: `outcome:${f.key}`, tone: 'fix', basis: 'guidance', cite: jepes ? APP_E : SECTION_C, title: `Add what came of “${short(`${f.opener} ${f.rest}`.trim())}”`, detail: 'A sentence with an outcome is the one your reporting chain can use: what changed, how much, by when.', sources: f.sources, area: f.area, action: { kind: 'open' } });
-  }
-  if (noOutcome.length > 4) findings.push({ id: 'outcome:more', tone: 'fix', basis: 'guidance', title: `${noOutcome.length - 4} more sentences have no outcome`, detail: 'Filter Activities by “Needs detail” to fix them in one sitting.' });
-
-  // Each check, and what it rests on. "Helped" and the passive are preferences: no order forbids them.
-  const CHECKS: Array<{ code: 'rs_judgment' | 'superlative' | 'speculative' | 'cliche' | 'vague' | 'billet' | 'no_verb' | 'weak_verb' | 'passive'; basis: FindingBasis; cite?: string; style?: string }> = [
+/** Each check, and what it rests on. "Helped" and the passive are preferences: no order forbids them. */
+function checksFor(jepes: boolean): Array<{ code: CheckCode; basis: FindingBasis; cite?: string; style?: string }> {
+  return [
     { code: 'rs_judgment', basis: 'guidance', cite: 'MCO 1610.7B' },
     { code: 'superlative', basis: jepes ? 'guidance' : 'order', cite: SECTION_C },
     { code: 'speculative', basis: 'guidance', cite: 'FITREP Section C' },
@@ -116,7 +77,83 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
     { code: 'weak_verb', basis: 'style', style: 'A preference, not a rule: the reader just learns less.' },
     { code: 'passive', basis: 'style' },
   ];
-  for (const check of CHECKS) {
+}
+
+/** The areas a narrative is expected to cover: the track's own, less evaluation duty unless there is some. */
+const expectedAreas = (areas: readonly string[], facts: readonly Fact[]) => areas.filter((a) => !/evaluation/i.test(a) || facts.some((f) => f.area === a));
+
+const areaField = (track: 'jepes' | 'fitrep') => TRACKS[track].areaLabel;
+
+function emptyArea(area: string, names: AreaNames, jepes: boolean): Finding {
+  const kind = kindOf(area, names);
+  return {
+    id: `empty:${area}`, tone: 'consider', title: `Nothing for ${area} yet`, area, action: { kind: 'log', prompt: AREA_PROMPTS[kind].prompt },
+    detail: jepes ? `${AREA_PROMPTS[kind].ask} Command input is marked on all three lines, and accomplishments should relate directly to them.` : AREA_PROMPTS[kind].ask,
+    ...(jepes ? { basis: 'order' as const, cite: APP_E } : { basis: 'style' as const }),
+  };
+}
+
+const OUTCOME_DETAIL = 'A sentence with an outcome is the one your reporting chain can use: what changed, how much, by when.';
+const NUMBER_DETAIL = 'How many, how much, how fast? One number makes a sentence credible.';
+const REPEAT_DETAIL = 'The same work is already one total; these are different kinds of work that open alike. Reword one with the verb that says what it was, or leave one out.';
+const ORDER: Record<FindingTone, number> = { fix: 0, consider: 1, good: 2 };
+const byTone = (a: Finding, b: Finding) => ORDER[a.tone] - ORDER[b.tone];
+
+/** Opening verbs three or more sentences share. */
+function repeats(verbs: Array<string | null>): Finding[] {
+  const openers = new Map<string, number>();
+  for (const v of verbs) if (v) openers.set(v, (openers.get(v) || 0) + 1);
+  return [...openers].filter(([, count]) => count >= 3).map(([verb, count]) => ({ id: `repeat:${verb}`, tone: 'consider', basis: 'style', title: `${count} sentences open with the same verb`, detail: REPEAT_DETAIL }));
+}
+
+const acronymsIn = (text: string) => Object.keys(GLOSSARY).filter((a) => new RegExp(`(?<![\\w-])${a.replace(/-/g, '\\-')}s?(?![\\w-])`).test(text));
+
+/**
+ * One sentence the writer wrote, read for the grade from the entries behind it, the reading the strength badge uses
+ * (strength.ts): it opens with what was done, it has a number, it states an outcome. A total opens with the verb its
+ * entries share and states the outcome they give; the rest-of-area summary counts for its area only.
+ */
+export function readingOf(s: Sentence, facts: ReadonlyMap<string, Fact>): Reading {
+  const base = { area: s.area, from: 'entry' as const };
+  if (s.kind === 'summary') return { ...base, claim: false, opens: false, number: false, outcome: false };
+  if (s.kind === 'casework') return { ...base, claim: true, opens: true, number: true, outcome: s.hasResult };
+  const one = s.kind === 'entry' && s.covers.length === 1 ? facts.get(s.covers[0]) : undefined;
+  if (!one) return { ...base, claim: true, opens: (s.verbStrength ?? 0) >= 2, number: s.measured, outcome: s.hasResult };
+  const met = new Set(strengthOf(one).met);
+  return { ...base, claim: true, opens: met.has('opens'), number: met.has('number'), outcome: met.has('outcome') };
+}
+
+/**
+ * Grades what was written and says what would make it stronger, most useful first. The grade is the one scale
+ * (grade.ts), read from the entries each sentence was written from; each finding names the entries that would fix it.
+ */
+export function reviewWriting(n: Written, ctx: ReviewContext): Review {
+  const jepes = ctx.track === 'jepes';
+  const findings: Finding[] = [];
+  const claims = n.sentences.filter((s) => s.kind === 'entry' || s.kind === 'group' || s.kind === 'casework');
+  const expected = expectedAreas(ctx.areas, n.facts);
+  const covered = expected.filter((a) => n.sentences.some((s) => s.area === a));
+  const byKey = new Map(n.facts.map((f) => [f.key, f]));
+  const { score, grade, parts } = gradeOf(n.sentences.map((s) => readingOf(s, byKey)), { expected, length: n.length, limit: n.limit, areaField: areaField(ctx.track), edited: false });
+
+  if (!n.fits) findings.push({ id: 'over', tone: 'fix', basis: 'data', title: `${n.length - n.limit} characters over the limit`, detail: 'Pinned sentences are kept even when they do not fit. Unpin one, or leave one out.' });
+  for (const h of n.held) {
+    // Routed to another block of the worksheet: nothing to fix.
+    if (h.route) continue;
+    findings.push({ id: `held:${h.key}`, tone: 'consider', basis: h.basis, cite: h.cite, title: `Held back: “${short(h.text, 52)}”`, detail: `${h.reason} Keep it from Left out if your chain wants it anyway.`, sources: h.sources, area: h.area });
+  }
+  for (const area of expected) if (!covered.includes(area)) findings.push(emptyArea(area, ctx.names, jepes));
+
+  const used = new Set(n.sentences.flatMap((s) => s.covers));
+  const inText = n.facts.filter((f) => used.has(f.key));
+  const byScore = (a: Fact, b: Fact) => b.issues.length - a.issues.length;
+  const noOutcome = inText.filter((f) => !f.result).sort(byScore);
+  for (const f of noOutcome.slice(0, 4)) {
+    findings.push({ id: `outcome:${f.key}`, tone: 'fix', basis: 'guidance', cite: jepes ? APP_E : SECTION_C, title: `Add what came of “${short(`${f.opener} ${f.rest}`.trim())}”`, detail: OUTCOME_DETAIL, sources: f.sources, area: f.area, action: { kind: 'open' } });
+  }
+  if (noOutcome.length > 4) findings.push({ id: 'outcome:more', tone: 'fix', basis: 'guidance', title: `${noOutcome.length - 4} more sentences have no outcome`, detail: 'Filter Activities by “Needs detail” to fix them in one sitting.' });
+
+  for (const check of checksFor(jepes)) {
     const hit = ctx.facts.filter((f) => f.issues.some((i) => i.code === check.code));
     for (const f of hit.slice(0, 3)) {
       const issue = f.issues.find((i) => i.code === check.code)!;
@@ -127,7 +164,7 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
     }
   }
   const unmeasured = inText.filter((f) => f.issues.some((i) => i.code === 'unmeasured'));
-  if (unmeasured.length) findings.push({ id: 'unmeasured', tone: 'consider', basis: 'order', cite: jepes ? APP_E : SECTION_C, title: `${unmeasured.length} ${unmeasured.length === 1 ? 'sentence has' : 'sentences have'} no number`, detail: 'How many, how much, how fast? One number makes a sentence credible.', sources: unmeasured.flatMap((f) => f.sources), action: { kind: 'open' } });
+  if (unmeasured.length) findings.push({ id: 'unmeasured', tone: 'consider', basis: 'order', cite: jepes ? APP_E : SECTION_C, title: `${unmeasured.length} ${unmeasured.length === 1 ? 'sentence has' : 'sentences have'} no number`, detail: NUMBER_DETAIL, sources: unmeasured.flatMap((f) => f.sources), action: { kind: 'open' } });
 
   const inferred = n.facts.filter((f) => f.areaInferred);
   if (inferred.length) findings.push({ id: 'inferred', tone: 'consider', basis: 'data', title: `${inferred.length} ${inferred.length === 1 ? 'entry has' : 'entries have'} no area`, detail: 'The writer placed them by what they say. Tag them so they land where you mean them to.', sources: inferred.flatMap((f) => f.sources), action: { kind: 'tag' } });
@@ -137,59 +174,216 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
   if (strongLeft.length) findings.push({ id: 'left', tone: 'consider', basis: 'data', title: `${strongLeft.length} ${strongLeft.length === 1 ? 'entry with an outcome' : 'entries with an outcome'} did not fit`, detail: 'Pin the ones that matter most, leave out a weaker one, or switch to Compact.' });
   if (n.fits && n.length && n.length < n.limit * 0.5) findings.push({ id: 'room', tone: 'consider', basis: 'data', title: `Room for ${n.limit - n.length} more characters`, detail: 'Log more of the work, with outcomes, and the writer will use the space.' });
 
-  const openers = new Map<string, number>();
-  for (const s of claims) if (s.verb) openers.set(s.verb, (openers.get(s.verb) || 0) + 1);
-  for (const [verb, count] of openers) if (count >= 3) findings.push({ id: `repeat:${verb}`, tone: 'consider', basis: 'style', title: `${count} sentences open with the same verb`, detail: 'The same work is already one total; these are different kinds of work that open alike. Reword one with the verb that says what it was, or leave one out.' });
-
-  const unexplained = Object.keys(GLOSSARY).filter((a) => new RegExp(`(?<![\\w-])${a.replace(/-/g, '\\-')}s?(?![\\w-])`).test(n.text));
+  findings.push(...repeats(claims.map((s) => s.verb)));
+  const unexplained = acronymsIn(n.text);
   if (!n.spellOut && unexplained.length) findings.push({ id: 'acronyms', tone: 'consider', basis: 'guidance', cite: APP_E, title: `${unexplained.slice(0, 4).join(', ')} not spelled out`, detail: 'The order’s own examples spell an acronym out the first time: “Position Safety Officer (PSO)”. Turn on Spell out acronyms; readers up the chain may not share your section’s shorthand.' });
   if (claims.length && claims.every((s) => s.hasResult)) findings.push({ id: 'good:outcomes', tone: 'good', title: 'Every sentence states an outcome' });
   if (expected.length && covered.length === expected.length) findings.push({ id: 'good:coverage', tone: 'good', title: `All ${expected.length} areas covered` });
   if (n.fits && n.length >= n.limit * 0.6) findings.push({ id: 'good:fit', tone: 'good', title: 'Uses the space well' });
 
-  const order: Record<FindingTone, number> = { fix: 0, consider: 1, good: 2 };
-  findings.sort((a, b) => order[a.tone] - order[b.tone]);
-  return { score, grade: grade(score, n.sentences.length > 0), parts, findings };
+  findings.sort(byTone);
+  return { score, grade, parts, findings };
 }
 
 const SPECIAL = /[^\x20-\x7e\n]/;
+// "I", "my", "we" and the rest, as typed; not the "I" of "Phase I" or "Level I-B".
+const FIRST_PERSON_TYPED = /(?<!\b(?:Phase|Level|Tier|Part|Class|Stage|Block|Annex|Appendix|Volume|Book|Chapter|Echelon|Type|Mod|Course|Section|Spiral|Title)\s)\b(?:I|[Mm]e|[Mm]y|[Mm]ine|[Ww]e|[Oo]ur|us|[Mm]yself)\b(?!-)/;
+
+/** What an edit is reviewed with: the track's areas and how the text names them, and the command's value types. */
+export interface EditContext { areas: readonly string[]; labels: Record<string, string>; headers?: Record<string, string>; names: AreaNames; track: 'jepes' | 'fitrep'; metrics?: MetricsConfig }
+
+// The writer joins a Result that opens with an "-ing" word after a comma (", helping the section pass the IG"), so after
+// a comma one reads as what came of the work, except: a word for a figure or the writer's own for a purpose ("totaling
+// $48,250", ", averaging 3 days each", ", supporting the FY26 close", ", including 14 in DAI:"), words that only end like one ("during",
+// "pending"), and a role (", working with the S-1", ", serving as the NCOIC").
+const NOT_OUTCOME_ING = new Set([
+  'totaling', 'totalling', 'valuing', 'obligating', 'amounting', 'averaging', 'costing', 'spanning', 'reconciling', 'supporting', 'including',
+  'during', 'pending', 'remaining', 'following', 'according', 'regarding', 'concerning', 'nothing', 'something', 'anything', 'everything',
+  'morning', 'evening', 'outstanding',
+]);
+const ROLE = /^(?:(?:working|assisting|helping|coordinating|partnering|collaborating|liaising|consulting|teaming)\s+(?:with|alongside)|(?:serving|acting|standing in|filling in)\s+as)\b/i;
+const MONTH = String.raw`(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b\.?`;
+// A dash between two figures or dates is a range, not a join: "12 - 15", "0800 - 1600", "Jun - Aug", "1 Jun - 30 Nov",
+// "2025 - Aug 2026". A figure is a word of its own: "M27", "S-4", "FY26" or "3/5" before a dash is a name, not a range.
+const FIGURE_END = /(?:^|[\s(])\$?\d[\d,.:]*[KMB%]?$/;
+const FIGURE_START = /^\$?\d[\d,.:]*[KMB%]?(?=[\s,;]|$)/;
+const MONTH_END = new RegExp(String.raw`\b${MONTH}$`);
+const MONTH_START = new RegExp(String.raw`^${MONTH}(?=[\s,;]|$)`);
+const DAY_MONTH_START = new RegExp(String.raw`^\d{1,2}\s+${MONTH}(?=[\s,;]|$)`);
+const isRange = (before: string, after: string) => (FIGURE_END.test(before) && (FIGURE_START.test(after) || MONTH_START.test(after)))
+  || (MONTH_END.test(before) && (MONTH_START.test(after) || DAY_MONTH_START.test(after) || /^\d{4}\b/.test(after)));
+// What a verb is followed by when it acts on something: "cleared on the next report", "rerouted through the S-4".
+const COMPLEMENT = new Set([
+  'on', 'in', 'at', 'by', 'for', 'to', 'from', 'with', 'within', 'under', 'over', 'ahead', 'before', 'after', 'during', 'through', 'across', 'into',
+  'of', 'as', 'per', 'without', 'below', 'above', 'again', 'back', 'out', 'up', 'down', 'off', 'early', 'late', 'the', 'a', 'an', 'every', 'each',
+  'all', 'both', 'zero', 'no', 'their', 'its',
+]);
+const bareWord = (w: string | undefined) => (w ?? '').replace(/^[^A-Za-z0-9$]+|[^A-Za-z0-9%]+$/g, '').toLowerCase();
+/**
+ * Whether a word after a dash is a verb of the outcome's own, not a word that describes a noun: "28 qualified expert"
+ * and "all cleared on the next report" have one; "8 tracked vehicles", "crew-served weapons", "30 enlisted",
+ * "assigned gear" and "classified and unclassified" do not. A past tense the lexicon knows is a verb unless it stands
+ * between a count and the plural it counts; another "-ed" word only when something it acts on follows it.
+ */
+function actsAsVerb(words: string[], i: number) {
+  const w = bareWord(words[i]);
+  if (w.includes('-')) return false;
+  const next = /[,;:]$/.test(words[i]) ? '' : bareWord(words[i + 1]);
+  if (VERB_FORMS.get(w)?.form === 'past') return !(/^\$?\d/.test(bareWord(words[i - 1])) && /^[a-z]{3,}s$/.test(next) && !COMPLEMENT.has(next));
+  return /^[a-z]{3,}ed$/.test(w) && (COMPLEMENT.has(next) || /^[a-z]{2,}ly$/.test(next) || /^\$?\d/.test(next));
+}
+// What follows a dash says what came of the work unless it only lists or breaks down what was done, with no verb of its
+// own and no measure: "- weapons, optics and radios", "-- 9 in DAI and 5 in GCSS-MC", "- 10 officers and 30 enlisted".
+// "- 100% mission capable, zero mishaps" is a measure.
+const MEASURE_OPEN = /^(?:\$?\d[\d,.]*\s*%|(?:zero|no|none|all|every|each|both)\b)/i;
+const listOnly = (after: string) => {
+  if (!/,|\band\b/.test(after) || MEASURE_OPEN.test(after)) return false;
+  const words = after.split(/\s+/);
+  return !words.some((_w, i) => actsAsVerb(words, i));
+};
 
 /**
- * Reviews text as typed, for a narrative edited by hand: the same checks the writer applies to what it writes, read
- * from the words alone. It cannot know outcomes or sources, so it does not grade them.
+ * Where a typed sentence's outcome starts, by the joins the writer uses and a Marine types: after a semicolon or a
+ * spaced dash (not a range or a list), "resulting in", ", leading to", ", so that", a total's ", including 14 in DAI:",
+ * a grade's ", with a 3.8 GPA", or an "-ing" phrase as the writer joins a Result (", cutting the review to 1 hour"),
+ * but not a figure, a purpose or a role (", saving $18,250", ", working with the S-1").
  */
-export function reviewText(text: string, limit: number): Review {
-  const findings: Finding[] = [];
-  const body = text.replace(/\b[A-Z][A-Z /&]{2,}:\s*/g, '');
-  const sentences = body.split(/(?<=[.;!?])\s+/).map((s) => s.trim()).filter(Boolean);
-  if (text.length > limit) findings.push({ id: 'over', tone: 'fix', title: `${text.length - limit} characters over the limit` });
-  const first = FIRST_PERSON.exec(body);
-  if (first) findings.push({ id: 'first', tone: 'fix', title: `“${first[0]}”: evaluation writing leaves out the first person`, detail: 'Start with the verb: “Reconciled…”, not “I reconciled…”.' });
-  for (const s of sentences) {
-    const weak = WEAK_OPENERS.find((w) => w.pattern.test(s));
-    if (weak) findings.push({ id: `weak:${s.slice(0, 20)}`, tone: 'consider', title: `${weak.label}: “${short(s, 48)}”`, detail: weak.advice });
+export function splitOutcome(sentence: string): { title: string; result: string } {
+  const s = sentence.replace(/[.!?]+$/, '').trim();
+  const joins: Array<{ at: number; from: number }> = [];
+  const find = (re: RegExp) => { const m = re.exec(s); if (m) joins.push({ at: m.index, from: m.index + m[0].length }); };
+  find(/;\s+/);
+  find(/,\s+(?:resulting in|which resulted in|leading to|so that)\s+/i);
+  find(/\s+(?:resulting in|which resulted in)\s+/i);
+  // A dash with a space each side, as typed ("in DAI - all cleared"; piecesOf spaces an em dash and "DAI--all"). A range
+  // is no join; of the rest, the last one says what came of it ("3 classes - first aid and comm - all 30 passed"), unless
+  // what follows it is one word or only a list ("DTS - GTCC - DAI").
+  const dash = [...s.matchAll(/\s+-{1,2}\s+/g)].filter((m) => !isRange(s.slice(0, m.index), s.slice(m.index + m[0].length))).pop();
+  if (dash) {
+    const after = s.slice(dash.index + dash[0].length);
+    if (/[A-Za-z]/.test(s.slice(0, dash.index)) && after.split(/\s+/).length >= 2 && !listOnly(after)) joins.push({ at: dash.index, from: dash.index + dash[0].length });
   }
-  const superlative = SUPERLATIVE.exec(body);
-  if (superlative) findings.push({ id: 'superlative', tone: 'consider', basis: 'guidance', cite: SECTION_C, title: `“${superlative[1]}” rates the work instead of stating it`, detail: 'State the result; the number carries it.' });
-  const cliche = CLICHE.exec(body);
-  if (cliche) findings.push({ id: 'cliche', tone: 'consider', basis: 'guidance', cite: GAZETTE, title: `“${cliche[1]}” is a phrase readers skip` });
-  const judgment = RS_JUDGMENT.exec(body);
-  if (judgment) findings.push({ id: 'judgment', tone: 'fix', basis: 'guidance', cite: 'MCO 1610.7B', title: `“${judgment[0]}” is your reporting senior’s call`, detail: 'Input states what you did; rankings and recommendations come from your reporting chain.' });
-  const vague = VAGUE.exec(body);
-  if (vague) findings.push({ id: 'vague', tone: 'consider', title: `“${vague[1]}” stands in for a number`, detail: 'Count it, or cut it.' });
-  const billet = sentences.find((s) => BILLET_OPENERS.test(s.replace(/^-\s*/, '')));
-  if (billet) findings.push({ id: 'billet', tone: 'consider', basis: 'guidance', cite: SECTION_C, title: `Names the billet, not what was done in it: “${short(billet, 48)}”`, detail: 'Say what you did in the billet and what came of it.' });
-  const passive = sentences.find((s) => PASSIVE.test(s));
-  if (passive) findings.push({ id: 'passive', tone: 'consider', title: `Passive voice: “${short(passive, 48)}”`, detail: 'Put the doer first.' });
-  const long = sentences.find((s) => s.split(/\s+/).length > 40);
-  if (long) findings.push({ id: 'long', tone: 'consider', title: `A ${long.split(/\s+/).length}-word sentence`, detail: 'Split it; a reader skims.' });
-  if (SPECIAL.test(text)) findings.push({ id: 'special', tone: 'consider', title: 'Curly quotes, dashes or symbols', detail: 'Some forms accept plain characters only. Copy uses plain ones.' });
-  const measured = sentences.filter((s) => /\d/.test(s)).length;
-  const parts: ReviewPart[] = [
-    { key: 'measured', label: 'Numbers', earned: Math.round(40 * pct(measured, sentences.length)), of: 40, note: `${measured} of ${sentences.length} sentences` },
-    { key: 'verbs', label: 'Strong openings', earned: Math.round(30 * pct(sentences.filter((s) => !WEAK_OPENERS.some((w) => w.pattern.test(s))).length, sentences.length)), of: 30, note: '' },
-    { key: 'fit', label: 'Length', earned: text.length > limit ? 0 : text.length >= limit * 0.6 ? 30 : 15, of: 30, note: `${text.length} of ${limit} characters` },
+  find(/,\s+including\s+[^:;]*?:\s+/i);
+  find(/,\s+with\s+(?=an?\s+\d)/i);
+  // The second of a pair after a figure or purpose that trails the clause: ", saving $18,250 and returning funds to the G-8".
+  find(/(?<=,\s+(?:(?:saving|recovering)\s+\$[\d,.]+[KMB]?|supporting\s[^,;]+?))\s+and\s+(?=[a-z]{3,}ing\b)/);
+  for (const m of s.matchAll(/,\s+([a-z]{3,}ing)\b(?:\s+(\S+))?/g)) {
+    const word = m[1];
+    const from = m.index + m[0].indexOf(word);
+    if (NOT_OUTCOME_ING.has(word) || !m[2] || ((word === 'saving' || word === 'recovering') && /^\$/.test(m[2])) || ROLE.test(s.slice(from))) continue;
+    joins.push({ at: m.index, from });
+  }
+  const first = joins.sort((a, b) => a.at - b.at)[0];
+  return first ? { title: s.slice(0, first.at).trim(), result: s.slice(first.from).trim() } : { title: s, result: '' };
+}
+
+/** A sentence the Marine typed, read from its words as an entry would be, with the heading's area when it has one. */
+export function readTyped(text: string, area: string | null, ctx: EditContext): { reading: Reading; fact: Fact } {
+  const { title, result } = splitOutcome(text);
+  const fact = readEntry({ title, result, eval_area: area }, { names: ctx.names, areas: ctx.areas, metrics: ctx.metrics ?? DEFAULT_METRICS, track: ctx.track });
+  const met = new Set(strengthOf(fact).met);
+  // Opens with what was done only as typed: "I reconciled" and "Processing" are read, but do not open with the verb.
+  const first = (text.split(/\s+/)[0] || '').replace(/[^A-Za-z-]/g, '').toLowerCase();
+  return { fact, reading: { area: fact.area, claim: true, opens: met.has('opens') && Boolean(fact.opener) && first === fact.opener.toLowerCase(), number: met.has('number'), outcome: met.has('outcome'), from: 'typed' } };
+}
+
+const wordsOf = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9$]+/g) ?? []);
+/** Two sentences that share most of their words: at least 60% of the words either one uses. */
+function alike(a: string, b: string) {
+  const x = wordsOf(a);
+  const y = wordsOf(b);
+  const both = [...x].filter((w) => y.has(w)).length;
+  return both / (x.size + y.size - both || 1) >= 0.6;
+}
+
+/**
+ * Reviews a narrative edited by hand on the one scale (ADR-0045). Each sentence the writer wrote that stands
+ * unchanged keeps the reading of its entries, so an untouched edit grades exactly as the written text does; a sentence
+ * typed or changed is read from its words. The findings are about the edited text: its entries' notes for what was
+ * kept, word checks for what was typed, and its coverage and length.
+ */
+export function reviewEdit(edit: string, n: Pick<Written, 'sentences' | 'facts' | 'limit'>, ctx: EditContext): Review {
+  const jepes = ctx.track === 'jepes';
+  const facts = new Map(n.facts.map((f) => [f.key, f]));
+  const pieces = piecesOf(edit, n.sentences, ctx);
+  const kept: Array<{ sentence: Sentence; facts: Fact[] }> = [];
+  const typed: Array<{ id: string; text: string; fact: Fact; reading: Reading }> = [];
+  const readings: Reading[] = [];
+  const summaries = n.sentences.filter((s) => s.kind === 'summary');
+  for (const p of pieces) {
+    if (p.kind === 'kept') {
+      // Under the heading or label it sits beneath, as the text says; FITREP's text names none, so the entry's own.
+      const r = readingOf(p.sentence, facts);
+      readings.push(p.area ? { ...r, area: p.area } : r);
+      kept.push({ sentence: p.sentence, facts: p.sentence.covers.map((k) => facts.get(k)).filter((f): f is Fact => Boolean(f)) });
+    } else {
+      const t = readTyped(p.text, p.area, ctx);
+      // The rest-of-area summary reworded ("four UMTs" for "4 UMTs") is still the summary, not a claim of its own.
+      const summary = t.reading.outcome ? undefined : summaries.find((s) => alike(s.text, p.text));
+      const reading = summary ? { ...t.reading, claim: false, area: p.area ?? summary.area } : t.reading;
+      readings.push(reading);
+      typed.push({ id: `typed:${typed.length}`, text: p.text, fact: t.fact, reading });
+    }
+  }
+  const expected = expectedAreas(ctx.areas, n.facts);
+  const covered = expected.filter((a) => readings.some((r) => r.area === a));
+  const length = edit.length;
+  const fits = length <= n.limit;
+  const { score, grade, parts } = gradeOf(readings, { expected, length, limit: n.limit, areaField: areaField(ctx.track), edited: true });
+
+  const findings: Finding[] = [];
+  if (!fits) findings.push({ id: 'over', tone: 'fix', basis: 'data', title: `${length - n.limit} characters over the limit`, detail: 'Cut it to fit: Copy and the PDF take the text as you edited it.' });
+  const firstPerson = typed.map((t) => ({ t, m: FIRST_PERSON_TYPED.exec(t.text) })).find((x) => x.m);
+  if (firstPerson) findings.push({ id: 'first', tone: 'fix', title: `“${firstPerson.m![0]}”: evaluation writing leaves out the first person`, detail: `Start with the verb: “Reconciled…”, not “I reconciled…”. In “${short(firstPerson.t.text.replace(/[.!?]+$/, ''), 48)}”.` });
+  for (const area of expected) if (!covered.includes(area)) findings.push(emptyArea(area, ctx.names, jepes));
+
+  // What came of it, sentence by sentence: an entry's Result for what was kept, the typed words for the rest.
+  const keptFacts = kept.flatMap((k) => k.facts);
+  const noOutcome: Finding[] = [
+    ...keptFacts.filter((f) => !f.result).map((f): Finding => ({ id: `outcome:${f.key}`, tone: 'fix', basis: 'guidance', cite: jepes ? APP_E : SECTION_C, title: `Add what came of “${short(`${f.opener} ${f.rest}`.trim())}”`, detail: OUTCOME_DETAIL, sources: f.sources, area: f.area, action: { kind: 'open' } })),
+    ...typed.filter((t) => t.reading.claim && !t.reading.outcome).map((t): Finding => ({ id: `outcome:${t.id}`, tone: 'fix', basis: 'guidance', cite: jepes ? APP_E : SECTION_C, title: `Say what came of “${short(t.text)}”`, detail: `${OUTCOME_DETAIL} Put it after a semicolon: “…; all cleared on the next report”.`, area: t.fact.area })),
   ];
-  const score = parts.reduce((t, p) => t + p.earned, 0) - (first ? 10 : 0);
-  return { score: Math.max(0, score), grade: grade(score, sentences.length > 0), parts, findings };
+  findings.push(...noOutcome.slice(0, 4));
+  if (noOutcome.length > 4) findings.push({ id: 'outcome:more', tone: 'fix', basis: 'guidance', title: `${noOutcome.length - 4} more sentences have no outcome`, detail: OUTCOME_DETAIL });
+
+  for (const check of checksFor(jepes)) {
+    const hits = [
+      ...keptFacts.filter((f) => f.issues.some((i) => i.code === check.code)).map((f) => ({ id: f.key, f, shown: `${f.opener} ${f.rest}`.trim(), sources: f.sources })),
+      ...typed.filter((t) => t.fact.issues.some((i) => i.code === check.code)).map((t) => ({ id: t.id, f: t.fact, shown: t.text, sources: [] as string[] })),
+    ];
+    for (const h of hits.slice(0, 3)) {
+      const issue = h.f.issues.find((i) => i.code === check.code)!;
+      findings.push({
+        id: `${check.code}:${h.id}`, tone: 'consider', basis: check.basis, cite: check.cite, title: `${issue.message}: “${short(h.shown, 48)}”`,
+        detail: check.style ? `${issue.advice} ${check.style}` : issue.advice, sources: h.sources, area: h.f.area, ...(h.sources.length ? { action: { kind: 'open' as const } } : {}),
+      });
+    }
+  }
+  const unmeasured = [...keptFacts.filter((f) => f.issues.some((i) => i.code === 'unmeasured')).map((f) => f.sources), ...typed.filter((t) => t.reading.claim && !t.reading.number).map(() => [] as string[])];
+  if (unmeasured.length) findings.push({ id: 'unmeasured', tone: 'consider', basis: 'order', cite: jepes ? APP_E : SECTION_C, title: `${unmeasured.length} ${unmeasured.length === 1 ? 'sentence has' : 'sentences have'} no number`, detail: NUMBER_DETAIL, sources: unmeasured.flat(), ...(unmeasured.flat().length ? { action: { kind: 'open' as const } } : {}) });
+  const inferred = keptFacts.filter((f) => f.areaInferred);
+  if (inferred.length) findings.push({ id: 'inferred', tone: 'consider', basis: 'data', title: `${inferred.length} ${inferred.length === 1 ? 'entry has' : 'entries have'} no area`, detail: 'The writer placed them by what they say. Tag them so they land where you mean them to.', sources: inferred.flatMap((f) => f.sources), action: { kind: 'tag' } });
+
+  // What the order keeps out of the input, typed back in.
+  for (const t of typed) {
+    const annual = t.fact.issues.some((i) => i.code === 'annual_training');
+    const reason = annual || PRIOR_AWARD.test(t.text) || IN_PROGRESS.test(t.text) ? t.fact.held?.reason : null;
+    if (reason) findings.push({ id: `kept-out:${t.id}`, tone: 'consider', basis: t.fact.held!.basis, cite: t.fact.held!.cite, title: `“${short(t.text, 48)}”`, detail: reason, area: t.fact.area });
+  }
+  const long = typed.find((t) => t.text.split(/\s+/).length > 40);
+  if (long) findings.push({ id: 'long', tone: 'consider', basis: 'style', title: `A ${long.text.split(/\s+/).length}-word sentence`, detail: 'Split it; a reader skims.' });
+  if (SPECIAL.test(edit)) findings.push({ id: 'special', tone: 'consider', basis: 'data', title: 'Curly quotes, dashes or symbols', detail: 'Some forms accept plain characters only. Copy uses plain ones.' });
+  if (fits && length && length < n.limit * 0.5) findings.push({ id: 'room', tone: 'consider', basis: 'data', title: `Room for ${n.limit - length} more characters`, detail: 'Add what else you did in the period, with what came of it.' });
+
+  const claims = readings.filter((r) => r.claim);
+  findings.push(...repeats([...kept.filter((k) => k.sentence.kind !== 'summary').map((k) => k.sentence.verb), ...typed.map((t) => t.fact.verb?.lemma ?? null)]));
+  // An acronym is spelled out when its expansion stands before it in brackets: "unliquidated obligations (ULOs)".
+  const unexplained = acronymsIn(edit).filter((a) => !new RegExp(`\\(${a.replace(/-/g, '\\-')}s?\\)`).test(edit));
+  if (unexplained.length) findings.push({ id: 'acronyms', tone: 'consider', basis: 'guidance', cite: APP_E, title: `${unexplained.slice(0, 4).join(', ')} not spelled out`, detail: 'The order’s own examples spell an acronym out the first time: “Position Safety Officer (PSO)”. Readers up the chain may not share your section’s shorthand.' });
+  if (claims.length && claims.every((r) => r.outcome)) findings.push({ id: 'good:outcomes', tone: 'good', title: 'Every sentence states an outcome' });
+  if (expected.length && covered.length === expected.length) findings.push({ id: 'good:coverage', tone: 'good', title: `All ${expected.length} areas covered` });
+  if (fits && length >= n.limit * 0.6) findings.push({ id: 'good:fit', tone: 'good', title: 'Uses the space well' });
+
+  findings.sort(byTone);
+  return { score, grade, parts, findings };
 }

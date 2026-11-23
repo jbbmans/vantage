@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readEntry, clauseOf, type AreaNames } from '../../shared/writer/facts.ts';
 import { sentenceFor, statesAmount, dollars, finish, connectorFor } from '../../shared/writer/realize.ts';
 import { writeNarrative, type WriterOptions } from '../../shared/writer/compose.ts';
-import { reviewText } from '../../shared/writer/review.ts';
+import { reviewEdit } from '../../shared/writer/review.ts';
+import { narrativeConfig as configFor } from '../../shared/evaluation.ts';
 import { WRITER_CORPUS } from './writerCorpus.ts';
 import { checkNarrative } from './bulletChecks.ts';
 
@@ -158,11 +159,14 @@ test('the review grades the writing and names the entries that would fix it', ()
   assert.equal(writeNarrative([], opts()).review.grade, 'Empty');
 });
 
+const typedOnly = { sentences: [], facts: [], limit: 1000 };
+const jepesEdit = configFor('jepes');
+
 test('text edited by hand is reviewed from its words', () => {
-  const r = reviewText('MISSION: I helped reconcile several ULOs. The ledger was reconciled on time.', 1000);
+  const r = reviewEdit('MISSION: I helped reconcile several ULOs. The ledger was reconciled on time.', typedOnly, jepesEdit);
   const ids = r.findings.map((f) => f.id);
-  assert.ok(ids.includes('first') && ids.includes('vague') && ids.includes('passive'));
-  assert.ok(reviewText('x'.repeat(1100), 1000).findings.some((f) => f.id === 'over'));
+  assert.ok(ids.includes('first') && ids.some((id) => id.startsWith('vague:')) && ids.some((id) => id.startsWith('passive:')), ids.join(', '));
+  assert.ok(reviewEdit('x'.repeat(1100), typedOnly, jepesEdit).findings.some((f) => f.id === 'over'));
 });
 
 test('whatever is logged, the narrative is well-formed text inside its limit', () => {
@@ -259,8 +263,8 @@ test('ratings, clichés, predictions and the reporting senior’s judgments are 
   assert.match(f('weak_verb:h')!.detail!, /not a rule/);
   // Praise adverbs go like other filler; the claim stays.
   assert.equal(clauseOf(read('Meticulously reconciled 14 ULOs')), 'Reconciled 14 ULOs');
-  const typed = reviewText('Promote ahead of peers. Outstanding Marine and a valued asset.', 1000);
-  assert.ok(['judgment', 'superlative', 'cliche'].every((id) => typed.findings.some((x) => x.id === id)));
+  const typed = reviewEdit('Promote ahead of peers. Outstanding Marine and a valued asset.', typedOnly, jepesEdit);
+  assert.ok(['rs_judgment:', 'superlative:', 'cliche:'].every((id) => typed.findings.some((x) => x.id.startsWith(id))), typed.findings.map((x) => x.id).join(', '));
 });
 
 test('FITREP input is drafted as Section C reads: one list of dash bullets, section by section, at 1,232 characters', async () => {

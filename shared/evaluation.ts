@@ -189,10 +189,12 @@ export function recommendFitrep(profile: Record<string, unknown> = {}, activityS
   }
   const pft = Number(profile.pft_score) || 0;
   const cft = Number(profile.cft_score) || 0;
-  if (profile.pft_score != null && profile.pft_score !== '' && pft < 250) {
+  // A score of spaces is no score (ADR-0045).
+  const scored = (v: unknown) => v != null && String(v).trim() !== '';
+  if (scored(profile.pft_score) && pft < 250) {
     out.push(rec({ id: 'fitness', title: `PFT ${pft} prints in Section A of the report`,
       detail: 'Section A, item 8 carries your PFT and CFT scores. MCO 1610.7B attaches no point value to them, but a low score is one more thing the rest of the report has to carry. That is coaching, not a policy rule.', effort: 'high', priority: 76 }));
-  } else if (profile.cft_score != null && profile.cft_score !== '' && cft < 250) {
+  } else if (scored(profile.cft_score) && cft < 250) {
     out.push(rec({ id: 'fitness-cft', title: `CFT ${cft} is the weaker of your two recorded scores`, detail: 'Same coaching logic as the PFT. Sprint work and course rehearsal move it fastest.', effort: 'medium', priority: 74 }));
   }
   out.push(rec({ id: 'brief-rs', title: 'Book fifteen minutes with your RS before drafting starts',

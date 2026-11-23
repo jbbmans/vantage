@@ -7,6 +7,15 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-23',
+    title: 'One grade for your narrative, and Readiness reads your marks as entered',
+    items: [
+      'The Reviewer grades the narrative on one scale whether or not you edit it. Pressing Edit text no longer changes the grade: a sentence you leave as written keeps its grade, and one you type or change is read from its words. Numbering the list, renaming a heading or breaking a line by hand changes nothing. Density and Length wait while your edit stands, as Format and Spell out do.',
+      'Each part of the grade says which field of your entries it read, such as Result or JEPES area, and what would raise it, with the points.',
+      'Readiness compares only the command marks you entered, so a blank mark is no longer read as 0.0, and a mark left as spaces is saved blank. PME set to None now reads None, with the PME for your grade to finish or enroll in. A project’s progress or a goal’s current value left blank saves as 0.',
+    ],
+  },
+  {
     date: '2026-11-22',
     title: 'A confirmation before unit changes, and files marked when they were not scanned',
     items: [

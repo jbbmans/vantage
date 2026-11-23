@@ -16,7 +16,7 @@ export const ARQ_BANDS = [
 ];
 
 export function fitnessClass(score: unknown): string | null {
-  if (score === null || score === undefined || score === '') return null;
+  if (score === null || score === undefined || String(score).trim() === '') return null;
   const n = Number(score);
   if (!Number.isFinite(n)) return null;
   if (n >= 235) return '1st class';
@@ -25,7 +25,8 @@ export function fitnessClass(score: unknown): string | null {
   return 'below 3rd class';
 }
 
-const entered = (v: unknown) => !(v === null || v === undefined || v === '');
+/** A value the Marine entered: blank, missing or spaces only is not one. */
+const entered = (v: unknown) => !(v === null || v === undefined || String(v).trim() === '');
 export type ItemState = 'top' | 'solid' | 'attention' | 'missing' | 'external';
 export interface PillarItem { key: string; label: string; value: string | null; state: ItemState; note?: string }
 const item = (key: string, label: string, value: string | null, state: ItemState, note?: string): PillarItem => ({ key, label, value, state, ...(note ? { note } : {}) });
@@ -47,8 +48,8 @@ export function estimate(profile: Record<string, unknown> = {}): Estimate {
     return item(key, label, `${raw} · ${cls}`, state, 'Enters JEPES as a percentile vs. your grade; MOL holds the points.');
   };
   const markItem = (key: string, label: string, raw: unknown) => {
-    if (!entered(raw)) return item(key, label, null, 'missing');
     const n = Number(raw);
+    if (!entered(raw) || !Number.isFinite(n)) return item(key, label, null, 'missing');
     return item(key, label, n.toFixed(1), n >= 4 ? 'top' : n >= 3 ? 'solid' : 'attention');
   };
   const build = (items: PillarItem[]) => {
@@ -69,8 +70,10 @@ export function estimate(profile: Record<string, unknown> = {}): Estimate {
       entered(profile.college_credits) || profile.degree
         ? item('education', 'Off-duty education', profile.degree ? `${String(profile.degree).charAt(0).toUpperCase()}${String(profile.degree).slice(1)} degree` : `${profile.college_credits} credits`, profile.degree ? 'top' : 'solid')
         : item('education', 'Off-duty education', null, 'missing'),
-      entered(profile.pme_complete) && profile.pme_complete !== 'none'
-        ? item('pme', 'PME for grade', profile.pme_complete === 'resident' ? 'Resident' : 'Distance', profile.pme_complete === 'resident' ? 'top' : 'solid')
+      // "None" is an answer: the Marine has no PME for grade yet, which is not the same as not saying.
+      profile.pme_complete === 'resident' ? item('pme', 'PME for grade', 'Resident', 'top')
+        : profile.pme_complete === 'distance' ? item('pme', 'PME for grade', 'Distance', 'solid')
+        : profile.pme_complete === 'none' ? item('pme', 'PME for grade', 'None', 'attention')
         : item('pme', 'PME for grade', null, 'missing'),
       item('mosquals', 'MOS qualifications', 'See the MOL / MCTIMS table', 'external', 'Point values come from the JEPES MOS Quals table (MARADMIN 046/24). Vantage never estimates them.'),
     ]),
@@ -122,20 +125,22 @@ export function recommend(profile: Record<string, unknown> = {}, activityStats: 
   if (est.known.mental && !profile.degree && (Number(profile.college_credits) || 0) < 60) {
     out.push(rec({ id: 'credits', title: 'Log your off-duty education credits', detail: 'Credits you have already earned count whether or not the degree is finished. Make sure they are on your record, not just on a transcript.', kind: 'data', effort: 'trivial', category: 'Mental', priority: 78 }));
   }
-  if (est.known.mental && profile.pme_complete !== 'resident') {
+  if (profile.pme_complete === 'none') {
+    out.push(rec({ id: 'pme', title: 'Complete the PME for your grade', detail: 'PME for grade counts toward Mental Agility and is tracked separately for promotion eligibility. Finish the distance program for your grade, or enroll in it, and ask what resident seats your command has.', effort: 'high', category: 'Mental', priority: 72 }));
+  } else if (profile.pme_complete === 'distance') {
     out.push(rec({ id: 'pme', title: 'Complete the resident PME for your grade', detail: 'Resident PME sits above the distance equivalent in the Mental Agility tables, and grade-appropriate PME is tracked separately for promotion eligibility. Ask what seats your command has.', effort: 'high', category: 'Mental', priority: 72 }));
+  } else if (est.known.mental && profile.pme_complete !== 'resident') {
+    out.push(rec({ id: 'pme-unknown', title: 'Enter your PME status', detail: 'Vantage cannot say what PME to plan for until it knows where you stand for your grade: none yet, distance or resident.', kind: 'data', effort: 'trivial', category: 'Data', priority: 72 }));
   }
   out.push(rec({ id: 'mos-quals', title: 'Check the JEPES MOS Qualification table for your MOS', detail: 'MOS Courses and Qualifications are part of Mental Agility (MARADMIN 046/24), reported through MCTIMS, and their point values change. Read the current table on MOL and log completed qualifications here as training.', kind: 'official', effort: 'trivial', category: 'Mental', priority: 87 }));
-  const marks = [profile.cmd_character, profile.cmd_mos, profile.cmd_leadership].filter((m) => entered(m));
-  if (marks.length) {
-    const weakest = [
-      { key: 'cmd_character', label: 'Individual Character', value: Number(profile.cmd_character) },
-      { key: 'cmd_mos', label: 'MOS / Mission Accomplishment', value: Number(profile.cmd_mos) },
-      { key: 'cmd_leadership', label: 'Leadership', value: Number(profile.cmd_leadership) },
-    ].filter((m) => !Number.isNaN(m.value)).sort((a, b) => a.value - b.value)[0];
-    if (weakest && weakest.value < 4.0) {
-      out.push(rec({ id: 'command-input', title: `${weakest.label} is your weakest command mark at ${weakest.value.toFixed(1)}`, detail: 'Command input is a quarter of the score and the only part someone else controls. Marks move when a reporting senior has specific, quantified accomplishments in front of them: take your bullet package to your next counseling.', effort: 'medium', category: 'Command', priority: 86 }));
-    }
+  // Only the marks entered are compared: a blank mark is not a 0.0.
+  const weakest = [
+    { label: 'Individual Character', raw: profile.cmd_character },
+    { label: 'MOS / Mission Accomplishment', raw: profile.cmd_mos },
+    { label: 'Leadership', raw: profile.cmd_leadership },
+  ].filter((m) => entered(m.raw)).map((m) => ({ label: m.label, value: Number(m.raw) })).filter((m) => Number.isFinite(m.value)).sort((a, b) => a.value - b.value)[0];
+  if (weakest && weakest.value < 4.0) {
+    out.push(rec({ id: 'command-input', title: `${weakest.label} is your weakest command mark at ${weakest.value.toFixed(1)}`, detail: 'Marks move when a reporting senior has specific, quantified accomplishments in front of them: take your bullet package to your next counseling.', effort: 'medium', category: 'Command', priority: 86 }));
   }
   const { total = 0, withOutcome = 0, thinAreas = [] } = activityStats;
   if (total >= 5 && withOutcome / total < 0.6) {

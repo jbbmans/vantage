@@ -9,7 +9,7 @@ import { hasOutcome, readEntry, type EntryInput } from '../../shared/writer/fact
 import { byRank, weigh } from '../../shared/writer/score.ts';
 import { sameWork } from '../../shared/writer/repeats.ts';
 import { basisOf, driftOf } from '../../shared/writer/basis.ts';
-import { reviewText } from '../../shared/writer/review.ts';
+import { reviewEdit } from '../../shared/writer/review.ts';
 import { plain, spellOut } from '../../shared/writer/realize.ts';
 import { GLOSSARY } from '../../shared/writer/lexicon.ts';
 import { GLOSSARY as REFERENCE } from '../../shared/fmra/glossary.ts';
@@ -97,7 +97,7 @@ test('billets: named, flagged and ranked lower, never held', () => {
   // The reviewer flags it in the narrative and in text edited by hand.
   const n = narrate([{ id: 'b', title: 'Served as the S-4 chief', eval_area: M }, { id: 'r', title: 'Reconciled 14 ULOs in DAI', quantity: 14, unit_label: 'ULOs', eval_area: M }]);
   assert.ok(n.review.findings.some((f) => f.id === 'billet:b' && f.cite === 'MCO 1616.1, App. E'));
-  assert.ok(reviewText('-Served as the S-4 chief.\n-Reconciled 14 ULOs.', 1000).findings.some((f) => f.id === 'billet'));
+  assert.ok(reviewEdit('-Served as the S-4 chief.\n-Reconciled 14 ULOs.', { sentences: [], facts: [], limit: 1000 }, JEPES).findings.some((f) => f.id.startsWith('billet:')));
 });
 
 test('the same work logged twice is held once; look-alikes still add up', () => {

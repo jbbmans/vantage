@@ -50,20 +50,33 @@ test('the narrative studio writes JEPES input in the order’s form, explains ea
   await expect(narrative).toContainText('$77,000');
   await expect(page.getByText(/Reviewer/).first()).toBeVisible();
 
-  // Edited by hand, it is reviewed as typed.
+  // One grade: pressing Edit text without changing a word keeps it, and each part names the field it read.
+  const ring = page.getByRole('group', { name: /^Grade \d+ of 100, / });
+  const written = await ring.getAttribute('aria-label');
+  const parts = page.getByRole('list', { name: 'How the grade is made' });
+  await expect(parts.getByText('From: Result', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit text' }).click();
+  await expect(page.getByText('Reading your edited text')).toBeVisible();
+  await expect(ring).toHaveAttribute('aria-label', written!);
+  await expect(parts.getByText('From: Result', { exact: true })).toBeVisible();
+
+  // Edited by hand, it is reviewed as typed.
   const box = page.getByRole('textbox', { name: 'Narrative text' });
   await box.fill('MISSION: I helped with several ULOs. Outstanding Marine.');
   await expect(page.getByText(/leaves out the first person/)).toBeVisible();
   await expect(page.getByText(/rates the work instead of stating it/)).toBeVisible();
+  await expect(parts.getByText('From: Your edited text').first()).toBeVisible();
+  await expect(ring).not.toHaveAttribute('aria-label', written!);
   await page.getByRole('button', { name: 'Back to the written version' }).click();
   await expect(narrative).toBeVisible();
 
   // Edited, then the record changes under it: the text stays as written, and the studio says what changed.
   await page.getByRole('button', { name: 'Edit text' }).click();
   await page.getByRole('textbox', { name: 'Narrative text' }).fill('-Reconciled 31 ULOs in DAI.');
-  // Format and spelling rewrite the text, so they wait while the edit stands.
+  // Density, format, length and spelling rewrite the text, so they wait while the edit stands.
   await expect(page.getByRole('tablist', { name: 'Format' }).getByRole('tab', { name: 'Bullets' })).toBeDisabled();
+  await expect(page.getByRole('tablist', { name: 'Density' }).getByRole('tab', { name: 'Compact' })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Length' })).toBeDisabled();
   await expect(page.getByRole('checkbox', { name: 'Spell out acronyms' })).toBeDisabled();
   const added = await page.request.post('/api/records/activities', { headers: H, data: { title: 'Cleared 12 OCMTs in DAI', quantity: 12, unit_label: 'OCMTs', eval_area: M, date: today, visibility: 'private' } });
   expect(added.ok(), await added.text()).toBeTruthy();

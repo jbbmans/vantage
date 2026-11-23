@@ -61,14 +61,26 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
    - FITREP Section C writes its shorthand: short dollars of $10K or more, typed ones included ("$48.3K", "$1M" for $999,960), a measure after a semicolon, "supporting" for "in support of".
    - Text is plain ASCII, so it pastes into any form.
    - A seed picks one of two whole sets of wording, so "Another wording" never changes a fact and never mixes words within a text.
-7. **Review** (`review.ts`). A 100-point grade:
+7. **Review** (`review.ts`, on the one scale in `grade.ts`, [ADR-0045](../engineering/ADR/0045-one-grade-for-written-input.md)). A 100-point grade:
    - areas covered: 25;
    - outcomes stated: 25;
    - numbers: 20;
    - strong openings: 15;
-   - length: 15.
+   - length: 15 (full from 60% of the limit, 10 from 35%, 5 for any text that fits, none over it).
 
-   Each finding names the entries that would fix it. Text edited by hand is reviewed from its words (`reviewText`).
+   Strong from 85, Solid from 70, Needs work from 50, Thin below; Empty with no sentences. Each sentence is read as
+   the strength badge reads its entry: opens with what was done, has a number, states an outcome. Each part names the
+   field it read ("Result", "Each entry's JEPES area") and what would bring it to full, with the points. Each finding
+   names the entries that would fix it.
+
+   Text edited by hand is graded on the same scale (`reviewEdit`): a sentence left as written keeps its entries'
+   reading, so pressing Edit text changes nothing; a sentence typed or changed is read from its words by the same
+   reader (`readTyped`, `edited.ts`), and the part says how many came from each. Every sentence counts for the area
+   of the heading or label it sits under, as the text puts it. List markers, a heading named another way ("MOS",
+   "Mission Accomplishments"), a label at the end of a line, a title or a record line ("JEPES input", "Period: ...")
+   and a sentence wrapped onto two lines anywhere change nothing. An area named inside a sentence is not a label, and
+   every other line is read as a sentence, end mark or not. Density, Format, Length and Spell out acronyms wait while
+   an edit stands, since they rewrite the text it is read against.
 
 ## Where it is used
 
@@ -85,8 +97,8 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
 - **A verb:** add it to `VERBS` in `lexicon.ts`, with its kind and strength. Regular forms are generated; give the past tense when it is irregular.
 - **An acronym:** add it to `GLOSSARY` only with a standard expansion.
 - **A FITREP attribute cue:** add the words to the cue for that attribute in `attributes.ts`. Keep a cue narrow: it has to name the thing ("JEPES command input", "welfare"), not hint at it. A cue from a plain verb's entry takes the sentence; one from a specific verb (trained, led) is a second attribute.
-- **A rule:** add its pattern to `lexicon.ts`, the issue to `readEntry`, and the check to `CHECKS` in `review.ts` with its basis and citation. Mark it `style` unless an order or form says it.
-- **Tests:** `tests/server/bulletRanking.test.ts` with its fixed examples (`rankingExamples.ts`): ranking pairs, what is measured, billets, the same work logged twice, compiled totals, the four outputs agreeing on all 81 examples, held entries, the badge, the glossary and the banner's basis; `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit; `tests/server/bulletExamples.test.ts`, with 60 fixed examples and 21 edge cases (`bulletExamples.ts`) and the bullet checks (`bulletChecks.ts`), each with a case it must catch, run over every example, the corpora in `writerCorpus.ts` and random entries; `tests/server/narrativeReport.test.ts`; and `tests/browser/31-narrative.spec.ts`. A change to a rule moves the examples it touches: read each moved line before updating it.
+- **A rule:** add its pattern to `lexicon.ts`, the issue to `readEntry`, and the check to `checksFor` in `review.ts` with its basis and citation; the written review and an edit's review both run it. Mark it `style` unless an order or form says it.
+- **Tests:** `tests/server/bulletRanking.test.ts` with its fixed examples (`rankingExamples.ts`): ranking pairs, what is measured, billets, the same work logged twice, compiled totals, the four outputs agreeing on all 81 examples, held entries, the badge, the glossary and the banner's basis; `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit; `tests/server/bulletExamples.test.ts`, with 60 fixed examples and 21 edge cases (`bulletExamples.ts`) and the bullet checks (`bulletChecks.ts`), each with a case it must catch, run over every example, the corpora in `writerCorpus.ts` and random entries; `tests/server/grade.test.ts` with its fixed examples (`gradeExamples.ts`): the one grade worked out by hand, written and edited, the edit reader on lists, headings, labels, titles and lines wrapped at any column, and the words reader against the entry reading on all 146 fixed bullets and each "-ing" Result; `tests/server/narrativeReport.test.ts`; and `tests/browser/31-narrative.spec.ts`. A change to a rule moves the examples it touches: read each moved line before updating it.
 
 ## Sources
 

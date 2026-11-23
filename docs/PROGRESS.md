@@ -2,6 +2,35 @@
 
 _Updated 2026-11-23_
 
+## What changed (2026-11-23: better grading, part 1, one grade for the written input)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, from `4503096` ([ADR-0045](engineering/ADR/0045-one-grade-for-written-input.md)). No migration.
+
+- **One scale:** the written narrative and an edit of it are graded on the same five parts (areas 25, outcomes 25,
+  numbers 20, openings 15, length 15; Strong from 85, Solid 70, Needs work 50). Before, pressing Edit text switched to
+  another scale, and the same text went from 95 to 65. `reviewText` is gone.
+- **Read from the entries:** each sentence is read as the strength badge reads its entry. In an edit, a sentence left
+  as written keeps that reading; one typed or changed is read from its words by the same reader, which agrees with
+  the entry reading on all 146 fixed bullets.
+- **Reasons:** each part names the field it read and what would raise it, with the points; the panel says how the
+  number is made.
+- **Edits read as the text puts them:** list markers, headings named another way ("MOS", "MOS & Mission
+  Accomplishment"), labels at a line's end, titles and record lines, lines wrapped anywhere and abbreviated dates
+  change nothing; an area named inside a sentence is not a label; every other line is read, end mark or not; a
+  sentence counts for the heading it sits under; the summary reworded claims no work. Density and Length wait while
+  an edit stands, as Format and Spell out do.
+- **Readiness and records:** a blank command mark is no longer 0.0, and a mark of spaces is saved blank, not 0; a
+  PFT or CFT of spaces has no class and no "PFT 0" advice; a blank project progress or goal current value saves as 0
+  instead of failing; PME "None" reads
+  None and is told to finish or enroll in the PME for grade; a blank PME asks for the status; the unsourced "a
+  quarter of the score" line is gone.
+- **Tests:** `tests/server/grade.test.ts` and `gradeExamples.ts` (fixed examples and edits worked out by hand, the
+  same grade written and edited on both tracks and forms, the words reader on every fixed bullet), the report and the
+  studio carrying one review (`narrativeReport.test.ts`), Readiness (`shared.test.ts`), a blank progress
+  (`records.test.ts`), and the ring before and after Edit text (`31-narrative.spec.ts`).
+
 ## What changed (2026-11-23: better bullets, part 2, ranking and one generator)
 
 **Partial.** In review; HawkScan not run (no key); CI results not acted on.
