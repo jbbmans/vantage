@@ -21,6 +21,7 @@ import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
 import { SCHEMA_VERSION, backupDatabase } from '../db/index.ts';
+import { databaseSize } from '../db/size.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -82,11 +83,12 @@ platformRouter.get('/me', wrap((req, res) => res.json({
 platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res) => {
   const { db } = req.ctx;
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
-  let sizeBytes: number | null = null;
-  try { sizeBytes = db.name === ':memory:' ? null : statSync(db.name).size; } catch {}
   // The chain's state as the trail's first page shows it: one verification a minute, not one per visit.
   const chain = recentChainCheck(req.ctx);
   const health = healthReport(req.ctx, Date.now(), { chain });
+  // The size the health check and every refusal measure (ADR-0042), with the check's verdict, so the page shows one size.
+  const size = databaseSize(db);
+  const sizeStatus = health.checks.find((c) => c.id === 'database')?.status ?? 'ok';
   res.json({
     version: VERSION, schemaVersion: SCHEMA_VERSION, uptime: Math.round(process.uptime()), node: process.version,
     organizations: {
@@ -106,7 +108,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
       active: (db.prepare("SELECT COUNT(*) AS n FROM access_grants WHERE status = 'active' AND expires_at > ?").get(now()) as { n: number }).n,
     },
     support: { open: count("SELECT COUNT(*) AS n FROM support_tickets WHERE state NOT IN ('resolved', 'closed') AND unit_id IS NULL AND deleted_at IS NULL") },
-    database: { sizeBytes, maxBytes: req.ctx.config.limits.maxDatabaseBytes },
+    database: { sizeBytes: size.bytes, freeBytes: size.freeBytes, maxBytes: req.ctx.config.limits.maxDatabaseBytes, status: sizeStatus },
     // Who was written to is for those who run email; everyone else sees the provider only.
     email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from, recent: req.user.platformPermissions.includes('platform.email') ? db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 10').all() : [] },
     maradmins: maradminSyncState(req.ctx),

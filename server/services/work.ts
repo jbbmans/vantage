@@ -112,11 +112,12 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   const where: string[] = ['w.deleted_at IS NULL'];
   const params: unknown[] = [];
 
-  const personal = "((w.visibility <> 'unit' OR w.unit_id IS NULL) AND (w.owner_id = ? OR w.claimed_by = ?))";
-  const visibility = readableUnits.length
-    ? `(${personal} OR (w.visibility = 'unit' AND w.unit_id IN (${readableUnits.map(() => '?').join(',')})))`
-    : personal;
-  where.push(visibility);
+  // Each branch of the OR tests one indexed column (the owner, the holder, the units read), so each is read by its index
+  // and nothing else of the table is (ADR-0042). Written as one condition with an OR inside, it read the whole table.
+  const own = "(w.visibility <> 'unit' OR w.unit_id IS NULL)";
+  const branches = [`(${own} AND w.owner_id = ?)`, `(${own} AND w.claimed_by = ?)`];
+  if (readableUnits.length) branches.push(`(w.visibility = 'unit' AND w.unit_id IN (${readableUnits.map(() => '?').join(',')}))`);
+  where.push(`(${branches.join(' OR ')})`);
   params.push(user.id, user.id, ...readableUnits);
 
   if (opts.unitId) { where.push('w.unit_id = ?'); params.push(opts.unitId); }

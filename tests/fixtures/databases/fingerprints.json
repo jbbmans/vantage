@@ -18,6 +18,12 @@
       "migration": "042_attachment_scan",
       "recordedAt": "2026-11-22T17:34:52.504Z",
       "from": "fixture"
+    },
+    "43": {
+      "fingerprint": "d13f1b3830d7abb452b3c20e1a4337aa684c40ef84fa520a5d0258b64e5c4c78",
+      "migration": "043_tune_up_indexes",
+      "recordedAt": "2026-11-23T00:29:14.008Z",
+      "from": "build"
     }
   }
 }

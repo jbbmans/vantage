@@ -170,6 +170,12 @@ Adding a unit never needs a source change.
 - **Health.** `/api/health` is for the platform's probe. The Vantage Administrator console's
   **Operations** page is the full report, including revocation lists and CAs nearing expiry
   (**Sign-in health**).
+- **Scheduled upkeep.** Every `VANTAGE_DB_UPKEEP_HOURS` (default 24) the service checks the database
+  for damage on a thread of its own while people work, then refreshes its query statistics and empties
+  its write-ahead log. Each run is audited; damage it finds tells the Vantage staff and fails the health
+  check. Text deleted from this release on is overwritten where it lay, so it is not in the file or a
+  later backup. What was deleted before stays on free pages, and in backups, until **Compact**.
+  See [operations.md](operations.md#scheduled-upkeep).
 - **Moving the whole service.** Use the service archive. See
   [operations.md](operations.md#moving-the-service-to-another-host).
 

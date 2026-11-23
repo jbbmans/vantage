@@ -66,6 +66,8 @@ const HOST_META = [
   // Which database this is, and what was upgraded, restored and backed up on it (ADR-0014), and the drills run on its
   // backups (ADR-0041).
   'database_id', 'upgrade_history', 'restore_history', 'drill_history',
+  // What the scheduled upkeep last found in this file (ADR-0042).
+  'database_upkeep',
 ] as const;
 
 /**

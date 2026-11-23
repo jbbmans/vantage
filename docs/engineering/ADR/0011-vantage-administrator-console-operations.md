@@ -64,7 +64,9 @@ each checks its permission on the server (`requirePlatform`). The client hides w
 `warn`, `fail` or `info`, and the service's status is the worst of them:
 
 - **Database:** it answers, and its size against `VANTAGE_MAX_DB_BYTES` (attention at 80%, failing at
-  100%, where new records already pause).
+  100%, where new records already pause), by the one measure ADR-0042 gives every comparison.
+- **Database upkeep:** what the scheduled upkeep last found (ADR-0042): damage fails it; a run that stopped, or none
+  for twice its interval, needs attention.
 - **Disk:** free space where the database lives (attention under 15%, failing under 5%).
 - **Schema:** the database's schema against this build's (section 3).
 - **Audit trail:** the chain verifies; audit forwarding is on, connected and dropping nothing. On MCEN,

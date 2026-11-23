@@ -462,7 +462,7 @@ interface MaintenanceReport {
   history: Array<{ at: string; action: string; task: string | null; detail: string | null; actor: string | null }>;
 }
 
-const STEP_LABEL: Record<string, string> = { maintenance_on: 'Started maintenance', maintenance_off: 'Ended maintenance', maintenance_task: 'Ran a task' };
+const STEP_LABEL: Record<string, string> = { maintenance_on: 'Started maintenance', maintenance_off: 'Ended maintenance', maintenance_task: 'Ran a task', database_upkeep: 'Scheduled upkeep' };
 
 export function Maintenance() {
   const { data, isPending, error, refetch } = useAdmin<MaintenanceReport>('maintenance', api.platformMaintenanceState);

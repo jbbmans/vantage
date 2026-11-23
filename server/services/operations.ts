@@ -2,6 +2,8 @@ import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AppContext } from '../context.ts';
 import { AUDITED_FROM, metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION, timeframeViolations } from '../db/index.ts';
+import { databaseSize } from '../db/size.ts';
+import { lastUpkeep, problemCount } from './databaseUpkeep.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { audit, recentChainCheck, type ChainCheck } from './audit.ts';
@@ -206,9 +208,7 @@ const mb = (bytes: number) => `${Math.round(bytes / 1_048_576)} MB`;
 
 function databaseCheck(ctx: AppContext): HealthCheck {
   try { ctx.db.prepare('SELECT 1').get(); } catch (e) { return { id: 'database', label: 'Database', status: 'fail', summary: `The database does not answer: ${(e as Error).message}` }; }
-  const pages = ctx.db.pragma('page_count', { simple: true }) as number;
-  const pageSize = ctx.db.pragma('page_size', { simple: true }) as number;
-  const size = pages * pageSize;
+  const size = databaseSize(ctx.db).bytes;
   const max = ctx.config.limits.maxDatabaseBytes;
   const share = size / max;
   return {
@@ -277,6 +277,25 @@ function jobsCheck(ctx: AppContext, at: number): HealthCheck {
   };
 }
 
+/**
+ * The scheduled upkeep (ADR-0042): damage its integrity check found fails the service until a later run finds none; a
+ * run that stopped, or none for twice its interval, needs attention. None for a database held in memory.
+ */
+function upkeepCheck(ctx: AppContext, at: number): HealthCheck | null {
+  if (ctx.db.name === ':memory:') return null;
+  const every = ctx.config.operations.upkeepHours;
+  const last = lastUpkeep(ctx);
+  const label = 'Database upkeep';
+  if (!last) return { id: 'upkeep', label, status: 'info', summary: `Not run yet. Every ${every} hours it checks the database for damage, refreshes the query statistics and empties the write-ahead log.` };
+  const when = `${last.at.slice(0, 16).replace('T', ' ')} UTC`;
+  if (last.outcome === 'damaged') return { id: 'upkeep', label, status: 'fail', summary: `On ${when} SQLite's integrity check found ${problemCount(last.problems)} in the database. Restore from the last good backup and raise it with the hosting team.` };
+  // A run that stopped before it could check again leaves the last damage found standing.
+  if (last.outcome === 'failed' && last.damage) return { id: 'upkeep', label, status: 'fail', summary: `On ${last.damage.at.slice(0, 16).replace('T', ' ')} UTC SQLite's integrity check found ${problemCount(last.damage.problems)} in the database, and the run on ${when} stopped before it could check again: ${last.error}. Restore from the last good backup and raise it with the hosting team.` };
+  if (last.outcome === 'failed') return { id: 'upkeep', label, status: 'warn', summary: `The run on ${when} stopped: ${last.error}. The next runs ${every} hours after it.` };
+  const late = at - Date.parse(last.at) > (every * 2 + 1) * 3_600_000;
+  return { id: 'upkeep', label, status: late ? 'warn' : 'ok', summary: `${late ? `Late: it runs every ${every} hours, and last ran` : 'Last ran'} ${when}, and found no damage.` };
+}
+
 function maintenanceCheck(ctx: AppContext, at: number): HealthCheck | null {
   if (!ctx.runtime.maintenance) return null;
   const w = ctx.runtime.maintenanceWindow;
@@ -321,7 +340,7 @@ function restoreCheck(ctx: AppContext, at: number): HealthCheck | null {
 export function healthReport(ctx: AppContext, at = Date.now(), { chain }: { chain?: ChainCheck } = {}) {
   const checks = [
     databaseCheck(ctx), diskCheck(ctx), schemaCheck(ctx), upgradeCheck(ctx), ...auditChecks(ctx, chain), backupCheck(ctx, at), restoreCheck(ctx, at), emailCheck(ctx, at),
-    jobsCheck(ctx, at), ...signInChecks(ctx, at), maintenanceCheck(ctx, at), ...instanceChecks(ctx),
+    jobsCheck(ctx, at), upkeepCheck(ctx, at), ...signInChecks(ctx, at), maintenanceCheck(ctx, at), ...instanceChecks(ctx),
   ].filter((c): c is HealthCheck => Boolean(c));
   const rank: Record<HealthStatus, number> = { fail: 0, warn: 1, info: 2, ok: 3 };
   const memory = process.memoryUsage();

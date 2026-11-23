@@ -102,6 +102,12 @@ export interface OperationsConfig {
    * null, VANTAGE_UPGRADE_COPY_DIR) and how many such copies stay there (VANTAGE_UPGRADE_COPIES_KEPT, 3 by default).
    */
   upgradeCopies: { dir: string | null; keep: number };
+  /**
+   * How often the scheduled upkeep checks the database for damage, refreshes stale query statistics and empties the
+   * write-ahead log (ADR-0042): it runs on the first hourly tick after this many hours (VANTAGE_DB_UPKEEP_HOURS, 24 by
+   * default, 1 to 168).
+   */
+  upkeepHours: number;
 }
 
 export interface OidcConfig {
@@ -567,6 +573,7 @@ export function loadConfig(env = process.env): AppConfig {
         dir: upgradeCopyDir ? (isAbsolute(upgradeCopyDir) ? upgradeCopyDir : resolve(ROOT, upgradeCopyDir)) : null,
         keep: envInt(env, 'VANTAGE_UPGRADE_COPIES_KEPT', 3, 1, 20),
       },
+      upkeepHours: envInt(env, 'VANTAGE_DB_UPKEEP_HOURS', 24, 1, 168),
     },
   };
 }

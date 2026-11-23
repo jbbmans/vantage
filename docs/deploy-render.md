@@ -95,7 +95,7 @@ answering the platform API.
 
 ## Sizing
 
-SQLite on the Render disk handles this workload comfortably. The app refuses new writes when the database file nears `VANTAGE_MAX_DB_BYTES` (default 800 MB) so a full disk never corrupts anything. Attachments count toward that; Vantage staff can turn them off in the Vantage Administrator console.
+SQLite on the Render disk handles this workload comfortably. The app refuses new records, uploads and attachments once the database reaches `VANTAGE_MAX_DB_BYTES` (default 800 MB), counting every page, what is still in the write-ahead log included, so a full disk never corrupts anything. Attachments count toward that; Vantage staff can turn them off in the Vantage Administrator console. The service checks the database for damage, refreshes its query statistics and empties its write-ahead log on its own every `VANTAGE_DB_UPKEEP_HOURS` (default 24; [operations.md](operations.md#scheduled-upkeep)).
 
 ## Upgrades
 

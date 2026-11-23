@@ -1,6 +1,7 @@
 import { statfsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
+import { databaseSize } from '../db/size.ts';
 import type { AppContext, MaintenanceWindow, SessionUser } from '../context.ts';
 import { badRequest, conflict } from '../lib/errors.ts';
 import { now } from '../lib/ids.ts';
@@ -9,6 +10,7 @@ import { audit, verifyAuditChain } from './audit.ts';
 import { verifyAllCases } from './caseSeal.ts';
 import { notifyStaff } from './notifications.ts';
 import { installTopologyGuard } from './deployment.ts';
+import { stopDatabaseUpkeep, upkeepRunning } from './databaseUpkeep.ts';
 
 /**
  * Controlled maintenance (ADR-0011): closing the service to everyone but Vantage staff, always with a reason, and the
@@ -60,6 +62,8 @@ export function startMaintenance(ctx: AppContext, actor: SessionUser, input: Mai
   ctx.runtime.maintenance = true;
   ctx.runtime.maintenanceWindow = window;
   ctx.saveRuntime();
+  // The scheduled upkeep does not run during maintenance, and a run under way is stopped so Compact has the database.
+  stopDatabaseUpkeep(ctx);
   audit(ctx, { actor_id: actor.id, action: 'maintenance_on', entity: 'platform', detail: `${reason}${until ? `; expected end ${until}` : ''}`, ip });
   notifyStaff(ctx, 'platform.view', { kind: 'system', title: `${window.startedByName} closed Vantage for maintenance`, message: `${reason} Only Vantage staff can sign in until it ends.`, actionUrl: '/admin/maintenance' }, actor.id);
   return window;
@@ -165,14 +169,14 @@ export const MAINTENANCE_TASKS: Record<string, MaintenanceTask> = {
     needsMaintenance: true,
     run: (ctx) => {
       if (ctx.db.name === ':memory:') return { ok: true, summary: 'An in-memory database has nothing to compact.', detail: [] };
-      const before = statSync(ctx.db.name).size;
-      // VACUUM builds its working copy in SQLite's temporary folder, then writes it back through the write-ahead log
-      // beside the database: about the database's size in each place, twice it when they share a disk.
+      const { bytes: before, usedBytes } = databaseSize(ctx.db);
+      // VACUUM builds its working copy, the pages in use, in SQLite's temporary folder, then writes it back through the
+      // write-ahead log beside the database: about that much in each place, twice it when they share a disk.
       const home = dirname(ctx.db.name);
       const temp = process.env.SQLITE_TMPDIR || tmpdir();
       const needs: Array<[string, string, number]> = statSync(home).dev === statSync(temp).dev
-        ? [[home, 'beside the database', before * 2.2]]
-        : [[home, 'beside the database', before * 1.2], [temp, `in ${temp}`, before * 1.2]];
+        ? [[home, 'beside the database', usedBytes * 2.2]]
+        : [[home, 'beside the database', usedBytes * 1.2], [temp, `in ${temp}`, usedBytes * 1.2]];
       for (const [dir, where, need] of needs) {
         const disk = statfsSync(dir);
         const free = disk.bavail * disk.bsize;
@@ -188,16 +192,20 @@ export const MAINTENANCE_TASKS: Record<string, MaintenanceTask> = {
         installTopologyGuard(ctx.db, ctx.config.deployment);
       }
       ctx.db.pragma('wal_checkpoint(TRUNCATE)');
-      const after = statSync(ctx.db.name).size;
-      return { ok: true, summary: `The database file went from ${Math.round(before / 1024)} KB to ${Math.round(after / 1024)} KB.`, detail: [] };
+      const after = databaseSize(ctx.db).bytes;
+      return { ok: true, summary: `The database went from ${Math.round(before / 1024)} KB to ${Math.round(after / 1024)} KB.`, detail: [] };
     },
   },
 };
+
+const WAITS_FOR_UPKEEP = new Set(['vacuum', 'checkpoint']);
 
 export function runMaintenanceTask(ctx: AppContext, actor: SessionUser, key: string, ip?: string | null) {
   const task = Object.hasOwn(MAINTENANCE_TASKS, key) ? MAINTENANCE_TASKS[key] : null;
   if (!task) throw badRequest('No such maintenance task.', { code: 'unknown_task' });
   if (task.needsMaintenance && !ctx.runtime.maintenance) throw conflict(`${task.label} runs only during maintenance. Start maintenance first.`, 'maintenance_required');
+  // Compacting and emptying the log need nobody else in the database; a scheduled upkeep thread still ending its step is.
+  if (WAITS_FOR_UPKEEP.has(key) && upkeepRunning(ctx)) throw conflict(`The scheduled upkeep is finishing a step on the database. Run ${task.label.toLowerCase()} again in a minute.`, 'upkeep_running');
   const started = performance.now();
   let result: TaskResult;
   try { result = task.run(ctx); } catch (error) { result = { ok: false, summary: `It stopped: ${(error as Error).message}`.slice(0, 300), detail: [] }; }
@@ -208,10 +216,15 @@ export function runMaintenanceTask(ctx: AppContext, actor: SessionUser, key: str
 
 /** What the Maintenance page shows: the window, the tasks, and the most recent maintenance steps from the platform trail. */
 export function maintenanceState(ctx: AppContext) {
-  const history = ctx.db.prepare(`SELECT al.at, al.action, al.entity_id AS task, al.detail, u.first_name || ' ' || u.last_name AS actor
+  // The last 30 steps people took, and the last 5 scheduled upkeep runs beside them: a daily run never pushes out who
+  // ran Compact last month.
+  const steps = (actions: string, limit: number) => ctx.db.prepare(`SELECT al.seq, al.at, al.action, al.entity_id AS task, al.detail, u.first_name || ' ' || u.last_name AS actor
       FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id
-     WHERE al.org_id IS NULL AND al.unit_id IS NULL AND al.action IN ('maintenance_on', 'maintenance_off', 'maintenance_task')
-     ORDER BY al.seq DESC LIMIT 30`).all();
+     WHERE al.org_id IS NULL AND al.unit_id IS NULL AND al.action IN (${actions})
+     ORDER BY al.seq DESC LIMIT ${limit}`).all() as Array<{ seq: number }>;
+  const history = [...steps("'maintenance_on', 'maintenance_off', 'maintenance_task'", 30), ...steps("'database_upkeep'", 5)]
+    .sort((a, b) => b.seq - a.seq)
+    .map(({ seq: _seq, ...step }) => step);
   return {
     maintenance: ctx.runtime.maintenance,
     window: ctx.runtime.maintenanceWindow,

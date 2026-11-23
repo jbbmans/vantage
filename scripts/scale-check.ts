@@ -1,4 +1,5 @@
 import { openDatabase } from '../server/db/index.ts';
+import { databaseSize } from '../server/db/size.ts';
 import { newId } from '../server/lib/ids.ts';
 import { rmSync } from 'node:fs';
 
@@ -41,7 +42,7 @@ db.exec('COMMIT');
 db.exec('ANALYZE');
 
 const seedSeconds = ((Date.now() - seedStart) / 1000).toFixed(1);
-const bytes = (db.prepare('SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()').get() as { n: number }).n;
+const bytes = databaseSize(db).bytes;
 console.log(`Seeded in ${seedSeconds}s. Database is ${(bytes / 1e6).toFixed(1)} MB.\n`);
 
 const me = userIds[Math.floor(userIds.length / 2)];
