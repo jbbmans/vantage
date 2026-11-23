@@ -303,20 +303,23 @@ in use, which is what it writes.
 
 The service keeps the database up on its own (ADR-0042). An hourly job runs the upkeep once the last run is
 `VANTAGE_DB_UPKEEP_HOURS` old (default 24, 1 to 168), so a service restarted every day still runs it. It never runs
-during maintenance or for a database held in memory. On a thread of its own, with its own connection, it:
+during maintenance or for a database held in memory. It:
 
-- checks the database for damage with SQLite's full `integrity_check`, which reads every page and index;
-- refreshes the query statistics of every table whose statistics have gone stale (`PRAGMA optimize`, under SQLite's
-  analysis limit, so each table holds the write lock for a moment), and the service's own connection then takes them
-  up; when another process holds the lock at that moment, it takes them up on a later tick;
-- folds the write-ahead log into the database and empties it, without waiting: a reader in the log at that moment
-  leaves it for the next run.
+- checks the database for damage with SQLite's full `integrity_check`, which reads every page and index, on a thread
+  and a connection of its own, then folds in what was written meanwhile with a passive checkpoint, which takes no lock;
+- back on the service's own connection, refreshes the query statistics of every table whose statistics have gone stale
+  (`PRAGMA optimize`, under SQLite's analysis limit) and empties the write-ahead log. These two take the write lock, so
+  they run where they cannot meet the service's own transactions, and neither waits: another process holding the lock,
+  or a reader in the log, leaves the step for the next run. They took 45 ms for 40 stale tables in a 126 MB database
+  in the container.
 
 People keep working while it runs. Each run is audited as `database_upkeep`, with no actor, and shows under
 **Maintenance** as "Scheduled upkeep", under the scheduled jobs on **Operations**, and as the **Database upkeep** health
 check. Damage it finds tells the Vantage staff who view the platform and fails the health check until a later run finds
-none: restore from the last good backup and raise it with the hosting team. A run that stops is recorded the same way,
-and the next waits its interval. The tasks above still run on demand.
+none: restore from the last good backup and raise it with the hosting team. Damage that stops the check (a schema
+SQLite cannot read, a header that is not a database) counts as damage too. A run that stops is recorded the same way,
+and the next waits its interval; when the last run found damage, the health check keeps failing until one finds none.
+On a damaged database the statistics and the log are left as they are. The tasks above still run on demand.
 
 Starting maintenance stops a run under way, and nothing of it is recorded; the first tick after maintenance ends runs
 it. A run still going after an hour is recorded as stopped, with the step it was in. SQLite cannot be stopped inside a

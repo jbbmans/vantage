@@ -11,7 +11,7 @@ import { startSchedulers } from '../../server/app.ts';
 import { revokeTokens } from '../../server/auth/tokens.ts';
 import { purgeDeleted } from '../../server/services/records.ts';
 import { composeDigest } from '../../server/services/digest.ts';
-import { databaseUpkeepTick, lastUpkeep, problemCount, reloadStatistics, runDatabaseUpkeep, upkeepDue, upkeepRunning } from '../../server/services/databaseUpkeep.ts';
+import { databaseUpkeepTick, lastUpkeep, problemCount, runDatabaseUpkeep, upkeepDue, upkeepOnServiceConnection, upkeepRunning } from '../../server/services/databaseUpkeep.ts';
 import { upkeepWork } from '../../server/services/databaseUpkeepWorker.ts';
 import { maintenanceState, runMaintenanceTask, startMaintenance } from '../../server/services/maintenance.ts';
 import { audit } from '../../server/services/audit.ts';
@@ -222,8 +222,7 @@ test('the upkeep runs on a thread of its own, is audited, and runs again only on
     assert.equal(run!.outcome, 'done');
     assert.equal(run!.problems, 0);
     assert.ok(run!.analyzed.length > 0, 'the tables written since the start had stale statistics');
-    assert.equal(run!.reloaded, true);
-    assert.deepEqual(run!.checkpoint && [run!.checkpoint.emptied, run!.checkpoint.folded === run!.checkpoint.pages], [true, true]);
+    assert.deepEqual(run!.checkpoint && [run!.checkpoint.emptied, run!.checkpoint.folded > 0], [true, true]);
     assert.deepEqual(lastUpkeep(ctx), run, 'kept beside the database');
 
     const [entry] = upkeepEntries(ctx.db);
@@ -251,7 +250,7 @@ test('the upkeep runs on a thread of its own, is audited, and runs again only on
   } finally { await done(); }
 });
 
-test('statistics another connection refreshed reach the service’s planner only when it takes them up, and it does not wait for the lock to', () => {
+test('the statistics are refreshed on the service’s own connection, so its plans change at once, and another process’s lock leaves them for the next run without waiting', () => {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-stats-'));
   const path = join(dir, 'vantage.db');
   const db = openDatabase(path);
@@ -261,17 +260,37 @@ test('statistics another connection refreshed reach the service’s planner only
     db.prepare('WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v + 1 FROM n WHERE v < 20000) INSERT INTO upkeep_probe (a, b) SELECT v % 2, v FROM n').run();
     const plan = () => (db.prepare('EXPLAIN QUERY PLAN SELECT COUNT(*) FROM upkeep_probe WHERE a = 1 AND b BETWEEN 19990 AND 19999').all() as Array<{ detail: string }>).map((r) => r.detail).join(' | ');
     assert.match(plan(), /upkeep_probe_a/, 'with no statistics, the planner guesses');
-    const work = upkeepWork(path);
-    assert.ok(work.analyzed.includes('upkeep_probe'));
-    assert.match(plan(), /upkeep_probe_a/, 'statistics another connection wrote are not seen yet');
     writer.exec('BEGIN IMMEDIATE');
+    const skipped: string[] = [];
     const started = performance.now();
-    assert.equal(reloadStatistics(db), false, 'another holds the write lock: not now');
+    assert.deepEqual(upkeepOnServiceConnection(db, skipped), { analyzed: [], emptied: false }, 'another process holds the write lock: not now');
     assert.ok(performance.now() - started < 1000, 'and it did not wait');
+    assert.deepEqual(skipped, ['statistics: another process held the database, so it waits for the next run']);
     assert.equal(Number(db.pragma('busy_timeout', { simple: true })), 5000, 'the connection waits as long as before for everything else');
     writer.exec('COMMIT');
-    assert.equal(reloadStatistics(db), true);
-    assert.match(plan(), /upkeep_probe_b/, 'taken up, the statistics change the plan');
+    const run = upkeepOnServiceConnection(db, skipped);
+    assert.ok(run.analyzed.includes('upkeep_probe'));
+    assert.equal(run.emptied, true);
+    assert.match(plan(), /upkeep_probe_b/, 'the planner uses them at once');
+  } finally { writer.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the thread names each step as it starts, and takes no lock a save would wait on', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-steps-'));
+  const path = join(dir, 'vantage.db');
+  const db = openDatabase(path);
+  const writer = new Database(path);
+  try {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('upkeep_test', 'in the log')").run();
+    const steps: string[] = [];
+    writer.exec('BEGIN IMMEDIATE');
+    const started = performance.now();
+    const work = upkeepWork(path, (step) => steps.push(step));
+    assert.ok(performance.now() - started < 4000, 'a writer holding the lock does not hold it up');
+    writer.exec('COMMIT');
+    assert.deepEqual(steps, ['checking the database for damage', 'folding in the write-ahead log']);
+    assert.equal(work.integrity.ok, true);
+    assert.ok(work.folded !== null && work.folded > 0, JSON.stringify(work));
   } finally { writer.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -329,6 +348,48 @@ test('damage the check finds is recorded, told to the staff who view the platfor
   } finally { await done(); }
 });
 
+test('damage that stops the check is damage: told to the staff, failing the health check, and kept through a run that stops', async () => {
+  const { disk, path, done } = await onDisk();
+  const ctx = disk.ctx;
+  const patch = (from: string, to: string) => {
+    const bytes = readFileSync(path);
+    const at = bytes.indexOf(from);
+    assert.ok(at > 0, `${from} is in the file`);
+    const fd = openSync(path, 'r+');
+    try { writeSync(fd, Buffer.from(to), 0, to.length, at); } finally { closeSync(fd); }
+  };
+  try {
+    const staff = await disk.setupOperator();
+    // The schema's text for one index changed on disk: SQLite stops on it instead of listing it.
+    ctx.db.exec('CREATE TABLE upkeep_probe (x TEXT); CREATE INDEX upkeep_probe_x ON upkeep_probe(x)');
+    ctx.db.pragma('wal_checkpoint(TRUNCATE)');
+    patch('CREATE INDEX upkeep_probe_x', 'CREATE INDEZ upkeep_probe_x');
+    try {
+      await assert.rejects(runDatabaseUpkeep(ctx), /integrity check found 1 problem in the database/);
+      const last = lastUpkeep(ctx)!;
+      assert.equal(last.outcome, 'damaged');
+      assert.match(last.messages[0], /malformed database schema/);
+      assert.ok(last.skipped.some((s) => /left as they are on a damaged database/.test(s)));
+      const told = ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND title LIKE '%found damage%'").get(staff.id) as { n: number };
+      assert.equal(told.n, 1);
+      assert.equal(healthReport(ctx).checks.find((c) => c.id === 'upkeep')!.status, 'fail');
+
+      // A run that stops before it can check again leaves the damage standing.
+      await assert.rejects(runDatabaseUpkeep(ctx, { timeoutMs: 1 }), /stopped/);
+      assert.equal(await threadEnded(ctx), true);
+      const stopped = lastUpkeep(ctx)!;
+      assert.deepEqual([stopped.outcome, stopped.damage?.problems], ['failed', 1]);
+      const check = healthReport(ctx).checks.find((c) => c.id === 'upkeep')!;
+      assert.equal(check.status, 'fail');
+      assert.match(check.summary, /found 1 problem in the database, and the run on .+ stopped before it could check again/);
+      assert.match(upkeepEntries(ctx.db).at(-1)!.detail!, /The damage found on .+ has not been checked again\./);
+    } finally { patch('CREATE INDEZ upkeep_probe_x', 'CREATE INDEX upkeep_probe_x'); }
+    assert.equal((await runDatabaseUpkeep(ctx))!.outcome, 'done');
+    assert.equal(lastUpkeep(ctx)!.damage, null);
+    assert.equal(healthReport(ctx).checks.find((c) => c.id === 'upkeep')!.status, 'ok', 'a run that finds none clears it');
+  } finally { await done(); }
+});
+
 /** Until the upkeep thread on this database has ended, at most five seconds. */
 async function threadEnded(ctx: TestApp['ctx']) {
   for (let i = 0; i < 100 && upkeepRunning(ctx); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -340,7 +401,7 @@ test('a run past its time limit is recorded at the limit with the step it was in
   try {
     await disk.setupOperator();
     // A thread cannot be stopped inside a call into SQLite, so the limit settles the run and the thread ends after its step.
-    await assert.rejects(runDatabaseUpkeep(disk.ctx, { timeoutMs: 1 }), /^Error: Database upkeep stopped: it was still (starting|checking the database for damage|refreshing the query statistics|folding in the write-ahead log) after 1 minute, so it was told to stop; SQLite ends that step first$/);
+    await assert.rejects(runDatabaseUpkeep(disk.ctx, { timeoutMs: 1 }), /^Error: Database upkeep stopped: it was still starting after 1 second, so it was told to stop; SQLite ends that step first$/);
     assert.equal(upkeepRunning(disk.ctx), true, 'its thread is still ending');
     assert.equal(await databaseUpkeepTick(disk.ctx, Date.now() + 48 * 3_600_000), null, 'no run starts beside it, even when one is due');
     const last = lastUpkeep(disk.ctx)!;
@@ -361,6 +422,25 @@ test('a run past its time limit is recorded at the limit with the step it was in
   assert.equal(healthReport(app.ctx).checks.find((c) => c.id === 'upkeep'), undefined);
   const stop = startSchedulers(app.ctx);
   try { assert.ok(!jobStatus(app.ctx).some((j) => j.name === 'database_upkeep')); } finally { stop(); clearJobs(app.ctx); }
+});
+
+test('a run held past its limit names the step it was held in', async () => {
+  const { disk, done } = await onDisk();
+  const ctx = disk.ctx;
+  try {
+    await disk.setupOperator();
+    // The service's connection takes the database for itself, so the thread's read waits inside its first step.
+    ctx.db.pragma('locking_mode = EXCLUSIVE');
+    ctx.db.prepare("INSERT INTO meta (key, value) VALUES ('upkeep_test', 'held')").run();
+    try {
+      await assert.rejects(runDatabaseUpkeep(ctx, { timeoutMs: 2500 }), /^Error: Database upkeep stopped: it was still checking the database for damage after 3 seconds, so it was told to stop; SQLite ends that step first$/);
+    } finally {
+      ctx.db.pragma('locking_mode = NORMAL');
+      ctx.db.prepare('SELECT COUNT(*) FROM users').get();
+    }
+    assert.equal(await threadEnded(ctx), true);
+    assert.match(lastUpkeep(ctx)!.error!, /still checking the database for damage/);
+  } finally { await done(); }
 });
 
 test('starting maintenance stops a run under way, and Compact and emptying the log wait for its thread', async () => {
@@ -389,29 +469,41 @@ test('starting maintenance stops a run under way, and Compact and emptying the l
   } finally { await done(); }
 });
 
-test('a run whose statistics cannot be taken up is kept, and only the reload is tried again', async () => {
+test('a save that reads before it writes never fails beside the upkeep', async () => {
   const { disk, done } = await onDisk();
   const ctx = disk.ctx;
   try {
     await disk.setupOperator();
-    const exec = ctx.db.exec;
-    let failing = true;
-    ctx.db.exec = function (this: typeof ctx.db, sql: string) {
-      if (failing && sql === 'ANALYZE sqlite_schema') throw Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR' });
-      return exec.call(this, sql);
-    } as typeof ctx.db.exec;
+    // A database large enough that the check takes a while, so the log grows behind it as the saves go on, and before
+    // each run a table whose statistics are stale: every step of every run has work to do.
+    ctx.db.exec('CREATE TABLE upkeep_bulk (a INTEGER, b TEXT); CREATE INDEX upkeep_bulk_a ON upkeep_bulk(a)');
+    ctx.db.prepare('WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v + 1 FROM n WHERE v < 300000) INSERT INTO upkeep_bulk SELECT v % 50, hex(randomblob(32)) FROM n').run();
+    const stale = (round: number) => {
+      ctx.db.exec(`CREATE TABLE upkeep_probe_${round} (x TEXT, y INTEGER); CREATE INDEX upkeep_probe_${round}_x ON upkeep_probe_${round}(x)`);
+      ctx.db.prepare(`WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v + 1 FROM n WHERE v < 20000) INSERT INTO upkeep_probe_${round} SELECT hex(randomblob(32)), v % 7 FROM n`).run();
+    };
+    // Each audit entry is a transaction that reads the chain's head before it writes. SQLite does not wait for the write
+    // lock there, so a lock another connection held at that moment would fail it at once. A save every millisecond
+    // leaves the gaps a lock taken elsewhere would fall in.
+    const failures: string[] = [];
+    let saves = 0;
+    let running = true;
+    const save = () => {
+      if (!running) return;
+      try { audit(ctx, { actor_id: null, action: 'maintenance_task', entity: 'database', entity_id: 'probe', detail: 'beside the upkeep' }); saves += 1; } catch (error) { failures.push(String((error as { code?: string }).code ?? error)); }
+      setTimeout(save, 1);
+    };
+    save();
     try {
-      const run = await runDatabaseUpkeep(ctx);
-      assert.deepEqual([run!.outcome, run!.reloaded], ['done', false]);
-      assert.ok(run!.skipped.includes('taking up the new statistics: disk I/O error'), JSON.stringify(run!.skipped));
-      assert.match(upkeepEntries(ctx.db).at(-1)!.detail!, /taken up on a later tick\. .*Not run: taking up the new statistics: disk I\/O error\./);
-      assert.equal(await databaseUpkeepTick(ctx), null, 'a failing reload does not stop the tick, and the run is not due again');
-      assert.equal(lastUpkeep(ctx)!.reloaded, false);
-      failing = false;
-      assert.equal(await databaseUpkeepTick(ctx), null);
-      assert.equal(lastUpkeep(ctx)!.reloaded, true, 'the next tick takes them up');
-      assert.equal(upkeepEntries(ctx.db).length, 1, 'without running the upkeep again');
-    } finally { ctx.db.exec = exec; }
+      for (let round = 0; round < 8; round += 1) {
+        stale(round);
+        const run = await runDatabaseUpkeep(ctx);
+        assert.equal(run!.outcome, 'done');
+        assert.ok(run!.analyzed.includes(`upkeep_probe_${round}`), JSON.stringify(run));
+      }
+    } finally { running = false; }
+    assert.ok(saves > 200, `${saves} saves ran beside it`);
+    assert.deepEqual(failures, []);
   } finally { await done(); }
 });
 

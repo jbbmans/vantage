@@ -289,6 +289,8 @@ function upkeepCheck(ctx: AppContext, at: number): HealthCheck | null {
   if (!last) return { id: 'upkeep', label, status: 'info', summary: `Not run yet. Every ${every} hours it checks the database for damage, refreshes the query statistics and empties the write-ahead log.` };
   const when = `${last.at.slice(0, 16).replace('T', ' ')} UTC`;
   if (last.outcome === 'damaged') return { id: 'upkeep', label, status: 'fail', summary: `On ${when} SQLite's integrity check found ${problemCount(last.problems)} in the database. Restore from the last good backup and raise it with the hosting team.` };
+  // A run that stopped before it could check again leaves the last damage found standing.
+  if (last.outcome === 'failed' && last.damage) return { id: 'upkeep', label, status: 'fail', summary: `On ${last.damage.at.slice(0, 16).replace('T', ' ')} UTC SQLite's integrity check found ${problemCount(last.damage.problems)} in the database, and the run on ${when} stopped before it could check again: ${last.error}. Restore from the last good backup and raise it with the hosting team.` };
   if (last.outcome === 'failed') return { id: 'upkeep', label, status: 'warn', summary: `The run on ${when} stopped: ${last.error}. The next runs ${every} hours after it.` };
   const late = at - Date.parse(last.at) > (every * 2 + 1) * 3_600_000;
   return { id: 'upkeep', label, status: late ? 'warn' : 'ok', summary: `${late ? `Late: it runs every ${every} hours, and last ran` : 'Last ran'} ${when}, and found no damage.` };

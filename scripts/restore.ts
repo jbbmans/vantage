@@ -185,6 +185,8 @@ try {
   copyFilePrivate(source, temp);
   if (sha256File(temp) !== check.sha256) abandon('The backup changed while it was copied. Check what else is writing to it, then run this again.');
   copy = new Database(temp);
+  // The sessions, links and queued mail removed below are zeroed where they lay, as the service does (ADR-0042).
+  copy.pragma('secure_delete = ON');
 } catch (error) {
   abandon(`The backup could not be copied beside the database: ${(error as Error).message}`);
 }

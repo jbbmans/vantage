@@ -15,9 +15,10 @@ Round 2, the database's second part, from `8b18a31`
 - **One size measure:** `databaseSize` counts every page, what is still in the log included, for the threshold, the
   health check, the Overview, Compact and the copy before an upgrade. Every refusal at the threshold is
   `database_capacity`.
-- **Scheduled upkeep:** integrity check, stale statistics and the write-ahead log, on a thread of its own every
-  `VANTAGE_DB_UPKEEP_HOURS` (24), audited as `database_upkeep` and shown as the **Database upkeep** health check.
-- **Deleted text:** `secure_delete` on every connection.
+- **Scheduled upkeep:** every `VANTAGE_DB_UPKEEP_HOURS` (24), the integrity check on a thread of its own, then the
+  stale statistics and the write-ahead log on the service's own connection. Audited as `database_upkeep` and shown as
+  the **Database upkeep** health check.
+- **Deleted text:** `secure_delete` on every connection the service opens, and on the restore's working copy.
 - **Tests:** `tests/server/databaseTuneUp.test.ts` (query plans captured from the code that runs them, the size
   measure, the upkeep, secure_delete), the 043 test in `tests/server/migrations.test.ts`, and every frozen fixture
   upgraded to 43 in `tests/server/databaseFixtures.test.ts`.

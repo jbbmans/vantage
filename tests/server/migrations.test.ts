@@ -1238,11 +1238,12 @@ test('043 adds the indexes the reads that scanned a table need, rebuilds the uni
     assert.deepEqual(keys('idx_trainings_unit_last'), ['unit_id', 'visibility', null, 'date']);
     assert.deepEqual(keys('idx_duties_unit_last'), ['unit_id', null, 'date']);
     assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
-    // Run again, it rebuilds nothing: the window indexes already end in the date.
-    const roots = () => db.prepare("SELECT name, rootpage FROM sqlite_schema WHERE name LIKE 'idx_%_unit_last' ORDER BY name").all();
-    const was = roots();
+    // Run again, it changes nothing in the schema: the window indexes already end in the date. A dropped index's root
+    // page is taken back by the index created after it, so only the schema's version counter shows a rebuild.
+    const version = () => Number(db.pragma('schema_version', { simple: true }));
+    const was = version();
     db.transaction(() => BUILD_MIGRATIONS.find((m) => m.id === 43)!.run(db))();
-    assert.deepEqual(roots(), was);
+    assert.equal(version(), was, 'nothing dropped or created');
     db.close();
     const again = openDatabase(path);
     assert.equal(migrationHistory(again).filter((m) => m.id === 43).length, 1, 'a second boot runs it once');
