@@ -106,7 +106,8 @@ function repeats(verbs: Array<string | null>): Finding[] {
   return [...openers].filter(([, count]) => count >= 3).map(([verb, count]) => ({ id: `repeat:${verb}`, tone: 'consider', basis: 'style', title: `${count} sentences open with the same verb`, detail: REPEAT_DETAIL }));
 }
 
-const acronymsIn = (text: string) => Object.keys(GLOSSARY).filter((a) => new RegExp(`(?<![\\w-])${a.replace(/-/g, '\\-')}s?(?![\\w-])`).test(text));
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const acronymsIn = (text: string) => Object.keys(GLOSSARY).filter((a) => new RegExp(`(?<![\\w-])${escapeRe(a)}s?(?![\\w-])`).test(text));
 
 /**
  * One sentence the writer wrote, read for the grade from the entries behind it, the reading the strength badge uses
@@ -378,7 +379,7 @@ export function reviewEdit(edit: string, n: Pick<Written, 'sentences' | 'facts' 
   const claims = readings.filter((r) => r.claim);
   findings.push(...repeats([...kept.filter((k) => k.sentence.kind !== 'summary').map((k) => k.sentence.verb), ...typed.map((t) => t.fact.verb?.lemma ?? null)]));
   // An acronym is spelled out when its expansion stands before it in brackets: "unliquidated obligations (ULOs)".
-  const unexplained = acronymsIn(edit).filter((a) => !new RegExp(`\\(${a.replace(/-/g, '\\-')}s?\\)`).test(edit));
+  const unexplained = acronymsIn(edit).filter((a) => !new RegExp(`\\(${escapeRe(a)}s?\\)`).test(edit));
   if (unexplained.length) findings.push({ id: 'acronyms', tone: 'consider', basis: 'guidance', cite: APP_E, title: `${unexplained.slice(0, 4).join(', ')} not spelled out`, detail: 'The order’s own examples spell an acronym out the first time: “Position Safety Officer (PSO)”. Readers up the chain may not share your section’s shorthand.' });
   if (claims.length && claims.every((r) => r.outcome)) findings.push({ id: 'good:outcomes', tone: 'good', title: 'Every sentence states an outcome' });
   if (expected.length && covered.length === expected.length) findings.push({ id: 'good:coverage', tone: 'good', title: `All ${expected.length} areas covered` });
