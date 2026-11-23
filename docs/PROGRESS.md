@@ -2,6 +2,44 @@
 
 _Updated 2026-11-23_
 
+## What changed (2026-11-23: better bullets, part 2, ranking and one generator)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, from `9770155` ([ADR-0044](engineering/ADR/0044-ranking-and-one-generator.md)). No migration: edited
+narratives stay in the browser.
+
+- **Ranking:** a measured outcome outranks any dollar figure, a stated outcome outranks none; tiers decide first in
+  the narrative, what is left out and the package. "Measured" no longer reads a date, a fiscal year, a quarter or
+  "S-4" as a number; "all cleared", "none returned" and "on time" are measures, and "12 Marines" or "2000 rounds"
+  still count.
+- **Billets:** "Served as the S-4 chief" and a duty verb with nothing to show ("Supervised the motor pool") are
+  flagged, ranked lower and never held, with Appendix E or Section C cited.
+- **The same work logged twice** (the same verb, figures, system and organization, a day apart, the same words) is
+  held once with the reason, the fuller copy leading; look-alikes a week apart or with other numbers still add up.
+- **Compiled:** the same work is always one total, said once: ten OCMT entries are "Cleared 100 OCMTs totaling
+  $111,250 in DAI." No "across N actions". The words, system and organization every entry shares stay, only as a
+  whole phrase ("for the S-4", never "for 1st" or "the Department"); dollars only some entries carry are said of
+  those, and a figure the outcome already states is said once.
+- **One generator:** the package, the record bullet, Quick Log, the résumé and the badge read each entry the way the
+  narrative does. The package is compiled and ranked, lists held entries with their reason, and says what its cap
+  leaves out once after the bullets. What it holds follows the report's track, whatever the bullet style. The
+  résumé is the JEPES sentence with acronyms spelled out.
+- **The badge:** five points (opens with what you did, a number, an outcome, a measured outcome, an area), "N/5"
+  everywhere with one tooltip; the analysis counts 0 to 5. The team dashboard's "Complete entries" means an outcome.
+- **One glossary:** the old résumé glossary is gone; LOA is no longer spelled out as a guess.
+- **Edited narratives:** a note says when the record changed after the edit (entries changed, added or gone), or that
+  it cannot tell for an edit kept from before, with "Keep my text" or "Use the written version"; the other report
+  views say so too, since the PDFs use the edit. The edit is kept in the tab, like unsaved Quick Log text, until it
+  closes or the Marine signs out; a rolling period keeps it past midnight. Format and Spell out wait while an edit
+  stands. An emptied box is no edit: Copy and the PDF use the written version.
+- **The package says what it leaves out:** a count of the entries its cap and rollup do not speak for, and held
+  entries with their reason, on screen, in the copied text and in both PDFs.
+- **Tests:** `tests/server/bulletRanking.test.ts` and `rankingExamples.ts` (ranking pairs, 600 seeded entries,
+  measured, billets, repeats, the 100-OCMT case, the four outputs on all 81 fixed examples on both tracks, held
+  entries, the badge, the glossary, the basis); `tests/browser/31-narrative.spec.ts` (the banner) and
+  `02-records.spec.ts` (5 of 5).
+
 ## What changed (2026-11-23: better bullets, part 1)
 
 **Partial.** In review; HawkScan not run (no key); CI results not acted on.

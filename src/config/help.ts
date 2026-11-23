@@ -59,6 +59,8 @@ export const HELP: HelpSection[] = [
           'A number. How many, how much, how long. "Processed MIPRs" is a billet description; "processed 12 MIPRs, zero returns" is evidence.',
           'An outcome. What changed because you did it. Entries with no result are the first cut from any package.',
           'An area. JEPES marks character, MOS and leadership separately; FITREPs mark fourteen attributes across five sections. An entry with no area gets marked from impression instead of evidence.',
+          'Strength counts five things, one point each: it opens with what you did, has a number, states an outcome, measures that outcome, and is tagged to an area. A measured outcome ("cut payment time from 21 days to 6") ranks above any dollar figure; "Served as section chief" names the billet, not what you did in it.',
+          'The same work is said once. Ten entries of OCMTs become one line with the total count and dollars, in the narrative, the package and the résumé alike.',
         ],
         also: ['good entry', 'quality', 'bullet'],
       },

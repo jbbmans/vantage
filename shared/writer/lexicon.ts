@@ -205,8 +205,76 @@ export const PEOPLE_UNIT = /^(?:marines?|personnel|students?|members?|subordinat
 /** Distance, points and percentages measure an effort; "processed 10 km" says nothing. */
 export const MEASURE_UNIT = /^(?:km|kms|kilomet(?:er|re)s?|mi|miles?|met(?:er|re)s?|yards?|yds?|points?|pts|%.*|percent)$/i;
 
-/** Words in a result that mark a measured or decisive outcome: a number, a percentage, a zero, a first. */
-export const STRONG_RESULT = /(\d|%|\bzero\b|\bno (?:errors|discrepancies|findings|defects|returns|rejects)\b|\b(?:first|only|record|fastest|ahead of|under budget|on time|before the deadline|100)\b)/i;
+/**
+ * A month by its name or its usual short form, as a whole word: "Mar", "MAR" and "March", never the start of "Marines".
+ * "May" and "Sep" are also a verb and a Marine's "separation", so they count as months only beside a year or after
+ * "on", "by", "of" and the like (MAY_SEP).
+ */
+const MONTH = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|june?|july?|aug(?:ust)?|sept(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?![a-z])\.?`;
+const MAY_SEP = String.raw`(?:may|sep)(?![a-z])\.?`;
+const DAY = String.raw`(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?`;
+const YEAR = String.raw`(?:19|20)\d{2}`;
+/**
+ * Words that end in "s" and are no plural noun ("as planned", "is in use", "across the MEF"), so a date before them
+ * is still a date. A word that ends in "ss" ("process", "less") is not one either.
+ */
+const NOT_PLURAL = String.raw`(?:as|is|was|has|its|this|thus|plus|us|his|yes|does|unless|always|perhaps|whereas|besides|towards|afterwards|sometimes|status|bonus|focus|basis)`;
+/** Not when a plural noun follows: "in Oct 20 vehicles passed" counts 20 vehicles; "on 12 March, approved" is a date. */
+const NOT_A_COUNT = String.raw`(?!\s+(?:[a-z]+\s+)?(?!${NOT_PLURAL}\b)[a-z]*[a-rt-z]s\b)`;
+/**
+ * A year after a month, written out or short: "12 March 2026", "12 MAR 26", "12MAR26", "12-Mar-2026". A short year
+ * takes no comma and no plural noun after it, so "on 12 June, 30 Marines qualified" keeps its count.
+ */
+const AND_YEAR = String.raw`(?:[-\s,]{0,2}${YEAR}|[-\s]?'?\d{2}${NOT_A_COUNT})`;
+const ON = String.raw`(?:on|by|of|since|until|through|from|in|the)`;
+/** Before "May" or "Sep" as a day's month: "on 4 May", never "the 12 SEP packages". */
+const ON_DAY = String.raw`(?:on|by|since|until|through)`;
+
+/**
+ * Dates, fiscal years, quarters and staff sections in an outcome: "on 12 March 2026", "12 MAR 26" (the form Vantage
+ * prints), "March 12", "2026-03-12", "FY25-26", "Q3FY26", "the 1st Qtr", "the S-4", "in 2026". They name when or where,
+ * not how much, so they are taken out before an outcome is read as measured. A day is 1 to 31; a year is a date beside
+ * a month, in a range, or after "in", "during", "since", "through", "until" or "throughout" with no plural noun after
+ * it: "fired 2000 rounds", "reduced by 2000" and "mishap-free through 2000 miles" keep their number.
+ */
+export const NOT_A_MEASURE = new RegExp([
+  String.raw`\b${DAY}[-\s]?(?:of\s+)?${MONTH}${AND_YEAR}?(?!\d)`,
+  String.raw`\b${DAY}[-\s]?${MAY_SEP}${AND_YEAR}(?!\d)`,
+  String.raw`\b${ON_DAY}\s+${DAY}\s+${MAY_SEP}(?!\d)${NOT_A_COUNT}`,
+  String.raw`\b(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)\s+of\s+${MAY_SEP}`,
+  String.raw`\b${MAY_SEP}\s+${DAY},?\s+${YEAR}\b`,
+  String.raw`\b${MONTH}\s+${DAY}\b${NOT_A_COUNT}(?:,?\s+${YEAR}\b)?`,
+  String.raw`\b${ON}\s+${MAY_SEP}\s+${DAY}\b${NOT_A_COUNT}(?:,?\s+${YEAR}\b)?`,
+  String.raw`\b(?:${MONTH}|${MAY_SEP})[-\s]+(?:${YEAR}|'\d{2})\b`,
+  String.raw`\b${YEAR}-\d{2}-\d{2}\b`,
+  String.raw`\b\d{1,2}/\d{1,2}/\d{2,4}\b`,
+  String.raw`\b${YEAR}\s*[-/]\s*(?:${YEAR}|\d{2})\b`,
+  String.raw`\b(?:Q[1-4]\s?)?[FC]Y\s?\d{2,4}(?:\s*[-/]\s*\d{2,4})?\b`,
+  String.raw`\bQ[1-4]\b`,
+  String.raw`\b[1-4](?:st|nd|rd|th|d)\s+(?:qtr|quarter)\b`,
+  String.raw`\b[SGJN]-\d\b`,
+  String.raw`\b(?:in|during|since|through|until|throughout)\s+(?:(?:early|mid|late)[- ])?${YEAR}(?:\s*[-/]\s*(?:${YEAR}|\d{2}))?\b${NOT_A_COUNT}`,
+  String.raw`\b(?:the|its|this|last|next)\s+${YEAR}\b(?=\s+[a-z])${NOT_A_COUNT}`,
+].join('|'), 'gi');
+
+/**
+ * An outcome that says how much or how well: a number, a percentage, a zero, every one of them, a first, a deadline met.
+ * Read after NOT_A_MEASURE is taken out, so "approved by the CO on 12 March" is stated but not measured.
+ */
+export const MEASURED_RESULT = /(\d|%|\b(?:zero|none|half|halved|doubled|tripled|every|all|each|first|only|record|fastest|ahead of|under budget|on time|before the deadline)\b|\bno (?:errors|discrepancies|findings|defects|returns|rejects|repeats?)\b)/i;
+
+/** Whether an outcome is measured, by MEASURED_RESULT once its dates and designators are out. */
+export const isMeasured = (result: string) => MEASURED_RESULT.test(result.replace(NOT_A_MEASURE, ' '));
+
+/**
+ * A title that names the billet or duty instead of what was done in it: "Served as the S-4 chief", "Assigned as platoon
+ * sergeant", "Acting section chief for 3 months", "Billet: fiscal clerk". The billet itself is described elsewhere (the
+ * MROW's billet description on FITREP); input states what was accomplished in it.
+ */
+export const BILLET_OPENERS = /^(?:(?:was|were)\s+)?(?:served|serving|acted|acting|assigned|appointed|designated|billeted)\s+(?:as|to)\b|^(?:served|acted)\s+(?:\d+\s+\w+\s+)?as\b|^acting\s+(?!on\b|upon\b|in\b)[a-z]|^(?:billet|position|role|duties)\s*:|^(?:primary|collateral)\s+duty\b|^(?:held|filled)\s+the\s+(?:billet|position|role)\b|^performed\s+(?:the\s+)?duties\s+(?:of|as)\b/i;
+
+/** Verbs that describe a standing duty; with no figure and no outcome, the line reads as a billet description. */
+export const DUTY_LEMMAS = new Set(['manage', 'oversee', 'supervise', 'maintain']);
 
 /** The broad area each kind of work belongs to on the JEPES lines. FITREP attributes are read in attributes.ts. */
 export const AREA_FOR_KIND: Record<VerbKind, 'mission' | 'leadership' | 'character' | 'intellect'> = {
@@ -244,7 +312,9 @@ export const RS_JUDGMENT = /(#\s?\d+\s+of\s+\d+|\b(?:top|number one|no\. 1)\s+(?
 
 /**
  * Acronyms spelled out on their first use, as MCO 1616.1's own examples do ("Position Safety Officer (PSO)"). Only
- * expansions that are standard; an acronym not listed is left as written.
+ * expansions that are standard; an acronym not listed is left as written. This is the one table: the narrative, the
+ * record's bullet, the résumé and the package all spell out from it. LOA is not in it, since in finance it is a line of
+ * accounting and on an award a letter of appreciation.
  */
 export const GLOSSARY: Record<string, { one: string; many?: string; the?: boolean }> = {
   ULO: { one: 'unliquidated obligation', many: 'unliquidated obligations' },
@@ -262,7 +332,6 @@ export const GLOSSARY: Record<string, { one: string; many?: string; the?: boolea
   NCO: { one: 'noncommissioned officer', many: 'noncommissioned officers' },
   SNCO: { one: 'staff noncommissioned officer', many: 'staff noncommissioned officers' },
   DEP: { one: 'Distance Education Program' },
-  LOA: { one: 'Letter of Appreciation' },
 };
 
 /** Work not finished yet: not an accomplishment until it is done. */
@@ -279,7 +348,7 @@ export const ACRONYMS = new Set([
   ...Object.keys(GLOSSARY), 'MOS', 'JEPES', 'FITREP', 'USMC', 'MCO', 'MARADMIN', 'CO', 'XO', 'IG', 'DLA', 'IAPS', 'MOL', 'MCTIMS', 'PMCS', 'MTVR',
   'JLTV', 'HMMWV', 'ITX', 'CFT', 'PFT', 'SAPR', 'OPSEC', 'PII', 'BRS', 'TSP', 'EAS', 'SNM', 'MRO', 'RS', 'RO', 'FLS', 'SER', 'NCOIC', 'SNCOIC', 'OIC',
   'S-1', 'S-2', 'S-3', 'S-4', 'S-6', 'G-1', 'G-3', 'G-4', 'G-6', 'G-8', 'HQ', 'HQMC', 'MEF', 'MEU', 'MLG', 'MAW', 'DIV', 'BN', 'CMC', 'DOD', 'DON', 'IT',
-  'OCMT', 'ODO', 'UDO', 'NULO', 'DOU', 'GTCC', 'DFAS', 'CAC', 'PCS', 'TAD', 'TDY', 'LES', 'BAH', 'BAS',
+  'OCMT', 'ODO', 'UDO', 'NULO', 'DOU', 'GTCC', 'DFAS', 'CAC', 'PCS', 'TAD', 'TDY', 'LES', 'BAH', 'BAS', 'LOA', 'ADVANA',
 ]);
 
 /** Number words a bullet writes as numerals ("twelve MIPRs" → "12 MIPRs"). "zero" stays: it reads as the point. */

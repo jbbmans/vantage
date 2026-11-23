@@ -275,9 +275,17 @@ const has = (text: string, part: string) => text.toLowerCase().includes(part.toL
 /** Plain characters, so the text pastes into any form: straight quotes, hyphens, no ellipsis glyph. */
 export function plain(text: string): string {
   return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–\u2014]/g, '-').replace(/…/g, '...').replace(/\u00a0/g, ' ')
+    // A fraction keeps its value: "1½" is "1 1/2", never "112".
+    .replace(/(\d)([\u00bc-\u00be\u2150-\u215e])/g, '$1 $2')
     // Accents to plain letters ("résumé" → "resume"); symbols and emoji, which a form may refuse, go.
-    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e\n]/g, '').replace(/ {2,}/g, ' ');
+    .normalize('NFKD').replace(/\u2044/g, '/').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e\n]/g, '').replace(/ {2,}/g, ' ');
 }
+
+/**
+ * Text written by hand as a PDF prints it: plain characters, printable ASCII and line breaks only, trimmed. The studio
+ * and the server both read an edit this way, so they agree on when an edit is empty.
+ */
+export const printable = (text: string) => plain(text).replace(/[^\x20-\x7e\n]/g, '').trim();
 
 export function finish(sentence: string): string {
   // Punctuation sits against the word before it and has a space after it, except inside a figure ("$1,118", "14:30").
@@ -618,20 +626,113 @@ export function shortDollars(text: string): string {
   });
 }
 
-export interface Group { key: string; members: Fact[]; verbPast: string; unit: string; n: number; money: number; moneyType: string | null; system: string | null }
+/** `paidN` is how much of the count the dollars belong to: all of it, or only the members that carry a figure. */
+export interface Group { key: string; members: Fact[]; verbPast: string; unit: string; n: number; money: number; moneyType: string | null; system: string | null; paidN?: number }
 
-/** Several entries of the same work as one sentence: "Reconciled 23 ULOs totaling $60K, including 14 in DAI: all cleared on the next report." */
-export function sentenceForGroup(g: Group, density: Density, seed: number, track: Track = 'jepes'): string {
+const TRAILING_LINKS = new Set(['for', 'the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'with', 'and', 'or', 'by', 'from', 'into', 'via', 'during', 'across']);
+/**
+ * Words that open a new phrase, so the words before them are whole: "MIPRs for the G-8 | within 3 days". An article
+ * does not, and neither do "of", "and" and "or", which carry a name or a list on ("the Department | of the Navy", "the
+ * G-8 | and G-4"). An "-ing" word or a bracket opens one too ("for the G-8 | using GFEBS", "for the G-8 | ($240K)").
+ */
+const PHRASE_OPENS = new Set([...[...TRAILING_LINKS].filter((w) => !['the', 'a', 'an', 'of', 'and', 'or'].includes(w)), 'within', 'before', 'after', 'under', 'over', 'ahead', 'than', 'since', 'until', 'through', 'toward', 'towards', 'against', 'among', 'around', 'between', 'beyond', 'without', 'per', 'as', 'while', 'including', 'totaling', 'totalling', 'worth', 'valued', 'valuing', 'obligating', 'saving', 'recovering', 'reconciling', 'amounting']);
+/** Where a member's own figures start: a number, a dollar sign or a money word, which a total must not repeat. */
+const OWN_FIGURE = (w: string) => /^\(?\$|^\(?\d[\d,.]*(?:%|k|m)?\)?[,;:]?$/i.test(w) || /^(?:totaling|totalling|worth|valued|valuing|obligating|saving|recovering|amounting)$/i.test(w);
+const opens = (w: string) => PHRASE_OPENS.has(w.toLowerCase()) || w.startsWith('(') || (/^[a-z]{2,}ing$/.test(w) && !NOT_GERUND.has(w));
+/**
+ * Whether a comma ends the shared words: an outcome or a clause of the member's own follows ("for the S-4, all passed"),
+ * not the rest of a name ("1st Battalion, 6th Marines", "the G-8, Camp Lejeune").
+ */
+const endsAtComma = (word: string | undefined, next: string | undefined) => Boolean(word && /[,;:]$/.test(word) && !(next && /^(?:\d+(?:st|nd|rd|th|d)\b|[A-Z])/.test(next)));
+const balanced = (words: string[]) => words.join(' ').split('(').length === words.join(' ').split(')').length;
+
+/**
+ * What every member says around its count, put in the total's number: "Processed 22 MIPRs for the G-8" and
+ * "Processed 14 MIPRs for the G-8" share "MIPRs for the G-8"; with "...for the G-1" they share only "MIPRs". The words
+ * in front of the unit stay only when every member has them ("leave and liberty requests").
+ */
+function sharedPhrase(g: Group): { phrase: string; after: string } {
   const unit = unitFor(g.unit, g.n);
-  let clause = `${g.verbPast.charAt(0).toUpperCase()}${g.verbPast.slice(1)} ${formatNumber(g.n)} ${unit}`;
-  const c = g.money ? connectorFor(g.moneyType, true, seed, g.members[0]?.verb) : null;
-  if (c && !c.tail) clause += ` ${c.word} ${dollars(g.money, density, track)}`;
-  if (g.system && density === 'full') clause += ` in ${g.system}`;
-  clause += ` across ${g.members.length} actions`;
-  if (c?.tail) clause += `, ${c.word} ${dollars(g.money, density, track)}`;
-  const best = [...g.members].filter((m) => m.result && m.quantity).sort((a, b) => Number(b.strongResult) - Number(a.strongResult) || (b.quantity!.n - a.quantity!.n))[0];
-  if (best) clause += `, including ${formatNumber(best.quantity!.n)}${best.system && best.system !== g.system ? ` in ${best.system}` : ''}: ${density === 'compact' ? shortResult(best.result!) : best.result}`;
-  return finish(track === 'fitrep' ? shortDollars(clause) : clause);
+  const parts = g.members.map((m) => {
+    const clause = withCount(clauseOf(m), m, null);
+    const lead = `${m.opener} ${formatNumber(m.quantity!.n)} `;
+    if (!clause.startsWith(lead)) return null;
+    const words = clause.slice(lead.length).split(' ');
+    const span = m.quantity!.unit.trim().split(/\s+/).length;
+    const unitAt = new RegExp(`^(?:${pluralPattern(m.quantity!.unit)})$`, 'i');
+    const i = words.findIndex((_w, k) => unitAt.test(words.slice(k, k + span).join(' ').replace(/[,;:.)]+$/, '')));
+    if (i < 0 || /[,;:.)]$/.test(words[i + span - 1])) return null;
+    return { before: words.slice(0, i), after: words.slice(i + span) };
+  });
+  if (parts.some((x) => !x)) return { phrase: unit, after: '' };
+  const all = parts as Array<{ before: string[]; after: string[] }>;
+  const key = (w: string[]) => w.join(' ').toLowerCase();
+  const before = all.every((x) => key(x.before) === key(all[0].before)) ? all[0].before : [];
+  // The words every member has after the unit, up to its own figures ("within 3 days", "totaling $5,000"), which are
+  // the member's and not the total's.
+  let k = 0;
+  while (all.every((x) => k < x.after.length && !OWN_FIGURE(x.after[k]) && x.after[k].toLowerCase() === all[0].after[k].toLowerCase())) k += 1;
+  // Kept only where the shared words end a phrase in every member: "for the G-8" from "...for the G-8" and "...for the
+  // G-8 within 3 days", never "within" from "within 3 days" and "within 5 days".
+  const whole = (n: number) => all.every((x) => n === x.after.length || opens(x.after[n]) || endsAtComma(x.after[n - 1], x.after[n]));
+  while (k > 0 && !whole(k)) k -= 1;
+  const after = all[0].after.slice(0, k);
+  // The comma that ended the shared words is not theirs ("for the S-4," is "for the S-4").
+  if (after.length) after[after.length - 1] = after.at(-1)!.replace(/[,;:]+$/, '');
+  // Nor does a phrase end on its link: "for the", "before".
+  while (after.length && (TRAILING_LINKS.has(after.at(-1)!.toLowerCase()) || opens(after.at(-1)!) || !balanced(after) || /[,;:]$/.test(after.at(-1)!))) after.pop();
+  return { phrase: [...before, unit].join(' '), after: after.join(' ') };
+}
+
+const sameText = (values: Array<string | null>) => values.every((v) => v && v.toLowerCase() === values[0]!.toLowerCase());
+
+/**
+ * The same work as one total, said once (the Marine's record compiled, not listed action by action): "Cleared 100 OCMTs
+ * totaling $1.2M in DAI." What every member shares stays: the words after the count, the system, the organization, what
+ * it supported. An outcome every member states is said once; otherwise the strongest one is said with the entries it is
+ * true for: "..., including 14 in DAI: all cleared on the next report".
+ */
+export function sentenceForGroup(g: Group, density: Density, seed: number, track: Track = 'jepes'): string {
+  const { phrase, after } = sharedPhrase(g);
+  let clause = `${g.verbPast.charAt(0).toUpperCase()}${g.verbPast.slice(1)} ${formatNumber(g.n)} ${phrase}`;
+  const shorten = (r: string) => (density === 'compact' ? shortResult(r) : r);
+  const stated = g.members.filter((m) => m.result);
+  const oneOutcome = stated.length > 0 && stated.length === g.members.length && sameText(stated.map((m) => m.result));
+  const best = stated.length && !oneOutcome ? [...stated].sort((a, b) => Number(b.strongResult) - Number(a.strongResult) || b.quantity!.n - a.quantity!.n)[0] : null;
+  const outcome = oneOutcome ? shorten(stated[0].result!) : best ? shorten(best.result!) : null;
+  // An outcome that already states the figure says it once: "including 14: cleared $48,250 in aged obligations".
+  const c = g.money && !(outcome && statesAmount(outcome, g.money)) ? connectorFor(g.moneyType, true, seed, g.members[0]?.verb) : null;
+  const money = c ? `${c.word} ${dollars(g.money, density, track)}` : '';
+  // Dollars that only some members carry are said of those: "Reconciled 24 ULOs in DAI, 14 of them totaling $48,250".
+  const part = c && g.paidN != null && g.paidN < g.n ? g.paidN : null;
+  // When the entry with the outcome is the one with the dollars, one "including" says both.
+  const together = part != null && best != null && best.money != null && best.quantity!.n === part;
+  const purposes = g.members.map((m) => m.purpose);
+  const purpose = purposes[0] && sameText(purposes) ? purposes[0] : null;
+  // With more to say of every member after it, the paid part is set apart, so what follows is not read as theirs alone:
+  // "Reconciled 24 ULOs (14 of them totaling $48,250), cutting the backlog to zero".
+  const aside = part != null && !together && Boolean(purpose || outcome);
+  if (c && part == null && !c.tail) clause += ` ${money}`;
+  if (after && density === 'full') clause += ` ${after}`;
+  if (density === 'full') {
+    if (g.system && !has(clause, g.system)) clause += ` in ${g.system}`;
+    const orgs = g.members.map((m) => m.organization);
+    if (orgs[0] && sameText(orgs) && !has(clause, orgs[0])) clause += ` for ${orgs[0]}`;
+  }
+  if (c?.tail && part == null) clause += `, ${money}`;
+  if (part != null && !together) clause += aside ? ` (${formatNumber(part)} of them ${money})` : `, ${formatNumber(part)} of them ${money}`;
+  if (purpose) clause += track === 'fitrep' && !c?.tail ? `, supporting ${purpose}` : `, in support of ${purpose}`;
+  const trailing = Boolean((c?.tail && part == null) || (part != null && !aside && !together) || (purpose && track === 'fitrep'));
+  let text = clause;
+  if (oneOutcome) text = joinResult(clause, outcome!, track, trailing);
+  else if (best) {
+    // The outcome is true only of the entries that state it, so it is said with them: "including 14 in DAI: ...". When
+    // the dollars are another part's, these are said to be the rest: "(14 of them totaling $48,250), including 10 of the rest".
+    const where = best.system && best.system !== g.system ? ` in ${best.system}` : '';
+    const rest = part != null && !together && best.money == null ? ' of the rest' : '';
+    text = `${clause}, including ${formatNumber(best.quantity!.n)}${rest}${where}${together ? ` ${money}` : ''}: ${outcome}`;
+  }
+  return finish(track === 'fitrep' ? shortDollars(text) : text);
 }
 
 /**

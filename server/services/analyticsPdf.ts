@@ -1,7 +1,7 @@
 import PDFDocument from 'pdfkit';
 import type { AnalysisReport } from './analytics.ts';
 import type { Narrative } from '../../shared/narrative.ts';
-import type { PackageGroup } from '../../shared/bullets.ts';
+import { notShown, type PackageGroup } from '../../shared/bullets.ts';
 import { formatDollars, formatDollarsExact, formatNumber, NO_VALUE } from '../../shared/metrics.ts';
 import type { Movement } from '../../shared/delta.ts';
 import { drawMark } from '../lib/pdfMark.ts';
@@ -164,7 +164,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     // ---- 5 Coverage and data quality
     h1('5', 'Coverage and data quality');
     table([{ key: 'label', label: 'Field', width: 50 }, { key: 'count', label: 'Entries', width: 20, align: 'right' }, { key: 'pct', label: 'Coverage', width: 30, align: 'right' }], r.coverage.fields.map((f) => ({ label: f.label, count: f.count, pct: `${f.pct}%` })), { zebra: true });
-    p(`Average completeness ${r.coverage.avgStrength} of 5 (${r.coverage.strengthDistribution.map((s) => `${s.count} at ${s.strength}`).join(', ')}).${r.coverage.emptyAreas.length ? ` No entries under ${r.coverage.emptyAreas.join(', ')}.` : ''}${r.coverage.unusedCategories.length ? ` Unused categories: ${r.coverage.unusedCategories.join(', ')}.` : ''}${r.coverage.planned ? ` ${r.coverage.planned} planned entries are excluded from every figure above.` : ''}`, INK2, 9);
+    p(`Average strength ${r.coverage.avgStrength} of 5 (${r.coverage.strengthDistribution.map((s) => `${s.count} at ${s.strength}`).join(', ')}).${r.coverage.emptyAreas.length ? ` No entries under ${r.coverage.emptyAreas.join(', ')}.` : ''}${r.coverage.unusedCategories.length ? ` Unused categories: ${r.coverage.unusedCategories.join(', ')}.` : ''}${r.coverage.planned ? ` ${r.coverage.planned} planned entries are excluded from every figure above.` : ''}`, INK2, 9);
     if (r.quality.length) { h2('Open issues'); for (const q of r.quality) p(`•  ${q.count} ${q.label}: ${q.detail}`, INK2, 9); }
 
     // ---- 6 Goals
@@ -183,12 +183,21 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     if (input.narrative || input.pkg) {
       h1('8', `${r.track === 'fitrep' ? 'FITREP' : 'JEPES'} narrative and bullet package`);
       if (input.narrative?.text) { doc.font('Courier').fontSize(9).fillColor(INK).text(input.narrative.text, { lineGap: 2 }); p(`${input.narrative.length} of ${input.narrative.limit} characters.`, MUTED, 8); }
-      for (const g of input.pkg || []) { if (!g.count) continue; h2(`${g.area} (${g.count})`); if (g.rollup) p(g.rollup, INK2, 9); for (const b of g.bullets) doc.font('Helvetica').fontSize(9).fillColor(INK).text(`•  ${b.text}`, { lineGap: 1.5, paragraphGap: 1.5 }); }
+      for (const g of input.pkg || []) {
+        if (!g.count) continue;
+        h2(`${g.area} (${g.count})`);
+        for (const b of g.bullets) doc.font('Helvetica').fontSize(9).fillColor(INK).text(`•  ${b.text}`, { lineGap: 1.5, paragraphGap: 1.5 });
+        if (g.rollup) p(g.rollup, INK2, 9);
+        // Nothing the cap or the writer leaves out goes without a word, so the area's count adds up.
+        const unsaid = notShown(g);
+        if (unsaid) p(unsaid, MUTED, 8);
+        if (g.held?.length) { p('Held back from the input:', MUTED, 8); for (const h of g.held) p(`${h.text} (${h.reason})`, MUTED, 8); }
+      }
     }
 
     // ---- Appendix
     h1('Appendix A', 'Entry ledger');
-    p(`Every completed entry in ${r.period.label}, newest first. Completeness scores 1 to 5.`, MUTED, 8.5);
+    p(`Every completed entry in ${r.period.label}, newest first. Strength scores 0 to 5: one point each for opening with what was done, a number, an outcome, a measured outcome and an area.`, MUTED, 8.5);
     table([{ key: 'date', label: 'Date', width: 12 }, { key: 'title', label: 'Entry', width: 30 }, { key: 'area', label: 'Area', width: 15 }, { key: 'category', label: 'Category', width: 13 }, { key: 'qty', label: 'Count', width: 11, align: 'right' }, { key: 'value', label: r.metricsConfig.currency_label, width: 12, align: 'right' }, { key: 'result', label: 'Outcome', width: 20 }, { key: 'strength', label: 'Score', width: 7, align: 'right' }],
       r.appendix.map((e) => ({ date: e.date, title: e.title, area: e.area, category: e.category, qty: e.quantity == null ? '' : `${formatNumber(e.quantity)}${e.unit_label ? ` ${e.unit_label}` : ''}`, value: e.value == null ? '' : `${moneyShort(e.value)}${e.value_type ? ` ${e.value_type[0]}` : ''}`, result: e.result, strength: e.strength })), { zebra: true, size: 7.5, emptyText: 'No entries in this period.' });
 

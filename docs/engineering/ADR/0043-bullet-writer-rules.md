@@ -153,7 +153,7 @@ reviewer would mark on any page:
   written at all.
 - Out of scope, for the next part: ranking by outcome, billet statements, merging near-duplicates, one generator for
   the package, record bullet, résumé and strength badge, the glossary merge, the edited-narrative banner, and the
-  group sentence's ", including 14: …" form. The résumé style is not changed.
+  group sentence's ", including 14: …" form. The résumé style is not changed. These are in [ADR-0044](0044-ranking-and-one-generator.md).
 
 ## Alternatives considered
 

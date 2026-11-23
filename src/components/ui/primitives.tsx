@@ -220,9 +220,10 @@ export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: stri
   return to ? <a href={to} onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('vantage:navigate', { detail: to })); }} className="block h-full">{body}</a> : body;
 }
 
-export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string; id?: string; controls?: string; /** The name a tutorial step shows this tab by (ADR-0034). */ 'data-tutorial'?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
+export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md', disabled = false }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string; id?: string; controls?: string; /** The name a tutorial step shows this tab by (ADR-0034). */ 'data-tutorial'?: string }>; className?: string; label?: string; size?: 'sm' | 'md'; disabled?: boolean }) {
   const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const move = (from: number, key: string) => {
+    if (disabled) return false;
     let next: number | null = null;
     if (key === 'ArrowRight' || key === 'ArrowDown') next = (from + 1) % options.length;
     else if (key === 'ArrowLeft' || key === 'ArrowUp') next = (from - 1 + options.length) % options.length;
@@ -234,13 +235,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
   // One tab is always the way in, even when the value matches none of them.
   const entry = options.some((o) => o.value === value) ? value : options[0]?.value;
   return (
-    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[5px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
+    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[5px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', disabled && 'opacity-60', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
-          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} data-tutorial={o['data-tutorial']} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1}
+          <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" id={o.id} data-tutorial={o['data-tutorial']} aria-controls={o.controls} aria-selected={active} aria-label={o.ariaLabel} tabIndex={o.value === entry ? 0 : -1} disabled={disabled}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('shrink-0 whitespace-nowrap rounded-[3px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_1px_rgb(var(--shadow-rgb)/.06)]' : 'text-ink-3 hover:text-ink')}>
+            className={cn('shrink-0 whitespace-nowrap rounded-[3px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_1px_rgb(var(--shadow-rgb)/.06)]' : 'text-ink-3 hover:text-ink', disabled && 'cursor-not-allowed hover:text-ink-3')}>
             {o.label}
           </button>
         );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Printer } from 'lucide-react';
+import { AlertTriangle, FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Printer } from 'lucide-react';
 import { Button, Select, Panel, Segmented, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
@@ -11,7 +11,7 @@ import { QueryFailure } from '@/components/QueryFailure';
 import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
-import { packageToText } from '../../shared/bullets';
+import { notShown, packageToText } from '../../shared/bullets';
 import { comparisonToText, type Comparison, type Movement } from '../../shared/delta';
 import { DEFAULT_PERIOD, formatDollars, formatNumber } from '../../shared/metrics';
 import { CUSTOM_PERIOD } from '../../shared/dateRange';
@@ -20,11 +20,13 @@ import { metricsPeriod, periodQuery } from '@/lib/periodParams';
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
-import NarrativeStudio, { choicesToParams, useNarrativeChoices } from '@/components/NarrativeStudio';
+import NarrativeStudio, { choicesToParams, editStateOf, keyPart, useNarrativeChoices } from '@/components/NarrativeStudio';
 import type { WorksheetBlocks } from '../../shared/writer/worksheet';
 import { usePlace } from '@/lib/place';
 
 const AUDITED_READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as const;
+/** Periods that end today and move with it. */
+const ROLLING_PERIODS = new Set(['last30', 'last90', 'last12', 'all']);
 
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const place = usePlace();
@@ -61,7 +63,20 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
   const style = picked || (effectiveTrack === 'fitrep' ? 'fitrep' : 'jepes');
-  const [choices, setChoices] = useNarrativeChoices(`${identity?.user.id || 'me'}.${effectiveTrack}.${report?.from || period}.${report?.to || ''}.${subjectId}`);
+  // A rolling period ("last 30 days") is kept by its name, so an edit made today is still there after midnight, and the
+  // studio says what changed under it; a fixed one by its days. A Marine's view through a unit is that unit's own, by
+  // the unit the server built the report for (it chooses one when the link names none, or one the reader cannot open);
+  // a Marine's own report is the same whatever unit is picked, as the server reads it.
+  const rolling = !custom && ROLLING_PERIODS.has(period);
+  const reportUnit = (report?.unit as { id?: string } | undefined)?.id;
+  const [choices, setChoices] = useNarrativeChoices(
+    [identity?.user.id || 'me', effectiveTrack, ...(rolling ? [period] : [report?.from || period, report?.to || '']), subjectId, subjectId ? reportUnit || 'pending' : ''].map(keyPart).join('.'),
+    // The key before units were part of it, moved once, and only for a Marine's own report: a leader's old edit of a
+    // Marine's narrative could have been written from another unit's view, so it is not carried into this one.
+    subjectId ? undefined : `${identity?.user.id || 'me'}.${effectiveTrack}.${report?.from || period}.${report?.to || ''}.`,
+  );
+  // An edit the record has moved on from, or one that cannot be checked, goes into the PDFs as written: say so in every view.
+  const edit = useMemo(() => (report ? editStateOf(choices, report.activities, report.casework) : null), [report, choices]);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
   const worksheet = (report?.worksheet ?? null) as WorksheetBlocks | null;
   const copy = async (text: string, what: string) => { if (await copyToClipboard(text)) toast.success(`${what} copied.`); else toast.error('Could not copy.'); };
@@ -96,6 +111,13 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
 
       {isPending ? <Skeleton className="h-72" /> : error || !report ? <div className="card"><EmptyState title="Could not build the report" description={api.errorText(error)} /></div> : (
         <>
+          {view !== 'narrative' && (edit?.kind === 'changed' || edit?.kind === 'unknown') && (
+            <div role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/[.06] px-3 py-2 text-sm text-ink-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warn" aria-hidden />
+              <span className="min-w-0 flex-1">{edit.kind === 'changed' ? 'The record changed after the narrative was edited.' : 'Vantage cannot say whether the record changed since the narrative was edited.'} The PDFs use the edited text as written.</span>
+              <Button size="sm" variant="ghost" onClick={() => { setView('narrative'); savePrefs.mutate({ reportView: 'narrative' }); }}>Check the narrative</Button>
+            </div>
+          )}
           <div className="mb-4">
             <h2 className="eyebrow mb-2">What the work produced, {report.label}</h2>
             <MetricTotalsGrid
@@ -137,11 +159,19 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
 
           {view === 'bullets' && (
             <Panel title="Bullet package" subtitle={`${report.pkg.reduce((n: number, g: any) => n + g.bullets.length, 0)} bullets across ${report.pkg.length} areas`} action={<Button size="sm" variant="ghost" onClick={() => copy(pkgText, 'Package')}><Copy className="h-3.5 w-3.5" />Copy all</Button>}>
-              {report.pkg.length === 0 ? <EmptyState title="Nothing to package" description="Log entries with a result and a number; those make the cut." /> : (
+              {!report.pkg.some((g: { count: number }) => g.count) ? <EmptyState title="Nothing to package" description="Log entries with a result and a number; those make the cut." /> : (
                 <div className="space-y-5">{report.pkg.map((g: any) => (
                   <section key={g.area}><h3 className="mb-2 flex items-center justify-between text-md font-semibold text-ink">{g.area}<span className="fig text-xs font-normal text-ink-3">{g.count} entries · top {g.bullets.length}</span></h3>
-                    {g.rollup && <p className="mb-2 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-ink">{g.rollup}</p>}
                     <ul className="space-y-1.5">{g.bullets.map((b: any, i: any) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><Button variant="ghost" size="icon-xs" onClick={() => copy(b.text, 'Bullet')} className="-my-0.5 text-ink-3 transition-opacity hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Copy bullet ${i + 1} of ${g.area}`}><Copy className="h-3.5 w-3.5" /></Button></li>)}</ul>
+                    {/* What the limit leaves out, said once after the bullets. */}
+                    {g.rollup && <p className="mt-2 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-ink">{g.rollup}</p>}
+                    {notShown(g) && <p className="mt-1.5 text-xs text-ink-3">{notShown(g)}</p>}
+                    {g.held?.length > 0 && (
+                      <div className="mt-2 rounded-md border border-dashed border-line px-3 py-2 text-xs text-ink-3">
+                        <p className="mb-1 font-medium text-ink-2">Held back from the input</p>
+                        <ul className="space-y-1">{g.held.map((h: { key: string; text: string; reason: string }) => <li key={h.key}><span className="text-ink-2">{h.text}</span> {h.reason}</li>)}</ul>
+                      </div>
+                    )}
                   </section>
                 ))}</div>
               )}

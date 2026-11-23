@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import type { PackageGroup } from '../../shared/bullets.ts';
+import { notShown, type PackageGroup } from '../../shared/bullets.ts';
 import type { Narrative } from '../../shared/narrative.ts';
 import type { Metrics } from '../../shared/metrics.ts';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
@@ -88,9 +88,17 @@ export function renderReportPdf(input: ReportPdfInput): Promise<Buffer> {
       doc.moveDown(0.3);
       const section = input.track === 'fitrep' ? FITREP_SECTIONS.find((x) => x.key === group.area)?.section : undefined;
       doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(`${section ? `Section ${section}: ` : ''}${group.area}  (${group.count})`);
-      if (group.rollup) { doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED).text(group.rollup, { lineGap: 1.5 }); doc.moveDown(0.15); }
       for (const b of group.bullets) body(`•  ${b.text}`, { indent: 0, paragraphGap: 2 });
-      if (group.withheld) meta(`…and ${group.withheld} more not shown at the current limit.`);
+      // What the limit leaves out, said once after the bullets; a count when it adds up to nothing to say.
+      if (group.rollup) { doc.moveDown(0.15); doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED).text(group.rollup, { lineGap: 1.5 }); }
+      const unsaid = notShown(group);
+      if (unsaid) meta(unsaid);
+      // What the writer holds back (required training, work logged twice, a worksheet block's), with the reason, so the
+      // area's count adds up.
+      if (group.held?.length) {
+        meta('Held back from the input:');
+        for (const h of group.held) meta(`${h.text} (${h.reason})`);
+      }
     }
 
     if (!input.worksheet && (input.awards?.length || input.trainings?.length)) {

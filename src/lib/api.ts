@@ -147,7 +147,11 @@ export const cacLogin = () => api.post('/auth/cac').then((r) => { markSignedIn()
 export const loginMfa = (challenge: string, code: string) => api.post('/auth/login/mfa', { challenge, code }).then((r) => { markSignedIn(); return r; });
 export const passkeyOptions = (username?: string) => api.post('/auth/passkey/options', { username });
 export const passkeyVerify = (key: string, response: unknown) => api.post('/auth/passkey/verify', { key, response }).then((r) => { markSignedIn(); return r; });
-export const logout = async () => { try { await api.post('/auth/logout'); } catch (e) { if (!(e instanceof ApiError && e.status === 401)) throw e; } markSignedOut(); };
+/** Signs out. Unsaved text in this browser goes whatever the server answers: the person asked to sign out. */
+export const logout = async () => {
+  try { await api.post('/auth/logout'); } catch (e) { if (!(e instanceof ApiError && e.status === 401)) throw e; } finally { clearDrafts(); }
+  markSignedOut();
+};
 export const sudo = (password: string) => api.post('/auth/sudo', { password });
 export const cacStepUp = () => api.post('/auth/cac/step-up');
 /** Accepts an invitation into the account already signed in: the same record, a new unit. */

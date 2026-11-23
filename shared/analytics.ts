@@ -66,9 +66,9 @@ function monthsBetween(from: string, to: string): string[] {
   return out;
 }
 
-const ledgerRow = (a: AnalysisActivity, cfg: MetricsConfig): LedgerRow => ({
+const ledgerRow = (a: AnalysisActivity, cfg: MetricsConfig, strengthOf: Map<AnalysisActivity, number>): LedgerRow => ({
   id: a.id, date: a.date || null, title: String(a.title || ''), category: a.category || null, area: a.eval_area || null, quantity: a.quantity == null ? null : Number(a.quantity), unit_label: a.unit_label || null,
-  value: a.dollar_amount == null ? null : Number(a.dollar_amount), value_type: a.dollar_type ? (valueType(a.dollar_type, cfg)?.label || a.dollar_type) : null, result: a.result || null, system: a.system || null, organization: a.organization || null, strength: strength(a as never),
+  value: a.dollar_amount == null ? null : Number(a.dollar_amount), value_type: a.dollar_type ? (valueType(a.dollar_type, cfg)?.label || a.dollar_type) : null, result: a.result || null, system: a.system || null, organization: a.organization || null, strength: strengthOf.get(a) ?? 0,
 });
 
 function shares(current: AnalysisActivity[], prior: AnalysisActivity[], keyOf: (a: AnalysisActivity) => string, names: readonly string[], cfg: MetricsConfig): Share[] {
@@ -100,6 +100,8 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   const { period, prior, areas } = input;
   const all = input.activities.filter((a) => a.status !== 'planned');
   const current = all.filter((a) => activityIn(a, period.from, period.to)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  // Each entry's strength (five points, shared/writer/strength.ts), read once for the track it is written for.
+  const strengthOf = new Map(current.map((a) => [a, strength(a as never, input.track === 'fitrep' ? 'fitrep' : 'jepes', cfg)]));
   const previous = all.filter((a) => activityIn(a, prior.from, prior.to));
   const planned = input.activities.filter((a) => a.status === 'planned' && activityIn(a, period.from, period.to)).length;
   const counted = (a: AnalysisActivity) => anchorDay('activities', a, period.from);
@@ -161,8 +163,8 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   const top3 = valued.slice(0, 3).reduce((n, a) => n + Number(a.dollar_amount), 0);
   const hhi = m.totalDollars ? Math.round(valued.reduce((n, a) => n + Math.pow(Number(a.dollar_amount) / m.totalDollars, 2), 0) * 10000) : 0;
   const concentration = {
-    topByValue: valued.slice(0, 5).map((a) => ledgerRow(a, cfg)),
-    topByQuantity: [...current].filter((a) => Number(a.quantity) > 0).sort((a, b) => Number(b.quantity) - Number(a.quantity)).slice(0, 5).map((a) => ledgerRow(a, cfg)),
+    topByValue: valued.slice(0, 5).map((a) => ledgerRow(a, cfg, strengthOf)),
+    topByQuantity: [...current].filter((a) => Number(a.quantity) > 0).sort((a, b) => Number(b.quantity) - Number(a.quantity)).slice(0, 5).map((a) => ledgerRow(a, cfg, strengthOf)),
     top3ValueShare: pct(top3, m.totalDollars), largestValueShare: pct(valued[0] ? Number(valued[0].dollar_amount) : 0, m.totalDollars), hhi, entriesWithValue: valued.length,
   };
 
@@ -183,7 +185,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
 
   // Coverage and quality
   const field = (key: string, label: string, test: (a: AnalysisActivity) => boolean) => { const count = current.filter(test).length; return { key, label, count, pct: pct(count, current.length) }; };
-  const strengths = current.map((a) => strength(a as never));
+  const strengths = current.map((a) => strengthOf.get(a) ?? 0);
   const coverage = {
     fields: [
       field('outcome', 'States an outcome', (a) => Boolean(a.result && String(a.result).trim())),
@@ -196,7 +198,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
     ],
     emptyAreas: areas.filter((ar) => !current.some((a) => a.eval_area === ar)),
     unusedCategories: categoryNames(cfg).filter((c) => !current.some((a) => (a.category || 'Other') === c)),
-    strengthDistribution: [1, 2, 3, 4, 5].map((s) => ({ strength: s, count: strengths.filter((x) => x === s).length })),
+    strengthDistribution: [0, 1, 2, 3, 4, 5].map((s) => ({ strength: s, count: strengths.filter((x) => x === s).length })),
     avgStrength: strengths.length ? r2(strengths.reduce((n, s) => n + s, 0) / strengths.length) : 0,
     planned,
   };
@@ -230,7 +232,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   if (m.totalDollars) summary.push(`Headline ${label.toLowerCase()} of ${formatDollars(m.totalDollars)}${m.reviewedDollars ? ` with a further ${formatDollars(m.reviewedDollars)} tracked separately` : ''}; ${dir(kpis[1].movement, 'value')}.${concentration.top3ValueShare >= 60 ? ` The top three entries carry ${concentration.top3ValueShare}% of that value, so the headline rests on a few actions.` : ''}`);
   const lead = byArea[0];
   if (lead && lead.entries) summary.push(`${lead.name} leads with ${lead.share}% of entries${coverage.emptyAreas.length ? `; nothing yet under ${coverage.emptyAreas.join(' or ')}` : '; every area has evidence'}.`);
-  summary.push(`${outcomeRate}% of entries state an outcome and the average entry scores ${coverage.avgStrength} of 5 on completeness${quality.length ? `; ${quality.slice(0, 2).map((q) => `${q.count} ${q.label}`).join(', ')}` : ''}.`);
+  summary.push(`${outcomeRate}% of entries state an outcome and the average entry scores ${coverage.avgStrength} of 5 for strength${quality.length ? `; ${quality.slice(0, 2).map((q) => `${q.count} ${q.label}`).join(', ')}` : ''}.`);
   if (consistency.longestGapDays >= 21 && current.length) summary.push(`Longest gap without an entry: ${consistency.longestGapDays} days, with ${consistency.zeroWeeks} of ${consistency.weeks} weeks empty.`);
   if (runRate.projectedEntries != null) summary.push(`At the current pace (${Math.round((runRate.elapsedFraction || 0) * 100)}% of the period elapsed) the period closes near ${formatNumber(runRate.projectedEntries)} entries${runRate.projectedValue ? ` and ${formatDollars(runRate.projectedValue)}` : ''}.`);
   if (trainingHours || awards.length) summary.push(`${formatNumber(trainingHours)} training hours and ${awards.length} award${awards.length === 1 ? '' : 's'} in the period${goals.length ? `; ${goalSummary.achieved} of ${goals.length} goals achieved` : ''}.`);
@@ -238,6 +240,6 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   return {
     period, prior, counts: { current: current.length, prior: previous.length }, kpis, runRate, monthly, byCategory, byArea, byValueType, bySystem, byOrganization, byUnitLabel,
     concentration, consistency, coverage, goals: goalSummary, career, quality, summary,
-    appendix: current.map((a) => ({ ...ledgerRow(a, cfg), month: monthKey(counted(a) ?? ''), summable: isSummable(a.dollar_type, cfg) && a.dollar_amount != null })),
+    appendix: current.map((a) => ({ ...ledgerRow(a, cfg, strengthOf), month: monthKey(counted(a) ?? ''), summable: isSummable(a.dollar_type, cfg) && a.dollar_amount != null })),
   };
 }

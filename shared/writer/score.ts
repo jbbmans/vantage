@@ -1,7 +1,18 @@
 import { formatNumber } from '../metrics.ts';
 import type { Fact } from './facts.ts';
 
-export interface Weighed { score: number; reasons: string[] }
+/**
+ * An entry's weight and why. `tier` is what its outcome says: 2 measured, 1 stated, 0 none. Every entry of a higher tier
+ * outweighs every entry of a lower one (BAND), so a measured outcome ranks above a dollar figure however large.
+ */
+export interface Weighed { score: number; tier: Tier; reasons: string[] }
+export type Tier = 0 | 1 | 2;
+
+/** Where each tier starts. The rest of the score (the figures, the verb) adds at most BAND_SPAN, so bands never overlap. */
+export const BAND: Record<Tier, number> = { 0: 1, 1: 4.5, 2: 8 };
+export const BAND_SPAN = 3;
+/** The most an entry's figures add: the largest of its money, count, people or time, plus its standing among its own. */
+const FIGURE_CAP = 2.5;
 
 const log10 = (n: number) => Math.log10(Math.max(1, n));
 export const shortMoney = (n: number) => {
@@ -18,48 +29,51 @@ export const shortMoney = (n: number) => {
 };
 
 /**
- * How much an entry says about the Marine's work, and why. Money and counts are read on a log scale (the tenth ULO
- * matters less than the first), a stated outcome counts for more than either, and a count measured against the
- * Marine's own largest of that unit lifts the entry that stands out. Every point carries its reason, so the choice
- * of what makes the cut can be shown, not just made.
+ * How much an entry says about the Marine's work, and why. What came of it decides first: a measured outcome (a
+ * number, a zero, every one, a deadline met) above a stated one, a stated one above none (BAND). Then its largest
+ * figure, on a log scale (the tenth ULO matters less than the first), and a count that is the Marine's largest of that
+ * unit. A weak or billet opening, a rating or a cliché costs the sentence its place before it costs the Marine. Every
+ * point carries its reason, so the choice of what makes the cut can be shown, not just made.
  */
 export function weigh(f: Fact, ctx: { peakByUnit: Map<string, number>; recentFrom?: string | null } = { peakByUnit: new Map() }): Weighed {
-  let score = 1;
-  const reasons: string[] = [];
+  const tier: Tier = f.result ? (f.strongResult ? 2 : 1) : 0;
+  const reasons: string[] = [tier === 2 ? 'measured outcome' : tier === 1 ? 'outcome stated' : 'no outcome'];
+  let figure = 0;
   if (f.money) {
-    const scale = Math.min(3, log10(Math.abs(f.money.amount)) / 2);
-    score += f.money.summable ? scale : scale / 2;
+    const scale = Math.min(2, log10(Math.abs(f.money.amount)) / 3);
+    figure = Math.max(figure, f.money.summable ? scale : scale / 2);
     reasons.push(`${shortMoney(f.money.amount)}${f.money.type ? ` ${f.money.type}` : ''}`);
   }
   if (f.quantity) {
     const { n, unit, kind } = f.quantity;
     if (kind === 'item') {
-      score += Math.min(2, log10(n + 1));
+      figure = Math.max(figure, Math.min(2, log10(n + 1)));
       const peak = ctx.peakByUnit.get(unit.toLowerCase());
-      if (peak && peak > 0 && n >= peak && n > 1) { score += 0.5; reasons.push(`largest count of ${unit}`); }
+      if (peak && peak > 0 && n >= peak && n > 1) { figure += 0.5; reasons.push(`largest count of ${unit}`); }
       reasons.push(`${formatNumber(n)} ${unit}`);
     } else if (kind === 'time') {
-      score += Math.min(1, log10(n + 1) / 2);
+      figure = Math.max(figure, Math.min(1, log10(n + 1) / 2));
       reasons.push(`${formatNumber(n)} ${unit}`);
     } else if (kind === 'measure') {
-      score += 0.3;
+      figure = Math.max(figure, 0.3);
       reasons.push(`${formatNumber(n)} ${unit}`);
     }
   }
   if (f.people) {
-    score += Math.min(2.5, 1 + log10(f.people + 1));
+    figure = Math.max(figure, Math.min(2, 0.5 + log10(f.people + 1)));
     reasons.push(`${formatNumber(f.people)} ${f.people === 1 ? 'person' : 'people'} led or trained`);
   }
-  if (f.result) {
-    score += 1.5;
-    if (f.strongResult) { score += 1; reasons.push('measured outcome'); } else reasons.push('outcome stated');
-  }
-  if (f.verb?.strength === 3) { score += 0.5; reasons.push(`strong verb (${f.verb.past})`); }
-  // A weak opening ("Helped", "Responsible for") says little about what the Marine did, whatever the verb's entry says.
-  if (f.verb?.strength === 1 || f.issues.some((i) => i.code === 'weak_verb')) { score -= 1; reasons.push('weak opening'); }
-  if (f.issues.some((i) => i.code === 'no_verb')) score -= 0.5;
+  let score = BAND[tier] + Math.min(FIGURE_CAP, figure);
+  if (f.verb?.strength === 3) { score += 0.25; reasons.push(`strong verb (${f.verb.past})`); }
   if (ctx.recentFrom && f.date && f.date >= ctx.recentFrom) { score += 0.25; reasons.push('recent'); }
-  // A rating or a cliché in the words costs the sentence its place before it costs the Marine.
+  // A weak opening ("Helped", "Responsible for") or a billet named instead of the work says little about what the
+  // Marine did, whatever the verb's entry says. Once, not twice.
+  const billet = f.issues.some((i) => i.code === 'billet');
+  if (f.verb?.strength === 1 || f.issues.some((i) => i.code === 'weak_verb') || billet) { score -= 1; reasons.push(billet ? 'names the billet' : 'weak opening'); }
+  if (f.issues.some((i) => i.code === 'no_verb')) score -= 0.5;
   for (const code of ['superlative', 'cliche'] as const) if (f.issues.some((i) => i.code === code)) { score -= 1.5; reasons.push(code === 'superlative' ? 'rates instead of states' : 'cliché'); }
-  return { score: Math.round(score * 10) / 10, reasons };
+  return { score: Math.round(score * 10) / 10, tier, reasons };
 }
+
+/** The order entries rank in: tier first, then score. */
+export const byRank = (a: Weighed, b: Weighed) => b.tier - a.tier || b.score - a.score;

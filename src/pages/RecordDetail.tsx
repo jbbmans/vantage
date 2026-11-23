@@ -19,8 +19,9 @@ import { can, keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, un
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
-import { composeBullet, strength, expandAcronyms, type BulletStyle } from '../../shared/bullets';
+import { composeBullet, STRENGTH_MAX, STRENGTH_TOOLTIP, type BulletStyle } from '../../shared/bullets';
 import { coachEntry } from '../../shared/writer/coach';
+import { spellOut } from '../../shared/writer/realize';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
 import { mapAreaToTrack, trackMeta } from '../../shared/evaluation';
@@ -59,10 +60,18 @@ export default function RecordDetail() {
   useEffect(() => { if (a?.title) document.title = `${a.title} · Vantage`; }, [a?.title]);
 
   const bullet = useMemo(() => (a ? composeBullet(a, { style, includeDate: style !== 'resume', metrics: cfg }) : ''), [a, style, cfg]);
-  // The writer's notes for this entry: the same coaching Quick Log and the narrative reviewer give.
-  const coach = useMemo(() => (a ? coachEntry(a, track, cfg) : null), [a, track, cfg]);
-  const gaps = useMemo(() => [...(coach?.held ? [coach.held] : []), ...(coach?.notes || []).map((n) => n.message), ...(a && (!a.eval_area || a.eval_area === 'Unassigned') ? ['Untagged: no evaluation area'] : [])], [coach, a]);
-  const score = a ? strength(a) : 0;
+  // The writer's notes for this entry, read for the style shown (the résumé is the JEPES sentence spelled out): the
+  // same coaching Quick Log and the narrative reviewer give, and the badge counts from the same reading.
+  const coach = useMemo(() => (a ? coachEntry(a, style === 'fitrep' ? 'fitrep' : 'jepes', cfg) : null), [a, style, cfg]);
+  const gaps = useMemo(() => {
+    const missing = new Set(coach?.strength.missing || []);
+    return [
+      ...(coach?.held ? [coach.held] : []), ...(coach?.notes || []).map((n) => n.message),
+      ...(missing.has('measured') && !missing.has('outcome') ? ['Outcome has no measure'] : []),
+      ...(missing.has('area') ? ['Untagged: no evaluation area'] : []),
+    ];
+  }, [coach]);
+  const score = coach?.strength.points ?? 0;
   const mine = a?.user_id === identity?.user.id;
   const canEdit = a ? (mine ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)) : false;
   // Only its owner moves an entry to another record type; one drawn from a financial case stays tied to it (ADR-0015).
@@ -106,9 +115,9 @@ export default function RecordDetail() {
         <div className="space-y-4 lg:col-span-2">
           <Panel title="As a bullet" subtitle="How this reads in a package" action={<><Segmented size="sm" label="Bullet style" value={style} onChange={setStyle} options={[{ value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }, { value: 'resume', label: 'Résumé' }]} /><Button size="sm" variant="ghost" onClick={copy}><Copy className="h-3.5 w-3.5" />Copy</Button></>}>
             <p className="rounded-md border border-line bg-surface-2 px-3 py-2.5 font-mono text-sm leading-relaxed text-ink">{bullet}</p>
-            {style === 'fitrep' && expandAcronyms(bullet) !== bullet && <p className="mt-2 text-xs text-ink-3">Expanded: {expandAcronyms(bullet)}</p>}
+            {style === 'fitrep' && spellOut([bullet])[0] !== bullet && <p className="mt-2 text-xs text-ink-3">Expanded: {spellOut([bullet])[0]}</p>}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Tooltip content="Strength counts date, quantity, value, result, area, and organization"><span className={cn('fig rounded-full border px-2 py-0.5 text-xs font-semibold', score >= 4 ? 'border-good/40 text-good' : score >= 2 ? 'border-line text-ink-2' : 'border-warn/40 text-warn')}>Strength {score}/5</span></Tooltip>
+              <Tooltip content={STRENGTH_TOOLTIP}><span className={cn('fig rounded-full border px-2 py-0.5 text-xs font-semibold', score >= STRENGTH_MAX ? 'border-good/40 text-good' : score >= 3 ? 'border-line text-ink-2' : 'border-warn/40 text-warn')}>Strength {score}/{STRENGTH_MAX}</span></Tooltip>
               {/* Each gap is one tap from the form that fills it. */}
               {gaps.map((g) => {
                 const label = g[0].toUpperCase() + g.slice(1);
@@ -116,7 +125,7 @@ export default function RecordDetail() {
                   ? <button key={g} type="button" className="rounded-full" onClick={() => setEditing(toActivityDraft(a))} title="Add it in Edit"><Badge tone="warn" className="cursor-pointer transition-[filter] hover:brightness-95">{label}</Badge></button>
                   : <Badge key={g} tone="warn">{label}</Badge>;
               })}
-              {gaps.length === 0 && <span className="text-xs text-good">Complete. This one survives the cut.</span>}
+              {gaps.length === 0 && score >= STRENGTH_MAX && <span className="text-xs text-good">Complete. This one survives the cut.</span>}
             </div>
           </Panel>
 
