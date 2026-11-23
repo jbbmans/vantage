@@ -1,6 +1,26 @@
 # Progress
 
-_Updated 2026-11-22_
+_Updated 2026-11-23_
+
+## What changed (2026-11-23: database tune-up)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, the database's second part, from `8b18a31`
+([ADR-0042](engineering/ADR/0042-database-tune-up.md)). Migration 043.
+
+- **Indexes:** `goals.assignee_id`, `work_items.owner_id`, `contacts.owner_id`, `tokens.user_id`,
+  `support_tickets.unit_id`, and a `deleted_at` index for each table the recycle bin purges. The three unit window
+  indexes end in the date, so both ends of a window are tested on the index. The work list reads by its indexes.
+- **One size measure:** `databaseSize` counts every page, what is still in the log included, for the threshold, the
+  health check, the Overview, Compact and the copy before an upgrade. Every refusal at the threshold is
+  `database_capacity`.
+- **Scheduled upkeep:** integrity check, stale statistics and the write-ahead log, on a thread of its own every
+  `VANTAGE_DB_UPKEEP_HOURS` (24), audited as `database_upkeep` and shown as the **Database upkeep** health check.
+- **Deleted text:** `secure_delete` on every connection.
+- **Tests:** `tests/server/databaseTuneUp.test.ts` (query plans captured from the code that runs them, the size
+  measure, the upkeep, secure_delete), the 043 test in `tests/server/migrations.test.ts`, and every frozen fixture
+  upgraded to 43 in `tests/server/databaseFixtures.test.ts`.
 
 ## What changed (2026-11-22: security fixes the later features need)
 

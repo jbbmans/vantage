@@ -12,6 +12,7 @@ import { attachContext } from './auth/middleware.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
 import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
 import { checkTrailOf } from './services/backupCheck.ts';
+import { databaseUpkeepTick, stopDatabaseUpkeep } from './services/databaseUpkeep.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
 import { clientIp, sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
@@ -587,6 +588,8 @@ export function startSchedulers(ctx: AppContext) {
     if (n || d) console.log(`${now()} audited ${n} server backups and ${d} restore drills`);
   });
   every('lineage', 'Database lineage', 60_000, () => { writeLineage(ctx); });
+  // The database checked for damage, its statistics refreshed and its log emptied, on a thread of its own (ADR-0042).
+  if (ctx.db.name !== ':memory:') every('database_upkeep', 'Database upkeep', 60 * 60_000, () => databaseUpkeepTick(ctx));
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
   every('record_import_prune', 'Import prune', 60 * 60_000, () => { const expired = pruneStagedImports(ctx); if (expired) console.log(`${now()} released the files of ${expired} imports left waiting past ${ctx.config.recordImports.stagedHours} hours`); });
@@ -617,5 +620,5 @@ export function startSchedulers(ctx: AppContext) {
     // or by drift), and that week's digest never goes; the six-day guard keeps the more frequent ticks to one send.
     every('digest', 'Digest tick', 15 * 60_000, async () => { const r = await runDigestTick(ctx); if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); });
   }
-  return () => timers.forEach((t) => clearInterval(t));
+  return () => { timers.forEach((t) => clearInterval(t)); stopDatabaseUpkeep(ctx); };
 }

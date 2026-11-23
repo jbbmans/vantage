@@ -597,7 +597,49 @@ const MIGRATIONS: Migration[] = [
       if (!columnsOf(db, 'attachments').has('scan_status')) db.exec("ALTER TABLE attachments ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'unrecorded' CHECK (scan_status IN ('clean', 'skipped', 'unrecorded'))");
     },
   },
+  {
+    id: 43,
+    name: '043_tune_up_indexes',
+    // The reads that still scanned a table (ADR-0042). Indexes only: no table, column, trigger or row changes, and each
+    // read's test asserts its plan. A person's goals as owner or assignee, their work items, contacts and sign-in links,
+    // a unit's help requests, and the foreign keys into users and units each get an index; the recycle bin's sweep reads
+    // only what was deleted, by a partial index that holds nothing else, so a live write or read never touches it. The
+    // three unit window indexes of 039 are built again under their names with the first day after the last, so a window's
+    // two ends are both tested in the index and the period before one is read without the period after it. Every
+    // statement only creates what is missing, and a window index is rebuilt only while it lacks that column, so a rerun
+    // does nothing. Rolled back by restoring the pre-upgrade copy with the previous build.
+    run: (db) => {
+      for (const sql of [
+        'CREATE INDEX IF NOT EXISTS idx_goals_assignee ON goals(assignee_id) WHERE assignee_id IS NOT NULL',
+        'CREATE INDEX IF NOT EXISTS idx_work_items_owner ON work_items(owner_id, visibility, unit_id)',
+        'CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(owner_id)',
+        'CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id, kind)',
+        'CREATE INDEX IF NOT EXISTS idx_support_unit ON support_tickets(unit_id, state)',
+        ...BINNED_TABLES.map((table) => `CREATE INDEX IF NOT EXISTS idx_${table}_deleted ON ${table}(deleted_at) WHERE deleted_at IS NOT NULL`),
+      ]) db.exec(sql);
+      for (const [name, sql] of Object.entries(UNIT_WINDOW_INDEXES)) {
+        const keys = (db.prepare('SELECT name FROM pragma_index_xinfo(?) WHERE key = 1 ORDER BY seqno').all(name) as Array<{ name: string | null }>).map((k) => k.name);
+        if (keys.at(-1) === 'date') continue;
+        db.exec(`DROP INDEX IF EXISTS ${name}`);
+        db.exec(sql);
+      }
+    },
+  },
 ];
+
+/** The tables the recycle bin keeps deleted rows in until its sweep removes them (purgeDeleted). */
+const BINNED_TABLES = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings', 'duties', 'attachments', 'comments'] as const;
+
+/**
+ * A unit's records in a window (migration 039, rebuilt by 043): the Unit Instance and visibility, the last day a record
+ * covers, exactly as periodClause writes it (server/services/timeframes.ts), then its first day. The reads name these
+ * indexes (BY_LAST_DAY in server/services/metrics.ts), so a change to that expression must change them too.
+ */
+export const UNIT_WINDOW_INDEXES = {
+  idx_activities_unit_last: "CREATE INDEX idx_activities_unit_last ON activities(unit_id, visibility, (CASE WHEN ongoing = 1 THEN '9999-12-31' ELSE COALESCE(end_date, date) END), date) WHERE deleted_at IS NULL",
+  idx_trainings_unit_last: "CREATE INDEX idx_trainings_unit_last ON trainings(unit_id, visibility, (CASE WHEN ongoing = 1 THEN '9999-12-31' ELSE COALESCE(end_date, date) END), date) WHERE deleted_at IS NULL",
+  idx_duties_unit_last: 'CREATE INDEX idx_duties_unit_last ON duties(unit_id, (COALESCE(end_date, date)), date)',
+} as const;
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** Every migration this build carries, in order: what the database fixtures run, and change, to test an upgrade (ADR-0041). */
 export const BUILD_MIGRATIONS: readonly Migration[] = MIGRATIONS;
@@ -1458,6 +1500,9 @@ export function openDatabase(path: string, options: OpenOptions = {}): Db {
   // Sorts and scratch tables in memory, and a larger page cache: faster, and no change to what is durable.
   db.pragma('temp_store = MEMORY');
   db.pragma('cache_size = -32000');
+  // What is deleted is overwritten where it lay, so a removed record's text is not left readable on a free page of the
+  // file or of a copy taken from it (ADR-0042). It holds for this connection; Compact clears what was deleted before.
+  db.pragma('secure_delete = ON');
   // A database this build is about to upgrade is checked and copied as the last build left it, before even the base
   // schema is replayed over it (ADR-0041). Anything wrong stops the start here, with nothing migrated.
   let copy: UpgradeCopy | null = null;

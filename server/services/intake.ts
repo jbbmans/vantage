@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { databaseRoom } from '../db/size.ts';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { assertSameInstance, can, isMember, PERMISSIONS, scopeFor } from '../authz/scope.ts';
@@ -70,12 +70,8 @@ export function storedBytesFor(ctx: AppContext, userId: string): number {
 }
 
 export function assertCapacity(ctx: AppContext, userId: string, incoming: number) {
-  if (ctx.db.name !== ':memory:') {
-    try {
-      if (statSync(ctx.db.name).size + incoming >= ctx.config.limits.maxDatabaseBytes) {
-        throw new HttpError(507, 'The database is too close to its safety threshold to take another upload. Ask the owner to clear old sources or raise the limit.', 'database_capacity');
-      }
-    } catch (e) { if (e instanceof HttpError) throw e; }
+  if (incoming >= databaseRoom(ctx.db, ctx.config.limits.maxDatabaseBytes)) {
+    throw new HttpError(507, 'The database is too close to its safety threshold to take another upload. Ask the owner to clear old sources or raise the limit.', 'database_capacity');
   }
   const held = storedBytesFor(ctx, userId);
   const quota = ctx.config.intake.maxBytesPerUser;

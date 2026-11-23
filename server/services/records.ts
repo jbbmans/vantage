@@ -53,7 +53,7 @@ import { heldUsersClause, holdState, recordDispositionRun, type HoldState } from
 import { forgetNotices, notify } from './notifications.ts';
 import { addAssignmentNote, closeRequests } from './comments.ts';
 import { assignmentNoteSchema } from '../../shared/workflowMessages.ts';
-import { statSync } from 'node:fs';
+import { databaseRoom } from '../db/size.ts';
 
 interface TableSpec { fields: string[]; json: string[]; shareFlag: number; personal?: boolean; memberReadable?: boolean; counselor?: boolean; assignee?: boolean; orderBy: string }
 
@@ -218,12 +218,15 @@ export function getRecord(ctx: AppContext, table: RecordTable, id: string, { inc
   return hydrate(row, table);
 }
 
-export function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
+/**
+ * Why this account may not add `additional` more records, if it may not: its own record limit (`record_quota`), or the
+ * database at its safety threshold (`database_capacity`), measured as every refusal and the console measure it
+ * (databaseSize, ADR-0042).
+ */
+export function capacityProblem(ctx: AppContext, userId: string, additional = 1): { message: string; code: 'record_quota' | 'database_capacity' } | null {
   const total = RECORD_TABLE_NAMES.reduce((sum, t) => sum + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(userId) as { n: number }).n, 0);
-  if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact Vantage support if you need more.`;
-  try {
-    if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size >= ctx.config.limits.maxDatabaseBytes) return 'The database has reached its configured safety threshold. New records are paused to preserve recovery headroom.';
-  } catch {}
+  if (total + additional > ctx.config.limits.maxRecordsPerUser) return { message: `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact Vantage support if you need more.`, code: 'record_quota' };
+  if (databaseRoom(ctx.db, ctx.config.limits.maxDatabaseBytes) <= 0) return { message: 'The database has reached its configured safety threshold. New records are paused to preserve recovery headroom.', code: 'database_capacity' };
   return null;
 }
 
@@ -409,7 +412,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   checkValueType(ctx, table, data);
   checkTimeframe(table, data);
   const capacity = opts.importId ? null : capacityProblem(ctx, user.id);
-  if (capacity) throw new HttpError(507, capacity, 'record_quota');
+  if (capacity) throw new HttpError(507, capacity.message, capacity.code);
   const scope = scopeFor(ctx, user, reqKey);
 
   let ownerId = user.id;
@@ -731,7 +734,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     planned.push({ id: typeof id === 'string' && id ? id : undefined, exists: Boolean(existing), data, visibility, unitId });
   });
   const capacity = capacityProblem(ctx, user.id, planned.filter((p) => !p.exists).length);
-  if (capacity) throw new HttpError(507, capacity, 'record_quota');
+  if (capacity) throw new HttpError(507, capacity.message, capacity.code);
   const spec = TABLES.activities;
   let created = 0; let updated = 0; const duplicates: number[] = [];
   // Rows that read like an award received or training completed are imported as activities, as asked, and counted, so

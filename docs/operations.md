@@ -296,7 +296,38 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 | Verify the audit trail and case histories | the audit chain and every case history | any time |
 | Compact the database | `VACUUM` | only during maintenance, and only with free disk of about twice the database (its working copy goes to disk, not memory) |
 
-Compacting holds the database for its whole run. Take a backup first.
+Compacting holds the database for its whole run. Take a backup first. The free disk it needs is reckoned on the pages
+in use, which is what it writes.
+
+### Scheduled upkeep
+
+The service keeps the database up on its own (ADR-0042). An hourly job runs the upkeep once the last run is
+`VANTAGE_DB_UPKEEP_HOURS` old (default 24, 1 to 168), so a service restarted every day still runs it. It never runs
+during maintenance or for a database held in memory. On a thread of its own, with its own connection, it:
+
+- checks the database for damage with SQLite's full `integrity_check`, which reads every page and index;
+- refreshes the query statistics of every table whose statistics have gone stale (`PRAGMA optimize`, under SQLite's
+  analysis limit, so each table holds the write lock for a moment), and the service's own connection then takes them
+  up; when another process holds the lock at that moment, it takes them up on a later tick;
+- folds the write-ahead log into the database and empties it, without waiting: a reader in the log at that moment
+  leaves it for the next run.
+
+People keep working while it runs. Each run is audited as `database_upkeep`, with no actor, and shows under
+**Maintenance** as "Scheduled upkeep", under the scheduled jobs on **Operations**, and as the **Database upkeep** health
+check. Damage it finds tells the Vantage staff who view the platform and fails the health check until a later run finds
+none: restore from the last good backup and raise it with the hosting team. A run that stops is recorded the same way,
+and the next waits its interval. The tasks above still run on demand.
+
+Starting maintenance stops a run under way, and nothing of it is recorded; the first tick after maintenance ends runs
+it. A run still going after an hour is recorded as stopped, with the step it was in. SQLite cannot be stopped inside a
+step, so the thread ends when that step does: until then no other run starts, and Compact and **Fold the write-ahead
+log** say to try again in a minute. A service stopped during a run likewise exits when the step ends. In the container
+the full check took about 1.5 seconds for a 288 MB database whose pages were in memory; one read from disk takes
+longer.
+
+Deleted text is overwritten where it lay (`secure_delete`), so a record removed from the recycle bin is not left
+readable on a free page of the database or of a copy taken from it. What was deleted before this release stays on free
+pages until the database is compacted.
 
 ## Vantage access to an organization
 
@@ -314,13 +345,14 @@ Staff never see inside an organization by holding a platform role. **Vantage Adm
 
 | Check | Needs attention | Failing |
 |---|---|---|
-| Database size against `VANTAGE_MAX_DB_BYTES` | 80% | 100% (new records pause) |
+| Database size against `VANTAGE_MAX_DB_BYTES`: every page, what is still in the write-ahead log and free pages included | 80% | 100% (new records, uploads and attachments pause) |
 | Free disk where the database lives | under 15% | under 5% |
 | Schema against this build | the database is newer than the build | the database is older |
 | Audit trail | forwarding off on MCEN, or dropping entries | the chain does not verify |
 | Backups | older than `VANTAGE_BACKUP_MAX_AGE_HOURS`, or none | |
 | Email in the last day | more failed than sent, or mail queued over six hours | |
 | Scheduled jobs | none running, overdue, or failing | |
+| Database upkeep | the last run stopped, or none for twice `VANTAGE_DB_UPKEEP_HOURS` | the integrity check found damage |
 | Sign-in | a CRL within 48 hours of its next update, a CA expired or within 30 days of expiry, revocation checking off, staff with no second factor | no CRL, an unreadable one, or one past its next update; every CA expired |
 | Maintenance | on, or past its expected end | |
 | Unit Instances | an active one with no Lead Unit Manager | |

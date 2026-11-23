@@ -31,7 +31,7 @@ import {
   shareCounseling, withCounselingDetail, withdrawCounseling, worksheetFileName,
 } from '../services/counselings.ts';
 import { renderCounselingPdf } from '../lib/pdfCounseling.ts';
-import { statSync } from 'node:fs';
+import { databaseRoom } from '../db/size.ts';
 import { checkRange } from '../lib/dateRange.ts';
 
 export const recordsRouter = Router();
@@ -266,7 +266,7 @@ recordsRouter.post('/:table/:id/attachments', wrap((req, _res, next) => { upload
   if (liveCount(req, table, row.id) >= limit) throw full();
   const inspected = inspectAttachment({ body: req.body, filename: filenameFromHeader(req.get('x-vantage-filename')), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
   if (!inspected.ok) throw badRequest(inspected.error);
-  try { if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size + inspected.size >= ctx.config.limits.maxDatabaseBytes) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity'); } catch (e) { if (e instanceof HttpError) throw e; }
+  if (inspected.size >= databaseRoom(ctx.db, ctx.config.limits.maxDatabaseBytes)) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity');
   // Evidence is scanned like any other upload: a rejected file is never stored, and the file keeps what the scan said.
   let scanStatus: ScanStatus;
   try { scanStatus = scanStatusOf((await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename)).verdict); }

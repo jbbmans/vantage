@@ -825,6 +825,14 @@
         {
           "file": "tests/server/readinessGateDefects.test.ts",
           "test": "a whole task list longer than its cap keeps the reader’s own open work, in the table’s order, and says how many there were"
+        },
+        {
+          "file": "tests/server/databaseTuneUp.test.ts",
+          "test": "the reads that scanned a table use the index added for them, captured from the code that runs them"
+        },
+        {
+          "file": "tests/server/databaseTuneUp.test.ts",
+          "test": "a unit window tests both of its ends in the index, before any row of the table is read"
         }
       ],
       "note": "Measured in the container, not on the MCEN host: load at the intended concurrency on the intended hardware is evidence only the host can give. scripts/scale-check.ts gave a worst p95 of 16.3 ms at 1,000 Marines and 50,000 records, timing SQL, not routes. Open mediums: record pages still load and audit a whole list and do not yet say in words that it was cut, Correspondence stops at 300 threads, and unit metrics hold the server for about a second at 50,000 records."
@@ -873,6 +881,10 @@
         {
           "file": "tests/server/databaseFixtures.test.ts",
           "test": "a changed migration fails the fixture test, naming the table and the migration"
+        },
+        {
+          "file": "tests/server/migrations.test.ts",
+          "test": "043 adds the indexes the reads that scanned a table need, rebuilds the unit window indexes to end in the date, and changes no row"
         }
       ]
     },
@@ -968,7 +980,7 @@
       "area": "Accessibility and performance",
       "status": "open",
       "evidence": [],
-      "note": "Reported with a probe; not independently verified; left open for a later Task."
+      "note": "Reproduced at 50,000 shared entries: 0.8 to 1.1 s at All time, most of it the metrics engine filtering every entry again for each of the series' buckets. The window indexes now test both ends of a window (ADR-0042), so the read of the period before no longer visits the current period's rows (All time's earlier read went from 46 ms to 3 ms). Open for the single-pass read."
     },
     {
       "id": "unit-export-unbounded",

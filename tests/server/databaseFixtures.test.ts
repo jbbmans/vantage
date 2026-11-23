@@ -134,8 +134,15 @@ test('an upgrade keeps a checked, private copy first, with every row, and leaves
 test('a database already at this build’s schema, a new one and one in memory take no copy', () => {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-fixture-'));
   try {
-    const current = onDisk(fixture('caebfab'));
-    try { openDatabase(current.path).close(); assert.deepEqual(readdirSync(current.dir).filter((f) => f.startsWith('vantage-before-upgrade-')), []); } finally { rmSync(current.dir, { recursive: true, force: true }); }
+    // The newest fixture, brought to this build's schema by one start (which keeps its copy), then started again.
+    const current = onDisk(manifest.fixtures.at(-1)!);
+    const copiesOf = () => readdirSync(current.dir).filter((f) => f.startsWith('vantage-before-upgrade-'));
+    try {
+      openDatabase(current.path).close();
+      for (const f of copiesOf()) rmSync(join(current.dir, f));
+      openDatabase(current.path).close();
+      assert.deepEqual(copiesOf(), []);
+    } finally { rmSync(current.dir, { recursive: true, force: true }); }
     openDatabase(join(dir, 'new.db')).close();
     assert.deepEqual(readdirSync(dir).filter((f) => f.startsWith('vantage-before-upgrade-')), []);
     openDatabase(':memory:').close();
@@ -298,8 +305,9 @@ test('a copy that cannot be made, or a database that fails its check, stops the 
 
 // The fingerprint is the schema a migration leaves, not the text it is written in
 
-/** This build's migrations with migration 42 run another way. */
+/** This build's migrations with migration 42 run another way, and the fixtures that run it as they upgrade. */
 const with42 = (run: Migration['run']): Migration[] => BUILD_MIGRATIONS.map((m) => (m.id === 42 ? { ...m, run } : m));
+const before42 = older.filter((f) => f.schema < 42);
 const hasScan = (db: Parameters<Migration['run']>[0]) => (db.prepare("SELECT 1 FROM pragma_table_info('attachments') WHERE name = 'scan_status'").get());
 
 test('a changed migration fails the fixture test, naming the table and the migration', () => {
@@ -307,7 +315,8 @@ test('a changed migration fails the fixture test, naming the table and the migra
   const changed = with42((db) => {
     if (!hasScan(db)) db.exec("ALTER TABLE attachments ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'unrecorded' CHECK (scan_status IN ('clean', 'skipped', 'unrecorded', 'pending'))");
   });
-  for (const entry of older) {
+  assert.ok(before42.length > 0);
+  for (const entry of before42) {
     const { differences, message } = upgradeParity(entry, changed);
     assert.deepEqual(differences.map((d) => d.object), ['table attachments'], message);
     assert.match(message, /table attachments: .*pending/);
@@ -316,7 +325,7 @@ test('a changed migration fails the fixture test, naming the table and the migra
   // One that also runs on a new database changes the fingerprint the ledger holds for its schema.
   const everywhere = with42((db) => { db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_scan ON attachments(scan_status)'); });
   const fresh = freshDatabase(everywhere);
-  try { assert.notEqual(schemaFingerprint(fresh), ledger.versions['42'].fingerprint); } finally { fresh.close(); }
+  try { assert.notEqual(schemaFingerprint(fresh), ledger.versions[String(SCHEMA_VERSION)].fingerprint); } finally { fresh.close(); }
 });
 
 test('the same migration with other comments, spacing and letter case passes', () => {
@@ -327,7 +336,7 @@ test('the same migration with other comments, spacing and letter case passes', (
         check ( scan_status in ('clean','skipped','unrecorded') ) /* the three verdicts */`);
     }
   });
-  for (const entry of older) {
+  for (const entry of before42) {
     const { message } = upgradeParity(entry, reworded);
     assert.equal(message, '', message);
   }

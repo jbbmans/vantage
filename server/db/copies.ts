@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, closeSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statfsSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { databaseSize } from './size.ts';
 
 type Db = Database.Database;
 
@@ -198,8 +199,7 @@ export function copyBeforeUpgrade(db: Db, path: string, from: number, to: number
   // After a failed upgrade, the copy that start took is the one to keep: nothing is copied or pruned.
   const kept = copyStillKept(options.kept, dir);
   if (kept) return kept;
-  const pageSize = Number(db.pragma('page_size', { simple: true }));
-  const needed = (Number(db.pragma('page_count', { simple: true })) - Number(db.pragma('freelist_count', { simple: true }))) * pageSize;
+  const needed = databaseSize(db).usedBytes;
   try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (error) { refuse(`could not make ${dir} for it: ${(error as Error).message}.`); }
   let free: number | null = null;
   try { const fs = statfsSync(dir); free = Number(fs.bavail) * Number(fs.bsize); } catch { free = null; }

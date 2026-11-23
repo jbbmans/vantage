@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { databaseRoom } from '../db/size.ts';
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
 import { HttpError, badRequest, conflict, notFound, unauthorized } from '../lib/errors.ts';
@@ -578,8 +578,8 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
   // The account's record limit, once for all the import adds: counted here, where everything it adds is in.
   const capacity = capacityProblem(ctx, user.id, 0);
   if (capacity && Object.keys(state.results.created).length) {
-    if (!review) throw new HttpError(507, capacity, 'record_quota');
-    state.notes.push(`${capacity} Leave rows out until the import fits.`);
+    if (!review) throw new HttpError(507, capacity.message, capacity.code);
+    state.notes.push(`${capacity.message} Leave rows out until the import fits.`);
   }
   attachFiles(ctx, user, scope, source, plan, state);
   state.profile = profileChanges(ctx, user, source, plan, state, review);
@@ -828,8 +828,7 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
   }
   const problem = (name: string, reason: string) => attachments.problems.push({ name, reason });
   // The database keeps its recovery headroom, as an upload does (server/routes/records.ts): files stop at the threshold.
-  let room = Infinity;
-  try { if (ctx.db.name !== ':memory:') room = ctx.config.limits.maxDatabaseBytes - statSync(ctx.db.name).size; } catch { /* no file to measure */ }
+  let room = databaseRoom(ctx.db, ctx.config.limits.maxDatabaseBytes);
   for (const a of source.attachments) {
     const target = targets.get(`${a.table}:${a.sourceRecordId}`);
     if (!target) continue;
