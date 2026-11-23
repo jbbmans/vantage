@@ -88,7 +88,7 @@ test('4. the Record and JEPES input: billet accomplishments in the order’s for
   assert.equal(rep.status, 200, JSON.stringify(rep.body).slice(0, 300));
   assert.equal(rep.body.track, 'jepes');
   assert.match(rep.body.narrative.text, /^Leadership$/m);
-  assert.match(rep.body.narrative.text, /-Trained 3 Marines on Defense Agencies Initiative \(DAI\) requisition amendments/);
+  assert.match(rep.body.narrative.text, /-Trained 3 Marines on the Defense Agencies Initiative \(DAI\) requisition amendments/);
   // The Marine verified the outcome; the section lead resolved the case. Each is credited with what they did.
   assert.ok(rep.body.casework && rep.body.casework.verified >= 1, JSON.stringify(rep.body.casework));
   assert.equal(rep.body.worksheet, null);

@@ -18,8 +18,15 @@ export interface VerbEntry {
   strength: 1 | 2 | 3;
 }
 
-// lemma, past (blank when regular), kind, strength
-const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
+/**
+ * Which forms of a verb the writer reads as that verb. Most take all four. A verb whose other forms are as often nouns
+ * ("Moves coordinated", "Returns processed", "Order of merit") is read only as the past ("Moved 40 boxes"), or as the
+ * past and the "-ing" form ("Ordering repair parts"), so a title that opens with the noun stays a noun phrase.
+ */
+type Forms = 'all' | 'past' | 'past and gerund';
+
+// lemma, past (blank when regular), kind, strength, and which forms read as the verb (all, unless said)
+const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3, Forms?]> = [
   // Getting the work done.
   ['execute', '', 'execute', 3], ['complete', '', 'execute', 2], ['process', '', 'execute', 2], ['clear', '', 'execute', 3],
   ['close', '', 'execute', 3], ['deliver', '', 'execute', 3], ['accomplish', '', 'execute', 3], ['achieve', '', 'execute', 3],
@@ -27,6 +34,9 @@ const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
   ['run', 'ran', 'execute', 2], ['operate', '', 'execute', 2], ['handle', '', 'execute', 1], ['issue', '', 'execute', 2],
   ['ship', 'shipped', 'execute', 2], ['receive', '', 'execute', 2], ['inventory', 'inventoried', 'execute', 2], ['inspect', '', 'execute', 2],
   ['account', '', 'execute', 2], ['check', '', 'execute', 2], ['dispatch', '', 'execute', 2], ['coordinate', '', 'plan', 2], ['schedule', '', 'plan', 2],
+  ['return', '', 'execute', 2, 'past'], ['move', '', 'execute', 2, 'past'], ['collect', '', 'execute', 2, 'past'], ['sort', '', 'execute', 2, 'past'],
+  ['shelve', '', 'execute', 2, 'past'], ['order', '', 'execute', 2, 'past and gerund'], ['replace', '', 'fix', 3, 'past and gerund'],
+  ['install', '', 'execute', 2, 'past and gerund'],
   // Money.
   ['reconcile', '', 'finance', 3], ['obligate', '', 'finance', 3], ['deobligate', '', 'finance', 3], ['commit', 'committed', 'finance', 2],
   ['disburse', '', 'finance', 3], ['certify', 'certified', 'finance', 3], ['validate', '', 'finance', 3], ['audit', '', 'finance', 3],
@@ -41,7 +51,7 @@ const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
   ['examine', '', 'analyze', 2], ['determine', '', 'analyze', 3], ['forecast', 'forecast', 'analyze', 3], ['recommend', '', 'analyze', 3],
   ['decide', '', 'analyze', 3],
   // Making and improving.
-  ['build', 'built', 'build', 3], ['create', '', 'build', 3], ['design', '', 'build', 3], ['develop', '', 'build', 3],
+  ['build', 'built', 'build', 3], ['rebuild', 'rebuilt', 'build', 3, 'past and gerund'], ['create', '', 'build', 3], ['design', '', 'build', 3], ['develop', '', 'build', 3],
   ['establish', '', 'build', 3], ['implement', '', 'build', 3], ['launch', '', 'build', 3], ['stand', 'stood', 'build', 2],
   ['automate', '', 'improve', 3], ['streamline', '', 'improve', 3], ['improve', '', 'improve', 3], ['reduce', '', 'improve', 3],
   ['cut', 'cut', 'improve', 3], ['increase', '', 'improve', 3], ['standardize', '', 'improve', 3], ['revamp', 'revamped', 'improve', 3],
@@ -82,6 +92,10 @@ const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
   ['become', 'became', 'qualify', 2], ['choose', 'chose', 'analyze', 2], ['swim', 'swam', 'qualify', 2], ['lead', 'led', 'lead', 3],
   ['license', '', 'develop', 3], ['turn', '', 'execute', 2], ['load', '', 'execute', 2], ['unload', '', 'execute', 2], ['dispatch', '', 'execute', 2],
   ['guard', '', 'maintain', 2], ['patrol', 'patrolled', 'execute', 2], ['navigate', '', 'execute', 2], ['fire', '', 'execute', 2],
+  ['break', 'broke', 'execute', 2, 'past'], ['catch', 'caught', 'execute', 2, 'past'], ['hang', 'hung', 'execute', 2, 'past'],
+  ['throw', 'threw', 'execute', 2, 'past'], ['rise', 'rose', 'improve', 2, 'past'], ['fight', 'fought', 'execute', 2, 'past'],
+  ['dig', 'dug', 'execute', 2, 'past'], ['sweep', 'swept', 'execute', 2, 'past'], ['weave', 'wove', 'execute', 2, 'past'],
+  ['seek', 'sought', 'execute', 2, 'past'],
 ];
 
 /** The regular past of a verb: "reconcile" → "reconciled", "verify" → "verified", "process" → "processed". */
@@ -91,28 +105,37 @@ export function regularPast(lemma: string): string {
   return `${lemma}ed`;
 }
 
+const DOUBLED_GERUND: Record<string, string> = { begin: 'beginning', input: 'inputting' };
+
 function gerund(lemma: string, past: string): string {
+  if (DOUBLED_GERUND[lemma]) return DOUBLED_GERUND[lemma];
   if (lemma.endsWith('ie')) return `${lemma.slice(0, -2)}ying`;
   if (lemma.endsWith('ee')) return `${lemma}ing`;
   if (lemma.endsWith('e')) return `${lemma.slice(0, -1)}ing`;
   // A doubled consonant in the past doubles in the gerund too: "planned" / "planning", "submitted" / "submitting".
   const last = lemma.at(-1)!;
   if (past === `${lemma}${last}ed`) return `${lemma}${last}ing`;
+  // One syllable ending in one vowel and one consonant doubles it, whatever the past: "cut" / "cutting", "ran" / "running".
+  if (/^[^aeiouy]*[aeiou][^aeiouwxy]$/.test(lemma)) return `${lemma}${last}ing`;
   return `${lemma}ing`;
 }
+
+/** The "-ing" form a result clause takes after the sentence it follows: "cut the review" becomes "cutting the review". */
+export const gerundOf = (entry: VerbEntry) => gerund(entry.lemma, entry.past);
 
 const third = (lemma: string) => (/(s|sh|ch|x|z|o)$/.test(lemma) ? `${lemma}es` : /[^aeiou]y$/.test(lemma) ? `${lemma.slice(0, -1)}ies` : `${lemma}s`);
 
 /** Every form of every verb, keyed by the form: "reconciling", "reconciles", "reconcile" and "reconciled" all find reconcile. */
 export const VERB_FORMS = new Map<string, { entry: VerbEntry; form: 'past' | 'base' | 'third' | 'gerund' }>();
 export const VERB_BY_LEMMA = new Map<string, VerbEntry>();
-for (const [lemma, irregular, kind, strength] of VERBS) {
+for (const [lemma, irregular, kind, strength, read = 'all'] of VERBS) {
   if (VERB_BY_LEMMA.has(lemma)) continue;
   const past = irregular || regularPast(lemma);
   const entry: VerbEntry = { lemma, past, kind, strength };
   VERB_BY_LEMMA.set(lemma, entry);
   const forms: Array<[string, 'past' | 'base' | 'third' | 'gerund']> = [[past, 'past'], [lemma, 'base'], [third(lemma), 'third'], [gerund(lemma, past), 'gerund']];
-  for (const [form, kindOf] of forms) if (!VERB_FORMS.has(form)) VERB_FORMS.set(form, { entry, form: kindOf });
+  const kept = read === 'all' ? forms : forms.filter(([, f]) => f === 'past' || (read === 'past and gerund' && f === 'gerund'));
+  for (const [form, kindOf] of kept) if (!VERB_FORMS.has(form)) VERB_FORMS.set(form, { entry, form: kindOf });
 }
 
 /**
@@ -126,6 +149,16 @@ export const NOMINAL_OPENERS: Record<string, string> = {
 };
 
 /** A noun-phrase opener: the first word reads as a noun when a preposition or "and" follows it. */
+/**
+ * Words that end in "-ed" and are not a past tense ("Speed drills", "Need for", "Shred day"), so a title that opens
+ * with one is not read as a verb, and a bullet that opens with one does not open with what was done.
+ */
+export const NOT_VERBS = new Set([
+  'need', 'needs', 'speed', 'seed', 'feed', 'weed', 'heed', 'deed', 'reed', 'creed', 'greed', 'breed', 'bleed', 'exceed', 'proceed',
+  'succeed', 'hundred', 'embed', 'shed', 'shred', 'bed', 'red', 'sled', 'fled', 'sped', 'wed', 'bred', 'kindred', 'infrared',
+  'steed', 'med', 'ted', 'fred', 'ned',
+]);
+
 export const NOUN_FOLLOWERS = new Set(['of', 'for', 'on', 'to', 'with', 'at', 'from', 'about', 'regarding', 'and', 'session', 'sessions', 'brief', 'report', 'plan', 'class', 'course']);
 
 /** Openers that hide who did the work. The suggestion names the stronger statement, which only the Marine can make. */
@@ -213,15 +246,15 @@ export const RS_JUDGMENT = /(#\s?\d+\s+of\s+\d+|\b(?:top|number one|no\. 1)\s+(?
  * Acronyms spelled out on their first use, as MCO 1616.1's own examples do ("Position Safety Officer (PSO)"). Only
  * expansions that are standard; an acronym not listed is left as written.
  */
-export const GLOSSARY: Record<string, { one: string; many?: string }> = {
+export const GLOSSARY: Record<string, { one: string; many?: string; the?: boolean }> = {
   ULO: { one: 'unliquidated obligation', many: 'unliquidated obligations' },
   UMT: { one: 'unmatched transaction', many: 'unmatched transactions' },
   UDO: { one: 'undelivered order', many: 'undelivered orders' },
   MIPR: { one: 'military interdepartmental purchase request', many: 'military interdepartmental purchase requests' },
-  DAI: { one: 'Defense Agencies Initiative' },
-  SABRS: { one: 'Standard Accounting, Budgeting and Reporting System' },
-  DTS: { one: 'Defense Travel System' },
-  'GCSS-MC': { one: 'Global Combat Support System-Marine Corps' },
+  DAI: { one: 'Defense Agencies Initiative', the: true },
+  SABRS: { one: 'Standard Accounting, Budgeting and Reporting System', the: true },
+  DTS: { one: 'Defense Travel System', the: true },
+  'GCSS-MC': { one: 'Global Combat Support System-Marine Corps', the: true },
   PME: { one: 'professional military education' },
   MCMAP: { one: 'Marine Corps Martial Arts Program' },
   PFT: { one: 'physical fitness test' },
