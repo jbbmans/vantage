@@ -8,9 +8,12 @@ export const shortMoney = (n: number) => {
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '';
   const trim = (x: number) => String(Number(x.toFixed(1))).replace(/\.0$/, '');
-  if (abs >= 1e9) return `${sign}$${trim(abs / 1e9)}B`;
-  if (abs >= 1e6) return `${sign}$${trim(abs / 1e6)}M`;
-  if (abs >= 1e4) return `${sign}$${trim(abs / 1e3)}K`;
+  // The unit is chosen after rounding, so $999,960 is "$1M", never "$1000K".
+  const reaches = (scale: number) => Number((abs / scale).toFixed(1)) >= 1000;
+  if (abs >= 1e12 || reaches(1e9)) return `${sign}$${trim(abs / 1e12)}T`;
+  if (abs >= 1e9 || reaches(1e6)) return `${sign}$${trim(abs / 1e9)}B`;
+  if (abs >= 1e6 || reaches(1e3)) return `${sign}$${trim(abs / 1e6)}M`;
+  if (abs >= 1e4 || Math.round(abs) >= 1e4) return `${sign}$${trim(abs / 1e3)}K`;
   return `${sign}$${formatNumber(Math.round(abs))}`;
 };
 

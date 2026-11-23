@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Printer } from 'lucide-react';
@@ -39,12 +39,15 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const { data: team } = useTeam(Boolean(identity?.canLead));
   const range = usePeriodParam(prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
   const { period, from, to, custom } = range;
-  const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
+  // The bullet style is sent only once someone picks one, so the package is written in the report's own track form by
+  // default (FITREP shorthand on a FITREP package, the full JEPES form on a JEPES one) whoever is reading it.
+  const [picked, setStyle] = useState<'jepes' | 'fitrep' | 'resume' | ''>('');
   const [track, setTrack] = useState<Track | ''>('');
   const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');
   const [limit, setLimit] = useState(8);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
-  const q = { ...periodQuery({ period, from, to, custom }), style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
+  useEffect(() => { setStyle(''); }, [track, subjectId]);
+  const q = { ...periodQuery({ period, from, to, custom }), style: picked || undefined, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
   // Reading a Marine's or a unit's report is audited and rebuilt from every entry in the period, so it is read when asked
   // for, not again on every focus; an edit to a record invalidates it.
   const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q), ...AUDITED_READ });
@@ -57,6 +60,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subject = subjectId ? (team?.roster || []).find((r) => r.id === subjectId) : null;
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
+  const style = picked || (effectiveTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [choices, setChoices] = useNarrativeChoices(`${identity?.user.id || 'me'}.${effectiveTrack}.${report?.from || period}.${report?.to || ''}.${subjectId}`);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
   const worksheet = (report?.worksheet ?? null) as WorksheetBlocks | null;

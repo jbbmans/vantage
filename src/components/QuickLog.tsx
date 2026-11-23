@@ -193,7 +193,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
 
   const s = record ? strength(record) : 0;
   // The bullet as the narrative will write it, and the reviewer's notes for it, while it is being typed.
-  const coach = useMemo(() => (record ? coachEntry(record, track) : null), [record, track]);
+  const coach = useMemo(() => (record ? coachEntry(record, track, cfg) : null), [record, track, cfg]);
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
   const reading = useMemo(() => (record && !kept ? recordKindOf(kindText('activities', record)) : null), [record, kept]);
   const target = reading?.kind === 'award' ? 'awards' : 'trainings';

@@ -58,9 +58,9 @@ export default function RecordDetail() {
   useEffect(() => { setStyle(track === 'fitrep' ? 'fitrep' : 'jepes'); }, [track]);
   useEffect(() => { if (a?.title) document.title = `${a.title} · Vantage`; }, [a?.title]);
 
-  const bullet = useMemo(() => (a ? composeBullet(a, { style, includeDate: style !== 'resume' }) : ''), [a, style]);
+  const bullet = useMemo(() => (a ? composeBullet(a, { style, includeDate: style !== 'resume', metrics: cfg }) : ''), [a, style, cfg]);
   // The writer's notes for this entry: the same coaching Quick Log and the narrative reviewer give.
-  const coach = useMemo(() => (a ? coachEntry(a, track) : null), [a, track]);
+  const coach = useMemo(() => (a ? coachEntry(a, track, cfg) : null), [a, track, cfg]);
   const gaps = useMemo(() => [...(coach?.held ? [coach.held] : []), ...(coach?.notes || []).map((n) => n.message), ...(a && (!a.eval_area || a.eval_area === 'Unassigned') ? ['Untagged: no evaluation area'] : [])], [coach, a]);
   const score = a ? strength(a) : 0;
   const mine = a?.user_id === identity?.user.id;

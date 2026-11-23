@@ -427,6 +427,13 @@ function seedOpenBalances(ctx: AppContext, unitId: string, ids: Record<string, s
   return out;
 }
 
+/** The Marine's own entries: [days ago, title, category, quantity, unit, result]. Exported so the writer is tested on them. */
+export const PERSONAL_SEED: ReadonlyArray<[number, string, string, number | null, string | null, string]> = [
+  [9, 'Volunteered at the base food pantry', 'Volunteer Service', 6, 'hours', 'Sorted and shelved the weekly delivery.'],
+  [16, 'Completed Corporals Course DEP module 3', 'Training & PME', null, null, 'Module exam passed.'],
+  [23, 'Led section PT: 10 km hike', 'Leadership', 10, 'km', 'Planned the route and the water points for eight Marines.'],
+];
+
 function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string, string>) {
   const at = now();
   const me = ids.marine;
@@ -434,12 +441,7 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
     `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, quantity, unit_label, result, status, evidence_links, fingerprint, version, created_at, updated_at)
      VALUES (?, ?, ?, 'private', ?, ?, ?, ?, ?, ?, 'completed', '[]', ?, 1, ?, ?)`
   );
-  const entries: Array<[number, string, string, number | null, string | null, string]> = [
-    [9, 'Volunteered at the base food pantry', 'Volunteer Service', 6, 'hours', 'Sorted and shelved the weekly delivery.'],
-    [16, 'Completed Corporals Course DEP module 3', 'Training & PME', null, null, 'Module exam passed.'],
-    [23, 'Led section PT: 10 km hike', 'Leadership', 10, 'km', 'Planned the route and the water points for eight Marines.'],
-  ];
-  for (const [days, title, category, qty, unitLabel, result] of entries) {
+  for (const [days, title, category, qty, unitLabel, result] of PERSONAL_SEED) {
     activity.run(newId(), me, unitId, dayOffset(-days), title, category, qty, unitLabel, result, `demo:${title}`, at, at);
   }
   const training = ctx.db.prepare(
@@ -472,6 +474,20 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
   step.run(newId(), me, 'Look into the Certified Defense Financial Manager credential', 'certification', 'planned', null, 'Requirements and eligibility not checked yet.', 'American Society of Military Comptrollers', 'https://www.asmconline.org', at, at);
 }
 
+/** The section lead's entries: [days ago, title, category, area, quantity, unit, dollars, dollar type, result]. */
+export const LEADER_SEED: ReadonlyArray<[number, string, string, string | null, number | null, string | null, number | null, string | null, string]> = [
+  [5, 'Closed FY26 year-end for the G-8 budget section', 'Fiscal & Financial', 'Mission Accomplishment', 412, 'documents', 4600000, 'obligated', 'Zero unresolved ULOs at the 30 Sep cutoff.'],
+  [20, 'Deobligated 37 dormant MIPRs with DFAS', 'Fiscal & Financial', 'Mission Accomplishment', 37, 'MIPRs', 182400, 'saved', 'Funds returned to the command before year-end.'],
+  [12, 'Trained 5 section Marines on DAI requisition amendments', 'Leadership', 'Leadership', 5, 'Marines', null, null, 'Rework fell from 9 to 2 amendments a month.'],
+  [30, 'Mentored 2 Cpls through Corporals Course DEP', 'Leadership', 'Leadership', 2, 'Marines', null, null, 'Both completed before the promotion board.'],
+  [40, 'Briefed the comptroller on the Q4 obligation plan', 'Leadership', null, null, null, null, null, 'Plan approved without change.'],
+  [45, 'Checked on every section Marine during the barracks move', 'Leadership', 'Leadership', 6, 'Marines', null, null, 'No missed duty or pay problems during the move.'],
+  [9, 'Volunteered for the no-notice audit response team', 'Fiscal & Financial', 'Individual Character', 120, 'documents', null, null, 'Produced all 120 supporting documents inside the 48-hour window.'],
+  [60, 'Completed the SNCO Academy Advanced Course DEP', 'Training & PME', 'Intellect and Wisdom', null, null, null, null, 'Graduated with a 92 average.'],
+  [25, 'Recommended moving UMT research to a daily triage', 'Fiscal & Financial', null, null, null, null, null, 'Overdue cases fell from 11 to 2 in a month.'],
+  [15, 'Submitted JEPES command input for 5 section Marines', 'Leadership', null, 5, 'Marines', null, null, 'All on time, each backed by logged entries.'],
+];
+
 /**
  * The section lead's own record. A SSgt reports on a fitness report, so this is what the FITREP side of Vantage reads:
  * billet work, the Marines trained and looked after, PME, and the JEPES input the lead owed the section.
@@ -483,19 +499,7 @@ function seedLeaderRecord(ctx: AppContext, unitId: string, ids: Record<string, s
     `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, status, evidence_links, fingerprint, version, created_at, updated_at)
      VALUES (?, ?, ?, 'private', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', '[]', ?, 1, ?, ?)`
   );
-  const entries: Array<[number, string, string, string | null, number | null, string | null, number | null, string | null, string]> = [
-    [5, 'Closed FY26 year-end for the G-8 budget section', 'Fiscal & Financial', 'Mission Accomplishment', 412, 'documents', 4600000, 'obligated', 'Zero unresolved ULOs at the 30 Sep cutoff.'],
-    [20, 'Deobligated 37 dormant MIPRs with DFAS', 'Fiscal & Financial', 'Mission Accomplishment', 37, 'MIPRs', 182400, 'saved', 'Funds returned to the command before year-end.'],
-    [12, 'Trained 5 section Marines on DAI requisition amendments', 'Leadership', 'Leadership', 5, 'Marines', null, null, 'Rework fell from 9 to 2 amendments a month.'],
-    [30, 'Mentored 2 Cpls through Corporals Course DEP', 'Leadership', 'Leadership', 2, 'Marines', null, null, 'Both completed before the promotion board.'],
-    [40, 'Briefed the comptroller on the Q4 obligation plan', 'Leadership', null, null, null, null, null, 'Plan approved without change.'],
-    [45, 'Checked on every section Marine during the barracks move', 'Leadership', 'Leadership', 6, 'Marines', null, null, 'No missed duty or pay problems during the move.'],
-    [9, 'Volunteered for the no-notice audit response team', 'Fiscal & Financial', 'Individual Character', 120, 'documents', null, null, 'Produced all 120 supporting documents inside the 48-hour window.'],
-    [60, 'Completed the SNCO Academy Advanced Course DEP', 'Training & PME', 'Intellect and Wisdom', null, null, null, null, 'Graduated with a 92 average.'],
-    [25, 'Recommended moving UMT research to a daily triage', 'Fiscal & Financial', null, null, null, null, null, 'Overdue cases fell from 11 to 2 in a month.'],
-    [15, 'Submitted JEPES command input for 5 section Marines', 'Leadership', null, 5, 'Marines', null, null, 'All on time, each backed by logged entries.'],
-  ];
-  for (const [days, title, category, area, qty, unitLabel, dollars, dollarType, result] of entries) {
+  for (const [days, title, category, area, qty, unitLabel, dollars, dollarType, result] of LEADER_SEED) {
     activity.run(newId(), me, unitId, dayOffset(-days), title, category, area, qty, unitLabel, dollars, dollarType, result, `demo:${title}`, at, at);
   }
   ctx.db.prepare(
@@ -507,6 +511,15 @@ function seedLeaderRecord(ctx: AppContext, unitId: string, ids: Record<string, s
   ).run(me, dayOffset(38), at);
 }
 
+/** What the section shares: [who, days ago, title, quantity, unit, dollars, dollar type, result]. */
+export const SHARED_SEED: ReadonlyArray<[string, number, string, number, string, number, string, string]> = [
+  ['marine', 6, 'Cleared 4 2-Way UMTs on the Q4 report', 4, 'UMTs', 6206.40, 'reconciled', 'Each verified cleared on the next report.'],
+  ['chen', 4, 'Deobligated dormant MIPR balances', 3, 'MIPRs', 18250.00, 'saved', 'Funds returned before the year closed.'],
+  ['chen', 12, 'Reconciled the September invoice holds', 7, 'invoices', 9310.75, 'reconciled', 'All seven released for payment.'],
+  ['patel', 8, 'Corrected feeder rejects from GCSS-MC', 5, 'rejects', 4120.00, 'reconciled', 'Resubmitted and accepted.'],
+  ['nguyen', 10, 'Validated open commitments on GPC accounts', 12, 'accounts', 2875.25, 'reviewed', 'Two stale commitments closed.'],
+];
+
 /**
  * What the section shares: a few entries from four Marines and one section goal, so a Marine's overview of their
  * team shows figures (totals from fewer than three people are withheld), and a report package to open in Reports.
@@ -517,14 +530,7 @@ function seedSharedRecord(ctx: AppContext, unitId: string, ids: Record<string, s
     `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, quantity, unit_label, dollar_amount, dollar_type, result, status, evidence_links, fingerprint, version, created_at, updated_at)
      VALUES (?, ?, ?, 'unit', ?, ?, 'Fiscal & Financial', ?, ?, ?, ?, ?, 'completed', '[]', ?, 1, ?, ?)`
   );
-  const entries: Array<[string, number, string, number, string, number, string, string]> = [
-    ['marine', 6, 'Cleared 4 2-Way UMTs on the Q4 report', 4, 'UMTs', 6206.40, 'reconciled', 'Each verified cleared on the next report.'],
-    ['chen', 4, 'Deobligated dormant MIPR balances', 3, 'MIPRs', 18250.00, 'saved', 'Funds returned before the year closed.'],
-    ['chen', 12, 'Reconciled the September invoice holds', 7, 'invoices', 9310.75, 'reconciled', 'All seven released for payment.'],
-    ['patel', 8, 'Corrected feeder rejects from GCSS-MC', 5, 'rejects', 4120.00, 'reconciled', 'Resubmitted and accepted.'],
-    ['nguyen', 10, 'Validated open commitments on GPC accounts', 12, 'accounts', 2875.25, 'reviewed', 'Two stale commitments closed.'],
-  ];
-  for (const [who, days, title, qty, label, dollars, type, result] of entries) {
+  for (const [who, days, title, qty, label, dollars, type, result] of SHARED_SEED) {
     shared.run(newId(), ids[who], unitId, dayOffset(-days), title, qty, label, dollars, type, result, `demo-shared:${who}:${title}`, at, at);
   }
   ctx.db.prepare(

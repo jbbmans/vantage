@@ -2,6 +2,34 @@
 
 _Updated 2026-11-23_
 
+## What changed (2026-11-23: better bullets, part 1)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, the bullet writer, from `3cb06ef` ([ADR-0043](engineering/ADR/0043-bullet-writer-rules.md)). No migration.
+
+- **Count placement:** the count goes in front of its noun ("Processed 22 MIPRs for the G-8", "Processed 25 leave and
+  liberty requests"), in place of a vague count ("a few", "several", "hundreds of", "20+"), or as the verb's object
+  before a preposition ("Volunteered 6 hours at the base food pantry"), else in parentheses. The "4" of "Q4" is not a
+  count; a distance the title does not state is written.
+- **One money word per kind of dollars** in a whole text, from the command's own value types on the record page and
+  Quick Log too; never the opening verb again ("Obligated 12 MIPRs totaling"), never dollars the outcome states.
+  "Another wording" switches the whole set. "Funds" or "money" after a money verb is the amount ("Obligated $45,000
+  for the range upgrade", "Saved the battalion $12,000"). FITREP writes "$1M", never "$1000K".
+- **Outcomes join by kind:** a grade, a participle (", cutting the weekly review to 1 hour", ", identifying 4 errors
+  and replacing the pages"), a measure (", resulting in" on JEPES), or a semicolon when the outcome has a second verb
+  or a subject of its own.
+- **The summary** totals only the entries with no sentence of their own, and only work their own bullets count as the
+  verb's object; it opens with a verb and repeats no figure. The studio's card lists its entries.
+- **Reports page:** the bullet style follows the report's track until one is picked.
+- **FITREP form:** short dollars of $10K or more (typed ones too), "supporting", a measure after a semicolon, in the
+  record, the package, the coach, the worksheet and Section C.
+- **Tests:** 60 fixed examples with exact JEPES and FITREP text and 21 edge cases from an independent review
+  (`tests/server/bulletExamples.ts`), the bullet checks (`tests/server/bulletChecks.ts`), each with a case it must
+  catch, over the examples, the edge cases, the writer corpus, the
+  narrative spec's entries, the demo seed and random entries (`tests/server/bulletExamples.test.ts`,
+  `writer.test.ts`).
+
 ## What changed (2026-11-23: database tune-up)
 
 **Partial.** In review; HawkScan not run (no key); CI results not acted on.

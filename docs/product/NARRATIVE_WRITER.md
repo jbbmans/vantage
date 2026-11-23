@@ -46,18 +46,21 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
    - a stated outcome counts more, and a measured one more again;
    - so do the people led and the Marine's largest count of a unit;
    - a weak opening counts against it.
-3. **Group** (`compose.ts`). Entries of the same work and unit can become one total: "Reconciled 45 ULOs worth $90,750 across 3 actions, including 14 in DAI: all cleared on the next report." A total only repeats an outcome that one of its entries actually stated.
+3. **Group** (`compose.ts`). Entries of the same work and unit can become one total: "Reconciled 45 ULOs totaling $90,750 across 3 actions, including 14 in DAI: all cleared on the next report." A total only repeats an outcome that one of its entries actually stated.
 4. **Plan** (`compose.ts`). Each area with entries gets its best sentence first. The rest of the limit then goes to the plan that says the most:
    - It tries entry-by-entry and grouped, by value per character and by value outright, and keeps the best.
    - It penalises three sentences opening with the same verb.
    - A sentence switches to its compact form (shorter money, no system) when that is what makes it fit.
-   - "In all, …" totals account for counted work that did not get a sentence.
+   - A summary accounts for counted work and dollars that did not get a sentence, once two or more entries are left: "Reconciled 14 ULOs totaling $48,250 and corrected 6 rejects totaling $4,120." It opens with a verb, says "more" when a sentence already counts the same work, counts only work whose own bullet makes the count the verb's object ("Checked on every section Marine" is not "Checked 6 Marines"), and repeats no figure a sentence gives ([ADR-0043](../engineering/ADR/0043-bullet-writer-rules.md)).
    - Pinned sentences always stay; left-out ones never return unasked.
    - Credit from the case histories (documents researched, outcomes verified, cases resolved) is a sentence of its own.
-5. **Write** (`realize.ts`).
-   - Money sits next to the count it belongs to, and is never repeated if the title already states it.
+5. **Write** (`realize.ts`, [ADR-0043](../engineering/ADR/0043-bullet-writer-rules.md)).
+   - The count goes in front of its noun when the title names the unit ("Processed 22 MIPRs for the G-8"), as the verb's object when the title goes straight to a preposition ("Trained 3 Marines on DAI", "Volunteered 6 hours at the base food pantry"), and otherwise in parentheses. A vague count the Marine typed ("a few vehicles", "hundreds of claims", "20+ Marines") gives way to the number. The "4" of "Q4" is not a count.
+   - Money sits next to the count it belongs to, in one word per kind of dollars ("totaling", "obligating", ", saving", "covering", "valued at"; a command's own value types by whether they sum), never the opening verb again ("Obligated 12 MIPRs totaling"), and is never repeated if the title or the outcome already states it. "Funds" or "money" after a money verb becomes the amount ("Obligated $45,000 for the range upgrade").
+   - An outcome joins by what it is: a grade "with a 3.8 GPA", something the Marine did as a participle (", cutting the weekly review to 1 hour", ", identifying 4 errors and replacing the pages"), a measure ", resulting in 100% mission readiness", anything else after a semicolon, in lower case.
+   - FITREP Section C writes its shorthand: short dollars of $10K or more, typed ones included ("$48.3K", "$1M" for $999,960), a measure after a semicolon, "supporting" for "in support of".
    - Text is plain ASCII, so it pastes into any form.
-   - A seed picks among equivalent phrasings, so "Another wording" never changes a fact.
+   - A seed picks one of two whole sets of wording, so "Another wording" never changes a fact and never mixes words within a text.
 6. **Review** (`review.ts`). A 100-point grade:
    - areas covered: 25;
    - outcomes stated: 25;
@@ -81,7 +84,7 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
 - **An acronym:** add it to `GLOSSARY` only with a standard expansion.
 - **A FITREP attribute cue:** add the words to the cue for that attribute in `attributes.ts`. Keep a cue narrow: it has to name the thing ("JEPES command input", "welfare"), not hint at it. A cue from a plain verb's entry takes the sentence; one from a specific verb (trained, led) is a second attribute.
 - **A rule:** add its pattern to `lexicon.ts`, the issue to `readEntry`, and the check to `CHECKS` in `review.ts` with its basis and citation. Mark it `style` unless an order or form says it.
-- **Tests:** `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit, `tests/server/narrativeReport.test.ts`, and `tests/browser/31-narrative.spec.ts`.
+- **Tests:** `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit; `tests/server/bulletExamples.test.ts`, with 60 fixed examples and 21 edge cases (`bulletExamples.ts`) and the bullet checks (`bulletChecks.ts`), each with a case it must catch, run over every example, the corpora in `writerCorpus.ts` and random entries; `tests/server/narrativeReport.test.ts`; and `tests/browser/31-narrative.spec.ts`. A change to a rule moves the examples it touches: read each moved line before updating it.
 
 ## Sources
 

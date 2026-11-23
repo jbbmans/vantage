@@ -49,10 +49,8 @@ function titleIsAction(title = ''): boolean {
 }
 
 export { unitFor } from './writer/units.ts';
-import { readEntry, type EntryInput } from './writer/facts.ts';
-import { sentenceFor } from './writer/realize.ts';
-
-const SINGLE = { names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' }, areas: JEPES_CORE };
+import type { EntryInput } from './writer/facts.ts';
+import { bulletFor } from './writer/coach.ts';
 import { unitFor } from './writer/units.ts';
 import { formatTimeframe } from './timeframe.ts';
 
@@ -101,13 +99,14 @@ function titleStatesAmount(title: string, amount: number): boolean {
 }
 
 /**
- * One entry as a bullet. JEPES and FITREP bullets come from the narrative writer (shared/writer), so an entry reads
- * the same in Quick Log, on its page, in the package and in the narrative; the résumé style keeps civilian phrasing.
+ * One entry as a bullet. JEPES and FITREP bullets come from the narrative writer (shared/writer), each in its track's
+ * form, so an entry reads the same in Quick Log, on its page, in the package and in the narrative; the résumé style
+ * keeps civilian phrasing.
  */
-export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle; includeDate?: boolean } = {}): string {
+export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle; includeDate?: boolean; metrics?: MetricsConfig } = {}): string {
   const { style = 'jepes', includeDate = false } = opts;
   if (style !== 'resume') {
-    const text = sentenceFor(readEntry(a as EntryInput, SINGLE), 'full', 0, 'bullets');
+    const text = bulletFor(a as EntryInput, style, 0, opts.metrics);
     // The days it ran, as a DTG writes them: "12 MAY 25", "12 MAY 25 – 16 MAY 25", "3 MAR 25 – present" (ADR-0018).
     return includeDate && a.date ? `${text.replace(/\.$/, '')} (${formatTimeframe('activities', a, { upper: true }) || formatDTG(a.date)}).` : text;
   }
@@ -226,7 +225,7 @@ export function buildPackage(activities: BulletSource[] = [], opts: { periodLabe
       count: items.length,
       withheld: Math.max(0, items.length - shown.length),
       rollup: composeRollup(items, { period: periodLabel, style, metrics }),
-      bullets: shown.map((a) => ({ id: a.id, text: composeBullet(a, { style }), date: a.date, strength: strength(a) })),
+      bullets: shown.map((a) => ({ id: a.id, text: composeBullet(a, { style, metrics }), date: a.date, strength: strength(a) })),
     };
   });
 }

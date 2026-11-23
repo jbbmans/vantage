@@ -104,7 +104,10 @@ function ReviewPanel({ review, edited }: { review: Review; edited: boolean }) {
 }
 
 function SourceCard({ sentence, facts, onPin, onExclude, pinned, fitrep }: { sentence: Sentence; facts: Narrative['facts']; onPin: () => void; onExclude: () => void; pinned: boolean; fitrep: boolean }) {
-  const from = facts.filter((f) => sentence.covers.includes(f.key));
+  // A summary speaks for the entries with no sentence of their own; it covers none of them, so they are found by source.
+  const from = sentence.kind === 'summary'
+    ? facts.filter((f) => !f.held && f.area === sentence.area && f.sources.some((s) => sentence.sources.includes(s)))
+    : facts.filter((f) => sentence.covers.includes(f.key));
   return (
     <div className="mt-4 rounded-xl border border-line bg-surface-2/60 p-4 text-sm" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
@@ -119,10 +122,9 @@ function SourceCard({ sentence, facts, onPin, onExclude, pinned, fitrep }: { sen
       {sentence.reasons.length > 0 && <p className="mt-2 text-xs text-ink-3">Why it made the cut: {sentence.reasons.join(' · ')}</p>}
       {sentence.kind === 'casework' ? (
         <p className="mt-2 text-xs text-ink-2">From your case histories in this period. <Link className="link" to="/record/contributions">See the contributions</Link></p>
-      ) : sentence.kind === 'summary' ? (
-        <p className="mt-2 text-xs text-ink-2">Totals for this area, including entries with no sentence of their own.</p>
       ) : (
         <ul className="mt-2 space-y-1">
+          {sentence.kind === 'summary' && <li className="text-xs text-ink-2">Totals the entries in this area that have no sentence of their own. No figure here repeats another sentence.</li>}
           {from.map((f) => (
             <li key={f.key} className="flex items-baseline justify-between gap-3 text-xs">
               <Link className="link truncate" to={`/records/${f.sources[0]}`}>{`${f.opener} ${f.rest}`.trim()}</Link>

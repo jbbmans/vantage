@@ -81,5 +81,5 @@ test('a narrative counts work done, never kilometres or hours as things processe
   assert.ok(!/processed[^.]*\b(km|hours)\b/i.test(text), text);
   // The hike and the hours still speak for themselves, in their own sentences.
   assert.match(text, /Led section PT: 10 km hike\./);
-  assert.match(text, /Volunteered at the base food pantry \(6 hours\)\./);
+  assert.match(text, /Volunteered 6 hours at the base food pantry\./);
 });

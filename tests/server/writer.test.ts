@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readEntry, clauseOf, type AreaNames } from '../../shared/writer/facts.ts';
-import { sentenceFor, statesAmount, dollars, finish, pick } from '../../shared/writer/realize.ts';
+import { sentenceFor, statesAmount, dollars, finish, connectorFor } from '../../shared/writer/realize.ts';
 import { writeNarrative, type WriterOptions } from '../../shared/writer/compose.ts';
 import { reviewText } from '../../shared/writer/review.ts';
+import { WRITER_CORPUS } from './writerCorpus.ts';
+import { checkNarrative } from './bulletChecks.ts';
 
 const M = 'MOS / Mission Accomplishment';
 const names: AreaNames = { mission: M, leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' };
@@ -72,9 +74,11 @@ test('money is written once, next to its count, the way an evaluation writes it'
   assert.ok(!statesAmount('Reviewed a $500 invoice batch', 12000));
 
   const ulo = read('Reconciled 14 ULOs in DAI', { quantity: 14, unit_label: 'ULOs', dollar_amount: 48250, dollar_type: 'reconciled', result: 'all cleared on the next report' });
-  assert.match(sentenceFor(ulo, 'full', 0), /^Reconciled 14 ULOs (worth|totaling|valued at) \$48,250 in DAI; all cleared on the next report\.$/);
+  assert.equal(sentenceFor(ulo, 'full', 0), 'Reconciled 14 ULOs totaling $48,250 in DAI; all cleared on the next report.');
+  assert.equal(sentenceFor(ulo, 'full', 1), 'Reconciled 14 ULOs worth $48,250 in DAI; all cleared on the next report.');
+  assert.equal(sentenceFor(ulo, 'full', 0, 'fitrep'), 'Reconciled 14 ULOs totaling $48.3K in DAI; all cleared on the next report.');
   const umt = read('Cleared 4 2-Way UMTs on the Q4 report', { quantity: 4, unit_label: 'UMTs', dollar_amount: 6206.4, dollar_type: 'reconciled' });
-  assert.match(sentenceFor(umt, 'full', 0), /^Cleared 4 2-Way UMTs (worth|totaling|valued at) \$6,206 on the Q4 report\.$/);
+  assert.equal(sentenceFor(umt, 'full', 0), 'Cleared 4 2-Way UMTs totaling $6,206 on the Q4 report.');
   const stated = read('Reconciled 14 ULOs totaling $48,250', { quantity: 14, unit_label: 'ULOs', dollar_amount: 48250 });
   assert.equal(sentenceFor(stated, 'full', 0).match(/48,250/g)?.length, 1);
   const reviewed = read('Reviewed 12 invoices', { quantity: 12, unit_label: 'invoices', dollar_amount: 2875, dollar_type: 'reviewed' });
@@ -84,21 +88,15 @@ test('money is written once, next to its count, the way an evaluation writes it'
 test('a sentence comes out finished: plain characters, one space, punctuation where it belongs', () => {
   assert.equal(finish('reconciled 14 ULOs ;all cleared “on time” \u2014 early'), 'Reconciled 14 ULOs; all cleared "on time" - early.');
   assert.equal(finish('Reconciled $1,118.38 at 14:30'), 'Reconciled $1,118.38 at 14:30.');
-  assert.equal(pick(['a', 'b', 'c'], 1, 'k'), pick(['a', 'b', 'c'], 1, 'k'));
+  assert.equal(finish('reconciled the the ULOs'), 'Reconciled the ULOs.');
+  // One word per kind of dollars, the same for every entry in a text; the seed picks the set, never the entry.
+  assert.deepEqual(connectorFor('reconciled', true, 0), { word: 'totaling', tail: false });
+  assert.deepEqual(connectorFor('saved', true, 0), { word: 'saving', tail: true });
+  assert.deepEqual(connectorFor('reconciled', true, 7), connectorFor('reconciled', true, 1));
+  assert.deepEqual(connectorFor('reconciled', true, Number.NaN), connectorFor('reconciled', true, 0));
 });
 
-const corpus = [
-  { id: 'a1', title: 'Cleared 4 2-Way UMTs on the Q4 report', quantity: 4, unit_label: 'UMTs', dollar_amount: 6206.4, dollar_type: 'reconciled', result: 'Each verified cleared on the next report', eval_area: M, date: '2026-09-28' },
-  { id: 'a2', title: 'Reconciled 14 ULOs totaling $48,250 in DAI', quantity: 14, unit_label: 'ULOs', dollar_amount: 48250, dollar_type: 'reconciled', result: 'all cleared on the next report', system: 'DAI', eval_area: M, date: '2026-09-30' },
-  { id: 'a3', title: 'Reconciled 9 ULOs in SABRS', quantity: 9, unit_label: 'ULOs', dollar_amount: 12100, dollar_type: 'reconciled', eval_area: M, date: '2026-08-12' },
-  { id: 'a4', title: 'I processed 40 MIPRs for the G-8', quantity: 40, unit_label: 'MIPRs', dollar_amount: 1200000, dollar_type: 'obligated', result: 'zero returned for correction', date: '2026-07-20' },
-  { id: 'a5', title: 'Volunteered at the base food pantry', quantity: 6, unit_label: 'hours', result: 'Sorted and shelved the weekly delivery', eval_area: 'Individual Character', date: '2026-09-25' },
-  { id: 'a6', title: 'Led section PT: 10 km hike', quantity: 10, unit_label: 'km', result: 'Planned the route and the water points for eight Marines', eval_area: 'Leadership', date: '2026-09-11' },
-  { id: 'a7', title: 'Training 3 junior marines on DAI requisitions', quantity: 3, unit_label: 'Marines', result: 'all three now process requisitions without review', date: '2026-08-30', category: 'Leadership' },
-  { id: 'a8', title: 'Reconciled 22 ULOs in DAI', quantity: 22, unit_label: 'ULOs', dollar_amount: 30400, dollar_type: 'reconciled', eval_area: M, date: '2026-07-02' },
-  { id: 'a9', title: 'Helped the section with the end of year close out', date: '2026-09-29' },
-  { id: 'a10', title: 'Built a UMT tracker in Excel', result: 'cut the weekly review from 3 hours to 1 hour', date: '2026-08-05' },
-];
+const corpus = WRITER_CORPUS;
 
 test('the narrative covers every area before any gets a second sentence, and stays inside the limit', () => {
   for (const limit of [300, 500, 1000, 2000]) {
@@ -189,6 +187,10 @@ test('whatever is logged, the narrative is well-formed text inside its limit', (
     assert.ok(!/\s{2}/.test(n.text), n.text);
     assert.ok(/^[\x20-\x7e]*$/.test(n.text.replace(/é/g, 'e')), `plain characters: ${n.text}`);
     for (const s of n.sentences) assert.match(s.text, /[.!?]$/);
+    // The bullet checks that hold whatever the words: parentheses, joins, figures, the period, plain text. Words with
+    // no verb are the review's to flag, so the opener is not held here; the limit is the text's, above.
+    const structural = checkNarrative(n, entries).filter((b) => !/past-tense opener|: limit/.test(b));
+    assert.deepEqual(structural, [], `run ${run}: ${n.text}`);
   }
 });
 
@@ -209,8 +211,15 @@ test('acronyms are spelled out once, where they first appear outside parentheses
   const { spellOut } = await import('../../shared/writer/realize.ts');
   assert.deepEqual(spellOut(['Researched 3 documents (2-Way UMT).', 'Reconciled 14 ULOs in DAI.', 'Cleared 4 UMTs and 2 ULOs.']), [
     'Researched 3 documents (2-Way UMT).',
-    'Reconciled 14 unliquidated obligations (ULOs) in Defense Agencies Initiative (DAI).',
+    'Reconciled 14 unliquidated obligations (ULOs) in the Defense Agencies Initiative (DAI).',
     'Cleared 4 unmatched transactions (UMTs) and 2 ULOs.',
+  ]);
+  // The article goes with the words read; a name keeps the acronym; a possessive is a first use like any other.
+  assert.deepEqual(spellOut(['Built a UMT tracker in Excel.', 'Mentored an NCO through the course.', 'Studied for the Staff SNCO Career Course.', 'Counseled the MIPR\'s owner.']), [
+    'Built an unmatched transaction (UMT) tracker in Excel.',
+    'Mentored a noncommissioned officer (NCO) through the course.',
+    'Studied for the Staff SNCO Career Course.',
+    'Counseled the military interdepartmental purchase request\'s (MIPR\'s) owner.',
   ]);
   // Spelling out costs characters, and the plan pays for them inside the limit.
   const n = writeNarrative(corpus, opts({ limit: 600, spellOut: true }));

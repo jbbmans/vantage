@@ -1,11 +1,13 @@
 import {
   ANNUAL_TRAINING, AREA_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, IN_PROGRESS, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
-  PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
+  PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NOT_VERBS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
   WEAK_OPENERS, type VerbEntry,
 } from './lexicon.ts';
 import { ATTRIBUTE_AREA, attributesOf, type Attribute } from './attributes.ts';
 import { isTimeUnit, unitKeyOf } from '../metricEngine.ts';
 import { DEFAULT_METRICS, isSummable, type MetricsConfig } from '../constants.ts';
+import { formatNumber } from '../metrics.ts';
+import { unitFor } from './units.ts';
 
 /** One logged entry, as the writer receives it. */
 export interface EntryInput {
@@ -67,18 +69,23 @@ export interface Fact {
 }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
+const PLACEHOLDER = /^(?:n\/?a|tbd|tbc|none|nil|null|pending|unknown|-+|\.+|\?+)$/i;
 const stripEnd = (s: string) => s.replace(/[\s.;,:]+$/, '');
 const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-export const lowerFirst = (s: string) => (!s || KEEP_CASE.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+// A word that opens a phrase is lowercase mid-sentence even before a name: "on SYN-LC-1", "all Marines", "the Basic
+// School". A name, an acronym and "Marines" keep their case.
+const OPENING_WORD = /^(?:On|In|At|For|To|From|With|By|The|An|After|Before|During|All|Each|Every|Both|Zero|No)\s/;
+export const lowerFirst = (s: string) => (!s || (KEEP_CASE.test(s) && !OPENING_WORD.test(s)) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 
 /** "marines" is always "Marines". */
 const marines = (s: string) => s.replace(/\bmarine(s?)\b/g, 'Marine$1');
 
-function dropFirstPerson(s: string): { text: string; changed: boolean } {
+function dropFirstPerson(s: string, opts: { opening?: boolean } = { opening: true }): { text: string; changed: boolean } {
   // "my section's ULOs" is "the section's ULOs": the possessive points at the unit, which still owns the work. "My
   // associates degree" is the Marine's own, and reads as "associates degree".
-  let out = s.replace(/^(?:I|We)\s+/, '').replace(/\b(?:my|our|My|Our)\s+(?=(\S+(?:\s+\S+)?))/g, (_m, next: string) => (PERSONAL_NOUNS.test(next) ? '' : 'the ')).replace(/\s+myself\b/gi, '');
-  out = out.replace(/^the\s/, 'The ');
+  let out = s.replace(/^(?:I|We|we)\s+/, '').replace(/\b(?:my|our|My|Our)\s+(?=(\S+(?:\s+\S+)?))/g, (_m, next: string) => (PERSONAL_NOUNS.test(next) ? '' : 'the ')).replace(/\s+myself\b/gi, '');
+  // A title opens the sentence; an outcome or an organization follows other words, so its "the" stays lower case.
+  out = opts.opening ? out.replace(/^the\s/, 'The ') : out.replace(/^The\s/, 'the ');
   return { text: out, changed: out !== s };
 }
 
@@ -113,9 +120,14 @@ export function tidy(text: string, opts: { numerals?: boolean } = {}): { text: s
       return i === 0 ? low.charAt(0).toUpperCase() + low.slice(1) : low;
     }).join(' ');
   }
-  // "Built the tracker. Also trained the section on it." is one accomplishment told twice; it reads as one sentence.
-  out = out.replace(/([a-z0-9)])\.\s+(?=[A-Z][a-z])/g, (_m, c: string) => `${c}; `).replace(/;\s+([A-Z][a-z])/g, (_m, w: string) => `; ${w.toLowerCase()}`);
-  if (opts.numerals) out = out.replace(/\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b(?=\s+[A-Za-z])/gi, (w) => String(NUMBER_WORDS[w.toLowerCase()]));
+  // "Built the tracker. Also trained the section on it." is one accomplishment told twice; it reads as one sentence. So
+  // is "Zero returned. CO was pleased." A title's abbreviation ("Lt. Col.") is not the end of a sentence.
+  out = out.replace(/(?<!\b(?:Lt|Col|Capt|Maj|Gen|Sgt|Cpl|Pvt|Mr|Mrs|Ms|Dr|St|No|Vol|Jr|Sr|Co|Bn|vs|etc))([a-z0-9)])\.\s+(?=[A-Z])/g, (_m, c: string) => `${c}; `).replace(/;\s+([A-Z][a-z])/g, (_m, w: string) => `; ${w.toLowerCase()}`);
+  if (opts.numerals) {
+    // "twenty-five" is one number, 25; its "five" is not a number of its own.
+    out = out.replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-(one|two|three|four|five|six|seven|eight|nine)\b(?=\s+[A-Za-z])/gi, (_m, tens: string, ones: string) => String(NUMBER_WORDS[tens.toLowerCase()] + (ones.toLowerCase() === 'one' ? 1 : NUMBER_WORDS[ones.toLowerCase()])));
+    out = out.replace(/(?<![-\w])(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b(?![-])(?=\s+[A-Za-z])/gi, (w) => String(NUMBER_WORDS[w.toLowerCase()]));
+  }
   return { text: out, changed: out !== text.replace(/\s+/g, ' ').trim() };
 }
 
@@ -145,6 +157,13 @@ const COUNT_FIRST = /^(\d[\d,.]*\s+(?:[A-Za-z][\w/-]*\s+){0,2}?)([a-z]+ed)\b\s*(
 
 interface Opening { verb: VerbEntry | null; opener: string; rest: string; edit: string | null }
 
+const NOT_GERUND_OPENERS = new Set([
+  'being', 'during', 'nothing', 'something', 'anything', 'everything', 'morning', 'evening', 'ceiling', 'wedding', 'pending',
+  'outstanding', 'remaining', 'upcoming', 'ongoing', 'incoming', 'outgoing', 'following', 'according', 'regarding', 'concerning',
+  'including', 'excluding', 'spring', 'string', 'housing', 'clothing', 'funding', 'lodging', 'parking', 'warning', 'opening',
+  'closing', 'offering', 'ruling', 'setting', 'listing', 'heading', 'landing', 'reading', 'writing', 'painting', 'dining',
+]);
+
 function openingOf(text: string, category: string | null): Opening {
   const words = text.split(' ');
   const first = (words[0] || '').replace(/[^A-Za-z-]/g, '');
@@ -156,7 +175,11 @@ function openingOf(text: string, category: string | null): Opening {
   if (hit && hit.form === 'past') return { verb: hit.entry, opener: capitalize(hit.entry.past), rest, edit: null };
   // A past tense the lexicon does not list ("Licensed 8 Marines", "Turned in 35 items") is still the verb, when
   // something follows it.
-  if (!hit && /^[a-z]{3,}ed$/i.test(first) && words.length > 1 && !NOUN_FOLLOWERS.has(next)) {
+  // "Signed for new radios" and "Deployed with the 26th MEU" too: a preposition after an "-ed" word follows a verb.
+  // "Speed drills" and "Need for" do not open with one (NOT_VERBS).
+  const edVerb = !hit && /^[a-z]{3,}ed$/i.test(first) && words.length > 1 && !NOT_VERBS.has(lower)
+    && (!NOUN_FOLLOWERS.has(next) || ['for', 'on', 'to', 'with', 'at', 'from', 'about'].includes(next));
+  if (edVerb) {
     return { verb: { lemma: lower.replace(/ed$/, ''), past: lower, kind: 'execute', strength: 2 }, opener: capitalize(lower), rest, edit: null };
   }
   // "Reconciling 14 ULOs" and "Reconciles ULOs" are verbs; "Process improvement for DTS" is a noun phrase. A bare
@@ -164,6 +187,13 @@ function openingOf(text: string, category: string | null): Opening {
   const objectFollows = OBJECT_START.test(words[1] || '');
   const asVerb = hit && (hit.form === 'third' || (hit.form === 'gerund' && !NOUN_FOLLOWERS.has(next)) || (hit.form === 'base' && objectFollows));
   if (hit && asVerb) return { verb: hit.entry, opener: capitalize(hit.entry.past), rest, edit: 'tense' };
+  // A gerund the lexicon does not list, with its object plainly after it: "Digitizing the training records" is
+  // "Digitized the training records". Not "During the move" or "Pending claims".
+  if (!hit && /^[a-z]{5,}ing$/i.test(first) && !NOT_GERUND_OPENERS.has(lower) && OBJECT_START.test(words[1] || '')) {
+    const stem = lower.slice(0, -3);
+    const past = /[^aeiou]y$/.test(stem) ? `${stem.slice(0, -1)}ied` : `${stem}ed`;
+    return { verb: { lemma: stem, past, kind: 'execute', strength: 2 }, opener: capitalize(past), rest, edit: 'tense' };
+  }
   if (lower in NOMINAL_OPENERS) {
     const verb = NOMINAL_OPENERS[lower];
     return { verb: VERB_FORMS.get(verb.toLowerCase())?.entry ?? null, opener: verb, rest: lowerFirst(text), edit: 'opener' };
@@ -244,8 +274,17 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
     // No title (an import can leave one out): the money's kind or the category gives the verb, the count the object.
     const verb = UNTITLED_VERB[String(entry.dollar_type)] || (entry.category === 'Leadership' ? 'Led' : 'Completed');
     const n = Number(entry.quantity);
-    title = Number.isFinite(n) && n > 0 ? `${verb} ${n} ${String(entry.unit_label || 'items').trim() || 'items'}` : `${verb} logged work`;
+    const unitTyped = String(entry.unit_label || 'items').trim() || 'items';
+    title = Number.isFinite(n) && n > 0 ? `${verb} ${formatNumber(n)}${/^%/.test(unitTyped) ? '' : ' '}${unitFor(unitTyped, n)}` : `${verb} logged work`;
     issues.push({ code: 'no_verb', message: 'No title', advice: 'Say what you did in a few words, starting with the verb.' });
+  }
+
+  // "Year-end close: reconciled ULOs" names the work after the colon and what it was for before it.
+  let headed: string | null = null;
+  const colon = /^([^:]{2,60}):\s+(\S+)(.*)$/.exec(title);
+  if (colon && openingOf(colon[1], null).edit === 'no verb' && VERB_FORMS.get(colon[2].toLowerCase())?.form === 'past') {
+    headed = lowerFirst(colon[1]);
+    title = capitalize(`${colon[2]}${colon[3]}`);
   }
 
   const category = entry.category ?? null;
@@ -266,22 +305,31 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const money = Number.isFinite(amount) && amount !== 0 ? { amount, type: entry.dollar_type || null, summable: isSummable(entry.dollar_type, metrics) } : null;
 
   let result = entry.result ? stripEnd(tidy(clean(String(entry.result))).text) : '';
+  // "N/A", "TBD" and a lone dash hold the field's place; they are no outcome.
+  if (PLACEHOLDER.test(result)) result = '';
   if (result) {
-    const r = dropFirstPerson(result.replace(RESULT_LEADS, ''));
+    const r = dropFirstPerson(result.replace(RESULT_LEADS, ''), { opening: false });
     const f = dropFiller(r.text);
-    result = marines(lowerFirst(f.text));
+    result = marines(lowerFirst(f.text)).replace(/^The\s/, 'the ');
   }
 
   if (result && restates(result, title)) { result = ''; edits.push('repeated outcome'); }
   // A title with no verb ("FY26 year-end close") and a count or sum the Marine classified ("reconciled") is that
   // work: "Reconciled 30 ULOs … in support of FY26 year-end close". The verb is the Marine's own classification.
-  let purpose: string | null = null;
+  let purpose: string | null = headed;
   const typeVerb = entry.dollar_type && entry.dollar_type !== 'impact' && money ? VERB_FORMS.get(String(metrics.value_types.find((t) => t.key === entry.dollar_type)?.verb || entry.dollar_type).toLowerCase()) : undefined;
-  if (opening.edit === 'no verb' && typeVerb?.form === 'past' && (quantity || money)) {
-    purpose = lowerFirst(title);
+  // Only a title that names a thing: "of reconciled" is words left over, not the work it supported.
+  const namesThing = !/^(?:of|in|on|at|for|to|from|with|by|and|or|but|nor|so|as|than)\b/i.test(title);
+  if (opening.edit === 'no verb' && typeVerb?.form === 'past' && (quantity || money) && namesThing) {
+    // A thing the work supported is "the" thing: "in support of the FY26 year-end close". Not a name ("Operation Steel
+    // Knight"), a plural ("ULOs"), or one that has its own article.
+    const named = lowerFirst(title);
+    const last = named.split(' ').at(-1) || '';
+    purpose = /^[a-z]+$/.test(last) && !/s$/.test(last) && !/^(?:the|a|an|this|that|these|those|its|their|his|her|each|every|all)\b/i.test(named) && !/^[A-Z][a-z]/.test(named) ? `the ${named}` : named;
     opening.verb = typeVerb.entry;
     opening.opener = capitalize(typeVerb.entry.past);
-    opening.rest = quantity && quantity.kind !== 'measure' ? `${quantity.n} ${quantity.unit}` : '';
+    // What was saved is the money, so its count goes beside it: "Saved $441,300 (1,200 documents)".
+    opening.rest = quantity && quantity.kind !== 'measure' && typeVerb.entry.lemma !== 'save' ? `${formatNumber(quantity.n)}${/^%/.test(quantity.unit.trim()) ? '' : ' '}${unitFor(quantity.unit, quantity.n)}` : '';
     opening.edit = 'from value type';
     edits.push('verb from value type');
   }
@@ -334,7 +382,7 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
     verb: opening.verb, opener: opening.opener, rest: clean(opening.rest), purpose,
     quantity, money, people: people || null, result: result || null,
     system: entry.system ? clean(String(entry.system)) : null,
-    organization: entry.organization ? clean(String(entry.organization)) : null,
+    organization: entry.organization ? dropFirstPerson(clean(String(entry.organization)), { opening: false }).text || null : null,
     attribute, attributes: reading.all, edits, issues, strongResult,
     held,
   };

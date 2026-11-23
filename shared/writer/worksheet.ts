@@ -35,7 +35,7 @@ export function worksheetBlocks(input: {
   for (const entry of input.activities) {
     const f = readEntry(entry, { names: FITREP_NAMES, areas: FITREP_AREAS, metrics: input.metrics, track: 'fitrep' });
     if (!f.held?.route) continue;
-    const line = sentenceFor(f, 'full', 0, 'bullets');
+    const line = sentenceFor(f, 'full', 0, 'fitrep');
     if (f.held.route === 'other') { other.push(line); continue; }
     // A course logged both as training and as an entry is listed once, from the entry, which says more.
     const title = String(entry.title || '');
