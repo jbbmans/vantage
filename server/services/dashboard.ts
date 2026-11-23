@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { PERMISSIONS, can, subtreeIds, membersAcross, unitTree, type Scope } from '../authz/scope.ts';
 import { isSummable } from '../../shared/constants.ts';
-import { strength } from '../../shared/bullets.ts';
+import { hasOutcome } from '../../shared/writer/facts.ts';
 import { withTypedProgress } from './goals.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { periodClause } from './timeframes.ts';
@@ -94,7 +94,8 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
     const amount = Number(a.dollar_amount) || 0;
     const summable = isSummable(a.dollar_type, ctx.runtime.metrics);
     if (summable) dollars += amount; else reviewed += amount;
-    const isComplete = strength(a as never) >= 2;
+    // "Complete" is what the dashboard's label says: an outcome stated (a dollar figure alone is not one).
+    const isComplete = hasOutcome(a.result);
     if (isComplete) complete += 1;
     contributors.add(a.user_id);
     if (named(a.unit_id)) {

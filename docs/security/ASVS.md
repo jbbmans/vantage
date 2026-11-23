@@ -221,7 +221,7 @@ are under `tests/browser`.
 |---|---|---|---|
 | V14.1 Data protection documentation | Met | `server/services/privacyInventory.ts` declares every table and column; `docs/security/SECURITY_MODEL.md` (Data handling) | — |
 | V14.2 General data protection | Partly | Secrets never in URLs; API responses `Cache-Control: no-store`; no third-party trackers; retention schedules, legal holds and disposition (`server/services/retention.ts`); minimal exports; notices kept 180 days unless a legal hold keeps them, and carrying no one's words (`server/services/notifications.ts`, ADR-0031) | No defined retention for the audit log (INFRASTRUCTURE_QUESTIONS I-32). Metadata in uploaded files is not stripped (V14.2.8, L3). |
-| V14.3 Client-side data protection | Partly | API responses not cached; the session cookie is `HttpOnly` | Local storage holds interface preferences, recent pages and writing-assistant choices; session storage holds unsaved Quick Log text until the tab closes (V14.3.3). A form saved as a draft is kept on the server, its author's alone (ADR-0030), not in the browser. No `Clear-Site-Data` header at sign-out (V14.3.1). |
+| V14.3 Client-side data protection | Partly | API responses not cached; the session cookie is `HttpOnly` | Local storage holds interface preferences and recent pages. Session storage holds unsaved Quick Log text and the narrative studio's choices, with a hand-edited narrative and hashes of the entries it was written from (ADR-0044), until the tab closes; both are cleared at sign-out, even when the server cannot be reached (V14.3.3). A form saved as a draft is kept on the server, its author's alone (ADR-0030), not in the browser. No `Clear-Site-Data` header at sign-out (V14.3.1). |
 
 ### V15 Secure Coding and Architecture
 

@@ -72,9 +72,10 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   });
   // FITREP input goes on the MRO worksheet, whose PME and Other blocks sit beside Section C.
   const worksheet = track === 'fitrep' ? worksheetBlocks({ activities: onTrack as never, trainings, awards, metrics: metricsConfig }) : null;
-  const pkg = buildPackage(activities as never, { periodLabel: label, style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), limitPerArea: opts.limit ?? 8, areas: areasFor(track), metrics: metricsConfig });
+  const pkg = buildPackage(activities as never, { style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), track: track === 'fitrep' ? 'fitrep' : 'jepes', limitPerArea: opts.limit ?? 8, areas: areasFor(track), names: cfg.names, metrics: metricsConfig, recentFrom });
   const metrics = aggregateMetrics(activities as never, metricsConfig);
-  const unit = opts.unitId ? (ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(opts.unitId) as { name: string; short_name: string | null } | undefined) : undefined;
+  // The unit the report was built for, with its id: the studio keeps a leader's edit under the unit the server chose.
+  const unit = opts.unitId ? (ctx.db.prepare('SELECT id, name, short_name FROM units WHERE id = ?').get(opts.unitId) as { id: string; name: string; short_name: string | null } | undefined) : undefined;
   return {
     from, to, label, track, person, unit,
     subject: `${person?.rank_abbr || ''} ${person?.first_name || ''} ${person?.last_name || ''}`.replace(/\s+/g, ' ').trim(),

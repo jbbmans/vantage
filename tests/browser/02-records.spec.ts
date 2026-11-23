@@ -26,7 +26,9 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
   await expect(page.getByRole('cell', { name: '$1,118', exact: true })).toBeVisible();
   await row.click();
   await expect(page.getByRole('heading', { name: /Reconciled 30 ULOs/ })).toBeVisible();
-  await expect(page.getByText(/Strength [3-5]\/5/)).toBeVisible();
+  // Five points of five: it opens with the work, has a number, an outcome, a measured one ("zero findings"), an area.
+  await expect(page.getByText('Strength 5/5', { exact: true })).toBeVisible();
+  await expect(page.getByText('Complete. This one survives the cut.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Edit' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit activity' });

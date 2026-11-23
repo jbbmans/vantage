@@ -3,7 +3,9 @@ import { formatNumber } from './metrics.ts';
 import { unitFor, type BulletSource } from './bullets.ts';
 import { isTimeUnit } from './metricEngine.ts';
 import { writeNarrative, type CaseWork, type WrittenNarrative } from './writer/compose.ts';
-import type { AreaNames, EntryInput } from './writer/facts.ts';
+import { areaNamesFor, type AreaNames, type EntryInput } from './writer/facts.ts';
+
+export { areaNamesFor };
 import type { Density, Format } from './writer/realize.ts';
 
 export const DEFAULT_LIMIT = 1000;
@@ -51,14 +53,6 @@ export interface NarrativeOptions {
 }
 
 export type Narrative = WrittenNarrative;
-
-/** The area each kind of work belongs to, read from a track's area names ("Leadership", "MOS / Mission Accomplishment"). */
-export function areaNamesFor(areas: readonly string[], fallbackArea?: string): AreaNames {
-  const find = (re: RegExp) => areas.find((a) => re.test(a));
-  const mission = fallbackArea || find(/mission|mos/i) || areas[0] || 'Mission';
-  const character = find(/character/i) || mission;
-  return { mission, leadership: find(/leader/i) || mission, character, intellect: find(/intellect|wisdom/i) || character };
-}
 
 /**
  * The narrative for an evaluation: the writer (shared/writer) reads the entries, weighs them, and fills the

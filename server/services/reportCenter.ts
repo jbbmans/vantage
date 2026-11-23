@@ -612,7 +612,7 @@ function buildUnit(ctx: AppContext, t: ReportTarget, period: Period): Built {
     summary: [
       { label: 'Marines', value: d.totals.members, kind: 'number' }, { label: 'Contributing', value: d.totals.contributors, kind: 'number' },
       { label: 'Entries shared', value: d.totals.entries, kind: 'number' }, { label: cfg.currency_label, value: d.totals.dollars, kind: 'money' },
-      { label: 'Complete entries', value: d.totals.completeness, kind: 'percent', hint: 'With an outcome and a measure' },
+      { label: 'Complete entries', value: d.totals.completeness, kind: 'percent', hint: 'With an outcome stated' },
       { label: 'Open tasks', value: d.totals.open_tasks, kind: 'number' }, { label: 'Active goals', value: d.totals.active_goals, kind: 'number' },
       { label: 'Awards in progress', value: d.totals.awards_in_progress, kind: 'number' },
     ],

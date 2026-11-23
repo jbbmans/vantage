@@ -66,14 +66,16 @@ test('bullets fold figures into one defensible line', () => {
   assert.ok(B.composeBullet({ title: 'ULO reconciliation drill', category: 'Fiscal & Financial' }).includes('ULO'));
   const resume = B.composeBullet({ title: 'Processed 12 MIPRs', category: 'Fiscal & Financial' }, { style: 'resume' });
   assert.ok(resume.includes('military interdepartmental purchase requests'), resume);
-  assert.equal(B.strength({ dollar_amount: 100, quantity: 5, result: 'done' }), 4);
-  assert.ok(B.weaknesses({ title: 'did a thing' }).length >= 3);
+  // Five points: opens with what was done, a number, an outcome, a measured one, an area. Dollars alone are one point.
+  assert.equal(B.strength({ title: 'Reconciled 14 ULOs in DAI', quantity: 14, unit_label: 'ULOs', result: 'all cleared on the next report', eval_area: 'MOS / Mission Accomplishment' }), 5);
+  assert.equal(B.strength({ title: 'did a thing', dollar_amount: 100 }), 1);
+  assert.equal(B.STRENGTH_MAX, 5);
   assert.equal(B.unitFor('ULOs', 1), 'ULO');
   assert.equal(B.unitFor('entries', 1), 'entry');
 });
 
 test('package and narrative respect limits and group by area', () => {
-  const pkg = B.buildPackage(sample, { periodLabel: 'FY26', limitPerArea: 1 });
+  const pkg = B.buildPackage(sample, { limitPerArea: 1 });
   const mission = pkg.find((g) => g.area === 'MOS / Mission Accomplishment')!;
   assert.equal(mission.count, 3);
   assert.equal(mission.bullets.length, 1);

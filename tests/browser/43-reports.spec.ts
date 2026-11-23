@@ -246,7 +246,8 @@ test('RPT-12: a report the server refuses says which choice, on that choice; a u
 
 test('RPT-9, RPT-11: the record report is not read again on focus, and each bullet’s copy button shows when focused', async ({ page }) => {
   await registerAs(page, unique('bullets'));
-  await entries(page, 3, (i) => ({ title: `Reconciled ${10 + i} aged obligations`, date: day(i + 2), category: 'Fiscal & Financial', quantity: 10 + i, unit_label: 'obligations', result: `Closed out ${10 + i} obligations before fiscal year end` }));
+  // Three kinds of work, so three bullets: the same work done three times would be one total.
+  await entries(page, 3, (i) => ({ title: `${['Reconciled', 'Deobligated', 'Corrected'][i]} ${10 + i} aged obligations`, date: day(i + 2), category: 'Fiscal & Financial', quantity: 10 + i, unit_label: 'obligations', result: `Closed out ${10 + i} obligations before fiscal year end` }));
   await page.clock.install();
   await page.goto('/reports/analysis');
   await page.getByRole('tablist', { name: 'View' }).getByRole('tab', { name: 'Bullets' }).click();

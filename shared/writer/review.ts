@@ -1,4 +1,4 @@
-import { CLICHE, FIRST_PERSON, GLOSSARY, PASSIVE, RS_JUDGMENT, SUPERLATIVE, VAGUE, WEAK_OPENERS } from './lexicon.ts';
+import { BILLET_OPENERS, CLICHE, FIRST_PERSON, GLOSSARY, PASSIVE, RS_JUDGMENT, SUPERLATIVE, VAGUE, WEAK_OPENERS } from './lexicon.ts';
 import { nameOf, type AreaKind, type AreaNames, type Fact } from './facts.ts';
 import type { Held, Sentence } from './compose.ts';
 
@@ -104,12 +104,14 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
   if (noOutcome.length > 4) findings.push({ id: 'outcome:more', tone: 'fix', basis: 'guidance', title: `${noOutcome.length - 4} more sentences have no outcome`, detail: 'Filter Activities by “Needs detail” to fix them in one sitting.' });
 
   // Each check, and what it rests on. "Helped" and the passive are preferences: no order forbids them.
-  const CHECKS: Array<{ code: 'rs_judgment' | 'superlative' | 'speculative' | 'cliche' | 'vague' | 'no_verb' | 'weak_verb' | 'passive'; basis: FindingBasis; cite?: string; style?: string }> = [
+  const CHECKS: Array<{ code: 'rs_judgment' | 'superlative' | 'speculative' | 'cliche' | 'vague' | 'billet' | 'no_verb' | 'weak_verb' | 'passive'; basis: FindingBasis; cite?: string; style?: string }> = [
     { code: 'rs_judgment', basis: 'guidance', cite: 'MCO 1610.7B' },
     { code: 'superlative', basis: jepes ? 'guidance' : 'order', cite: SECTION_C },
     { code: 'speculative', basis: 'guidance', cite: 'FITREP Section C' },
     { code: 'cliche', basis: 'guidance', cite: GAZETTE },
     { code: 'vague', basis: 'guidance', cite: jepes ? APP_E : SECTION_C },
+    // A billet is a duty, not an accomplishment: the order asks for what was done in it.
+    { code: 'billet', basis: 'guidance', cite: jepes ? APP_E : SECTION_C },
     { code: 'no_verb', basis: 'guidance', cite: jepes ? APP_E : undefined },
     { code: 'weak_verb', basis: 'style', style: 'A preference, not a rule: the reader just learns less.' },
     { code: 'passive', basis: 'style' },
@@ -130,13 +132,14 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
   const inferred = n.facts.filter((f) => f.areaInferred);
   if (inferred.length) findings.push({ id: 'inferred', tone: 'consider', basis: 'data', title: `${inferred.length} ${inferred.length === 1 ? 'entry has' : 'entries have'} no area`, detail: 'The writer placed them by what they say. Tag them so they land where you mean them to.', sources: inferred.flatMap((f) => f.sources), action: { kind: 'tag' } });
 
-  const strongLeft = n.left.filter((s) => s.score >= 4);
-  if (strongLeft.length) findings.push({ id: 'left', tone: 'consider', basis: 'data', title: `${strongLeft.length} strong ${strongLeft.length === 1 ? 'entry' : 'entries'} did not fit`, detail: 'Pin the ones that matter most, leave out a weaker one, or switch to Compact.' });
+  // An outcome left out is worth a look; work with none ranks below it anyway (score.ts).
+  const strongLeft = n.left.filter((s) => s.tier >= 1);
+  if (strongLeft.length) findings.push({ id: 'left', tone: 'consider', basis: 'data', title: `${strongLeft.length} ${strongLeft.length === 1 ? 'entry with an outcome' : 'entries with an outcome'} did not fit`, detail: 'Pin the ones that matter most, leave out a weaker one, or switch to Compact.' });
   if (n.fits && n.length && n.length < n.limit * 0.5) findings.push({ id: 'room', tone: 'consider', basis: 'data', title: `Room for ${n.limit - n.length} more characters`, detail: 'Log more of the work, with outcomes, and the writer will use the space.' });
 
   const openers = new Map<string, number>();
   for (const s of claims) if (s.verb) openers.set(s.verb, (openers.get(s.verb) || 0) + 1);
-  for (const [verb, count] of openers) if (count >= 3) findings.push({ id: `repeat:${verb}`, tone: 'consider', basis: 'style', title: `${count} sentences open with the same verb`, detail: 'Several entries of the same work could be one total; leave one out and the writer groups them.' });
+  for (const [verb, count] of openers) if (count >= 3) findings.push({ id: `repeat:${verb}`, tone: 'consider', basis: 'style', title: `${count} sentences open with the same verb`, detail: 'The same work is already one total; these are different kinds of work that open alike. Reword one with the verb that says what it was, or leave one out.' });
 
   const unexplained = Object.keys(GLOSSARY).filter((a) => new RegExp(`(?<![\\w-])${a.replace(/-/g, '\\-')}s?(?![\\w-])`).test(n.text));
   if (!n.spellOut && unexplained.length) findings.push({ id: 'acronyms', tone: 'consider', basis: 'guidance', cite: APP_E, title: `${unexplained.slice(0, 4).join(', ')} not spelled out`, detail: 'The order’s own examples spell an acronym out the first time: “Position Safety Officer (PSO)”. Turn on Spell out acronyms; readers up the chain may not share your section’s shorthand.' });
@@ -174,6 +177,8 @@ export function reviewText(text: string, limit: number): Review {
   if (judgment) findings.push({ id: 'judgment', tone: 'fix', basis: 'guidance', cite: 'MCO 1610.7B', title: `“${judgment[0]}” is your reporting senior’s call`, detail: 'Input states what you did; rankings and recommendations come from your reporting chain.' });
   const vague = VAGUE.exec(body);
   if (vague) findings.push({ id: 'vague', tone: 'consider', title: `“${vague[1]}” stands in for a number`, detail: 'Count it, or cut it.' });
+  const billet = sentences.find((s) => BILLET_OPENERS.test(s.replace(/^-\s*/, '')));
+  if (billet) findings.push({ id: 'billet', tone: 'consider', basis: 'guidance', cite: SECTION_C, title: `Names the billet, not what was done in it: “${short(billet, 48)}”`, detail: 'Say what you did in the billet and what came of it.' });
   const passive = sentences.find((s) => PASSIVE.test(s));
   if (passive) findings.push({ id: 'passive', tone: 'consider', title: `Passive voice: “${short(passive, 48)}”`, detail: 'Put the doer first.' });
   const long = sentences.find((s) => s.split(/\s+/).length > 40);

@@ -9,7 +9,7 @@ import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
 import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
 import { formatDollarsExact } from '../../shared/metrics';
-import { strength } from '../../shared/bullets';
+import { STRENGTH_MAX, STRENGTH_TOOLTIP } from '../../shared/bullets';
 import { MOVABLE_LABELS, kindText, movedFields, recordKindOf } from '../../shared/recordKinds';
 import { coachEntry } from '../../shared/writer/coach';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
@@ -191,9 +191,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     trackEvent('ai.accepted', { workflow: 'quick_log', edited: false });
   };
 
-  const s = record ? strength(record) : 0;
-  // The bullet as the narrative will write it, and the reviewer's notes for it, while it is being typed.
+  // The bullet as the narrative will write it, the reviewer's notes for it and its strength, while it is being typed.
   const coach = useMemo(() => (record ? coachEntry(record, track, cfg) : null), [record, track, cfg]);
+  const s = coach?.strength.points ?? 0;
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
   const reading = useMemo(() => (record && !kept ? recordKindOf(kindText('activities', record)) : null), [record, kept]);
   const target = reading?.kind === 'award' ? 'awards' : 'trainings';
@@ -247,7 +247,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
               )}
             </div>
             <div className="card p-4">
-              <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" aria-label={`Strength ${s} of 4`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3">{s}/4</span></span></div>
+              <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" role="img" aria-label={`Strength ${s} of ${STRENGTH_MAX}`} title={STRENGTH_TOOLTIP}>{Array.from({ length: STRENGTH_MAX }, (_, i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3" aria-hidden>{s}/{STRENGTH_MAX}</span></span></div>
               <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{coach!.bullet}</span></p>
               {coach!.held && <p className="mt-2 rounded-md bg-warn/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink">{coach!.held} It is saved to your record, and held out of your evaluation input.</p>}
               {coach!.notes.length > 0 && (

@@ -23,7 +23,7 @@ import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation'
 import { DEFAULT_PERIOD, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
 import { inPeriod } from '../../shared/timeframe';
 import { findDuplicates } from '../../shared/duplicates';
-import { strength } from '../../shared/bullets';
+import { strength, STRENGTH_MAX, STRENGTH_TOOLTIP } from '../../shared/bullets';
 import { MOVABLE_LABELS, type MovableTable, type MoveCandidate } from '../../shared/recordKinds';
 import type { Activity } from '../../shared/types';
 import { cn } from '@/lib/utils';
@@ -82,6 +82,9 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   };
 
   const dupIds = useMemo(() => new Set(findDuplicates(rows || []).flatMap((g) => g.records.map((r) => r.id!))), [rows]);
+  // Each entry's strength, read once per list: the writer reads every row, so a sort and a render share one reading.
+  const strengths = useMemo(() => new Map((rows || []).map((a) => [a.id, strength(a, track === 'fitrep' ? 'fitrep' : 'jepes', cfg)])), [rows, track, cfg]);
+  const strengthOf = (a: { id: string }) => strengths.get(a.id) ?? 0;
   const filtered = useMemo(() => {
     let list: any[] = rows || [];
     // Any entry with a day in the range, one begun before it and still going included (ADR-0018).
@@ -98,11 +101,11 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
     const cmp: Record<Sort, (a: any, b: any) => number> = {
       date: (a, b) => String(b.date || '').localeCompare(String(a.date || '')) || b.created_at.localeCompare(a.created_at),
       value: (a, b) => (Number(b.dollar_amount) || 0) - (Number(a.dollar_amount) || 0),
-      strength: (a, b) => strength(b) - strength(a),
+      strength: (a, b) => (strengths.get(b.id) ?? 0) - (strengths.get(a.id) ?? 0),
       updated: (a, b) => b.updated_at.localeCompare(a.updated_at),
     };
     return [...list].sort(cmp[sort]);
-  }, [rows, days, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track]);
+  }, [rows, days, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track, strengths]);
   const metrics = useMemo(() => aggregateMetrics(filtered, cfg), [filtered, cfg]);
   const hasShared = (rows || []).some((a) => a.user_id !== identity?.user.id);
 
@@ -181,7 +184,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <div className="card">
           <Table label="Activities" minWidth={880} head={<><th className="w-24">Date</th><th className="min-w-[18rem]">Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
             {filtered.map((a) => {
-              const s = strength(a);
+              const s = strengthOf(a);
               return (
                 <tr key={a.id} className={cn(dupIds.has(a.id) && quality === 'duplicates' && 'bg-bad/5')}>
                   <td className="whitespace-nowrap text-xs text-ink-2"><TimeframeText table="activities" row={a} /></td>
@@ -193,7 +196,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
                   <td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td>
                   <td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td>
                   <td><Tooltip content={a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}><span className="inline-flex text-ink-3">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}</span></Tooltip></td>
-                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))} data-tutorial="activity-edit">Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label={`Delete ${a.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></>}</span></td>
+                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Strength ${s} of ${STRENGTH_MAX}. ${STRENGTH_TOOLTIP}`}><span className={cn('fig text-2xs', s >= STRENGTH_MAX ? 'text-good' : s >= 3 ? 'text-ink-3' : 'text-warn')}>{s}/{STRENGTH_MAX}</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))} data-tutorial="activity-edit">Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label={`Delete ${a.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></>}</span></td>
                 </tr>
               );
             })}

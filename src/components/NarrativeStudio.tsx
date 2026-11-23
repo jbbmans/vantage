@@ -1,35 +1,138 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowUpRight, CheckCircle2, Copy, EyeOff, Lightbulb, PenLine, Pin, PinOff, Plus, RotateCcw, Shuffle, Undo2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, Copy, EyeOff, Lightbulb, PenLine, Pin, PinOff, Plus, RotateCcw, Shuffle, Undo2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Panel, Segmented, Select } from '@/components/ui/primitives';
 import { composeNarrative, type Narrative } from '../../shared/narrative';
 import { reviewText, type Finding, type Review } from '../../shared/writer/review';
 import type { Sentence } from '../../shared/writer/compose';
 import type { CaseWork } from '../../shared/writer/compose';
-import { plain } from '../../shared/writer/realize';
+import { plain, printable } from '../../shared/writer/realize';
+import { basisOf, driftOf, type Basis, type Drift } from '../../shared/writer/basis';
 import { areaAmong, FITREP_SECTIONS, narrativeConfig, type Track } from '../../shared/evaluation';
 import type { MetricsConfig } from '../../shared/constants';
 import { cn } from '@/lib/utils';
+import { NARRATIVE_PREFIX } from '@/lib/drafts';
+import { hasSession } from '@/lib/api';
 
-/** How the Marine has shaped the narrative: kept per person, track and period, in this browser only. */
+/**
+ * How the Marine has shaped the narrative: kept per person, track, period and unit, in this browser only. A hand edit
+ * keeps the `basis` it was written from (hashes of the entries, shared/writer/basis.ts), so the studio can say when the
+ * record has changed under it.
+ */
 export interface NarrativeChoices {
   seed: number; density: 'auto' | 'full' | 'compact'; chars: number | null; exclude: string[]; pin: string[]; edited: string | null;
-  format: 'bullets' | 'paragraph'; spell: boolean;
+  format: 'bullets' | 'paragraph'; spell: boolean; basis: Basis | null;
 }
-const EMPTY: NarrativeChoices = { seed: 0, density: 'auto', chars: null, exclude: [], pin: [], edited: null, format: 'bullets', spell: true };
+const EMPTY: NarrativeChoices = { seed: 0, density: 'auto', chars: null, exclude: [], pin: [], edited: null, format: 'bullets', spell: true, basis: null };
+/** The most a hand edit may hold: what the PDF accepts. */
+const EDIT_MAX = 5000;
 
-export function useNarrativeChoices(key: string) {
-  const storageKey = `vantage.narrative.${key}`;
-  const [choices, setChoices] = useState<NarrativeChoices>(EMPTY);
+const DENSITIES = new Set(['auto', 'full', 'compact']);
+const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 200) : []);
+
+/** A basis read back from storage, or null when it is not one (an old record, or one changed by hand). */
+function basisFrom(v: unknown): Basis | null {
+  if (!v || typeof v !== 'object') return null;
+  const { entries, casework } = v as { entries?: unknown; casework?: unknown };
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) return null;
+  if (!Object.values(entries).every((h) => typeof h === 'string')) return null;
+  return { entries: entries as Record<string, string>, casework: typeof casework === 'string' ? casework : null };
+}
+
+/** What was kept, field by field, so a value of the wrong shape falls back to the default instead of breaking the page. */
+function choicesFrom(raw: string | null): NarrativeChoices {
+  let saved: Record<string, unknown> | null = null;
+  try { saved = JSON.parse(raw || 'null'); } catch { saved = null; }
+  if (!saved || typeof saved !== 'object') return EMPTY;
+  return {
+    seed: Number.isInteger(saved.seed) && (saved.seed as number) >= 0 ? (saved.seed as number) % 1_000_000 : 0,
+    density: DENSITIES.has(saved.density as string) ? (saved.density as NarrativeChoices['density']) : 'auto',
+    // Within what the server takes (200 to 5,000), so a stray value never makes every export fail.
+    chars: Number.isInteger(saved.chars) && (saved.chars as number) >= 200 && (saved.chars as number) <= 5000 ? (saved.chars as number) : null,
+    exclude: strings(saved.exclude), pin: strings(saved.pin),
+    edited: typeof saved.edited === 'string' ? saved.edited.slice(0, EDIT_MAX) : null,
+    format: saved.format === 'paragraph' ? 'paragraph' : 'bullets',
+    spell: typeof saved.spell === 'boolean' ? saved.spell : true,
+    basis: basisFrom(saved.basis),
+  };
+}
+
+/**
+ * Where the choices are kept: this tab's session storage, as unsaved Quick Log text is (ADR-0026, ADR-0030). Closing the
+ * tab or signing out forgets them, so a Marine's edited text never outlives the session that wrote it.
+ */
+const store = () => globalThis.sessionStorage;
+
+function load(storageKey: string, legacyKey: string | null): NarrativeChoices {
+  try {
+    let raw = store().getItem(storageKey);
+    if (!raw && legacyKey) {
+      // Kept before in the browser's lasting storage: moved into this tab once, and gone from there.
+      raw = localStorage.getItem(legacyKey);
+      if (raw) { store().setItem(storageKey, raw); localStorage.removeItem(legacyKey); }
+    }
+    return choicesFrom(raw);
+  } catch { return EMPTY; }
+}
+
+/** Another person's choices left in this tab (one who did not sign out) go once someone else's are read. */
+function forgetOthers(storageKey: string) {
+  const mine = storageKey.slice(0, storageKey.indexOf('.', NARRATIVE_PREFIX.length) + 1);
+  if (!mine || mine === `${NARRATIVE_PREFIX}me.`) return;
+  for (const storage of [globalThis.sessionStorage, globalThis.localStorage]) {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i += 1) { const k = storage.key(i); if (k && k.startsWith(NARRATIVE_PREFIX) && !k.startsWith(mine)) keys.push(k); }
+      for (const k of keys) storage.removeItem(k);
+    } catch { /* storage unavailable: nothing was kept */ }
+  }
+}
+
+/** One part of a storage key, with the separator escaped, so two parts can never read as a third. */
+export const keyPart = (v: unknown) => encodeURIComponent(String(v ?? '')).replace(/\./g, '%2E');
+
+/**
+ * The choices kept under `key`, read as the key changes (during render, so another period or Marine never shows the
+ * last one's text for a moment). `legacy` is the key the same choices were kept under before, read once and moved;
+ * the caller passes it only where the old key meant the same thing (a Marine's own report).
+ */
+export function useNarrativeChoices(key: string, legacy?: string) {
+  const storageKey = `${NARRATIVE_PREFIX}${key}`;
+  const legacyKey = legacy && legacy !== key ? `${NARRATIVE_PREFIX}${legacy}` : null;
+  const [state, setState] = useState(() => ({ key: storageKey, legacy: legacyKey, choices: load(storageKey, legacyKey), changed: false }));
+  let current = state;
+  if (state.key !== storageKey) {
+    current = { key: storageKey, legacy: legacyKey, choices: load(storageKey, legacyKey), changed: false };
+    setState(current);
+  } else if (legacyKey && state.legacy !== legacyKey) {
+    // The old key names the period's dates, which a rolling period ("last 12 months") has only once its report is read;
+    // the choices kept under it are moved then, unless something was already kept or changed here.
+    current = { ...state, legacy: legacyKey, choices: state.changed ? state.choices : load(storageKey, legacyKey) };
+    setState(current);
+  }
+  useEffect(() => { forgetOthers(storageKey); }, [storageKey]);
+  // Saved from what was shown, after it is shown: the key and the choices are always the same render's, so a change made
+  // on one Marine's or period's screen is never filed under the next one's while the page moves between them.
   useEffect(() => {
-    try { const saved = JSON.parse(localStorage.getItem(storageKey) || 'null'); setChoices(saved ? { ...EMPTY, ...saved } : EMPTY); } catch { setChoices(EMPTY); }
-  }, [storageKey]);
-  const update = (next: Partial<NarrativeChoices>) => setChoices((was) => {
-    const merged = { ...was, ...next };
-    try { localStorage.setItem(storageKey, JSON.stringify(merged)); } catch { /* the choices still hold for this visit */ }
-    return merged;
-  });
-  return [choices, update] as const;
+    if (!state.changed || !hasSession()) return;
+    try { store().setItem(state.key, JSON.stringify(state.choices)); } catch { /* the choices still hold for this visit */ }
+  }, [state]);
+  // Bound to the key on screen when the change was made; a change that arrives after the key moved on is dropped.
+  const update = (next: Partial<NarrativeChoices>) => setState((was) => (was.key === storageKey ? { ...was, choices: { ...was.choices, ...next }, changed: true } : was));
+  return [current.choices, update] as const;
+}
+
+/**
+ * Where a hand edit stands against the record: none, written from the record as it is, written before the record
+ * changed (with what changed), or kept from before Vantage noted what an edit was written from.
+ */
+export type EditState = { kind: 'none' } | { kind: 'current' } | { kind: 'changed'; drift: Drift } | { kind: 'unknown' };
+export function editStateOf(c: NarrativeChoices, activities: ReadonlyArray<Record<string, unknown>>, casework?: CaseWork | null): EditState {
+  // An emptied box is no edit: Copy and the PDF use the written version, so there is nothing to warn about.
+  if (c.edited == null || !printable(c.edited)) return { kind: 'none' };
+  if (!c.basis) return { kind: 'unknown' };
+  const drift = driftOf(c.basis, activities, casework);
+  return drift.any ? { kind: 'changed', drift } : { kind: 'current' };
 }
 
 /** The query the PDF needs to say exactly what is on screen. */
@@ -37,7 +140,8 @@ export function choicesToParams(c: NarrativeChoices): Record<string, string | nu
   return {
     seed: c.seed || undefined, density: c.density === 'auto' ? undefined : c.density, chars: c.chars ?? undefined,
     exclude: c.exclude.length ? c.exclude.join(',') : undefined, pin: c.pin.length ? c.pin.join(',') : undefined,
-    narrative: c.edited ?? undefined, format: c.format, spell: c.spell ? '1' : '0',
+    // An emptied box is no edit: the PDF prints the written version, as the studio says under the box.
+    narrative: c.edited != null && printable(c.edited) ? c.edited : undefined, format: c.format, spell: c.spell ? '1' : '0',
   };
 }
 
@@ -125,6 +229,7 @@ function SourceCard({ sentence, facts, onPin, onExclude, pinned, fitrep }: { sen
       ) : (
         <ul className="mt-2 space-y-1">
           {sentence.kind === 'summary' && <li className="text-xs text-ink-2">Totals the entries in this area that have no sentence of their own. No figure here repeats another sentence.</li>}
+          {sentence.kind === 'group' && <li className="text-xs text-ink-2">One total for {from.length} entries of the same work, said once. Leave it out and the work is left out; keep one of them and the total is kept.</li>}
           {from.map((f) => (
             <li key={f.key} className="flex items-baseline justify-between gap-3 text-xs">
               <Link className="link truncate" to={`/records/${f.sources[0]}`}>{`${f.opener} ${f.rest}`.trim()}</Link>
@@ -157,9 +262,28 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const chosen = narrative.sentences.find((s) => s.key === selected) || null;
-  const text = choices.edited ?? narrative.text;
+  // What Copy and the PDF take, and so what is counted and reviewed: the edit, or the written version when the box was emptied.
+  const hasEdit = choices.edited != null && Boolean(printable(choices.edited));
+  const output = hasEdit ? choices.edited! : narrative.text;
+  const text = output;
   const limit = narrative.limit;
-  const review = useMemo(() => (choices.edited != null ? reviewText(choices.edited, limit) : narrative.review), [choices.edited, limit, narrative.review]);
+  const review = useMemo(() => (hasEdit ? reviewText(choices.edited!, limit) : narrative.review), [hasEdit, choices.edited, limit, narrative.review]);
+  // What changed in the record since the text was edited: the text stays as written, and the Marine is told.
+  const edit = useMemo(() => editStateOf(choices, report.activities, report.casework), [choices, report.activities, report.casework]);
+  const drift = edit.kind === 'changed' ? edit.drift : null;
+  const takeBasis = () => setChoices({ basis: basisOf(report.activities, report.casework) });
+  const backToWritten = () => { setChoices({ edited: null, basis: null }); setEditing(false); };
+  const titleOf = (id: string) => String(report.activities.find((a) => String(a.id) === id)?.title || '').trim();
+  const driftWords = (d: NonNullable<typeof drift>) => {
+    const named = (ids: string[]) => ids.slice(0, 3).map((id) => `“${titleOf(id)}”`).filter((t) => t.length > 2).join(', ');
+    const parts = [
+      d.changed.length ? `${d.changed.length} ${d.changed.length === 1 ? 'entry' : 'entries'} changed${named(d.changed) ? ` (${named(d.changed)}${d.changed.length > 3 ? ', and more' : ''})` : ''}` : '',
+      d.added.length ? `${d.added.length} added${named(d.added) ? ` (${named(d.added)}${d.added.length > 3 ? ', and more' : ''})` : ''}` : '',
+      d.removed ? `${d.removed} no longer in the period` : '',
+      d.casework ? 'the case histories changed' : '',
+    ].filter(Boolean);
+    return parts.join('; ');
+  };
   const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
   const byArea = narrative.areas.map((a) => ({ ...a, sentences: narrative.sentences.filter((s) => s.area === a.area) })).filter((a) => a.sentences.length);
   const lengths = report.track === 'fitrep'
@@ -173,26 +297,42 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
         <Panel
           title={title}
           subtitle={`${text.length.toLocaleString()} of ${limit.toLocaleString()} characters · ${narrative.used} ${narrative.used === 1 ? 'sentence' : 'sentences'}${narrative.omitted ? ` · ${narrative.omitted} ${narrative.omitted === 1 ? 'entry' : 'entries'} left out` : ''}`}
-          action={<Button size="sm" variant="ghost" onClick={() => onCopy(plain(text))}><Copy className="h-3.5 w-3.5" />Copy</Button>}
+          action={<Button size="sm" variant="ghost" onClick={() => onCopy(plain(output))}><Copy className="h-3.5 w-3.5" />Copy</Button>}
         >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="soft" onClick={() => { setChoices({ seed: (choices.seed + 1) % 1_000_000, edited: null }); setEditing(false); }} disabled={choices.edited != null}><Shuffle className="h-3.5 w-3.5" />Another wording</Button>
             <Segmented size="sm" label="Density" value={choices.density} onChange={(v) => setChoices({ density: v })} options={[{ value: 'auto', label: 'Best fit' }, { value: 'full', label: 'Full' }, { value: 'compact', label: 'Compact' }]} />
-            <Segmented size="sm" label="Format" value={choices.format} onChange={(v) => setChoices({ format: v, edited: null })} options={[{ value: 'bullets', label: 'Bullets' }, { value: 'paragraph', label: 'Paragraph' }]} />
+            {/* Format and spelling rewrite the text, so they wait while a hand edit stands rather than throw it away. */}
+            <Segmented size="sm" label="Format" value={choices.format} onChange={(v) => { if (choices.edited == null) setChoices({ format: v }); }} disabled={choices.edited != null} options={[{ value: 'bullets', label: 'Bullets' }, { value: 'paragraph', label: 'Paragraph' }]} />
             <Select aria-label="Length" className="h-8 w-44 text-xs" value={choices.chars ? String(choices.chars) : ''} onValueChange={(v) => setChoices({ chars: v ? Number(v) : null })} options={lengths} />
-            <label className="flex items-center gap-1.5 text-xs text-ink-2"><input type="checkbox" checked={choices.spell} onChange={(e) => setChoices({ spell: e.target.checked, edited: null })} />Spell out acronyms</label>
+            <label className={cn('flex items-center gap-1.5 text-xs text-ink-2', choices.edited != null && 'opacity-60')}><input type="checkbox" checked={choices.spell} disabled={choices.edited != null} onChange={(e) => setChoices({ spell: e.target.checked })} />Spell out acronyms</label>
             <span className="ml-auto flex gap-1">
-              {!editing && <Button size="sm" variant="ghost" onClick={() => { setEditing(true); if (choices.edited == null) setChoices({ edited: narrative.text }); }}><PenLine className="h-3.5 w-3.5" />Edit text</Button>}
+              {!editing && <Button size="sm" variant="ghost" onClick={() => { setEditing(true); if (choices.edited == null) setChoices({ edited: narrative.text, basis: basisOf(report.activities, report.casework) }); }}><PenLine className="h-3.5 w-3.5" />Edit text</Button>}
               {shaped && <Button size="sm" variant="ghost" onClick={() => { setChoices(EMPTY); setEditing(false); setSelected(null); }}><RotateCcw className="h-3.5 w-3.5" />Start over</Button>}
             </span>
           </div>
 
           {editing || choices.edited != null ? (
             <div>
-              <textarea aria-label="Narrative text" className="field min-h-[220px] w-full font-mono text-sm leading-relaxed" value={choices.edited ?? ''} onChange={(e) => setChoices({ edited: e.target.value })} />
-              <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
-                Your edits are kept in this browser and go into the PDF. The reviewer reads them as you type.
-                <Button size="xs" variant="ghost" onClick={() => { setChoices({ edited: null }); setEditing(false); }}><Undo2 className="h-3.5 w-3.5" />Back to the written version</Button>
+              {(drift || edit.kind === 'unknown') && (
+                <div role="status" className="mb-3 flex flex-wrap items-start gap-2 rounded-md border border-warn/40 bg-warn/[.06] px-3 py-2 text-xs text-ink-2">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
+                  <span className="min-w-0 flex-1">{drift
+                    ? <>The record changed after this text was edited: {driftWords(drift)}. The text is kept as written; check it against the record.</>
+                    : <>This text was edited before Vantage noted what it was written from, so it cannot say whether the record has changed since. Check it against the record.</>}</span>
+                  <span className="flex gap-1">
+                    <Button size="xs" variant="ghost" onClick={takeBasis}>Keep my text</Button>
+                    <Button size="xs" variant="ghost" onClick={backToWritten}><Undo2 className="h-3.5 w-3.5" />Use the written version</Button>
+                  </span>
+                </div>
+              )}
+              <textarea aria-label="Narrative text" aria-describedby="narrative-edit-note" maxLength={EDIT_MAX} className="field min-h-[220px] w-full font-mono text-sm leading-relaxed" value={choices.edited ?? ''} onChange={(e) => setChoices({ edited: e.target.value })} />
+              <p id="narrative-edit-note" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                {choices.edited != null && !hasEdit
+                  ? 'The box is empty, so Copy and the PDF use the written version. '
+                  : 'Edits are kept in this tab until it closes or you sign out, and go into the PDF. The reviewer reads them as you type. '}
+                Format and Spell out acronyms wait until you go back to the written version.
+                <Button size="xs" variant="ghost" onClick={backToWritten}><Undo2 className="h-3.5 w-3.5" />Back to the written version</Button>
               </p>
             </div>
           ) : narrative.text ? (
@@ -274,7 +414,7 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
         )}
       </div>
       <div className="space-y-4">
-        <ReviewPanel review={review} edited={choices.edited != null} />
+        <ReviewPanel review={review} edited={hasEdit} />
         {aside}
       </div>
     </div>

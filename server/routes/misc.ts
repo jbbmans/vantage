@@ -17,7 +17,7 @@ import { DEFAULT_PERIOD, dayKey, previousRange, rangeForPeriod } from '../../sha
 import { rangeOfDays } from '../../shared/dateRange.ts';
 import { checkRange, periodField, rangeDay, rangeFields } from '../lib/dateRange.ts';
 import { areasFor } from '../../shared/evaluation.ts';
-import { plain } from '../../shared/writer/realize.ts';
+import { printable } from '../../shared/writer/realize.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
 import { periodClause } from '../services/timeframes.ts';
@@ -56,9 +56,11 @@ const keys = (v?: string) => (v ? v.split(',').map((k) => k.trim()).filter(Boole
 const narrativeChoices = (q: z.infer<typeof reportQuery>) => ({ seed: q.seed, density: q.density, exclude: keys(q.exclude), pin: keys(q.pin), chars: q.chars, format: q.format, spell: q.spell === undefined ? undefined : q.spell === '1' });
 /** The narrative as the Marine left it: edited text replaces the written text, plain characters only. */
 const withEdits = <T extends { text: string; length: number; limit: number; fits: boolean }>(n: T, edited?: string): T => {
-  if (!edited) return n;
-  const text = plain(edited).replace(/[^\x20-\x7e\n]/g, '').trim();
-  return { ...n, text, length: text.length, fits: text.length <= n.limit };
+  const text = edited ? printable(edited) : '';
+  // An edit with nothing left in it is no edit: the PDF prints the written version, as the studio says.
+  if (!text) return n;
+  // What the written version left out says nothing about text written by hand.
+  return { ...n, text, length: text.length, fits: text.length <= n.limit, omitted: 0 };
 };
 
 function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {

@@ -113,11 +113,12 @@ test('the narrative covers every area before any gets a second sentence, and sta
   }
 });
 
-test('the same work is totalled when it would not all fit, and the outcome it keeps is one that was stated', () => {
+test('the same work is always one total, said once, and the outcome it keeps is one that was stated', () => {
   const n = writeNarrative(corpus, opts({ limit: 1000 }));
   const total = n.sentences.find((s) => s.kind === 'group');
   assert.ok(total, n.text);
-  assert.match(total!.text, /^Reconciled 45 ULOs (worth|totaling|valued at) \$90,750 across 3 actions, including 14 in DAI: all cleared on the next report\.$/);
+  assert.match(total!.text, /^Reconciled 45 ULOs (worth|totaling|valued at) \$90,750, including 14 in DAI: all cleared on the next report\.$/);
+  assert.doesNotMatch(n.text, /across \d+ actions/);
   assert.deepEqual([...total!.sources].sort(), ['a2', 'a3', 'a8']);
 });
 

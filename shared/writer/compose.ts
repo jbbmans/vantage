@@ -1,8 +1,9 @@
 import { DEFAULT_METRICS, valueType, type MetricsConfig } from '../constants.ts';
 import { unitFor } from './units.ts';
 import { formatNumber } from '../metrics.ts';
-import { clauseOf, readEntry, unitIdentity, type AreaNames, type EntryInput, type Fact } from './facts.ts';
-import { weigh, type Weighed } from './score.ts';
+import { readEntry, unitIdentity, type AreaNames, type EntryInput, type Fact } from './facts.ts';
+import { BAND, BAND_SPAN, byRank, weigh, type Tier, type Weighed } from './score.ts';
+import { markRepeats } from './repeats.ts';
 import { VERB_FORMS } from './lexicon.ts';
 import { connectorFor, dollars, restSentence, sentenceFor, sentenceForGroup, spellOut, finish, type Density, type Format, type Group, type Track } from './realize.ts';
 import { reviewWriting, type Review } from './review.ts';
@@ -50,6 +51,8 @@ export interface Sentence {
   /** The fact keys this sentence speaks for. */
   covers: string[];
   score: number;
+  /** What its outcome says: 2 measured, 1 stated, 0 none (score.ts). */
+  tier: Tier;
   reasons: string[];
   attribute: string | null;
   compact: boolean;
@@ -77,16 +80,17 @@ export interface WrittenNarrative {
   spellOut: boolean;
 }
 
-interface Candidate {
+export interface Candidate {
   key: string; area: string; kind: SentenceKind; covers: string[]; sources: string[]; weighed: Weighed;
   full: string; compact: string; attribute: string | null; hasResult: boolean; measured: boolean; verb: string | null; verbStrength: number | null;
   /** The work and unit it counts ("reconciled|ulo"), so the rest of the area can say "31 more ULOs". */
   counted?: string | null;
   /** The entries the short form speaks for, when fewer than the full form's (a summary's counts alone). */
   compactSources?: string[];
+  /** The entries a summary's figures include, by key, so an entry with no id is known by it too. */
+  speaks?: string[];
 }
 
-const NUMBER = /\d/;
 const tokens = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2));
 function similar(a: string, b: string): boolean {
   const x = tokens(a); const y = tokens(b);
@@ -97,30 +101,36 @@ function similar(a: string, b: string): boolean {
 }
 
 /**
- * Work a total can add up: a count of things or people that the entry's own sentence makes the verb's object
- * ("Reconciled 14 ULOs …", "Trained 3 Marines …"). Not "Checked on every Marine (6 Marines)" or "Turned in excess
- * equipment (38 items)": "Checked 6 Marines" and "Turned 38 items" would say what the Marine did not.
+ * Work a total can add up: a count of things, people or time that the entry's own sentence makes the verb's object
+ * ("Reconciled 14 ULOs …", "Trained 3 Marines …", "Volunteered 6 hours …"). Not "Checked on every Marine (6 Marines)"
+ * or "Turned in excess equipment (38 items)": "Checked 6 Marines" and "Turned 38 items" would say what the Marine did
+ * not.
  */
 const objectCounts = new WeakMap<Fact, boolean>();
 const countable = (f: Fact, seed: number, track: Track) => {
-  if (!f.verb || !f.opener || !f.quantity || (f.quantity.kind !== 'item' && f.quantity.kind !== 'people')) return false;
+  if (!f.verb || !f.opener || !f.quantity || f.quantity.kind === 'measure') return false;
   // Where the count goes does not change with the wording or the track; the sentence is read once.
   if (!objectCounts.has(f)) objectCounts.set(f, sentenceFor(f, 'full', seed, track).startsWith(`${f.opener} ${formatNumber(f.quantity.n)} `));
   return objectCounts.get(f)!;
 };
-const countedOf = (f: Fact, seed: number, track: Track) => (countable(f, seed, track) ? `${f.verb!.past}|${unitIdentity(f.quantity!.unit)}` : null);
+export const countedOf = (f: Fact, seed: number, track: Track) => (countable(f, seed, track) ? `${f.verb!.past}|${unitIdentity(f.quantity!.unit)}` : null);
 
 function entryCandidate(f: Fact, w: Weighed, seed: number, track: Track): Candidate {
   return {
     key: f.key, area: f.area, kind: 'entry', covers: [f.key], sources: f.sources, weighed: w,
     full: sentenceFor(f, 'full', seed, track), compact: sentenceFor(f, 'compact', seed, track), attribute: f.attribute,
-    hasResult: Boolean(f.result), measured: Boolean(f.quantity || f.money || f.people || NUMBER.test(f.rest)),
-    verb: f.verb?.lemma ?? null, verbStrength: f.verb?.strength ?? null, counted: countedOf(f, seed, track),
+    hasResult: Boolean(f.result), measured: !f.issues.some((i) => i.code === 'unmeasured' || i.code === 'vague'),
+    // A billet named instead of the work opens as weakly as "Helped" does.
+    verb: f.verb?.lemma ?? null, verbStrength: f.issues.some((i) => i.code === 'billet') ? 1 : f.verb?.strength ?? null, counted: countedOf(f, seed, track),
   };
 }
 
-/** Entries of the same work and unit: two or more "Reconciled … ULOs" read better as one total. */
-function groupsOf(facts: Fact[], seed: number, track: Track): Group[] {
+/**
+ * Entries of the same work and unit, compiled: two or more "Reconciled … ULOs" are one total, always, never a sentence
+ * each. A total that would add unlike dollars (obligated beside saved, or a kind that does not sum) is not built, and
+ * each entry keeps its own figure.
+ */
+export function compileGroups(facts: Fact[], seed: number, track: Track): Group[] {
   const by = new Map<string, Fact[]>();
   for (const f of facts) {
     if (!countable(f, seed, track)) continue;
@@ -130,11 +140,8 @@ function groupsOf(facts: Fact[], seed: number, track: Track): Group[] {
   const out: Group[] = [];
   for (const [key, members] of by) {
     if (members.length < 2) continue;
-    // Dollars of one kind add up; obligated and saved dollars are not one figure.
     const paid = members.filter((m) => m.money?.summable);
     const types = new Set(paid.map((m) => m.money!.type));
-    // A total that would drop dollars (obligated beside saved, or a kind that does not sum) is not written: each entry
-    // keeps its own sentence and its own figure.
     if (types.size > 1 || members.some((m) => m.money && !m.money.summable)) continue;
     const systems = new Set(members.map((m) => m.system));
     // The plural a person typed most often names the unit: "ULOs", not "ulos".
@@ -143,6 +150,7 @@ function groupsOf(facts: Fact[], seed: number, track: Track): Group[] {
     out.push({
       key, members, verbPast: members[0].verb!.past, unit, n: members.reduce((n, m) => n + m.quantity!.n, 0),
       money: types.size === 1 ? paid.reduce((n, m) => n + m.money!.amount, 0) : 0,
+      paidN: types.size === 1 ? paid.reduce((n, m) => n + m.quantity!.n, 0) : 0,
       moneyType: types.size === 1 ? [...types][0] : null,
       system: systems.size === 1 ? [...systems][0] : null,
     });
@@ -152,18 +160,21 @@ function groupsOf(facts: Fact[], seed: number, track: Track): Group[] {
 
 function groupCandidate(g: Group, weights: Map<string, Weighed>, seed: number, track: Track): Candidate {
   const members = g.members.map((m) => weights.get(m.key)!);
-  const score = Math.round((members.reduce((n, w) => n + w.score, 0) * 0.9 + Math.log2(g.members.length)) * 10) / 10;
+  // The best member and a little for each more, never above its band: a total of work with no outcome stays below a
+  // measured outcome, however many entries it adds up.
+  const best = [...members].sort(byRank)[0];
+  const score = Math.round(Math.min(best.score + 0.5 * (members.length - 1), BAND[best.tier] + BAND_SPAN) * 10) / 10;
   const first = g.members[0];
   return {
     key: g.key, area: first.area, kind: 'group', covers: g.members.map((m) => m.key), sources: g.members.flatMap((m) => m.sources),
-    weighed: { score, reasons: [`${g.members.length} entries of the same work`, ...new Set(members.flatMap((w) => w.reasons).filter((r) => /outcome/.test(r)))] },
+    weighed: { score, tier: best.tier, reasons: [`${g.members.length} entries of the same work, compiled`, ...new Set(members.flatMap((w) => w.reasons).filter((r) => /outcome/.test(r) && r !== 'no outcome'))] },
     full: sentenceForGroup(g, 'full', seed, track), compact: sentenceForGroup(g, 'compact', seed, track), attribute: first.attribute,
     hasResult: g.members.some((m) => m.result), measured: true, verb: first.verb?.lemma ?? null, verbStrength: first.verb?.strength ?? null,
     counted: countedOf(first, seed, track),
   };
 }
 
-interface RestContext { facts: Fact[]; metrics: MetricsConfig; seed: number; track: Track; exclude: Set<string> }
+export interface RestContext { facts: Fact[]; metrics: MetricsConfig; seed: number; track: Track; exclude: Set<string> }
 
 /**
  * The rest of an area: counted work and money that has no sentence of its own, once two or more entries are left, said
@@ -171,7 +182,7 @@ interface RestContext { facts: Fact[]; metrics: MetricsConfig; seed: number; tra
  * a sentence already counts the same work ("Reconciled 31 more ULOs"). Only work a total can add up (`countable`) and
  * dollars that sum; the sentence names only the entries a figure in it comes from, and none is written for one entry.
  */
-function restCandidate(area: string, rest: Fact[], said: Set<string>, ctx: RestContext): Candidate | null {
+export function restCandidate(area: string, rest: Fact[], said: Set<string>, ctx: RestContext): Candidate | null {
   if (rest.length < 2) return null;
   const counts = new Map<string, { past: string; unit: string; n: number; facts: Fact[] }>();
   const money = new Map<string, { amount: number; facts: Fact[] }>();
@@ -219,9 +230,10 @@ function restCandidate(area: string, rest: Fact[], said: Set<string>, ctx: RestC
   // Short of room, the counts alone ("Reconciled 14 ULOs and corrected 6 rejects."), when they still speak for two.
   const short = fromCounted.size >= 2 ? restSentence(counted) : null;
   return {
-    key: `summary:${area}`, area, kind: 'summary', covers: [], sources: [...from].flatMap((f) => f.sources), weighed: { score: 0.5, reasons: ['the rest of this area, said once'] },
+    key: `summary:${area}`, area, kind: 'summary', covers: [], sources: [...from].flatMap((f) => f.sources), weighed: { score: 0.5, tier: 0, reasons: ['the rest of this area, said once'] },
     full, compact: short ?? full, attribute: null, hasResult: false, measured: true, verb: null, verbStrength: null,
     compactSources: short ? [...fromCounted].flatMap((f) => f.sources) : undefined,
+    speaks: [...from].map((f) => f.key),
   };
 }
 
@@ -233,10 +245,12 @@ function caseworkCandidate(c: CaseWork, area: string): Candidate | null {
   if (c.resolved) after.push(`resolved ${formatNumber(c.resolved)} ${c.resolved === 1 ? 'case' : 'cases'}`);
   const lead = c.researched ? `Researched ${formatNumber(c.researched)} ${c.researched === 1 ? 'document' : 'documents'}${procs}` : `Worked cases${procs}`;
   const text = finish(after.length ? `${lead}; ${after.join(' and ')}` : lead);
-  const score = Math.round((2 + Math.log10(c.researched + 1) + (c.verified ? 1 : 0) + (c.resolved ? 1 : 0)) * 10) / 10;
+  // Verified and resolved cases are measured outcomes; research alone is work with no outcome yet.
+  const tier: Tier = c.verified || c.resolved ? 2 : 0;
+  const score = Math.round((BAND[tier] + Math.min(2, Math.log10(c.researched + 1))) * 10) / 10;
   return {
     key: 'casework', area, kind: 'casework', covers: ['casework'], sources: ['casework'],
-    weighed: { score, reasons: ['from your case histories', ...(c.verified ? [`${c.verified} verified outcomes`] : [])] },
+    weighed: { score, tier, reasons: ['from your case histories', ...(c.verified ? [`${c.verified} verified outcomes`] : [])] },
     full: text, compact: text, attribute: 'Performance', hasResult: Boolean(c.verified || c.resolved), measured: true, verb: 'research', verbStrength: 2,
   };
 }
@@ -252,7 +266,7 @@ function assemble(chosen: Chosen[], layout: Layout): { text: string; ordered: Ch
     let mine = chosen.filter((x) => x.c.area === area);
     if (!mine.length) continue;
     const rank = (x: Chosen) => (x.c.kind === 'casework' ? 0 : x.c.kind === 'summary' ? 2 : 1);
-    mine = mine.sort((a, b) => rank(a) - rank(b) || b.c.weighed.score - a.c.weighed.score);
+    mine = mine.sort((a, b) => rank(a) - rank(b) || byRank(a.c.weighed, b.c.weighed));
     // Two sentences in a row that open with the same verb read as a list; the next one with a different verb goes between.
     for (let i = 1; i < mine.length; i += 1) {
       if (mine[i].c.verb && mine[i].c.verb === mine[i - 1].c.verb) {
@@ -302,14 +316,15 @@ function select(cands: Candidate[], opts: WriterOptions, layout: Layout, strateg
   for (const c of cands) if (pin.has(c.key)) tryAdd(c, true);
   // Every area with work in it gets its best sentence before any area gets a second.
   for (const area of opts.areas) {
-    const best = cands.filter((c) => c.area === area && c.kind !== 'summary').sort((a, b) => b.weighed.score - a.weighed.score);
+    const best = cands.filter((c) => c.area === area && c.kind !== 'summary').sort((a, b) => byRank(a.weighed, b.weighed));
     // Not with a line that says next to nothing: an empty area is a finding the Marine can act on, filler is not.
     for (const c of best) if ((c.weighed.score >= 1 || pin.has(c.key)) && tryAdd(c)) break;
   }
   // Then what says the most: for the space it takes, or outright. writeNarrative tries both and keeps the better.
   const rank = strategy === 'density' ? (c: Candidate) => c.weighed.score / c.full.length : (c: Candidate) => c.weighed.score;
   // A sentence that says next to nothing ("Helped with the close out") is offered back rather than used as filler.
-  const rest = cands.filter((c) => c.kind !== 'summary' && (c.weighed.score >= 1 || pin.has(c.key))).sort((a, b) => rank(b) - rank(a));
+  // An outcome first, whatever the strategy: a short line with no outcome never takes the place of one with one.
+  const rest = cands.filter((c) => c.kind !== 'summary' && (c.weighed.score >= 1 || pin.has(c.key))).sort((a, b) => b.weighed.tier - a.weighed.tier || rank(b) - rank(a));
   for (const c of rest) tryAdd(c);
   // What is counted or paid and still has no sentence is said once, per area; what a sentence says is never said again.
   for (const area of opts.areas) {
@@ -322,7 +337,7 @@ function select(cands: Candidate[], opts: WriterOptions, layout: Layout, strateg
   }
   // Pinned sentences can push the text over; what is not pinned goes first, weakest first.
   while (length() > opts.limit) {
-    const drop = chosen.filter((x) => !x.pinned).sort((a, b) => a.c.weighed.score - b.c.weighed.score)[0];
+    const drop = chosen.filter((x) => !x.pinned).sort((a, b) => byRank(b.c.weighed, a.c.weighed))[0];
     if (!drop) break;
     chosen.splice(chosen.indexOf(drop), 1);
   }
@@ -331,14 +346,56 @@ function select(cands: Candidate[], opts: WriterOptions, layout: Layout, strateg
 
 const toSentence = (c: Candidate, compact: boolean, pinned: boolean, text?: string): Sentence => ({
   key: c.key, area: c.area, kind: c.kind, text: text ?? (compact ? c.compact : c.full), sources: [...new Set(compact && c.compactSources ? c.compactSources : c.sources)], covers: c.covers,
-  score: c.weighed.score, reasons: c.weighed.reasons, attribute: c.attribute, compact, pinned, hasResult: c.hasResult, measured: c.measured,
+  score: c.weighed.score, tier: c.weighed.tier, reasons: c.weighed.reasons, attribute: c.attribute, compact, pinned, hasResult: c.hasResult, measured: c.measured,
   verb: c.verb, verbStrength: c.verbStrength,
 });
 
+/** What every output starts from: the entries read, the same work logged twice held once, the rules' holds, and each weight. */
+export interface Prepared { read: Fact[]; facts: Fact[]; held: Held[]; weights: Map<string, Weighed> }
+
+/**
+ * Reads the entries the one way every output uses (the narrative, the package, the record's bullet and badge): each is
+ * read and cleaned, work logged twice is held once (repeats.ts), what a rule keeps out is held with the rule, and the
+ * rest are weighed against each other. A kept (pinned) entry is never held.
+ */
+export function prepareEntries(entries: EntryInput[], o: { names: AreaNames; areas: readonly string[]; metrics?: MetricsConfig; track?: Track; pin?: readonly string[]; exclude?: readonly string[]; recentFrom?: string | null; seed?: number }): Prepared {
+  const metrics = o.metrics ?? DEFAULT_METRICS;
+  const track: Track = o.track ?? 'jepes';
+  const exclude = new Set(o.exclude || []);
+  const pins = new Set(o.pin || []);
+  // An entry with no id is known by its title; two such entries with the same title are told apart by their order,
+  // so neither takes the other's place (weights, areas and what is covered are all kept by key).
+  const used = new Set<string>();
+  const read = entries.map((e) => {
+    const f = readEntry(e, { names: o.names, areas: o.areas, metrics, track });
+    let key = f.key;
+    if (!e.id) for (let n = 2; used.has(key); n += 1) key = `${f.key}#${n}`;
+    used.add(key);
+    return key === f.key ? f : { ...f, key };
+  }).filter((f) => !exclude.has(f.key));
+  markRepeats(read, pins);
+  // What a rule keeps out (required annual training) is set aside with the rule, never written and never lost.
+  const held: Held[] = read.filter((f) => f.held && !pins.has(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', o.seed ?? 0, track), reason: f.held!.reason, basis: f.held!.basis, cite: f.held!.cite, sources: f.sources, route: f.held!.route }));
+  const facts = read.filter((f) => !f.held || pins.has(f.key));
+  const peakByUnit = new Map<string, number>();
+  for (const f of facts) if (f.quantity?.kind === 'item') peakByUnit.set(f.quantity.unit.toLowerCase(), Math.max(peakByUnit.get(f.quantity.unit.toLowerCase()) || 0, f.quantity.n));
+  const weights = new Map(facts.map((f) => [f.key, weigh(f, { peakByUnit, recentFrom: o.recentFrom })]));
+  return { read, facts, held, weights };
+}
+
+/** The candidates an area offers, compiled: a total for each kind of work done more than once, a sentence for the rest. */
+export function candidatesOf(facts: Fact[], weights: Map<string, Weighed>, groups: Group[], seed: number, track: Track): Candidate[] {
+  const grouped = new Set(groups.flatMap((g) => g.members.map((m) => m.key)));
+  return [
+    ...facts.filter((f) => !grouped.has(f.key)).map((f) => entryCandidate(f, weights.get(f.key)!, seed, track)),
+    ...groups.map((g) => groupCandidate(g, weights, seed, track)),
+  ];
+}
+
 /**
  * Writes the narrative: reads every entry, weighs it, and fills the character limit with what says the most about the
- * work, area by area. Entries of the same work become one total when they would not all fit; totals account for what
- * still did not. Each sentence keeps the entries it came from, its score and the reasons for it.
+ * work, area by area. The same work is one total, said once (compileGroups); the rest of an area is summed in one
+ * sentence when it does not fit. Each sentence keeps the entries it came from, its score and the reasons for it.
  */
 export function writeNarrative(entries: EntryInput[], opts: WriterOptions): WrittenNarrative {
   const metrics = opts.metrics ?? DEFAULT_METRICS;
@@ -346,71 +403,50 @@ export function writeNarrative(entries: EntryInput[], opts: WriterOptions): Writ
   const exclude = new Set(opts.exclude || []);
   const format: Format = opts.format ?? 'paragraph';
   const track: Track = opts.track ?? 'jepes';
-  const read = entries.map((e) => readEntry(e, { names: opts.names, areas: opts.areas, metrics, track: opts.track })).filter((f) => !exclude.has(f.key));
-  // The same work logged twice (same words, numbers and day) counts once; a total built on both would claim double.
-  const seen = new Map<string, Fact>();
-  for (const f of read) {
-    const key = [clauseOf(f).toLowerCase().replace(/[^a-z0-9]/g, ''), f.quantity?.n ?? '', f.money?.amount ?? '', f.date ?? ''].join('|');
-    const first = seen.get(key);
-    if (first && !f.held) f.held = { reason: `Looks logged twice: the same words, numbers and day as another entry${first.date ? ` (${first.date})` : ''}.`, basis: 'data' };
-    else if (!first) seen.set(key, f);
-  }
-  // What a rule keeps out (required annual training) is set aside with the rule, never written and never lost.
-  const held: Held[] = read.filter((f) => f.held && !(opts.pin || []).includes(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', seed, track), reason: f.held!.reason, basis: f.held!.basis, cite: f.held!.cite, sources: f.sources, route: f.held!.route }));
-  const facts = read.filter((f) => !f.held || (opts.pin || []).includes(f.key));
+  const prepared = prepareEntries(entries, { names: opts.names, areas: opts.areas, metrics, track, pin: opts.pin, exclude: opts.exclude, recentFrom: opts.recentFrom, seed });
+  const { read, held, weights } = prepared;
+  let facts = prepared.facts;
+  // Leaving a total out leaves its work out; keeping one of its entries keeps the total.
+  let groups = compileGroups(facts, seed, track);
+  const dropped = new Set(groups.filter((g) => exclude.has(g.key)).flatMap((g) => g.members.map((m) => m.key)));
+  if (dropped.size) { facts = facts.filter((f) => !dropped.has(f.key)); groups = groups.filter((g) => !exclude.has(g.key)); }
+  const pin = new Set(opts.pin || []);
+  for (const g of groups) if (g.members.some((m) => pin.has(m.key))) pin.add(g.key);
   const areas = [...opts.areas];
   for (const f of facts) if (!areas.includes(f.area)) areas.push(f.area);
-  const o: WriterOptions = { ...opts, areas };
+  const o: WriterOptions = { ...opts, areas, pin: [...pin] };
   const layout: Layout = { areas, labels: opts.labels, headers: opts.headers || {}, headings: opts.headings ?? true, format, spell: Boolean(opts.spellOut) };
 
-  const peakByUnit = new Map<string, number>();
-  for (const f of facts) if (f.quantity?.kind === 'item') peakByUnit.set(f.quantity.unit.toLowerCase(), Math.max(peakByUnit.get(f.quantity.unit.toLowerCase()) || 0, f.quantity.n));
-  const weights = new Map(facts.map((f) => [f.key, weigh(f, { peakByUnit, recentFrom: opts.recentFrom })]));
-
-  const base: Candidate[] = facts.map((f) => entryCandidate(f, weights.get(f.key)!, seed, track));
+  const cands = candidatesOf(facts, weights, groups, seed, track);
   const casework = opts.casework ? caseworkCandidate(opts.casework, opts.names.mission) : null;
-  if (casework && !exclude.has(casework.key)) base.push(casework);
-  const groups = groupsOf(facts, seed, track).filter((g) => !exclude.has(g.key));
+  if (casework && !exclude.has(casework.key)) cands.push(casework);
 
-  // Several plans, kept by what they say: each entry's weight counts once if a sentence speaks for it. Entry by entry or
-  // with the same work totalled; picked by what says the most for its space, or by what says the most outright.
-  const groupCands = groups.map((g) => groupCandidate(g, weights, seed, track));
-  const grouped = new Set(groups.flatMap((g) => g.members.map((m) => m.key)));
-  const plans: Array<{ cands: Candidate[]; chosen: Chosen[] }> = [];
-  const pinned = new Set(opts.pin || []);
+  // Two plans, kept by what they say: each entry's weight counts once if a sentence speaks for it. Picked by what says
+  // the most for its space, or by what says the most outright.
   const rest: RestContext = { facts, metrics, seed, track, exclude };
-  for (const cands of [
-    base,
-    [...base.filter((c) => !(c.kind === 'entry' && grouped.has(c.key) && !pinned.has(c.key))), ...groupCands],
-  ]) for (const strategy of ['density', 'value'] as const) plans.push({ cands, chosen: select(cands, o, layout, strategy, rest) });
+  const plans = (['density', 'value'] as const).map((strategy) => select(cands, o, layout, strategy, rest));
   const value = (chosen: Chosen[]) => {
     const covered = new Set(chosen.flatMap((x) => x.c.covers));
     let v = 0;
     for (const f of facts) if (covered.has(f.key)) v += weights.get(f.key)!.score;
     if (casework && covered.has('casework')) v += casework.weighed.score;
-    // Three sentences in one area opening with the same verb read as a list, which a total says better.
+    // Three sentences in one area opening with the same verb read as a list.
     const openers = new Map<string, number>();
     for (const x of chosen) if (x.c.verb && x.c.kind !== 'summary') openers.set(`${x.c.area}|${x.c.verb}`, (openers.get(`${x.c.area}|${x.c.verb}`) || 0) + 1);
     const repeats = [...openers.values()].reduce((t, k) => t + Math.max(0, k - 2), 0);
     // A full sentence says a little more than its compact form; a fuller page a little more than a sparse one.
     return v - repeats * 0.6 - chosen.filter((x) => x.compact).length * 0.15 + assemble(chosen, layout).text.length / 10000;
   };
-  const best = plans.reduce((a, b) => (value(b.chosen) > value(a.chosen) + 1e-9 ? b : a));
-  const cands = best.cands;
-  const chosen = best.chosen;
+  const chosen = plans.reduce((a, b) => (value(b) > value(a) + 1e-9 ? b : a));
 
   const { text, ordered, texts } = assemble(chosen, layout);
   const sentences = ordered.map((x) => toSentence(x.c, x.compact, x.pinned, texts.get(x.c.key)));
   const coveredKeys = new Set(sentences.flatMap((s) => s.covers));
+  // What was considered and did not fit, best first. A total's entries are never offered on their own: the work is said once.
   const left = cands
     .filter((c) => c.kind !== 'summary' && !chosen.some((x) => x.c.key === c.key) && c.covers.some((k) => !coveredKeys.has(k)))
-    .sort((a, b) => b.weighed.score - a.weighed.score)
+    .sort((a, b) => byRank(a.weighed, b.weighed))
     .map((c) => toSentence(c, false, false));
-  // Entries a group was built from are offered on their own too, so one can be pinned in place of the total.
-  for (const f of facts) {
-    if (coveredKeys.has(f.key) || left.some((s) => s.covers.includes(f.key))) continue;
-    left.push(toSentence(entryCandidate(f, weights.get(f.key)!, seed, track), false, false));
-  }
 
   const omitted = facts.filter((f) => !coveredKeys.has(f.key)).length;
   const areaRows = areas

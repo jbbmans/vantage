@@ -72,7 +72,7 @@ export function caseworkFor(ctx: AppContext, userId: string, w: Window, unitId: 
   const rows = ctx.db.prepare(
     `SELECT wi.procedure_key AS key, COUNT(DISTINCT e.work_item_id) AS n FROM work_events e JOIN work_items wi ON wi.id = e.work_item_id
       WHERE e.actor_id = ? AND e.occurred_at BETWEEN ? AND ?${units ? ` AND ${SHARED}` : ''} AND e.kind IN (${RESEARCH}) AND wi.procedure_key IS NOT NULL
-      GROUP BY wi.procedure_key ORDER BY n DESC`
+      GROUP BY wi.procedure_key ORDER BY n DESC, wi.procedure_key`
   ).all(userId, lo, hi, ...(units ? [units] : [])) as Array<{ key: string; n: number }>;
   return {
     researched: c.documents_researched, verified: c.verified_outcomes, resolved: c.resolved_work,

@@ -1,7 +1,7 @@
 import {
   ANNUAL_TRAINING, AREA_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, IN_PROGRESS, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
-  PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NOT_VERBS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
-  WEAK_OPENERS, type VerbEntry,
+  PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NOT_VERBS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
+  WEAK_OPENERS, BILLET_OPENERS, DUTY_LEMMAS, NOT_A_MEASURE, isMeasured, type VerbEntry,
 } from './lexicon.ts';
 import { ATTRIBUTE_AREA, attributesOf, type Attribute } from './attributes.ts';
 import { isTimeUnit, unitKeyOf } from '../metricEngine.ts';
@@ -23,12 +23,20 @@ export interface EntryInput {
 export type AreaKind = 'mission' | 'leadership' | 'character' | 'intellect' | 'evaluations';
 export type AreaNames = Record<Exclude<AreaKind, 'evaluations'>, string> & { evaluations?: string };
 
+/** The area each kind of work belongs to, read from a track's area names ("Leadership", "MOS / Mission Accomplishment"). */
+export function areaNamesFor(areas: readonly string[], fallbackArea?: string): AreaNames {
+  const find = (re: RegExp) => areas.find((a) => re.test(a));
+  const mission = fallbackArea || find(/mission|mos/i) || areas[0] || 'Mission';
+  const character = find(/character/i) || mission;
+  return { mission, leadership: find(/leader/i) || mission, character, intellect: find(/intellect|wisdom/i) || character };
+}
+
 /** What a track calls an area kind. */
 export const nameOf = (names: AreaNames, kind: AreaKind): string => (kind === 'evaluations' ? names.evaluations ?? names.leadership : names[kind]);
 
 export type QuantityKind = 'item' | 'time' | 'people' | 'measure';
 export type IssueCode = 'outcome' | 'weak_verb' | 'vague' | 'passive' | 'no_verb' | 'unmeasured' | 'long' | 'first_person' | 'area_inferred'
-  | 'annual_training' | 'superlative' | 'cliche' | 'speculative' | 'rs_judgment';
+  | 'annual_training' | 'superlative' | 'cliche' | 'speculative' | 'rs_judgment' | 'billet';
 
 export interface Issue { code: IssueCode; message: string; advice?: string }
 
@@ -69,7 +77,18 @@ export interface Fact {
 }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
-const PLACEHOLDER = /^(?:n\/?a|tbd|tbc|none|nil|null|pending|unknown|-+|\.+|\?+)$/i;
+const PLACEHOLDER_WORDS = /^(?:n\.?\s?\/?\s?a\.?|tbd|tbc|none|nil|null|pending|unknown)$/i;
+/** Letters or digits a plain-character form keeps: a lone dash, an ellipsis, an arrow or a script the writer cannot print say nothing. */
+const speaks = (s: string) => /[a-z0-9]/i.test(s.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''));
+const placeholder = (s: string) => PLACEHOLDER_WORDS.test(s.trim()) || !speaks(s);
+
+/** Whether a typed outcome says anything: "N/A", "TBD" and a lone dash hold the field's place and are no outcome. */
+export const hasOutcome = (result: unknown): boolean => Boolean(outcomeText(result));
+/** A typed outcome as the writer reads it, tidied ("N/A!" is "N/A"), or '' when it holds the field's place. */
+function outcomeText(result: unknown): string {
+  const text = result == null || result === '' ? '' : stripEnd(tidy(clean(String(result))).text);
+  return text && !placeholder(text) ? text : '';
+}
 const stripEnd = (s: string) => s.replace(/[\s.;,:]+$/, '');
 const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 // A word that opens a phrase is lowercase mid-sentence even before a name: "on SYN-LC-1", "all Marines", "the Basic
@@ -131,13 +150,29 @@ export function tidy(text: string, opts: { numerals?: boolean } = {}): { text: s
   return { text: out, changed: out !== text.replace(/\s+/g, ' ').trim() };
 }
 
-/** An outcome that only restates the title ("Hazmat certification; certified") says nothing more. */
+/**
+ * An outcome that only restates the title says nothing more: "Hazmat certification; certified", or the title typed again
+ * ("Processed 22 MIPRs for the G-8" as its own outcome). A longer outcome restates it when every word of it is a word
+ * of the title, give or take an ending ("processing" for "processed"); "12 Marines qualified" after "Trained 12 Marines
+ * on rifle qualification" says something new.
+ */
+const LINK_WORDS = new Set(['for', 'of', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'with', 'and', 'or', 'by', 'from', 'out', 'per', 'into']);
 function restates(result: string, title: string): boolean {
   const words = result.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length > 2) return false;
+  if (words.length > 2) {
+    const root = (w: string) => w.replace(/[^a-z0-9$%-]/g, '').replace(/(?:ing|ed|es|s)$/, '');
+    const roots = words.map(root).filter(Boolean);
+    // Numbers and links alone ("3 for 3", "12 of 12") are a score, which says something the title does not.
+    if (!roots.some((w) => /[a-z]/.test(w) && !LINK_WORDS.has(w))) return false;
+    const inTitle = new Set(title.toLowerCase().split(/\s+/).map(root).filter(Boolean));
+    return roots.every((w) => inTitle.has(w));
+  }
   const stems = new Set(title.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5)));
   return words.every((w) => w.length >= 5 && stems.has(w.slice(0, 5)));
 }
+
+/** A number that measures something, once dates, fiscal years, quarters and staff sections ("S-4") are out. */
+const hasNumber = (text: string) => NUMBER.test(text.replace(NOT_A_MEASURE, ' '));
 
 const PEOPLE_IN_TEXT = /\b(\d[\d,]*)\s+((?:junior\s+)?(?:Marines?|personnel|students?|subordinates?|NCOs|SNCOs|sailors?|soldiers?|recruits?|trainees?|mentees?|members?|lance corporals?|privates?))\b/i;
 const NUMBER = /\d/;
@@ -270,6 +305,10 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const filler = dropFiller(title);
   if (filler.changed) { edits.push('filler'); title = filler.text; }
   title = marines(title);
+  // A title in symbols or a script the plain-character text cannot carry would print as a bare "."; it is no title.
+  if (title && !speaks(title)) title = '';
+  // The title as the Marine framed it, before a colon heading is split off: "Billet: fiscal clerk".
+  const framed = title;
   if (!title) {
     // No title (an import can leave one out): the money's kind or the category gives the verb, the count the object.
     const verb = UNTITLED_VERB[String(entry.dollar_type)] || (entry.category === 'Leadership' ? 'Led' : 'Completed');
@@ -304,9 +343,8 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const amount = entry.dollar_amount == null || entry.dollar_amount === '' ? NaN : Number(entry.dollar_amount);
   const money = Number.isFinite(amount) && amount !== 0 ? { amount, type: entry.dollar_type || null, summable: isSummable(entry.dollar_type, metrics) } : null;
 
-  let result = entry.result ? stripEnd(tidy(clean(String(entry.result))).text) : '';
-  // "N/A", "TBD" and a lone dash hold the field's place; they are no outcome.
-  if (PLACEHOLDER.test(result)) result = '';
+  // "N/A", "TBD" and a lone dash hold the field's place; they are no outcome (the one rule hasOutcome uses).
+  let result = outcomeText(entry.result);
   if (result) {
     const r = dropFirstPerson(result.replace(RESULT_LEADS, ''), { opening: false });
     const f = dropFiller(r.text);
@@ -340,16 +378,28 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const givenKind = areaKindOf(given, opts.names);
   const areaKind = givenKind ?? inferArea(base, attribute, opts.track ?? 'jepes');
   const area = given ?? nameOf(opts.names, areaKind);
-  const strongResult = Boolean(result && STRONG_RESULT.test(result));
+  const strongResult = Boolean(result && isMeasured(result));
 
   // What the review should say about this entry.
   if (!result) issues.push({ code: 'outcome', message: 'No outcome', advice: 'Add what came of it: a number that changed, a deadline met, a problem that did not come back.' });
   if (weak) issues.push({ code: 'weak_verb', message: `Opens with ${weak.label}`, advice: weak.advice });
   if (opening.edit === 'no verb' && !purpose) issues.push({ code: 'no_verb', message: 'Does not start with what you did', advice: 'Open with a past-tense verb: reconciled, trained, briefed, built.' });
   const said = `${title} ${result}`;
-  if (VAGUE.test(said) && !NUMBER.test(said) && !quantity && !money) issues.push({ code: 'vague', message: `Says “${VAGUE.exec(said)![1]}” instead of a number`, advice: 'Count it. “14 ULOs” is a fact; “several ULOs” is a guess.' });
+  // Each read on its own, so a date that ends the title and a count that opens the outcome are not one date.
+  const numbered = hasNumber(title) || hasNumber(result);
+  if (VAGUE.test(said) && !numbered && !quantity && !money) issues.push({ code: 'vague', message: `Says “${VAGUE.exec(said)![1]}” instead of a number`, advice: 'Count it. “14 ULOs” is a fact; “several ULOs” is a guess.' });
   if (PASSIVE.test(title)) issues.push({ code: 'passive', message: 'Passive voice', advice: 'Put yourself first: “Reconciled the ledger”, not “The ledger was reconciled”.' });
-  if (!quantity && !money && !NUMBER.test(said)) issues.push({ code: 'unmeasured', message: 'No number', advice: 'How many, how much, how fast? One number makes it credible.' });
+  if (!quantity && !money && !numbered) issues.push({ code: 'unmeasured', message: 'No number', advice: 'How many, how much, how fast? One number makes it credible.' });
+  // A billet named instead of what was done in it, with no outcome to show for it. "Responsible for" has its own note.
+  const dutyOnly = Boolean(opening.verb && DUTY_LEMMAS.has(opening.verb.lemma) && !quantity && !money && !people && !hasNumber(framed));
+  const billetSaid = BILLET_OPENERS.test(framed);
+  if (!result && !weak && (billetSaid || dutyOnly)) {
+    // "Served as section chief" names the billet; "Supervised the motor pool" names a charge. Both say what the Marine
+    // was responsible for, not what came of it.
+    issues.push(billetSaid
+      ? { code: 'billet', message: 'Names the billet, not what was done in it', advice: `Say what you did in the billet and what came of it: “Closed 40 of 42 taskers on time as acting section chief”, not “Served as acting section chief”.${fitrep ? ' Section C lists results; the billet itself goes in the worksheet’s billet description.' : ''}` }
+      : { code: 'billet', message: 'Says what you were in charge of, not what came of it', advice: 'Add how many and what came of it: “Supervised the motor pool; 98% of vehicles mission capable at the quarterly inspection”.' });
+  }
   if (title.length > 180) issues.push({ code: 'long', message: 'Long title', advice: 'Keep the title to the action; put detail in the result or notes.' });
   if (edits.includes('first person') || FIRST_PERSON.test(String(entry.result || ''))) issues.push({ code: 'first_person', message: 'First person removed', advice: 'Evaluation writing leaves out “I” and “my”; the writer did it for you.' });
   if (!givenKind) issues.push({ code: 'area_inferred', message: `No area; placed under ${area} by what it says`, advice: 'Tag it yourself so it lands where you mean it to.' });

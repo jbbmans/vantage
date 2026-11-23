@@ -41,27 +41,27 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
    - Anything a reviewer would ask about is noted.
    - An untagged entry is placed in the area its words point to, and says so.
    - Only the written text changes; the entry itself is untouched.
-2. **Weigh** (`score.ts`). Each fact gets a score, with every point carrying its reason:
-   - money and counts are read on a log scale;
-   - a stated outcome counts more, and a measured one more again;
-   - so do the people led and the Marine's largest count of a unit;
-   - a weak opening counts against it.
-3. **Group** (`compose.ts`). Entries of the same work and unit can become one total: "Reconciled 45 ULOs totaling $90,750 across 3 actions, including 14 in DAI: all cleared on the next report." A total only repeats an outcome that one of its entries actually stated.
-4. **Plan** (`compose.ts`). Each area with entries gets its best sentence first. The rest of the limit then goes to the plan that says the most:
-   - It tries entry-by-entry and grouped, by value per character and by value outright, and keeps the best.
+2. **Hold** (`repeats.ts`, `facts.ts`). The same work logged twice (the same verb, figures, system and organization, a day apart at most, the same words) is held once, the fuller copy leading; keeping the held copy says it was separate work. Required annual training, a prior period's award, work still in progress and rankings are held with their rule ([ADR-0044](../engineering/ADR/0044-ranking-and-one-generator.md)).
+3. **Weigh** (`score.ts`). Each fact gets a tier and a score, with every point carrying its reason:
+   - the outcome decides first: measured (a number, a zero, every one, a deadline met; never a date, a fiscal year, a quarter or "S-4"), stated, or none, each a band of its own, so a measured outcome outranks any dollar figure;
+   - then the largest figure, read on a log scale, with the people led and the Marine's largest count of a unit;
+   - a weak opening, a billet named instead of the work ("Served as the S-4 chief"), a superlative or a cliché counts against it.
+4. **Compile** (`compose.ts`). The same work (verb and unit) is one total, said once, whether or not its entries would fit one by one: "Cleared 100 OCMTs totaling $111,250 in DAI." The words every entry shares stay; an outcome every entry states is said once, otherwise the strongest with the entries it is true of ("Reconciled 45 ULOs totaling $90,750, including 14 in DAI: all cleared on the next report"). A total only repeats an outcome that one of its entries actually stated, and its entries are never offered on their own.
+5. **Plan** (`compose.ts`). Each area with entries gets its best sentence first, by tier and then score. The rest of the limit then goes to the plan that says the most:
+   - It tries by value per character and by value outright, outcomes first in both, and keeps the best.
    - It penalises three sentences opening with the same verb.
    - A sentence switches to its compact form (shorter money, no system) when that is what makes it fit.
    - A summary accounts for counted work and dollars that did not get a sentence, once two or more entries are left: "Reconciled 14 ULOs totaling $48,250 and corrected 6 rejects totaling $4,120." It opens with a verb, says "more" when a sentence already counts the same work, counts only work whose own bullet makes the count the verb's object ("Checked on every section Marine" is not "Checked 6 Marines"), and repeats no figure a sentence gives ([ADR-0043](../engineering/ADR/0043-bullet-writer-rules.md)).
    - Pinned sentences always stay; left-out ones never return unasked.
    - Credit from the case histories (documents researched, outcomes verified, cases resolved) is a sentence of its own.
-5. **Write** (`realize.ts`, [ADR-0043](../engineering/ADR/0043-bullet-writer-rules.md)).
+6. **Write** (`realize.ts`, [ADR-0043](../engineering/ADR/0043-bullet-writer-rules.md)).
    - The count goes in front of its noun when the title names the unit ("Processed 22 MIPRs for the G-8"), as the verb's object when the title goes straight to a preposition ("Trained 3 Marines on DAI", "Volunteered 6 hours at the base food pantry"), and otherwise in parentheses. A vague count the Marine typed ("a few vehicles", "hundreds of claims", "20+ Marines") gives way to the number. The "4" of "Q4" is not a count.
    - Money sits next to the count it belongs to, in one word per kind of dollars ("totaling", "obligating", ", saving", "covering", "valued at"; a command's own value types by whether they sum), never the opening verb again ("Obligated 12 MIPRs totaling"), and is never repeated if the title or the outcome already states it. "Funds" or "money" after a money verb becomes the amount ("Obligated $45,000 for the range upgrade").
    - An outcome joins by what it is: a grade "with a 3.8 GPA", something the Marine did as a participle (", cutting the weekly review to 1 hour", ", identifying 4 errors and replacing the pages"), a measure ", resulting in 100% mission readiness", anything else after a semicolon, in lower case.
    - FITREP Section C writes its shorthand: short dollars of $10K or more, typed ones included ("$48.3K", "$1M" for $999,960), a measure after a semicolon, "supporting" for "in support of".
    - Text is plain ASCII, so it pastes into any form.
    - A seed picks one of two whole sets of wording, so "Another wording" never changes a fact and never mixes words within a text.
-6. **Review** (`review.ts`). A 100-point grade:
+7. **Review** (`review.ts`). A 100-point grade:
    - areas covered: 25;
    - outcomes stated: 25;
    - numbers: 20;
@@ -73,9 +73,11 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
 ## Where it is used
 
 - `shared/narrative.ts` (`composeNarrative`) is the entry point for every caller.
+- The package (`shared/writer/package.ts`, `writePackage`, through `buildPackage`) is the same reading: compiled, ranked by tier, capped per area, with what the cap leaves out said once after the bullets and held entries listed with their reason.
+- The record's bullet, Quick Log's preview and the coach use `bulletFor` and `coachEntry` (`coach.ts`); the résumé (`resumeFor`) is the JEPES sentence spelled out. The strength badge (`strength.ts`) counts five points from the same reading: opens with what you did, a number, an outcome, a measured outcome, an area.
 - `server/services/reports.ts` writes the report and adds case-work credit (`caseworkFor` in `server/services/record.ts`).
 - The PDFs (`/api/reports/pdf`, `/api/reports/analysis.pdf`) take the studio's choices (`seed`, `density`, `format`, `spell`, `chars`, `exclude`, `pin`), or the text as edited (`narrative`).
-- `src/components/NarrativeStudio.tsx` is the studio. Choices are kept per person, track and period in the browser.
+- `src/components/NarrativeStudio.tsx` is the studio. Choices are kept per person, track, period and unit in the tab's session storage until it closes or the Marine signs out; a rolling period by its name. A hand edit keeps the hashes of the entries it was written from (`basis.ts`), and the studio says when the record changed under it, or that it cannot tell for an edit kept from before; the other report views say so too, since the PDFs use the edit.
 - The optional AI draft (`report_narrative` in `server/services/ai.ts`) is instructed to follow the same rules.
 
 ## Extending it
@@ -84,7 +86,7 @@ descriptors (its Figure 1-2) were not available as text, so the writer does not 
 - **An acronym:** add it to `GLOSSARY` only with a standard expansion.
 - **A FITREP attribute cue:** add the words to the cue for that attribute in `attributes.ts`. Keep a cue narrow: it has to name the thing ("JEPES command input", "welfare"), not hint at it. A cue from a plain verb's entry takes the sentence; one from a specific verb (trained, led) is a second attribute.
 - **A rule:** add its pattern to `lexicon.ts`, the issue to `readEntry`, and the check to `CHECKS` in `review.ts` with its basis and citation. Mark it `style` unless an order or form says it.
-- **Tests:** `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit; `tests/server/bulletExamples.test.ts`, with 60 fixed examples and 21 edge cases (`bulletExamples.ts`) and the bullet checks (`bulletChecks.ts`), each with a case it must catch, run over every example, the corpora in `writerCorpus.ts` and random entries; `tests/server/narrativeReport.test.ts`; and `tests/browser/31-narrative.spec.ts`. A change to a rule moves the examples it touches: read each moved line before updating it.
+- **Tests:** `tests/server/bulletRanking.test.ts` with its fixed examples (`rankingExamples.ts`): ranking pairs, what is measured, billets, the same work logged twice, compiled totals, the four outputs agreeing on all 81 examples, held entries, the badge, the glossary and the banner's basis; `tests/server/writer.test.ts`, including a fuzz test that any input gives well-formed text inside its limit; `tests/server/bulletExamples.test.ts`, with 60 fixed examples and 21 edge cases (`bulletExamples.ts`) and the bullet checks (`bulletChecks.ts`), each with a case it must catch, run over every example, the corpora in `writerCorpus.ts` and random entries; `tests/server/narrativeReport.test.ts`; and `tests/browser/31-narrative.spec.ts`. A change to a rule moves the examples it touches: read each moved line before updating it.
 
 ## Sources
 
