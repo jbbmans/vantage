@@ -4,11 +4,12 @@ import { Save, ExternalLink, Info, RotateCcw } from 'lucide-react';
 import { Button, Field, Input, Select, Panel, Badge, NumberInput, Skeleton, Switch } from '@/components/ui/primitives';
 import { PageShell } from '@/components/common';
 import { useToast } from '@/components/ui/toast';
-import { keys, useActivities, useIdentity, useReadiness, useTrack } from '@/lib/queries';
+import { keys, useActivities, useFitnessReports, useIdentity, useReadiness, useTrack } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { ARQ_BANDS, recommend, fitnessClass, EFFORT_ORDER } from '../../shared/jepes';
 import { estimateJepes, bonusItems, JEPES_READINESS_COLUMNS, MARK_NAMES, type JepesEstimate } from '../../shared/jepesEstimate';
-import { fitrepCoverage, recommendFitrep, daysUntil, annualEnd, FITREP_SECTIONS, type Recommendation } from '../../shared/evaluation';
+import { fitrepEvidence, recommendFitrep, daysUntil, annualEnd, EVIDENCE_LEVELS, FITREP_SECTIONS, STRONG_ENTRY, type Recommendation } from '../../shared/evaluation';
+import { STRENGTH_MAX } from '../../shared/writer/strength';
 import { EVAL_REFERENCES, EVAL_VERIFIED, REC_KINDS } from '../../shared/evalRefs';
 import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/constants';
 import { areaBalance } from '../../shared/narrative';
@@ -16,6 +17,7 @@ import { areasFor, areaAmong } from '../../shared/evaluation';
 import { EstimateBreakdown, EstimateSources, EstimateTotal, showRange, totalText } from '@/components/JepesEstimate';
 import { humanize } from '@/lib/utils';
 import { usePlace } from '@/lib/place';
+import { ComingReport, MyFitnessReports, dayAfter, lastPeriodEnd } from '@/components/FitrepStanding';
 
 /** Every readiness figure the page saves: the ones readiness always kept, and the ones the JEPES estimate reads. */
 const SAVED = ['pft_score', 'cft_score', 'rifle_qual', 'mcmap_belt', 'ceus', 'college_credits', 'degree', 'pme_complete', 'cmd_character', 'cmd_mos', 'cmd_leadership', 'fitrep_period_end', ...JEPES_READINESS_COLUMNS];
@@ -58,6 +60,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const { data: identity } = useIdentity();
   const { data: readiness, isPending } = useReadiness();
   const { data: activities } = useActivities();
+  const fitness = useFitnessReports(track === 'fitrep');
   const [form, setForm] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [whatIf, setWhatIf] = useState<Record<string, string>>({});
@@ -76,10 +79,14 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const tried = useMemo(() => ({ ...profile, ...nonBlank(whatIf) }), [profile, whatIf]);
   const triedEst = useMemo(() => estimateJepes(tried), [tried]);
   const trying = Object.keys(nonBlank(whatIf)).length > 0;
-  const coverage = useMemo(() => fitrepCoverage(mine), [mine]);
+  const reports = useMemo(() => fitness.data?.reports ?? [], [fitness.data]);
+  // The coming report's period: from the day after the last report entered to the period end on the page.
+  const lastEnd = lastPeriodEnd(reports);
+  const period = useMemo(() => ({ from: lastEnd ? dayAfter(lastEnd) : null, to: form.fitrep_period_end || null }), [lastEnd, form.fitrep_period_end]);
+  const evidence = useMemo(() => fitrepEvidence(mine, period), [mine, period]);
   const daysToEnd = daysUntil(form.fitrep_period_end || null);
   const annual = useMemo(() => annualEnd(String(readiness?.rank_grade || '')), [readiness?.rank_grade]);
-  const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, stats, { coverage, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, coverage, daysToEnd]);
+  const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, stats, { evidence, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, evidence, daysToEnd]);
   const ref = EVAL_REFERENCES[track];
   const [effortSort, setEffortSort] = useState(false);
   const byEffort = (list: Recommendation[]) => (effortSort ? [...list].sort((a, b) => EFFORT_ORDER[a.effort] - EFFORT_ORDER[b.effort] || b.priority - a.priority) : list);
@@ -130,7 +137,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
         embedded={embedded}
         eyebrow={place.group}
         title="FITREP readiness"
-        lede="Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it."
+        lede="Your rank reports on a fitness report. The record is your Master Brief Sheet: here each report you received is worked the published way, with what the coming one needs and the evidence behind every attribute your Reporting Senior marks."
         actions={<Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>}
       >
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -150,15 +157,26 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
                 </div>
               </div>
             </Panel>
-            <Panel title="Attribute coverage" subtitle="Does your log evidence each section your RS marks?">
-              <div className="space-y-3">{coverage.map((s) => (
-                <div key={s.key} className="rounded-lg border border-line p-3">
-                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-md font-semibold text-ink">Section {s.section}: {s.title}</h3><span className="fig text-xs text-ink-3" title={`${s.tagged} tagged here by you`}>{s.entries} {s.entries === 1 ? 'entry' : 'entries'}</span></div>
+            <Panel title="Your fitness reports" subtitle="From your Master Brief Sheet. Only you see them unless you share one.">
+              {fitness.isPending ? <Skeleton className="h-24" /> : fitness.isError ? <p role="alert" className="text-sm text-bad">{api.errorText(fitness.error)}</p> : <MyFitnessReports reports={reports} grade={readiness?.rank_grade ? String(readiness.rank_grade) : null} />}
+            </Panel>
+            <Panel title="The coming report" subtitle="Where it would sit in an RS profile, and the average each third needs">
+              <ComingReport reports={reports} />
+            </Panel>
+            <Panel title="Evidence strength" subtitle={period.from || period.to ? `For the coming report: entries ${period.from ? `from ${period.from} ` : ''}${period.to ? `to ${period.to}` : 'on'}` : 'Every entry, until you add your last report or the period end'}>
+              <div className="space-y-3">{evidence.map((s) => (
+                <section key={s.key} aria-labelledby={`evidence-${s.section}`} className="rounded-lg border border-line p-3">
+                  <div className="flex items-baseline justify-between gap-2"><h3 id={`evidence-${s.section}`} className="text-md font-semibold text-ink">Section {s.section}: {s.title}</h3><span className="fig text-xs text-ink-3">{s.entries} {s.entries === 1 ? 'entry' : 'entries'}{s.tagged ? `, ${s.tagged} tagged here` : ''}</span></div>
                   {s.section === 'H' && <p className="text-2xs text-ink-3">For when you served as a reporting official in the period: the evaluations you conducted, or required others to conduct.</p>}
-                  <ul className="mt-2 flex flex-wrap gap-1.5">{s.attributes.map((a) => <li key={a.attribute}><Badge tone={a.likely ? 'good' : 'warn'} title={a.examples.join(' · ')}>{a.attribute} · {a.likely}</Badge></li>)}</ul>
-                </div>
+                  <ul className="mt-2 space-y-1.5">{s.attributes.map((a) => (
+                    <li key={a.attribute} className="text-sm">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2"><span className="text-ink">{a.attribute}</span><Badge tone={EVIDENCE_LEVELS[a.level].tone}>{EVIDENCE_LEVELS[a.level].label}</Badge></div>
+                      <p className="text-xs text-ink-3">{a.reason}{a.best ? ` Strongest: \u201c${a.best.title}\u201d, ${a.best.points} of ${a.best.of}${a.level === 'thin' && a.best.missing.length ? `: ${a.best.missing.join('; ')}` : ''}.` : ''}</p>
+                    </li>
+                  ))}</ul>
+                </section>
               ))}</div>
-              <p className="mt-3 text-2xs text-ink-3">Read from each entry’s verb and words, the same way the Section C draft reads them. It flags gaps; it does not grade you. Sections and attributes per {FITREP_SECTIONS.length === 5 ? ref.citation : ref.order}.</p>
+              <p className="mt-3 text-2xs text-ink-3">Each entry is graded by the five strength points the Section C draft uses. Strong takes two entries at {STRONG_ENTRY} or more of {STRENGTH_MAX}, Some one, Thin has entries below {STRONG_ENTRY}, and None has none. It grades the evidence, never you. Sections and attributes per {FITREP_SECTIONS.length === 5 ? ref.citation : ref.order}.</p>
             </Panel>
           </div>
           <div className="space-y-4">

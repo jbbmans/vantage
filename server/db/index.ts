@@ -637,6 +637,15 @@ const MIGRATIONS: Migration[] = [
       for (const [column, definition] of JEPES_INPUT_COLUMNS) if (!have.has(column)) db.exec(`ALTER TABLE readiness ADD COLUMN ${column} ${definition}`);
     },
   },
+  {
+    id: 45,
+    name: '045_fitness_reports',
+    // The fitness reports a Marine received, as they copy them off their Master Brief Sheet (ADR-0047). The table and
+    // its index come from schema.sql, which is safe to replay; every column's range is checked there. Nothing already
+    // written is read, moved or reshaped, and no report's standing is stored: it is worked on read. Rolled back by
+    // restoring the pre-upgrade copy with the previous build.
+    run: () => {},
+  },
 ];
 
 /** The readiness columns migration 044 adds, as schema.sql declares them, so a new and an upgraded database match. */

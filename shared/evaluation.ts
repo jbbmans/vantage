@@ -3,6 +3,7 @@ import { JEPES_CORE } from './constants.ts';
 import { EVAL_REFERENCES } from './evalRefs.ts';
 import { readEntry, type EntryInput } from './writer/facts.ts';
 import { ATTRIBUTE_PROMPTS, FITREP_NAMES, type Attribute } from './writer/attributes.ts';
+import { missingText, strengthOf, STRENGTH_MAX } from './writer/strength.ts';
 
 export type Track = 'jepes' | 'fitrep';
 
@@ -13,7 +14,7 @@ export const TRACKS: Record<Track, { key: Track; name: string; inputName: string
   },
   fitrep: {
     key: 'fitrep', name: 'FITREP', inputName: 'FITREP input', system: 'Performance Evaluation System (fitness reports)',
-    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 1232, balanceLabel: 'Attribute coverage', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
+    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 1232, balanceLabel: 'Evidence strength', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
   },
 };
 
@@ -109,24 +110,75 @@ export function areaAmong(area: string | null | undefined, areas: readonly strin
 
 interface EvalActivity extends EntryInput { notes?: string | null }
 
+/** How well an attribute is evidenced for the coming report, read from the strength of the entries that speak to it. */
+export type EvidenceLevel = 'strong' | 'some' | 'thin' | 'none';
+export const EVIDENCE_LEVELS: Record<EvidenceLevel, { label: string; tone: 'good' | 'accent' | 'warn' | 'bad' }> = {
+  strong: { label: 'Strong', tone: 'good' }, some: { label: 'Some', tone: 'accent' }, thin: { label: 'Thin', tone: 'warn' }, none: { label: 'None', tone: 'bad' },
+};
+/** An entry is strong evidence at this many of the writer's five strength points (shared/writer/strength.ts). */
+export const STRONG_ENTRY = 4;
+
+export interface AttributeEvidence {
+  attribute: string;
+  level: EvidenceLevel;
+  /** Entries in the period that speak to the attribute, and how many of them are strong. */
+  entries: number;
+  strong: number;
+  /** The strongest entry, its points, and what it lacks. */
+  best: { title: string; points: number; of: number; missing: string[] } | null;
+  reason: string;
+}
+
+export interface SectionEvidence {
+  key: string; title: string; section: string;
+  /** Entries in the period tagged to the section by the Marine. */
+  tagged: number;
+  /** Entries in the period that speak to any of the section's attributes. */
+  entries: number;
+  attributes: AttributeEvidence[];
+  /** Attributes with no entry at all. */
+  uncovered: string[];
+  counts: Record<EvidenceLevel, number>;
+}
+
+const levelOf = (entries: number, strong: number): EvidenceLevel => (strong >= 2 ? 'strong' : strong === 1 ? 'some' : entries > 0 ? 'thin' : 'none');
+
+/** The entries that fall in the coming report's period: on or after `from`, on or before `to`. An undated entry counts. */
+export function inPeriod<T extends { date?: string | null }>(activities: T[], window: { from?: string | null; to?: string | null } = {}): T[] {
+  return activities.filter((a) => !a.date || ((!window.from || a.date >= window.from) && (!window.to || a.date <= window.to)));
+}
+
 /**
- * Which attributes each section's evidence reaches, read by the narrative writer (shared/writer/attributes.ts), so
- * Readiness and the Section C draft agree on what an entry shows. An entry counts for every attribute it speaks to;
- * one held back from the input (an award for an earlier period, say) counts for none.
+ * Evidence strength for each attribute the Reporting Senior marks (ADR-0047), for the coming report: the entries in its
+ * period that the narrative writer (shared/writer/attributes.ts) reads as speaking to the attribute, each graded by the
+ * writer's own five strength points, so Readiness, the badge and the Section C draft agree. Strong takes two entries
+ * at four or five points, Some one, Thin has entries below four, None has none. An entry held back from the input (an
+ * award for an earlier period, say) counts for none.
  */
-export function fitrepCoverage(activities: EvalActivity[] = []) {
+export function fitrepEvidence(activities: EvalActivity[] = [], window: { from?: string | null; to?: string | null } = {}): SectionEvidence[] {
   const cfg = narrativeConfig('fitrep');
-  const read = activities.map((a) => ({ a, f: readEntry({ ...a, eval_area: mapAreaToTrack(a.eval_area, 'fitrep') }, { names: cfg.names, areas: cfg.areas, track: 'fitrep' }) }))
+  const period = inPeriod(activities, window);
+  const read = period.map((a) => ({ a, f: readEntry({ ...a, eval_area: mapAreaToTrack(a.eval_area, 'fitrep') }, { names: cfg.names, areas: cfg.areas, track: 'fitrep' }) }))
     // Routed to another block of the worksheet (PME, community involvement) is still evidence.
-    .filter(({ f }) => !f.held || f.held.route);
+    .filter(({ f }) => !f.held || f.held.route)
+    .map((x) => ({ ...x, s: strengthOf(x.f) }));
   return FITREP_SECTIONS.map((section) => {
-    const tagged = activities.filter((a) => mapAreaToTrack(a.eval_area, 'fitrep') === section.key);
-    const attributes = section.attributes.map((attr) => {
-      const hits = read.filter(({ f }) => f.attributes.includes(attr));
-      return { attribute: attr, likely: hits.length, examples: hits.slice(0, 2).map(({ a }) => a.title || '') };
+    const tagged = period.filter((a) => mapAreaToTrack(a.eval_area, 'fitrep') === section.key).length;
+    const attributes = section.attributes.map((attr): AttributeEvidence => {
+      const hits = read.filter(({ f }) => f.attributes.includes(attr)).sort((x, y) => y.s.points - x.s.points);
+      const strong = hits.filter((h) => h.s.points >= STRONG_ENTRY).length;
+      const level = levelOf(hits.length, strong);
+      const top = hits[0];
+      const best = top ? { title: top.a.title || '', points: top.s.points, of: top.s.of, missing: missingText(top.s) } : null;
+      const reason = !hits.length ? 'Nothing logged in the period speaks to it.'
+        : strong ? `${strong} of ${hits.length} ${hits.length === 1 ? 'entry is' : 'entries are'} at ${STRONG_ENTRY} or more of ${STRENGTH_MAX}.`
+          : `${hits.length} ${hits.length === 1 ? 'entry' : 'entries'}, none yet at ${STRONG_ENTRY} of ${STRENGTH_MAX}.`;
+      return { attribute: attr, level, entries: hits.length, strong, best, reason };
     });
     const entries = read.filter(({ f }) => f.attributes.some((a) => (section.attributes as readonly string[]).includes(a))).length;
-    return { key: section.key, title: section.title, section: section.section, tagged: tagged.length, entries, attributes, uncovered: attributes.filter((a) => a.likely === 0).map((a) => a.attribute) };
+    const counts: Record<EvidenceLevel, number> = { strong: 0, some: 0, thin: 0, none: 0 };
+    for (const a of attributes) counts[a.level] += 1;
+    return { key: section.key, title: section.title, section: section.section, tagged, entries, attributes, uncovered: attributes.filter((a) => a.entries === 0).map((a) => a.attribute), counts };
   });
 }
 
@@ -141,10 +193,10 @@ export interface Recommendation {
 }
 const rec = (o: Partial<Recommendation> & { id: string; title: string; detail: string; priority: number }): Recommendation => ({ effort: 'medium', category: 'FITREP', kind: 'heuristic', ...o });
 
-export function recommendFitrep(profile: Record<string, unknown> = {}, activityStats: { total?: number; withOutcome?: number } = {}, opts: { coverage?: ReturnType<typeof fitrepCoverage>; daysToEnd?: number | null } = {}): Recommendation[] {
+export function recommendFitrep(profile: Record<string, unknown> = {}, activityStats: { total?: number; withOutcome?: number } = {}, opts: { evidence?: SectionEvidence[]; daysToEnd?: number | null } = {}): Recommendation[] {
   const out: Recommendation[] = [];
   const { total = 0, withOutcome = 0 } = activityStats;
-  const coverage = opts.coverage || [];
+  const coverage = opts.evidence || [];
   const daysToEnd = opts.daysToEnd ?? null;
 
   if (daysToEnd !== null && daysToEnd <= 45 && daysToEnd >= 0) {
@@ -157,7 +209,7 @@ export function recommendFitrep(profile: Record<string, unknown> = {}, activityS
   }
   // A section has evidence when anything logged speaks to one of its attributes, tagged there or not. Section H is
   // only marked for a Marine with evaluation duties, so an empty H is a question, not a gap.
-  const evidenced = (s: (typeof coverage)[number]) => s.attributes.some((a) => a.likely > 0);
+  const evidenced = (s: SectionEvidence) => s.attributes.some((a) => a.entries > 0);
   const empty = coverage.filter((s) => s.section !== 'H' && !evidenced(s));
   if (total === 0 && coverage.length) {
     out.push(rec({ id: 'nothing-logged', kind: 'data', title: 'Nothing logged for this report yet',
@@ -179,6 +231,13 @@ export function recommendFitrep(profile: Record<string, unknown> = {}, activityS
     const asks = thinAttrs.slice(0, 3).map((a) => `${a}: ${ATTRIBUTE_PROMPTS[a as Attribute]}`);
     out.push(rec({ id: 'thin-attributes', kind: 'data', title: `${thinAttrs.length} attribute${thinAttrs.length === 1 ? ' has' : 's have'} no supporting entry`,
       detail: `Nothing logged gives evidence for ${thinAttrs.join(', ')}. Worth logging, if you did it: ${asks.join('; ')}.`, effort: 'low', priority: 84 }));
+  }
+  // Attributes with entries, none of them strong yet: evidence an RS can see but not cite.
+  const weak = coverage.flatMap((s) => s.attributes.filter((a) => a.level === 'thin').map((a) => a.attribute));
+  if (total > 0 && weak.length) {
+    const named = weak.length > 4 ? `${weak.slice(0, 4).join(', ')} and ${weak.length - 4} more` : weak.join(', ');
+    out.push(rec({ id: 'thin-evidence', kind: 'data', title: `${weak.length} attribute${weak.length === 1 ? ' rests' : 's rest'} on thin evidence`,
+      detail: `${named} ${weak.length === 1 ? 'has' : 'have'} entries, none at ${STRONG_ENTRY} of ${STRENGTH_MAX} strength points. Add the count and what came of it to the strongest, so your RS can cite it.`, effort: 'low', priority: 83 }));
   }
   if (total >= 5 && withOutcome / total < 0.7) {
     out.push(rec({ id: 'outcomes', kind: 'data', title: `Only ${Math.round((withOutcome / total) * 100)}% of entries state an outcome`,

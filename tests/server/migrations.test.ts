@@ -1284,3 +1284,44 @@ test('044 adds the JEPES estimate’s figures to readiness, empty, each held to 
     again.close();
   } finally { cleanup(); }
 });
+
+test('045 adds the fitness reports a Marine received, empty, private by default, each figure held to its range', () => {
+  const at = '2026-11-24T12:00:00.000Z';
+  const { path, cleanup } = atVersion(44, (db) => {
+    // The database as 044 left it: no fitness reports.
+    db.exec('DROP TABLE fitness_reports');
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO readiness (user_id, pft_score, fitrep_period_end, updated_at) VALUES ('u1', 280, '2027-05-31', ?)").run(at);
+  });
+  try {
+    const raw = new Database(path, { readonly: true });
+    const before = raw.prepare('SELECT * FROM readiness').all();
+    raw.close();
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 45 && m.name === '045_fitness_reports'));
+    assert.deepEqual(db.prepare('SELECT * FROM readiness').all(), before, 'readiness is as it was');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM fitness_reports').get() as { n: number }).n, 0, 'nothing is guessed for a Marine');
+    const insert = (over: Record<string, unknown> = {}) => {
+      const row = { id: `r${Math.random()}`, user_id: 'u1', period_from: '2025-06-01', period_to: '2026-05-31', occasion: 'AN', grade: 'E-6', marks: 'DDCDCDCCDCCDCH', rs_avg: 3.3, rs_high: 3.85, reports_at_processing: 6, reports_cumulative: 11, created_at: at, updated_at: at, ...over };
+      const cols = Object.keys(row);
+      db.prepare(`INSERT INTO fitness_reports (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...Object.values(row));
+      return row.id;
+    };
+    const ok = insert();
+    const kept = db.prepare('SELECT shared, report_type, version FROM fitness_reports WHERE id = ?').get(ok) as { shared: number; report_type: string; version: number };
+    assert.deepEqual({ ...kept }, { shared: 0, report_type: 'observed', version: 1 }, 'a report is the Marine’s own until they share it');
+    for (const [bad, why] of [
+      [{ period_to: '2025-05-31' }, 'ends before it begins'], [{ period_from: '2025-6-01' }, 'not written YYYY-MM-DD'], [{ occasion: 'XX' }, 'no such occasion'],
+      [{ report_type: 'draft' }, 'no such type'], [{ grade: 'E-4' }, 'below the grades with a fitness report'], [{ marks: 'DDCD' }, 'not fourteen marks'],
+      [{ marks: 'DDCDCDCCDCCDCZ' }, 'a mark that is not A to H'], [{ rs_avg: 7.5 }, 'an average above G'], [{ rs_avg: 3.9, rs_high: 3.8 }, 'a high below the average'],
+      [{ reports_at_processing: 12 }, 'more reports at processing than now'], [{ rv_at_processing: 79.99 }, 'a value below the floor'], [{ cum_rv_printed: 100.01 }, 'a value above 100'],
+      [{ shared: 2 }, 'shared is yes or no'], [{ rs_label: 'x'.repeat(81) }, 'an RS name past 80 characters'],
+    ] as const) {
+      assert.throws(() => insert(bad), /CHECK/, `refused: ${why}`);
+    }
+    db.close();
+    const again = openDatabase(path);
+    assert.equal(migrationHistory(again).filter((m) => m.id === 45).length, 1, 'a second boot runs it once');
+    again.close();
+  } finally { cleanup(); }
+});

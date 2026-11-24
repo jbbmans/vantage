@@ -1,4 +1,5 @@
 import type { AppContext } from '../context.ts';
+import { reportsForExport } from './fitnessReports.ts';
 import { RECORD_TABLE_NAMES, getRecord, hydrate, withGoalProgress } from './records.ts';
 import { withCourseDetail } from './courses.ts';
 import { scopeFor } from '../authz/scope.ts';
@@ -64,6 +65,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     .map((r) => ({ ...r, permission_names: listPermissions(Number(r.permissions)) }));
   const units = db.prepare(`SELECT id, code, name, short_name, echelon, location, parent_id, owner_user_id = ? AS owned_by_me, created_at FROM units WHERE id IN (SELECT unit_id FROM unit_members WHERE user_id = ?) OR owner_user_id = ? ORDER BY name`).all(userId, userId, userId) as Row[];
   const readiness = db.prepare('SELECT * FROM readiness WHERE user_id = ?').get(userId) as Row | undefined;
+  // The fitness reports they entered, shared or not (ADR-0047): their own history, as they copied it off their MBS.
+  const fitnessReports = reportsForExport(ctx, userId) as unknown as Row[];
   // Their personnel record in each Unit Instance, the responsibilities they hold or held, and its history (ADR-0017).
   const personnelRecords = db.prepare(`SELECT pr.org_id, o.name AS organization, ${nameOf('s')} AS supervisor, pr.checked_in_on, pr.updated_at
     FROM personnel_records pr LEFT JOIN organizations o ON o.id = pr.org_id LEFT JOIN users s ON s.id = pr.supervisor_id WHERE pr.user_id = ? ORDER BY pr.org_id`).all(userId) as Row[];
@@ -159,6 +162,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     format: PERSONAL_FORMAT, version: VERSION, exported_at: now(), instance: { display_name: ctx.runtime.displayName, organization: ctx.runtime.organizationName, metrics: ctx.runtime.metrics },
     profile: { ...user, prefs, rank } as Row & { username: string; rank: Row | null | undefined; prefs: unknown },
     readiness: readiness || null,
+    fitness_reports: fitnessReports,
     units, memberships, membership_history: membershipPeriods, roles,
     personnel: { records: personnelRecords, responsibilities, history: personnelHistory },
     records,
@@ -166,7 +170,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     notifications, comments: commentRows, audit_trail: auditTrail, audit_trail_cut: auditTrailCut, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
     contributions, drafts, saved_drafts: savedDrafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage, duty_reviews: dutyReviews, counseling_revisions: counselingRevisions,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, saved_drafts: savedDrafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, saved_drafts: savedDrafts.length, career_steps: careerSteps.length, fitness_reports: fitnessReports.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
   };
   const archive = selection.all ? full : narrowExport(full, selection);
   const _files: Array<Row & { content: Buffer }> = attachments
@@ -179,7 +183,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
  * The export cut down to the categories chosen: each record type's rows in them, the attachments on those rows, and the
  * other datasets only when chosen. It says what it holds in `sections`, so an import knows what a missing dataset means.
  */
-function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; duty_reviews: Row[]; counseling_revisions: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
+function narrowExport<T extends Record<string, unknown> & { records: Record<string, Row[]>; attachments: Row[]; fitness_reports: Row[]; duty_reviews: Row[]; counseling_revisions: Row[]; career: { profile: Row | null; steps: Row[] }; profile: Row }>(full: T, sel: SectionSelection): T {
   const records: Record<string, Row[]> = {};
   for (const [table, rows] of Object.entries(full.records)) {
     const chosen = sel.tables.get(table as ImportTable);
@@ -193,7 +197,7 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
   const out: Record<string, unknown> = {
     format: full.format, version: full.version, exported_at: full.exported_at, instance: full.instance, sections: sel.keys,
     owner: { id: full.profile.id, username: full.profile.username, first_name: full.profile.first_name, last_name: full.profile.last_name },
-    ...(sel.profile ? { profile: full.profile, readiness: full.readiness } : {}),
+    ...(sel.profile ? { profile: full.profile, readiness: full.readiness, fitness_reports: full.fitness_reports } : {}),
     ...(account ? { units: full.units, memberships: full.memberships, membership_history: full.membership_history, roles: full.roles, notifications: full.notifications, comments: full.comments, audit_trail: full.audit_trail, audit_trail_cut: full.audit_trail_cut, ai_usage: full.ai_usage, email_log: full.email_log, maradmin_state: full.maradmin_state, contributions: full.contributions, drafts: full.drafts, saved_drafts: full.saved_drafts, record_moves: full.record_moves, security: full.security } : {}),
     ...(sel.personnel ? { personnel: full.personnel } : {}),
     ...(career ? { career } : {}),

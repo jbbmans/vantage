@@ -9,6 +9,7 @@ import { formatCents } from '../../shared/money.ts';
 import { UMT_2WAY, UMT_FORMULA, PROCEDURES } from '../../shared/procedures.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { addStandardDutyTypes } from './unitConfig.ts';
+import { saveReport } from './fitnessReports.ts';
 import { scoringPolicyProblems, type ScoringPolicyContent, type ScoringRule } from '../../shared/dutyScoring.ts';
 
 export const DEMO_UNIT_NAME = 'G-8 Budget Execution (synthetic)';
@@ -509,7 +510,19 @@ function seedLeaderRecord(ctx: AppContext, unitId: string, ids: Record<string, s
   ctx.db.prepare(
     `INSERT INTO readiness (user_id, pft_score, cft_score, rifle_qual, mcmap_belt, pme_complete, fitrep_period_end, updated_at) VALUES (?, 285, 294, 'Expert', 'Green', 'distance', ?, ?)`
   ).run(me, dayOffset(38), at);
+  // Three reports off the lead's Master Brief Sheet: one as a Sgt, one with the RS of their first SSgt billet, and the
+  // latest with a new RS who has written only two on SSgts, so it has no relative value yet. One is shared.
+  for (const r of LEADER_REPORTS) {
+    saveReport(ctx, me, null, { ...r, period_from: dayOffset(r.period_from), period_to: dayOffset(r.period_to), version: undefined });
+  }
 }
+
+/** The lead's reports, as their MBS prints them; the periods are days from today. */
+const LEADER_REPORTS = [
+  { period_from: -1095, period_to: -731, occasion: 'AN', report_type: 'observed', grade: 'E-5', rs_label: 'Capt Alvarez', marks: 'DDCDCDCCDCCDCH', rpt_avg: 3.46, rs_avg: 3.30, rs_high: 3.85, reports_at_processing: 6, reports_cumulative: 11, rv_at_processing: 93.64, cum_rv_printed: 92.91, shared: 0 },
+  { period_from: -730, period_to: -441, occasion: 'CH', report_type: 'observed', grade: 'E-6', rs_label: 'Capt Alvarez', marks: 'DDDDCDDCDDCDCH', rpt_avg: 3.69, rs_avg: 3.52, rs_high: 3.90, reports_at_processing: 2, reports_cumulative: 4, rv_at_processing: null, cum_rv_printed: 94.47, shared: 1 },
+  { period_from: -440, period_to: -75, occasion: 'AN', report_type: 'observed', grade: 'E-6', rs_label: 'Maj Okafor', marks: 'DDCDCCDCDCCCCH', rpt_avg: 3.38, rs_avg: 3.41, rs_high: 3.79, reports_at_processing: 2, reports_cumulative: 2, rv_at_processing: null, cum_rv_printed: null, shared: 0 },
+] as const;
 
 /** What the section shares: [who, days ago, title, quantity, unit, dollars, dollar type, result]. */
 export const SHARED_SEED: ReadonlyArray<[string, number, string, number, string, number, string, string]> = [

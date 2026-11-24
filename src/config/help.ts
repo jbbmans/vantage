@@ -265,6 +265,17 @@ export const HELP: HelpSection[] = [
         also: ['jepes', 'estimate', 'score', 'readiness', 'what if', 'mcmap', 'pft', 'cft', 'rifle', 'marinenet', 'mos qualifications', 'bonus'],
       },
       {
+        id: 'fitrep-standing',
+        q: 'How does Readiness work out where my fitness reports stand?',
+        a: [
+          'Each report you add is worked from the figures on your Master Brief Sheet. Its report average is the mean of the marks the RS observed, A as 1 through G as 7, with H (not observed) left out. Its relative value puts that average on the line through the RS High at 100 and the RS Avg at 90, raised to 80 at the floor, and the third is read from the value: 93.34 and up upper, 86.67 to 93.33 middle, 86.66 and under lower.',
+          'A report has no relative value until the RS has written three on Marines of the grade, and an end of service, not observed, extended or academic report never has one. The value printed when a report was processed stays as printed; the cumulative value is worked from the RS Avg and RS High now on your MBS, and Readiness says when its working and your MBS differ.',
+          'The coming report shows what an average or a set of marks would be valued at in a profile, with the report counted in its own profile, and the lowest average for each third. The method cites MCO 1610.7B and the Marine Corps’ own training on it. Your MBS is the record.',
+          'Your reports are private. Only the ones you share are shown to a leader who can open your readiness, and each time they open them is recorded. Vantage never ranks or compares Marines by them.',
+        ],
+        also: ['fitrep', 'fitness report', 'mbs', 'master brief sheet', 'relative value', 'rv', 'fra', 'rs profile', 'reporting senior', 'third', 'projection', 'evidence strength'],
+      },
+      {
         id: 'provenance',
         q: 'What happens if a record changes after I cited it?',
         a: [

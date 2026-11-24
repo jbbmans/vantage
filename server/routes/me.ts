@@ -5,7 +5,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, HttpError } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor, orgOfUnit } from '../authz/scope.ts';
-import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField, formEdipiSchema } from '../../shared/schemas.ts';
+import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField, formEdipiSchema, fitnessReportSchema } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
@@ -29,6 +29,7 @@ import { buildPersonalExport, buildPersonalExportCsv, buildPersonalExportWorkboo
 import { cancelImport, commitImport, getImport, listImports, planImport, stageImport, undoImport } from '../services/recordImport.ts';
 import { CATEGORY_KEYS } from '../../shared/recordTransfer.ts';
 import { JEPES_READINESS_COLUMNS } from '../../shared/jepesEstimate.ts';
+import { listOwnReports, listSharedReports, removeReport, saveReport } from '../services/fitnessReports.ts';
 import { demoStatus } from '../services/demo.ts';
 import { listNotices, markAllRead } from '../services/notifications.ts';
 import { myRequests } from '../services/comments.ts';
@@ -343,6 +344,31 @@ meRouter.get('/readiness/:id', wrap((req, res) => {
     audit(ctx, { actor_id: req.user.id, action: 'view_readiness', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) });
   }
   res.json(ctx.db.prepare(READINESS_SELECT).get(id) || {});
+}));
+
+// The fitness reports a Marine received (ADR-0047): theirs to enter, change and remove, and private unless they share
+// one. A leader who may open the Marine's readiness reads the shared ones, and every such read is audited.
+meRouter.get('/fitness-reports', wrap((req, res) => res.json({ reports: listOwnReports(req.ctx, req.user.id) })));
+meRouter.post('/fitness-reports', wrap((req, res) => {
+  res.status(201).json(saveReport(req.ctx, req.user.id, null, parse(fitnessReportSchema, req.body)));
+}));
+meRouter.put('/fitness-reports/:id', wrap((req, res) => {
+  res.json(saveReport(req.ctx, req.user.id, String(req.params.id), parse(fitnessReportSchema, req.body)));
+}));
+meRouter.delete('/fitness-reports/:id', wrap((req, res) => {
+  removeReport(req.ctx, req.user.id, String(req.params.id));
+  res.json({ ok: true });
+}));
+meRouter.get('/readiness/:id/fitness-reports', wrap((req, res) => {
+  const ctx = req.ctx;
+  const id = String(req.params.id);
+  if (id === req.user.id) return res.json({ reports: listOwnReports(ctx, id), shared_only: false });
+  const scope = scopeFor(ctx, req.user, req);
+  const units = detailUnitsFor(ctx, scope, id);
+  if (!units.length) throw forbidden('You cannot open that readiness record.');
+  const reports = listSharedReports(ctx, id);
+  audit(ctx, { actor_id: req.user.id, action: 'view_fitness_reports', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], detail: `${reports.length} shared`, ip: clientIp(req) });
+  res.json({ reports, shared_only: true });
 }));
 
 // A person's notices, each checked again as it is read: one about a record they may no longer open is not shown or

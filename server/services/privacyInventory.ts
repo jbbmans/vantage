@@ -125,6 +125,17 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
   },
+  fitness_reports: {
+    purpose: 'The fitness reports a Marine received, as they copy them off their Master Brief Sheet, so they see each report’s average, its place in the reporting senior’s profile and its relative value, and project the next.',
+    authority: 'Voluntarily recorded by the person about their own reports.',
+    access: 'The person. A leader with member detail for their unit sees only the reports the person shares, and each look is recorded. Never listed, ranked or compared across Marines.',
+    columns: {
+      id: 'technical', user_id: 'identifier', period_from: 'employment', period_to: 'employment', occasion: 'employment', report_type: 'employment',
+      grade: 'employment', rs_label: 'identifier', marks: 'performance', rpt_avg: 'performance', rs_avg: 'performance', rs_high: 'performance',
+      reports_at_processing: 'performance', reports_cumulative: 'performance', rv_at_processing: 'performance', cum_rv_printed: 'performance',
+      shared: 'technical', version: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
   record_imports: {
     purpose: 'A person’s import of their own records: the file while they review it, what they chose, and what it did, so it can be undone.',
     authority: 'Voluntarily provided by the person about their own record.',

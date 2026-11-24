@@ -40,6 +40,8 @@ export const EXPORT_TABLES = [
   'case_guidance',
   // A person's own drafts and career plan move with the instance too, and the forms they saved to finish later (ADR-0030).
   'record_drafts', 'form_drafts', 'career_steps', 'career_profiles',
+  // The fitness reports each Marine entered (ADR-0047): theirs, so a moved instance keeps them.
+  'fitness_reports',
   // Where an entry was moved from, and what it said (ADR-0015): an undo still works on the host it moves to.
   'record_lineage',
   // What each person imported, and what each import wrote (ADR-0019): an undo still works on the host it moves to.
