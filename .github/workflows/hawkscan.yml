@@ -38,6 +38,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The pages the app serves, so the scan reads the headers and policy a browser gets.
+      - run: npm run build
       - name: Install the hawk CLI, checked against its published checksum
         run: |
           set -euo pipefail
@@ -95,6 +97,13 @@ jobs:
           jq -r '.errors[]? | "error (\(.category)): \(.message)"' "$RUNNER_TEMP/hawkscan.json" || true
           jq -r '.warnings[]? | "warning: \(.)"' "$RUNNER_TEMP/hawkscan.json" || true
           exit $code
+      - name: The findings in detail
+        if: always() && env.APP_ID != ''
+        run: |
+          hawk op scan get --app "$APP_ID" --detail full --format json 2>/dev/null | sed -n '/^[[:space:]]*[[{]/,$p' > "$RUNNER_TEMP/hawkscan-detail.json" || true
+          # The fields the platform returns, then each alert's evidence and the scanner's note on it.
+          jq -r '[paths(scalars) | map(if type == "number" then "[]" else . end) | join(".")] | unique | .[]' "$RUNNER_TEMP/hawkscan-detail.json" 2>/dev/null | head -n 120 || true
+          jq -c '[.. | objects | select(has("evidence") or has("otherInfo") or has("other_info")) | {name: (.name // .pluginName // .alertName // .findingName), uri: (.uri // .url // .path), evidence, note: (.otherInfo // .other_info)}] | unique_by(.name, .note) | .[:25][]' "$RUNNER_TEMP/hawkscan-detail.json" 2>/dev/null || true
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@v4
@@ -102,6 +111,7 @@ jobs:
           name: hawkscan-results
           path: |
             ${{ runner.temp }}/hawkscan.json
+            ${{ runner.temp }}/hawkscan-detail.json
             ${{ runner.temp }}/target.log
           if-no-files-found: ignore
           retention-days: 30

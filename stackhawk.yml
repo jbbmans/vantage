@@ -18,17 +18,16 @@ hawk:
   failureThreshold: high
   spider:
     maxDurationMinutes: 5
-# Every request carries the demo session's cookie and the header the app asks of its own client on a change.
+# Every request carries the demo session's cookie and the header the app asks of its own client on a change (the
+# replacer sets request headers by name).
 hawkAddOn:
   replacer:
     rules:
-      - matchType: REQ_HEADER
-        matchString: Cookie
+      - matchString: Cookie
         replacement: ${SESSION_COOKIE}
         isRegex: false
         replaceOnly: false
-      - matchType: REQ_HEADER
-        matchString: x-vantage-client
+      - matchString: x-vantage-client
         replacement: "1"
         isRegex: false
         replaceOnly: false
