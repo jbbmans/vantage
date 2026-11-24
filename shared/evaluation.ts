@@ -130,7 +130,15 @@ export function fitrepCoverage(activities: EvalActivity[] = []) {
   });
 }
 
-export interface Recommendation { id: string; title: string; detail: string; effort: 'trivial' | 'low' | 'medium' | 'high'; category: string; kind: 'data' | 'heuristic' | 'official'; priority: number }
+export interface Recommendation {
+  id: string; title: string; detail: string; effort: 'trivial' | 'low' | 'medium' | 'high'; category: string; kind: 'data' | 'heuristic' | 'official' | 'estimate'; priority: number;
+  /** On the JEPES track (ADR-0046): what the next step adds to the estimate, or null when no table Vantage holds says. */
+  points?: number | null;
+  /** What is left on the step's line, at most. */
+  upTo?: number;
+  /** The figures the next step sets, for the what-if. */
+  change?: Record<string, unknown>;
+}
 const rec = (o: Partial<Recommendation> & { id: string; title: string; detail: string; priority: number }): Recommendation => ({ effort: 'medium', category: 'FITREP', kind: 'heuristic', ...o });
 
 export function recommendFitrep(profile: Record<string, unknown> = {}, activityStats: { total?: number; withOutcome?: number } = {}, opts: { coverage?: ReturnType<typeof fitrepCoverage>; daysToEnd?: number | null } = {}): Recommendation[] {

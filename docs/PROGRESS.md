@@ -1,6 +1,30 @@
 # Progress
 
-_Updated 2026-11-23_
+_Updated 2026-11-24_
+
+## What changed (2026-11-24: better grading, part 2, the JEPES estimate)
+
+**Partial.** In review; HawkScan not run (no key); CI results not acted on.
+
+Round 2, from `eb0f5ca` ([ADR-0046](engineering/ADR/0046-jepes-estimate.md)). Migration `044_jepes_inputs`.
+
+- **Versioned tables** (`shared/versioned.ts`, `shared/jepesTables.ts`): MCO 1616.1 Appendix B's worksheet and
+  Tables 1 to 4, MARADMIN 367/21's Mental Agility (with 046/24) and 695/21's reserve affiliation bonus, each version
+  dated, cited to its page or paragraph and frozen; a released version's fingerprint is pinned, so a change is a new
+  version. The readings the sources leave open are notes on the versions and in the ADR, for review.
+- **A pure estimator** (`shared/jepesEstimate.ts`): the worksheet line by line for the Marine's grade, each line with
+  its value, reason and citation, blanks as ranges, no rank as both tables, nothing read from any other Marine.
+- **Readiness:** the estimate out of 1,000 with each pillar's lines and arithmetic and the tables it read; the figures
+  grouped by pillar with the new ones; a what-if that is never saved; levers ranked by the points the estimator says
+  each adds, blank figures first, then the coaching no table scores. "Vantage never computes a JEPES score" is gone;
+  "Your score of record is the one on MOL" stays.
+- **Leaders:** the same estimate on the Marine's page, read through the audited readiness route; nothing ranks or
+  lists Marines by it.
+- **Data:** thirteen nullable readiness columns with range checks, in the schema, import columns, personal export and
+  privacy inventory; a fixture frozen from `eb0f5ca` for schema 43; ledger entry 44.
+- **Tests:** `tests/server/jepesEstimate.test.ts` (fingerprints, versions, tables, a Lance Corporal and a Corporal
+  worked by hand, the order's Mental Agility before 367/21, rounding and caps, ranges, levers, route and audit),
+  `migrations.test.ts` (044), `databaseFixtures.test.ts`, `shared.test.ts`, and `59-jepes-estimate.spec.ts`.
 
 ## What changed (2026-11-23: better grading, part 1, one grade for the written input)
 

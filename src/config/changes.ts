@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-24',
+    title: 'A JEPES estimate on Readiness, from the order’s own tables',
+    items: [
+      'Readiness works the MCO 1616.1 worksheet on the figures you enter and shows your estimate out of 1,000, each pillar’s points, and for every line the value the table gives it and where the table is. A blank figure counts as its whole range until you enter it. Your score of record is still the one on MOL.',
+      'New figures to enter, as MOL and MCTIMS show them: your rifle score, whether you are a certified instructor at your belt, associate degrees, off-duty courses in service and in grade, MOS qualification points, the bonus schools and recruiting referrals who enlisted.',
+      'What if lets you try other figures and see what they do, without saving them. Where the points are ranks each next step by the points it adds, with Try it to see the step in the what-if.',
+      'A leader who can open your readiness sees the same estimate on your page, and each time they open it is recorded.',
+    ],
+  },
+  {
     date: '2026-11-23',
     title: 'One grade for your narrative, and Readiness reads your marks as entered',
     items: [

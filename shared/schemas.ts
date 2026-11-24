@@ -285,6 +285,20 @@ export const readinessSchema = z.object({
   cmd_mos: optNumber(0, 5),
   cmd_leadership: optNumber(0, 5),
   fitrep_period_end: optDate,
+  // What a JEPES estimate reads beyond the figures above (ADR-0046), each as MOL or MCTIMS shows it.
+  rifle_score: optNumber(0, 350, true),
+  mcmap_instructor: optFlag,
+  associate_degrees: optNumber(0, 9, true),
+  courses_in_service: optNumber(0, 99, true),
+  courses_in_grade: optNumber(0, 99, true),
+  mos_qual_points: optNumber(0, 100, true),
+  bonus_di_school: optFlag,
+  bonus_recruiter_school: optFlag,
+  bonus_msg_school: optFlag,
+  bonus_combat_instructor: optFlag,
+  bonus_security_forces: optFlag,
+  bonus_reserve_affiliation: optFlag,
+  recruiting_referrals: optNumber(0, 99, true),
 });
 
 export const usernameField = z.string().trim().min(3, '3 to 40 characters.').max(40, '3 to 40 characters.')

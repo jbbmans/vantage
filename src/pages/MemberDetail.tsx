@@ -21,7 +21,8 @@ import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import { DEFAULT_PERIOD, aggregateMetrics, formatDollars, formatNumber, rangeForPeriod, dayKey, NO_VALUE } from '../../shared/metrics';
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
-import { estimate } from '../../shared/jepes';
+import { estimateJepes } from '../../shared/jepesEstimate';
+import { EstimateBreakdown, EstimateSources, EstimateTotal } from '@/components/JepesEstimate';
 import { humanize, fullName, cn, useMediaQuery } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
 import { PersonnelPanel } from '@/components/PersonnelRecord';
@@ -70,7 +71,8 @@ export default function MemberDetail() {
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
   const memberParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
   const memberMetrics = useMetricsReport(memberParams, Boolean(data));
-  const est = useMemo(() => (readiness ? estimate(readiness) : null), [readiness]);
+  // The Marine's own figures worked on the published tables, as they see it (ADR-0046); opening them is audited.
+  const est = useMemo(() => (readiness && Object.keys(readiness).length ? estimateJepes(readiness) : null), [readiness]);
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0] ?? null;
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
@@ -153,7 +155,8 @@ export default function MemberDetail() {
       {tab === 'overview' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Panel title={`${trackMeta(track).areaLabel} balance`} subtitle={records.counts.activities > records.activities.length ? `From the newest ${records.activities.length} of ${records.counts.activities} shared activities` : undefined} className="lg:col-span-1"><ul className="space-y-1.5">{Object.entries(metrics.byArea).map(([area, b]) => <li key={area} className="flex items-center justify-between text-sm"><span className="text-ink">{mapAreaToTrack(area, track)}</span><span className="fig text-xs text-ink-3">{b.count}</span></li>)}{!Object.keys(metrics.byArea).length && <li className="text-sm text-ink-3">No shared entries.</li>}</ul></Panel>
-          <Panel title="Readiness" subtitle="As entered by the Marine">{!readiness || !Object.keys(readiness).length ? <p className="text-sm text-ink-3">Nothing entered.</p> : <dl className="grid grid-cols-2 gap-2 text-sm">{[['PFT', readiness.pft_score], ['CFT', readiness.cft_score], ['Rifle', readiness.rifle_qual], ['MCMAP', readiness.mcmap_belt], ['PME', readiness.pme_complete ? humanize(readiness.pme_complete) : null], ['CEUs', readiness.ceus]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className={cn('fig mt-0.5 font-semibold', v == null || v === '' ? 'text-ink-3' : 'text-ink')}>{v == null || v === '' ? NO_VALUE : String(v)}</dd></div>)}</dl>}{est && track === 'jepes' && <p className="mt-2 text-2xs text-ink-3">{Math.round(est.completeness * 100)}% of JEPES pillars have records.</p>}</Panel>
+          <Panel title="Readiness" subtitle="As entered by the Marine">{!readiness || !Object.keys(readiness).length ? <p className="text-sm text-ink-3">Nothing entered.</p> : <dl className="grid grid-cols-2 gap-2 text-sm">{[['PFT', readiness.pft_score], ['CFT', readiness.cft_score], ['Rifle', readiness.rifle_qual], ['MCMAP', readiness.mcmap_belt], ['PME', readiness.pme_complete ? humanize(readiness.pme_complete) : null], ['CEUs', readiness.ceus]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className={cn('fig mt-0.5 font-semibold', v == null || v === '' ? 'text-ink-3' : 'text-ink')}>{v == null || v === '' ? NO_VALUE : String(v)}</dd></div>)}</dl>}</Panel>
+          {est && track === 'jepes' && est.applies && <Panel title="JEPES estimate" subtitle="From the figures the Marine entered" className="lg:col-span-2"><EstimateTotal est={est} /><p className="mt-1 text-xs text-ink-2">The score of record is the one on MOL. This works the MCO 1616.1 worksheet on the Marine’s own figures, as they see it on Readiness.</p><div className="mt-3"><EstimateBreakdown est={est} /></div><div className="mt-3"><EstimateSources est={est} /></div></Panel>}
           <Panel title="Open work and goals">{records.tasks.length === 0 && records.goals.length === 0 ? <p className="text-sm text-ink-3">Nothing shared.</p> : <ul className="space-y-1.5 text-sm">{records.tasks.slice(0, 5).map((t) => <li key={t.id} className="flex justify-between gap-2"><span className="truncate text-ink">{t.title}</span><span className="text-xs text-ink-3"><DateText value={t.due_date} fallback="" /></span></li>)}{records.goals.filter((g) => g.status === 'active').slice(0, 4).map((g) => <li key={g.id} className="flex justify-between gap-2"><span className="truncate text-ink-2">Goal: {g.title}</span><span className="fig text-xs text-ink-3">{g.target_value ? `${Math.round((Number(g.current_value) / Number(g.target_value)) * 100)}%` : ''}</span></li>)}</ul>}</Panel>
           {canCounsel && identity?.instance.aiEnabled && <Panel className="lg:col-span-3" title="Counseling preparation" subtitle="AI drafts talking points from shared records; verify before the sit-down" action={<AiAction workflow="counseling_prep" input={{ user_id: id, unit_id: unitId, days: 90 }} label="Prepare" onResult={(output, meta) => setPrep({ output, meta })} />}>{prep ? <AiResult output={prep.output} meta={prep.meta} /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />Uses the last 90 days of shared entries, goals, and prior counselings.</p>}</Panel>}
         </div>
