@@ -244,6 +244,7 @@ function fromVantage(doc: Row, files: Map<string, Buffer> | null, kind: SourceKi
   counted('record_moves', 'Record moves', doc.record_moves, 'Imported records start their own history here.');
   counted('duty_reviews', 'Duty review history', doc.duty_reviews, 'A file never approves duty: imported duty comes in submitted for review, and the decisions made on it before stay in the export.');
   counted('counseling_revisions', 'Counseling amendment history', doc.counseling_revisions, 'An imported counseling comes in as your own notes, as it reads now; what it said before each amendment stays in the export.');
+  counted('fitness_reports', 'Fitness reports', doc.fitness_reports, 'They stay in the export. Add them on Readiness from your Master Brief Sheet, which is the record.');
 
   const attachments: AttachmentIn[] = [];
   for (const a of (Array.isArray(doc.attachments) ? doc.attachments : []) as Row[]) {

@@ -30,6 +30,12 @@
       "migration": "044_jepes_inputs",
       "recordedAt": "2026-11-24T01:19:16.706Z",
       "from": "build"
+    },
+    "45": {
+      "fingerprint": "8616d4e2ee16eb126ff2e7c239ea33d4eefe7cc6a387b94bb6295e090950ad41",
+      "migration": "045_fitness_reports",
+      "recordedAt": "2026-11-24T04:34:57.766Z",
+      "from": "build"
     }
   }
 }

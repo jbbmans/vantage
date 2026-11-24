@@ -183,6 +183,19 @@ export const passkeyDelete = (id: string) => api.del(`/me/passkeys/${encodeURICo
 export const readiness = () => api.get('/me/readiness');
 export const saveReadiness = (payload: unknown) => api.put('/me/readiness', payload);
 export const memberReadiness = (id: string) => api.get(`/me/readiness/${encodeURIComponent(id)}`);
+/** The fitness reports the person received (ADR-0047): theirs alone, a leader reads only the ones shared. */
+export interface FitnessReport {
+  id: string; user_id: string; version: number; created_at: string; updated_at: string;
+  period_from: string; period_to: string; occasion: string; report_type: string; grade: string; rs_label: string | null;
+  marks: string | null; rpt_avg: number | null; rs_avg: number | null; rs_high: number | null;
+  reports_at_processing: number | null; reports_cumulative: number | null; rv_at_processing: number | null; cum_rv_printed: number | null; shared: number;
+}
+export const fitnessReports = () => api.get<{ reports: FitnessReport[] }>('/me/fitness-reports');
+export const saveFitnessReport = (id: string | null, body: Record<string, unknown>) => (id
+  ? api.put<FitnessReport>(`/me/fitness-reports/${encodeURIComponent(id)}`, body)
+  : api.post<FitnessReport>('/me/fitness-reports', body));
+export const deleteFitnessReport = (id: string) => api.del(`/me/fitness-reports/${encodeURIComponent(id)}`);
+export const memberFitnessReports = (id: string) => api.get<{ reports: FitnessReport[]; shared_only: boolean }>(`/me/readiness/${encodeURIComponent(id)}/fitness-reports`);
 /**
  * Notices (ADR-0031), newest first, `limit` at a time; `cursor` is the previous page's `next_cursor`. Polled in the
  * background, so it is marked as such: a poll must not keep an idle session alive.

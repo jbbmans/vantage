@@ -15,7 +15,7 @@ import { counselorWritten } from '../../shared/counseling';
 import { Attachments } from '@/components/Attachments';
 import { CourseCodeText, TrainingCourse } from '@/components/Course';
 import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
-import { can, canCorrectDuty, keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
+import { can, canCorrectDuty, keys, useIdentity, useMemberFitnessReports, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
@@ -23,6 +23,7 @@ import { DEFAULT_PERIOD, aggregateMetrics, formatDollars, formatNumber, rangeFor
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
 import { estimateJepes } from '../../shared/jepesEstimate';
 import { EstimateBreakdown, EstimateSources, EstimateTotal } from '@/components/JepesEstimate';
+import { SharedFitnessReports } from '@/components/FitrepStanding';
 import { humanize, fullName, cn, useMediaQuery } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
 import { PersonnelPanel } from '@/components/PersonnelRecord';
@@ -73,6 +74,8 @@ export default function MemberDetail() {
   const memberMetrics = useMetricsReport(memberParams, Boolean(data));
   // The Marine's own figures worked on the published tables, as they see it (ADR-0046); opening them is audited.
   const est = useMemo(() => (readiness && Object.keys(readiness).length ? estimateJepes(readiness) : null), [readiness]);
+  // A Marine's fitness reports are read only when the overview shows them: each read by someone else is logged (ADR-0047).
+  const fitrep = useMemberFitnessReports(data && track === 'fitrep' && tab === 'overview' ? id : '');
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0] ?? null;
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
@@ -158,6 +161,7 @@ export default function MemberDetail() {
           <Panel title="Readiness" subtitle="As entered by the Marine">{!readiness || !Object.keys(readiness).length ? <p className="text-sm text-ink-3">Nothing entered.</p> : <dl className="grid grid-cols-2 gap-2 text-sm">{[['PFT', readiness.pft_score], ['CFT', readiness.cft_score], ['Rifle', readiness.rifle_qual], ['MCMAP', readiness.mcmap_belt], ['PME', readiness.pme_complete ? humanize(readiness.pme_complete) : null], ['CEUs', readiness.ceus]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className={cn('fig mt-0.5 font-semibold', v == null || v === '' ? 'text-ink-3' : 'text-ink')}>{v == null || v === '' ? NO_VALUE : String(v)}</dd></div>)}</dl>}</Panel>
           <Panel title="Open work and goals">{records.tasks.length === 0 && records.goals.length === 0 ? <p className="text-sm text-ink-3">Nothing shared.</p> : <ul className="space-y-1.5 text-sm">{records.tasks.slice(0, 5).map((t) => <li key={t.id} className="flex justify-between gap-2"><span className="truncate text-ink">{t.title}</span><span className="text-xs text-ink-3"><DateText value={t.due_date} fallback="" /></span></li>)}{records.goals.filter((g) => g.status === 'active').slice(0, 4).map((g) => <li key={g.id} className="flex justify-between gap-2"><span className="truncate text-ink-2">Goal: {g.title}</span><span className="fig text-xs text-ink-3">{g.target_value ? `${Math.round((Number(g.current_value) / Number(g.target_value)) * 100)}%` : ''}</span></li>)}</ul>}</Panel>
           {est && track === 'jepes' && est.applies && <Panel title="JEPES estimate" subtitle="From the figures the Marine entered" className="lg:col-span-3"><EstimateTotal est={est} /><p className="mt-1 text-xs text-ink-2">The score of record is the one on MOL. This works the MCO 1616.1 worksheet on the Marine’s own figures, as they see it on Readiness.</p><div className="mt-3"><EstimateBreakdown est={est} /></div><div className="mt-3"><EstimateSources est={est} /></div></Panel>}
+          {track === 'fitrep' && <Panel title={isSelf ? 'Your fitness reports' : 'Shared fitness reports'} subtitle={isSelf ? 'As you entered them on Readiness' : 'The reports the Marine chose to share'} className="lg:col-span-3">{fitrep.isPending ? <Skeleton className="h-16" /> : fitrep.isError ? <p role="alert" className="text-sm text-bad">{api.errorText(fitrep.error)}</p> : <SharedFitnessReports reports={fitrep.data?.reports ?? []} sharedOnly={fitrep.data?.shared_only ?? true} />}</Panel>}
           {canCounsel && identity?.instance.aiEnabled && <Panel className="lg:col-span-3" title="Counseling preparation" subtitle="AI drafts talking points from shared records; verify before the sit-down" action={<AiAction workflow="counseling_prep" input={{ user_id: id, unit_id: unitId, days: 90 }} label="Prepare" onResult={(output, meta) => setPrep({ output, meta })} />}>{prep ? <AiResult output={prep.output} meta={prep.meta} /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />Uses the last 90 days of shared entries, goals, and prior counselings.</p>}</Panel>}
         </div>
       )}

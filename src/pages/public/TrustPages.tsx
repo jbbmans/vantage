@@ -179,7 +179,7 @@ const PRIVACY: TrustPage = {
       body: <Facts items={[
         ['Tracking', 'No analytics, tag managers, advertising or social scripts, on this site or in the app'],
         ['Selling or sharing', 'Nothing about anyone is sold, rented or shared for marketing'],
-        ['Profiling', 'People are never ranked or labelled, and counts are not a measure of effort. The one score is the JEPES estimate, worked from the order’s tables on a Marine’s own figures and shown to them and to leaders who may open their readiness, never to compare Marines'],
+        ['Profiling', 'People are never ranked or labelled, and counts are not a measure of effort. The one score is the JEPES estimate, worked from the order’s tables on a Marine’s own figures and shown to them and to leaders who may open their readiness, never to compare Marines. A Marine’s fitness reports are worked the same way and shown only to them, and to those leaders only the ones they share'],
         ['Systems of record', 'Vantage never writes to an official Marine Corps or DoD system'],
       ]} />,
     },
@@ -188,7 +188,7 @@ const PRIVACY: TrustPage = {
       body: <>
         <ul>
           <li><strong>Your account:</strong> name, username, rank, MOS, units and roles, and an email address if you give one (for reset links and the weekly digest).</li>
-          <li><strong>Your work and record:</strong> what you log, the work you claim and act on, goals, training, awards, counselings, readiness dates and the files you attach.</li>
+          <li><strong>Your work and record:</strong> what you log, the work you claim and act on, goals, training, awards, counselings, readiness dates, the fitness reports you enter from your Master Brief Sheet, and the files you attach.</li>
           <li><strong>Security records:</strong> sign-in times, the address and browser of each session, and an audit log of access and changes.</li>
           <li><strong>Usage counts:</strong> which screens are opened and whether a save worked, so Vantage can see whether it is working. These never contain anything you typed, are reported only as counts across people, and are deleted after about thirteen months.</li>
         </ul>

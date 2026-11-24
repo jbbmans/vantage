@@ -2159,7 +2159,7 @@
       "title": "A dynamic application scan (HawkScan) of the candidate",
       "owner": "John: a StackHawk API key for this environment",
       "source": "Project setup",
-      "note": "HAWK_API_KEY is not set, so no scan has ever run."
+      "note": "At this gate HAWK_API_KEY was not set, so no scan had run. The key was added on 2026-11-24: the scan now runs on GitHub from every pushed branch (.github/workflows/hawkscan.yml), and the next gate reads the candidate’s result there."
     },
     {
       "id": "code-scanning-alerts",
@@ -2282,7 +2282,7 @@
       "required": false,
       "result": "not-run",
       "on": "none",
-      "detail": "No StackHawk API key in this environment, so it cannot run; listed under owners outside the code (dynamic-scan)."
+      "detail": "Not run for this gate’s candidate: there was no StackHawk API key then (dynamic-scan). Since 2026-11-24 it runs on GitHub from every pushed branch, and the next gate reads it there."
     },
     {
       "id": "ci",

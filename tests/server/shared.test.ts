@@ -178,9 +178,9 @@ test('evaluation track mapping and coaching', () => {
   assert.deepEqual(pme({ pme_complete: 'distance' }), ['Complete the resident PME for your grade']);
   assert.deepEqual(pme({ pme_complete: 'resident' }), []);
   assert.deepEqual(pme({ ceus: 12 }), ['Enter your PME status']);
-  const cov = E.fitrepCoverage([{ title: 'Mentored 3 Marines', eval_area: 'Leadership' }]);
-  assert.ok(cov.find((s) => s.key === 'Leadership')!.attributes.find((a) => a.attribute === 'Developing Subordinates')!.likely >= 1);
-  const frecs = E.recommendFitrep({ pft_score: 240 }, { total: 6, withOutcome: 2 }, { coverage: cov, daysToEnd: 10 });
+  const cov = E.fitrepEvidence([{ title: 'Mentored 3 Marines', eval_area: 'Leadership' }]);
+  assert.ok(cov.find((s) => s.key === 'Leadership')!.attributes.find((a) => a.attribute === 'Developing Subordinates')!.entries >= 1);
+  const frecs = E.recommendFitrep({ pft_score: 240 }, { total: 6, withOutcome: 2 }, { evidence: cov, daysToEnd: 10 });
   assert.equal(frecs[0].id, 'period-end');
 });
 

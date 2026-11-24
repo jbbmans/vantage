@@ -353,7 +353,7 @@ test('an entry is coached while it is typed with the reviewer’s own notes, mos
 });
 
 test('a FITREP entry is read for the attribute it evidences, and an untagged one sits in that attribute’s section', async () => {
-  const { narrativeConfig, fitrepCoverage } = await import('../../shared/evaluation.ts');
+  const { narrativeConfig, fitrepEvidence } = await import('../../shared/evaluation.ts');
   const cfg = narrativeConfig('fitrep');
   const fit = (title: string, more: Record<string, unknown> = {}) => readEntry({ id: 'x', title, ...more }, { names: cfg.names, areas: cfg.areas, track: 'fitrep' });
   const cases: Array<[string, Record<string, unknown>, string, string]> = [
@@ -383,13 +383,13 @@ test('a FITREP entry is read for the attribute it evidences, and an untagged one
   // On the JEPES lines, evaluation duty is leadership.
   assert.equal(read('Submitted JEPES command input for 5 section Marines').area, 'Leadership');
 
-  // Readiness counts what the writer reads, so the coverage and the draft agree.
-  const cov = fitrepCoverage([
+  // Readiness grades what the writer reads, so the evidence and the draft agree.
+  const cov = fitrepEvidence([
     { title: 'Checked on every section Marine during the barracks move', quantity: 6, unit_label: 'Marines' },
     { title: 'Submitted JEPES command input for 5 section Marines' },
     { title: 'Received a Navy and Marine Corps Achievement Medal for actions in a previous period' },
   ]);
-  const attr = (section: string, name: string) => cov.find((s) => s.section === section)!.attributes.find((a) => a.attribute === name)!.likely;
+  const attr = (section: string, name: string) => cov.find((s) => s.section === section)!.attributes.find((a) => a.attribute === name)!.entries;
   assert.equal(attr('F', 'Ensuring Well-Being of Subordinates'), 1);
   assert.equal(attr('H', 'Evaluations'), 1);
   assert.equal(cov.find((s) => s.section === 'H')!.entries, 1);

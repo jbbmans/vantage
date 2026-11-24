@@ -1218,6 +1218,37 @@ CREATE TABLE IF NOT EXISTS career_steps (
 );
 CREATE INDEX IF NOT EXISTS idx_career_steps_user ON career_steps(user_id, status, due_date);
 
+-- The fitness reports a Marine received, as they copy them off their Master Brief Sheet (ADR-0047, migration 045): the
+-- period, occasion and type, the grade, how the Marine names the reporting senior, the fourteen marks (A to G, or H where
+-- not observed) or the RPT Avg as printed, and the RS profile's figures. Vantage works each report's standing from these;
+-- nothing worked is stored. Private to the Marine; a leader who sees readiness reads the ones the Marine shares.
+CREATE TABLE IF NOT EXISTS fitness_reports (
+  id                    TEXT PRIMARY KEY,
+  user_id               TEXT NOT NULL REFERENCES users(id),
+  period_from           TEXT NOT NULL CHECK (period_from GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]'),
+  period_to             TEXT NOT NULL CHECK (period_to GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]' AND period_to >= period_from),
+  occasion              TEXT NOT NULL CHECK (occasion IN ('AN', 'CH', 'TR', 'CD', 'GC', 'DC', 'TD', 'FD', 'EN', 'CS', 'SA', 'RT')),
+  report_type           TEXT NOT NULL DEFAULT 'observed' CHECK (report_type IN ('observed', 'not_observed', 'extended', 'academic')),
+  grade                 TEXT NOT NULL CHECK (grade GLOB 'E-[5-9]' OR grade GLOB 'W-[1-5]' OR grade GLOB 'O-[1-9]' OR grade = 'O-10'),
+  rs_label              TEXT CHECK (rs_label IS NULL OR length(rs_label) <= 80),
+  marks                 TEXT CHECK (marks IS NULL OR (length(marks) = 14 AND marks NOT GLOB '*[^A-H]*')),
+  rpt_avg               REAL CHECK (rpt_avg IS NULL OR rpt_avg BETWEEN 1 AND 7),
+  rs_avg                REAL CHECK (rs_avg IS NULL OR rs_avg BETWEEN 1 AND 7),
+  rs_high               REAL CHECK (rs_high IS NULL OR rs_high BETWEEN 1 AND 7),
+  reports_at_processing INTEGER CHECK (reports_at_processing IS NULL OR reports_at_processing BETWEEN 1 AND 9999),
+  reports_cumulative    INTEGER CHECK (reports_cumulative IS NULL OR reports_cumulative BETWEEN 1 AND 9999),
+  rv_at_processing      REAL CHECK (rv_at_processing IS NULL OR rv_at_processing BETWEEN 80 AND 100),
+  cum_rv_printed        REAL CHECK (cum_rv_printed IS NULL OR cum_rv_printed BETWEEN 80 AND 100),
+  shared                INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1)),
+  version               INTEGER NOT NULL DEFAULT 1,
+  deleted_at            TEXT,
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL,
+  CHECK (rs_high IS NULL OR rs_avg IS NULL OR rs_high >= rs_avg),
+  CHECK (reports_cumulative IS NULL OR reports_at_processing IS NULL OR reports_cumulative >= reports_at_processing)
+);
+CREATE INDEX IF NOT EXISTS idx_fitness_reports_user ON fitness_reports(user_id, period_to);
+
 CREATE TABLE IF NOT EXISTS career_profiles (
   user_id            TEXT PRIMARY KEY REFERENCES users(id),
   military_goal      TEXT,

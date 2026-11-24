@@ -1,0 +1,40 @@
+# HawkScan against the demo build (scripts/scan-server.ts), run by .github/workflows/hawkscan.yml on every pushed
+# branch. The workflow starts the target, signs in to the demo, writes the route list (scripts/openapi.ts) and passes
+# the values below as environment variables; none of them is stored here.
+app:
+  applicationId: ${APP_ID}
+  env: ${APP_ENV:CI}
+  host: ${APP_HOST:http://localhost:8799}
+  openApiConf:
+    filePath: ${OPENAPI_FILE:.hawkscan/openapi.json}
+  # Requests that would end the scan's own session or replace its demo workspace.
+  excludePaths:
+    - "/api/auth/logout"
+    - "/api/demo/start"
+    - "/api/demo/persona"
+    - "/api/demo/reset"
+    - "/api/me/sessions.*"
+hawk:
+  failureThreshold: high
+  spider:
+    maxDurationMinutes: 5
+# Every request carries the demo session's cookie and the header the app asks of its own client on a change (the
+# replacer sets request headers by name).
+hawkAddOn:
+  replacer:
+    rules:
+      - matchString: Cookie
+        replacement: ${SESSION_COOKIE}
+        isRegex: false
+        replaceOnly: false
+      - matchString: x-vantage-client
+        replacement: "1"
+        isRegex: false
+        replaceOnly: false
+tags:
+  - name: _STACKHAWK_GIT_COMMIT_SHA
+    value: ${COMMIT_SHA:none}
+  - name: _STACKHAWK_GIT_BRANCH
+    value: ${BRANCH_NAME:none}
+  - name: _STACKHAWK_AGENT
+    value: ${HAWK_AGENT:none}

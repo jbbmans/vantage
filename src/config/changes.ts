@@ -8,6 +8,17 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-11-24',
+    title: 'Your fitness reports on Readiness, with where each one stands',
+    items: [
+      'Add the fitness reports you received, copied from your Master Brief Sheet: the period, occasion, grade, your RS, the fourteen marks or the RPT Avg, and the RS Avg, RS High and report counts. Readiness works each one the published way and shows its report average, where it sits against the RS Avg and RS High, its relative value and third, and the working. Your MBS is still the record.',
+      'A report whose RS has written fewer than three on the grade shows no relative value, and so does an end of service, not observed, extended or academic report.',
+      'The coming report shows what an average or a set of marks would be valued at in an RS profile, how your earlier reports there would move, and the lowest average for each third. Nothing there is saved.',
+      'Evidence strength replaces attribute coverage: each attribute your RS marks is Strong, Some, Thin or None, from how strong the entries in the coming report’s period are, with the strongest named.',
+      'Your reports are yours alone. Share one and a leader who can open your readiness sees it and its standing, and each time they open your reports it is recorded.',
+    ],
+  },
+  {
+    date: '2026-11-24',
     title: 'A JEPES estimate on Readiness, from the order’s own tables',
     items: [
       'Readiness works the MCO 1616.1 worksheet on the figures you enter and shows your estimate out of 1,000, each pillar’s points, and for every line the value the table gives it and where the table is. A blank figure counts as its whole range until you enter it, and with no rank set the lines that differ by grade are ranges too. Your score of record is still the one on MOL.',

@@ -12,6 +12,7 @@ import { cleanDescription, isEvidenceKind, type EvidenceKind } from './attachmen
 import { CEUS_MAX, COURSE_CODE_MAX, cleanCourseCode, courseKey } from './courses.ts';
 import { MUTABLE_GROUPS } from './notifications.ts';
 import { TUTORIAL_IDS } from './tutorials.ts';
+import { OCCASIONS, REPORT_TYPES } from './fitrepMethod.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -300,6 +301,36 @@ export const readinessSchema = z.object({
   bonus_reserve_affiliation: optFlag,
   recruiting_referrals: optNumber(0, 99, true),
 });
+
+/** A fitness report the Marine received, as their Master Brief Sheet prints it (ADR-0047). */
+export const fitnessReportSchema = z.object({
+  period_from: isoDate,
+  period_to: isoDate,
+  occasion: z.enum(OCCASIONS),
+  report_type: z.enum(REPORT_TYPES).default('observed'),
+  grade: z.string().regex(/^(E-[5-9]|W-[1-5]|O-([1-9]|10))$/, 'A grade from Sergeant (E-5) up, as E-5, W-2 or O-3.'),
+  rs_label: optText(80),
+  marks: z.string().trim().toUpperCase().nullish().or(z.literal('')).transform((v, ctx) => {
+    if (v === undefined) return undefined;
+    if (!v) return null;
+    if (!/^[A-H]{14}$/.test(v)) { ctx.addIssue({ code: 'custom', message: 'Fourteen marks, A to G, or H where not observed, in the order the form prints them.' }); return z.NEVER; }
+    return v;
+  }),
+  rpt_avg: optNumber(1, 7),
+  rs_avg: optNumber(1, 7),
+  rs_high: optNumber(1, 7),
+  reports_at_processing: optNumber(1, 9999, true),
+  reports_cumulative: optNumber(1, 9999, true),
+  rv_at_processing: optNumber(80, 100),
+  cum_rv_printed: optNumber(80, 100),
+  shared: optFlag,
+  version: z.number().int().positive().optional(),
+}).superRefine((v, ctx) => {
+  if (v.period_to < v.period_from) ctx.addIssue({ code: 'custom', path: ['period_to'], message: 'The period ends on or after it begins.' });
+  if (v.rs_avg != null && v.rs_high != null && v.rs_high < v.rs_avg) ctx.addIssue({ code: 'custom', path: ['rs_high'], message: 'The RS High is at or above the RS Avg.' });
+  if (v.reports_at_processing != null && v.reports_cumulative != null && v.reports_cumulative < v.reports_at_processing) ctx.addIssue({ code: 'custom', path: ['reports_cumulative'], message: 'The profile holds at least as many reports now as when this one was processed.' });
+});
+export type FitnessReportBody = z.infer<typeof fitnessReportSchema>;
 
 export const usernameField = z.string().trim().min(3, '3 to 40 characters.').max(40, '3 to 40 characters.')
   .regex(/^[a-zA-Z0-9._-]+$/, 'Letters, numbers, dot, dash and underscore only.').transform((v) => v.toLowerCase());

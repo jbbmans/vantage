@@ -84,6 +84,9 @@ export const keys = {
   /** Under ['notifications'], so whatever refreshes the notices refreshes the requests too. */
   myRequests: ['notifications', 'requests'] as const,
   readiness: ['readiness'] as const,
+  /** The person's own fitness reports, and a Marine's shared ones as a leader reads them (ADR-0047). */
+  fitnessReports: ['fitness-reports'] as const,
+  memberFitnessReports: (id: string) => ['fitness-reports', 'member', id] as const,
   aiStatus: ['ai-status'] as const,
   maradmins: ['maradmins'] as const,
   report: (params: Record<string, unknown>) => ['report', params] as const,
@@ -335,6 +338,8 @@ export const useReportDrafts = () => useInfiniteQuery({
 export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.reportDraft(id || ''), queryFn: () => api.reportDraft(id!), enabled: Boolean(id) });
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });
+export const useFitnessReports = (enabled = true) => useQuery({ queryKey: keys.fitnessReports, queryFn: api.fitnessReports, staleTime: 60_000, enabled });
+export const useMemberFitnessReports = (id: string) => useQuery({ queryKey: keys.memberFitnessReports(id), queryFn: () => api.memberFitnessReports(id), staleTime: 60_000, enabled: Boolean(id) });
 export const useAiStatus = () => useQuery({ queryKey: keys.aiStatus, queryFn: api.aiStatus, staleTime: 5 * 60_000 });
 /** The newest notices, for the bell and Today: polled each minute. The notifications page pages its own (ADR-0031). */
 export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.notifications, queryFn: () => api.notifications({ limit: 20 }), refetchInterval: 60_000, enabled });

@@ -177,9 +177,15 @@ test('the section lead’s FITREP input: a Section C draft by section, read the 
 
   await page.goto('/career/readiness');
   await expect(page.getByRole('heading', { name: 'FITREP readiness' })).toBeVisible();
-  const sectionH = page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'Section H: Fulfillment of Evaluation Responsibilities' }) });
+  const sectionH = page.getByRole('region', { name: 'Section H: Fulfillment of Evaluation Responsibilities' });
   await expect(sectionH).toContainText('1 entry');
-  await expect(sectionH).toContainText('Evaluations · 1');
+  // One entry at 4 of 5 strength points: some evidence, not yet strong.
+  await expect(sectionH.getByRole('listitem').filter({ hasText: 'Evaluations' })).toContainText('Some');
+  // The lead's three reports off their MBS; the newest RS has written two on SSgts, so it has no value yet.
+  const reports = page.locator('section', { has: page.getByRole('heading', { name: 'Your fitness reports', exact: true }) });
+  await expect(reports.getByRole('article')).toHaveCount(3);
+  await expect(reports).toContainText('The RS profile holds 2 reports on the grade.');
+  await expect(reports).toContainText('Upper third');
   // Distance-education PME is PME complete for grade; nothing tells this SSgt to go resident.
   await expect(page.getByText(/resident PME/i)).toHaveCount(0);
 });

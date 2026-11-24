@@ -62,7 +62,7 @@ export interface TransferCategory {
 }
 
 export const TRANSFER_CATEGORIES: readonly TransferCategory[] = [
-  { key: 'profile', label: 'Profile and readiness', hint: 'Name, rank, MOS, EAS, PFT and CFT, qualifications, education level, preferences.', table: null, imports: true },
+  { key: 'profile', label: 'Profile and readiness', hint: 'Name, rank, MOS, EAS, PFT and CFT, qualifications, education level, preferences. An export also carries the fitness reports you entered.', table: null, imports: true },
   { key: 'activities', label: 'Activities', hint: 'Work you did, every category.', table: 'activities', imports: true },
   { key: 'volunteer', label: 'Volunteer service', hint: 'Activities in Volunteer Service.', table: 'activities', filter: { column: 'category', value: 'Volunteer Service' }, partOf: 'activities', imports: true },
   { key: 'fm_work', label: 'Financial management work', hint: 'Activities drawn from the financial cases you worked.', table: 'activities', filter: { column: 'from_work' }, partOf: 'activities', imports: true },
