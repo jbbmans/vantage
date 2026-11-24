@@ -1,0 +1,107 @@
+name: HawkScan
+
+# A dynamic security scan of the API on every pushed branch: the demo build runs on the runner, signed in as its
+# demo Marine, and HawkScan works every route the app serves (stackhawk.yml).
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hawkscan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: HawkScan of the demo build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+      API_KEY: ${{ secrets.HAWK_API_KEY }}
+      APP_ENV: CI
+      APP_HOST: http://localhost:8799
+      VANTAGE_SCAN_PORT: '8799'
+      OPENAPI_FILE: .hawkscan/openapi.json
+      COMMIT_SHA: ${{ github.sha }}
+      BRANCH_NAME: ${{ github.ref_name }}
+      HAWK_AGENT: github-actions
+    steps:
+      - name: The scan key is set
+        run: |
+          if [ -z "$HAWK_API_KEY" ]; then echo "::error::The HAWK_API_KEY secret is not set for this repository."; exit 1; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install the hawk CLI, checked against its published checksum
+        run: |
+          set -euo pipefail
+          manifest="$(curl -fsSL https://download.stackhawk.com/hawkdocs/hawk.manifest.json)"
+          asset="$(jq -c '[.latest.assets[] | select(.asset.group == "linux-x64" and (.url | endswith("/hawk")))][0]' <<<"$manifest")"
+          url="$(jq -r '.url' <<<"$asset")"
+          sum="$(jq -r '.sha256 // .asset.sha256 // empty' <<<"$asset")"
+          if [ -z "$url" ] || [ "$url" = null ] || [ -z "$sum" ]; then echo "::error::The hawk manifest has no linux-x64 binary with a checksum."; jq 'del(.. | .signature?)' <<<"$asset"; exit 1; fi
+          curl -fsSL "$url" -o "$RUNNER_TEMP/hawk"
+          echo "$sum  $RUNNER_TEMP/hawk" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/hawk"
+          sudo mv "$RUNNER_TEMP/hawk" /usr/local/bin/hawk
+          hawk version
+      - name: Start the scan target
+        run: |
+          nohup node scripts/scan-server.ts > "$RUNNER_TEMP/target.log" 2>&1 &
+          for _ in $(seq 1 60); do curl -fsS "$APP_HOST/api/health" > /dev/null 2>&1 && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/target.log"; exit 1
+      - name: Sign in to the demo
+        run: |
+          set -euo pipefail
+          cookie="$(curl -fsS -D - -o /dev/null -X POST -H 'x-vantage-client: 1' -H 'content-type: application/json' -d '{}' "$APP_HOST/api/demo/start" \
+            | tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \(vantage_session=[^;]*\).*/\1/p' | head -n 1)"
+          if [ -z "$cookie" ]; then echo "::error::The demo did not return a session."; exit 1; fi
+          echo "::add-mask::$cookie"
+          echo "SESSION_COOKIE=$cookie" >> "$GITHUB_ENV"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "$APP_HOST/api/me")"
+          echo "Signed in: GET /api/me answers $code"
+          test "$code" = 200
+      - name: Write the route list
+        run: node scripts/openapi.ts "$OPENAPI_FILE"
+      - name: Find or create the StackHawk application
+        run: |
+          set -euo pipefail
+          json() { sed -n '/^[[:space:]]*[[{]/,$p'; }
+          pick() { jq -r '[.. | objects | select(has("name") and ((.name | ascii_downcase | gsub("_"; "-")) == "vantage")) | (.applicationId // .id // empty)][0] // empty'; }
+          id="$(hawk op app list --format json | json | pick || true)"
+          if [ -z "$id" ]; then
+            hawk create app --name vantage --env "$APP_ENV"
+            id="$(hawk op app list --format json | json | pick || true)"
+          fi
+          if [ -z "$id" ]; then echo "::error::No StackHawk application named vantage could be found or created."; exit 1; fi
+          echo "APP_ID=$id" >> "$GITHUB_ENV"
+          echo "StackHawk application $id"
+      - name: Check the configuration
+        run: timeout 120 hawk validate config stackhawk.yml
+      - name: Scan
+        run: |
+          set +e
+          hawk scan stackhawk.yml --json-output > "$RUNNER_TEMP/hawkscan.json"
+          code=$?
+          set -e
+          jq -r '"Scan \(.scan.id // "not started") \(.scan.status // "") in \(.scan.duration // 0)s: \(.thresholdResult // "UNKNOWN") at the high threshold. \(.scan.platformUrl // "")"' "$RUNNER_TEMP/hawkscan.json" || cat "$RUNNER_TEMP/hawkscan.json"
+          jq -r '.findings[]? | "\(.severity)\t\(.name)\t\(.cweId // "")\t\(.count) \(if .count == 1 then "instance" else "instances" end)", (.paths[]? | "\t\t\(.method) \(.path) (\(.status))")' "$RUNNER_TEMP/hawkscan.json" || true
+          jq -r '.errors[]? | "error (\(.category)): \(.message)"' "$RUNNER_TEMP/hawkscan.json" || true
+          jq -r '.warnings[]? | "warning: \(.)"' "$RUNNER_TEMP/hawkscan.json" || true
+          exit $code
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hawkscan-results
+          path: |
+            ${{ runner.temp }}/hawkscan.json
+            ${{ runner.temp }}/target.log
+          if-no-files-found: ignore
+          retention-days: 30

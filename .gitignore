@@ -17,3 +17,6 @@ data/
 
 # Screenshots and other local QA output. Inspected, never committed.
 artifacts/
+
+# The route list the security scan writes for itself (scripts/openapi.ts).
+.hawkscan/
