@@ -4,6 +4,7 @@ import { EVAL_REFERENCES } from './evalRefs.ts';
 import { readEntry, type EntryInput } from './writer/facts.ts';
 import { ATTRIBUTE_PROMPTS, FITREP_NAMES, type Attribute } from './writer/attributes.ts';
 import { missingText, strengthOf, STRENGTH_MAX } from './writer/strength.ts';
+import { inPeriod as covers } from './timeframe.ts';
 
 export type Track = 'jepes' | 'fitrep';
 
@@ -108,7 +109,7 @@ export function areaAmong(area: string | null | undefined, areas: readonly strin
   return 'Unassigned';
 }
 
-interface EvalActivity extends EntryInput { notes?: string | null }
+interface EvalActivity extends EntryInput { notes?: string | null; end_date?: string | null; ongoing?: number | boolean | null }
 
 /** How well an attribute is evidenced for the coming report, read from the strength of the entries that speak to it. */
 export type EvidenceLevel = 'strong' | 'some' | 'thin' | 'none';
@@ -143,9 +144,15 @@ export interface SectionEvidence {
 
 const levelOf = (entries: number, strong: number): EvidenceLevel => (strong >= 2 ? 'strong' : strong === 1 ? 'some' : entries > 0 ? 'thin' : 'none');
 
-/** The entries that fall in the coming report's period: on or after `from`, on or before `to`. An undated entry counts. */
-export function inPeriod<T extends { date?: string | null }>(activities: T[], window: { from?: string | null; to?: string | null } = {}): T[] {
-  return activities.filter((a) => !a.date || ((!window.from || a.date >= window.from) && (!window.to || a.date <= window.to)));
+/**
+ * The entries that fall in the coming report's period: any day of the entry in it, so work begun before the period and
+ * still going, or running across its start, counts (ADR-0018). An undated entry counts. A period end before its start
+ * says nothing about the end, so only the start holds then.
+ */
+export function inPeriod<T extends { date?: string | null; end_date?: string | null; ongoing?: number | boolean | null }>(activities: T[], window: { from?: string | null; to?: string | null } = {}): T[] {
+  const from = window.from || null;
+  const to = window.to && (!from || window.to >= from) ? window.to : null;
+  return activities.filter((a) => !a.date || covers('activities', a, from, to));
 }
 
 /**

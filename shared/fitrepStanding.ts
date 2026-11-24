@@ -61,11 +61,18 @@ export interface Valued { value: number; raised: boolean; capped: boolean; allSa
 /**
  * The relative value of an average against an RS Avg and RS High: the line through the high at 100 and the average at
  * 90, raised to the floor. Every report in a profile whose reports share one average is valued at the average's 90.
+ * Null when the figures give no line to read: an RS High below the RS Avg, or the two equal and the report below them
+ * (the printed figures are rounded, so the profile's spread is too small to show).
  */
-export function relativeValue(fra: number, rsAvg: number, rsHigh: number, method: FitrepMethod): Valued {
+export function relativeValue(fra: number, rsAvg: number, rsHigh: number, method: FitrepMethod): Valued | null {
   const { high, average, floor } = method.scale;
   const [f, a, h] = [round2(fra), round2(rsAvg), round2(rsHigh)];
-  if (h === a) return { value: average, raised: false, capped: false, allSame: true, arithmetic: `RS High equals RS Avg (${fig(a)}): every report in the profile is valued ${average}` };
+  if (h < a) return null;
+  if (h === a) {
+    if (f === a) return { value: average, raised: false, capped: false, allSame: true, arithmetic: `RS High equals RS Avg (${fig(a)}): every report in the profile is valued ${average}` };
+    if (f > h) return { value: high, raised: false, capped: true, allSame: false, arithmetic: `${fig(f)} is above the RS High (${fig(h)}), so ${high}` };
+    return null;
+  }
   const line = average + ((high - average) * (f - a)) / (h - a);
   const value = round2(Math.min(high, Math.max(floor, line)));
   const sign = f >= a ? '+' : MINUS;
@@ -120,7 +127,8 @@ export function standingOf(r: FitnessReportInput, method: FitrepMethod = methodO
   const size = num(r.reports_cumulative);
   const procSize = num(r.reports_at_processing);
   const printedProc = num(r.rv_at_processing);
-  const atProcessing = { value: printedProc, reason: noValueReason(r, method, procSize) };
+  // The profile at processing held no more reports than it does now, so a profile under the minimum now was under it then.
+  const atProcessing = { value: printedProc, reason: noValueReason(r, method, procSize ?? size) };
   if (atProcessing.reason) atProcessing.value = null;
   const base: ReportStanding = { id: r.id, average, rv: null, third: null, reason: null, position: null, atProcessing, check: null, notes };
 
@@ -134,9 +142,11 @@ export function standingOf(r: FitnessReportInput, method: FitrepMethod = methodO
   if (small) return { ...base, position, reason: small };
   if (round2(rsHigh) < round2(rsAvg)) return { ...base, position, reason: 'The RS High entered is below the RS Avg. Check both against your MBS.' };
   const rv = relativeValue(average.value, rsAvg, rsHigh, method);
+  if (!rv) return { ...base, position, reason: `The RS Avg and RS High entered are both ${fig(rsAvg)} and this report’s average is below them. The MBS rounds both to two places, so the spread of the profile is too small to work a value from. Your MBS prints the value.` };
   if (rv.capped) notes.push('This report’s average is above the RS High entered, which the profile’s high cannot be. Check the figures against your MBS.');
   const printedCum = num(r.cum_rv_printed);
-  const check = printedCum != null && Math.abs(round2(printedCum) - rv.value) > 0.01
+  // In whole hundredths, as both are printed: one hundredth apart is the last place, more is a different figure.
+  const check = printedCum != null && Math.abs(Math.round(printedCum * 100 + 1e-7) - Math.round(rv.value * 100 + 1e-7)) > 1
     ? `Your MBS prints ${fig(printedCum)}; these figures work to ${fig(rv.value)}. The MBS is the record: check the RS Avg and RS High you copied.`
     : null;
   return { ...base, position, rv, third: thirdOf(rv.value, method), check };
@@ -158,13 +168,18 @@ export interface ProjectionInput {
   rsAvg: number; rsHigh: number; reports: number;
   /** The coming report's average, or its marks. */
   fra?: number | null; marks?: string | null;
-  /** Marks the RS is expected to observe, for the totals the targets need. */
-  observed?: number;
+  /** Marks the RS is expected to observe, for the totals the targets need: 14 unless one is not observed. */
+  observed?: number | null;
   /** The Marine's earlier reports in this profile, to show where each moves. */
   earlier?: FitnessReportInput[];
 }
 
-export interface Target { key: 'middle' | 'average' | 'upper' | 'high'; label: string; rv: number; fra: number | null; total: number | null; reach: 'reached' | 'out_of_reach' | 'needs' }
+/**
+ * What the coming report needs for one value: `needs` the lowest average that reaches it, `reached` when the report as
+ * entered already does, `out_of_reach` when no average does, and `no_value` when the profile with the report in it is
+ * still under the minimum, so no average gives it a value yet.
+ */
+export interface Target { key: 'middle' | 'average' | 'upper' | 'high'; label: string; rv: number; fra: number | null; total: number | null; reach: 'reached' | 'out_of_reach' | 'needs' | 'no_value' }
 
 export interface Projection {
   fra: number | null;
@@ -191,7 +206,8 @@ export function project(input: ProjectionInput, method: FitrepMethod = methodOn(
   const avg = round2(input.rsAvg); const high = round2(input.rsHigh); const reports = Math.max(0, Math.floor(input.reports));
   const fromMarks = averageOfMarks(input.marks, method);
   const fra = fromMarks ? fromMarks.value : input.fra == null ? null : round2(input.fra);
-  const observed = fromMarks?.observed ?? input.observed ?? method.attributes;
+  const given = input.observed != null && Number.isInteger(input.observed) && input.observed >= 1 && input.observed <= method.attributes ? input.observed : null;
+  const observed = fromMarks?.observed ?? given ?? method.attributes;
   const before = { avg, high, reports };
   const valueIn = (f: number) => {
     const g = grown(avg, high, reports, f);
@@ -204,7 +220,7 @@ export function project(input: ProjectionInput, method: FitrepMethod = methodOn(
 
   const earlier = (input.earlier || []).map((r) => {
     const a = reportAverage(r, method)?.value;
-    const at = (p: { avg: number; high: number; reports: number } | null) => (a == null || !p || p.reports < method.minimumProfile || noValueReason(r, method, null) ? null : relativeValue(a, p.avg, p.high, method).value);
+    const at = (p: { avg: number; high: number; reports: number } | null) => (a == null || !p || p.reports < method.minimumProfile || noValueReason(r, method, null) ? null : relativeValue(a, p.avg, p.high, method)?.value ?? null);
     return { id: r.id, before: at(before), after: at(after) };
   });
 
@@ -219,7 +235,7 @@ export function project(input: ProjectionInput, method: FitrepMethod = methodOn(
   ];
   const tooFewForAny = reports + 1 < method.minimumProfile;
   const targets: Target[] = wanted.map((w) => {
-    if (tooFewForAny) return { ...w, fra: null, total: null, reach: 'out_of_reach' };
+    if (tooFewForAny) return { ...w, fra: null, total: null, reach: 'no_value' };
     const total = steps.find((t) => (valueIn(round2(t / observed))?.value ?? -1) >= w.rv);
     if (total === undefined) return { ...w, fra: null, total: null, reach: 'out_of_reach' };
     const f = round2(total / observed);

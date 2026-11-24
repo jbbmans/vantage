@@ -90,6 +90,17 @@ test('a Staff Sergeant adds their reports, sees where each stands and what the c
   await expect(coming).toContainText('Your report of 2026-06-01 to 2026-10-31: cumulative RV none now, 87.19 after.');
   await expect(coming).toContainText('The upper third (93.34)');
   await expect(coming).toContainText('Nothing here is saved.');
+  // Over the attributes the newest marks in the profile observed: 13, as Section H was not observed.
+  await expect(coming.getByRole('heading', { name: 'The average each needs, over 13 observed marks' })).toBeVisible();
+  await coming.getByLabel('Attributes observed', { exact: true }).fill('14');
+  await expect(coming.getByRole('heading', { name: 'The average each needs, over 14 observed marks' })).toBeVisible();
+  // A profile the coming report leaves under three: no average gives it a value yet, and the page says so.
+  await choose(page, 'RS profile', 'Enter the figures');
+  await coming.getByLabel('RS Avg', { exact: true }).fill('3.30');
+  await coming.getByLabel('RS High', { exact: true }).fill('3.85');
+  await coming.getByLabel('Reports the RS has written on the grade', { exact: true }).fill('0');
+  await expect(answer).toContainText('With this report the RS will have written 1 on the grade.');
+  await expect(coming.getByText('No RV yet')).toHaveCount(4);
 
   // Evidence strength, by section and attribute, for the coming report's period.
   const evidence = panel(page, 'Evidence strength');
@@ -100,6 +111,14 @@ test('a Staff Sergeant adds their reports, sees where each stands and what the c
   await expect(evidence).toContainText('Nothing logged in the period speaks to it.');
 
   await axe(page, 'main');
+
+  // Removed, a report's buttons go with it, and focus moves to Add a report.
+  await addReport(page, { from: '2026-11-01', to: '2026-11-20', occasion: 'AN, Annual' }).then((d) => d.getByRole('button', { name: 'Add report' }).click());
+  await expect(reports.getByRole('article')).toHaveCount(3);
+  await reports.getByRole('button', { name: 'Remove the report of 2026-11-01 to 2026-11-20' }).click();
+  await page.getByRole('dialog', { name: 'Remove this report?' }).getByRole('button', { name: 'Remove' }).click();
+  await expect(reports.getByRole('article')).toHaveCount(2);
+  await expect(reports.getByRole('button', { name: 'Add a report' })).toBeFocused();
 
   // Shared, the leader who sees this Marine's readiness reads that one report and its standing; the other stays private.
   await alvarez.getByRole('button', { name: 'Share the report of 2025-06-01 to 2026-05-31' }).click();
@@ -118,6 +137,7 @@ test('a Staff Sergeant adds their reports, sees where each stands and what the c
   await page.getByRole('tab', { name: 'Overview' }).click();
   const theirs = panel(page, 'Shared fitness reports');
   await expect(theirs).toContainText('The record is the Master Brief Sheet.');
+  await expect(theirs.getByLabel('Shared reports by third')).toContainText('Middle third1');
   await expect(theirs.getByRole('article')).toHaveCount(1);
   await expect(theirs.getByRole('article', { name: 'Fitness report 2025-06-01 to 2026-05-31' })).toContainText('92.91');
   await expect(theirs).not.toContainText('Maj Okafor');

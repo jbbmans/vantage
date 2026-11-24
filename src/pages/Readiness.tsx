@@ -8,7 +8,7 @@ import { keys, useActivities, useFitnessReports, useIdentity, useReadiness, useT
 import * as api from '@/lib/api';
 import { ARQ_BANDS, recommend, fitnessClass, EFFORT_ORDER } from '../../shared/jepes';
 import { estimateJepes, bonusItems, JEPES_READINESS_COLUMNS, MARK_NAMES, type JepesEstimate } from '../../shared/jepesEstimate';
-import { fitrepEvidence, recommendFitrep, daysUntil, annualEnd, EVIDENCE_LEVELS, FITREP_SECTIONS, STRONG_ENTRY, type Recommendation } from '../../shared/evaluation';
+import { fitrepEvidence, inPeriod, recommendFitrep, daysUntil, annualEnd, EVIDENCE_LEVELS, FITREP_SECTIONS, STRONG_ENTRY, type Recommendation } from '../../shared/evaluation';
 import { STRENGTH_MAX } from '../../shared/writer/strength';
 import { EVAL_REFERENCES, EVAL_VERIFIED, REC_KINDS } from '../../shared/evalRefs';
 import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/constants';
@@ -82,11 +82,16 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const reports = useMemo(() => fitness.data?.reports ?? [], [fitness.data]);
   // The coming report's period: from the day after the last report entered to the period end on the page.
   const lastEnd = lastPeriodEnd(reports);
-  const period = useMemo(() => ({ from: lastEnd ? dayAfter(lastEnd) : null, to: form.fitrep_period_end || null }), [lastEnd, form.fitrep_period_end]);
+  const periodFrom = lastEnd ? dayAfter(lastEnd) : null;
+  // A period end on or before the last report entered is the last one's, not the coming one's: the period runs on.
+  const staleEnd = Boolean(periodFrom && form.fitrep_period_end && form.fitrep_period_end < periodFrom);
+  const period = useMemo(() => ({ from: periodFrom, to: staleEnd ? null : form.fitrep_period_end || null }), [periodFrom, staleEnd, form.fitrep_period_end]);
   const evidence = useMemo(() => fitrepEvidence(mine, period), [mine, period]);
+  // On the FITREP track the coaching counts the coming report's entries, as evidence strength does.
+  const fitrepStats = useMemo(() => { const inIt = inPeriod(mine, period); return { total: inIt.length, withOutcome: inIt.filter((a) => a.result).length }; }, [mine, period]);
   const daysToEnd = daysUntil(form.fitrep_period_end || null);
   const annual = useMemo(() => annualEnd(String(readiness?.rank_grade || '')), [readiness?.rank_grade]);
-  const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, stats, { evidence, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, evidence, daysToEnd]);
+  const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, fitrepStats, { evidence, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, fitrepStats, evidence, daysToEnd]);
   const ref = EVAL_REFERENCES[track];
   const [effortSort, setEffortSort] = useState(false);
   const byEffort = (list: Recommendation[]) => (effortSort ? [...list].sort((a, b) => EFFORT_ORDER[a.effort] - EFFORT_ORDER[b.effort] || b.priority - a.priority) : list);
@@ -163,7 +168,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
             <Panel title="The coming report" subtitle="Where it would sit in an RS profile, and the average each third needs">
               <ComingReport reports={reports} />
             </Panel>
-            <Panel title="Evidence strength" subtitle={period.from || period.to ? `For the coming report: entries ${period.from ? `from ${period.from} ` : ''}${period.to ? `to ${period.to}` : 'on'}` : 'Every entry, until you add your last report or the period end'}>
+            <Panel title="Evidence strength" subtitle={period.from || period.to ? `For the coming report: entries ${period.from ? `from ${period.from} ` : ''}${period.to ? `to ${period.to}` : 'on'}${staleEnd ? `. The period end above is on or before your last report: set the coming one's.` : ''}` : 'Every entry, until you add your last report or the period end'}>
               <div className="space-y-3">{evidence.map((s) => (
                 <section key={s.key} aria-labelledby={`evidence-${s.section}`} className="rounded-lg border border-line p-3">
                   <div className="flex items-baseline justify-between gap-2"><h3 id={`evidence-${s.section}`} className="text-md font-semibold text-ink">Section {s.section}: {s.title}</h3><span className="fig text-xs text-ink-3">{s.entries} {s.entries === 1 ? 'entry' : 'entries'}{s.tagged ? `, ${s.tagged} tagged here` : ''}</span></div>

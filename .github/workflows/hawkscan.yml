@@ -18,9 +18,8 @@ jobs:
     name: HawkScan of the demo build
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # The scan key is given only to the steps that run hawk: never to npm, the build or the app under scan.
     env:
-      HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
-      API_KEY: ${{ secrets.HAWK_API_KEY }}
       APP_ENV: CI
       APP_HOST: http://localhost:8799
       VANTAGE_SCAN_PORT: '8799'
@@ -30,9 +29,13 @@ jobs:
       HAWK_AGENT: github-actions
     steps:
       - name: The scan key is set
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
         run: |
           if [ -z "$HAWK_API_KEY" ]; then echo "::error::The HAWK_API_KEY secret is not set for this repository."; exit 1; fi
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -72,6 +75,9 @@ jobs:
       - name: Write the route list
         run: node scripts/openapi.ts "$OPENAPI_FILE"
       - name: Find or create the StackHawk application
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          API_KEY: ${{ secrets.HAWK_API_KEY }}
         run: |
           set -euo pipefail
           json() { sed -n '/^[[:space:]]*[[{]/,$p'; }
@@ -85,8 +91,14 @@ jobs:
           echo "APP_ID=$id" >> "$GITHUB_ENV"
           echo "StackHawk application $id"
       - name: Check the configuration
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          API_KEY: ${{ secrets.HAWK_API_KEY }}
         run: timeout 120 hawk validate config stackhawk.yml
       - name: Scan
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          API_KEY: ${{ secrets.HAWK_API_KEY }}
         run: |
           set +e
           hawk scan stackhawk.yml --json-output > "$RUNNER_TEMP/hawkscan.json"
@@ -99,6 +111,9 @@ jobs:
           exit $code
       - name: The findings in detail
         if: always() && env.APP_ID != ''
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          API_KEY: ${{ secrets.HAWK_API_KEY }}
         run: |
           hawk op scan get --app "$APP_ID" --detail full --format json 2>/dev/null | sed -n '/^[[:space:]]*[[{]/,$p' > "$RUNNER_TEMP/hawkscan-detail.json" || true
           # The fields the platform returns, then each alert's evidence and the scanner's note on it.

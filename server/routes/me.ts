@@ -29,7 +29,7 @@ import { buildPersonalExport, buildPersonalExportCsv, buildPersonalExportWorkboo
 import { cancelImport, commitImport, getImport, listImports, planImport, stageImport, undoImport } from '../services/recordImport.ts';
 import { CATEGORY_KEYS } from '../../shared/recordTransfer.ts';
 import { JEPES_READINESS_COLUMNS } from '../../shared/jepesEstimate.ts';
-import { listOwnReports, listSharedReports, removeReport, saveReport } from '../services/fitnessReports.ts';
+import { listOwnReports, listSharedReports, removeReport, saveReport, updateReport } from '../services/fitnessReports.ts';
 import { demoStatus } from '../services/demo.ts';
 import { listNotices, markAllRead } from '../services/notifications.ts';
 import { myRequests } from '../services/comments.ts';
@@ -353,7 +353,7 @@ meRouter.post('/fitness-reports', wrap((req, res) => {
   res.status(201).json(saveReport(req.ctx, req.user.id, null, parse(fitnessReportSchema, req.body)));
 }));
 meRouter.put('/fitness-reports/:id', wrap((req, res) => {
-  res.json(saveReport(req.ctx, req.user.id, String(req.params.id), parse(fitnessReportSchema, req.body)));
+  res.json(updateReport(req.ctx, req.user.id, String(req.params.id), req.body));
 }));
 meRouter.delete('/fitness-reports/:id', wrap((req, res) => {
   removeReport(req.ctx, req.user.id, String(req.params.id));

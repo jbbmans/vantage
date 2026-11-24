@@ -37,12 +37,12 @@ export function useStandings(reports: api.FitnessReport[] = []) {
 }
 
 /** How many reports sit in each third, as the Master Brief Sheet sums them. */
-export function ThirdsSummary({ standings }: { standings: ReportStanding[] }) {
+export function ThirdsSummary({ standings, label = 'Your reports by third' }: { standings: ReportStanding[]; label?: string }) {
   const method = methodOn(standingDay()).data;
   const s = summarize(standings);
   const parts: Array<[string, number]> = [...method.thirds.map((t) => [t.label, s.counts[t.key]] as [string, number]), ['No relative value', s.counts.none]];
   return (
-    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Your reports by third">
+    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label={label}>
       {parts.map(([label, n]) => (
         <div key={label} className="rounded-md border border-line px-3 py-2">
           <dt className="eyebrow">{label}</dt>
@@ -117,9 +117,24 @@ const bodyOf = (d: Draft, version?: number) => ({
   shared: d.shared, ...(version ? { version } : {}),
 });
 
+/**
+ * The saved row goes into the list at once, so a change made before the list is read again carries the new version and
+ * is not refused as a change from another window. A refusal for a stale version reads the list again.
+ */
+function useKeepReport() {
+  const qc = useQueryClient();
+  return {
+    saved: (row: api.FitnessReport) => {
+      qc.setQueryData<{ reports: api.FitnessReport[] }>(keys.fitnessReports, (old) => (old && old.reports.some((x) => x.id === row.id) ? { ...old, reports: old.reports.map((x) => (x.id === row.id ? row : x)) } : old));
+      return qc.invalidateQueries({ queryKey: keys.fitnessReports });
+    },
+    refused: (e: unknown) => { if (e instanceof api.ApiError && e.status === 409) void qc.invalidateQueries({ queryKey: keys.fitnessReports }); },
+  };
+}
+
 /** Add or correct a report the Marine received, copied from their Master Brief Sheet. */
 export function FitnessReportDialog({ open, onOpenChange, report, grade }: { open: boolean; onOpenChange: (o: boolean) => void; report: api.FitnessReport | null; grade: string | null }) {
-  const qc = useQueryClient();
+  const keep = useKeepReport();
   const toast = useToast();
   const [d, setD] = useState<Draft>(() => draftOf(report, grade));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -133,8 +148,9 @@ export function FitnessReportDialog({ open, onOpenChange, report, grade }: { ope
   };
   const save = useMutation({
     mutationFn: () => api.saveFitnessReport(report?.id ?? null, bodyOf(d, report?.version)),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: keys.fitnessReports }); toast.success(report ? 'Report saved.' : 'Report added.'); onOpenChange(false); },
+    onSuccess: (row) => { void keep.saved(row); toast.success(report ? 'Report saved.' : 'Report added.'); onOpenChange(false); },
     onError: (e) => {
+      keep.refused(e);
       const fieldErrors = e instanceof api.ApiError ? e.fieldErrors || {} : {};
       setErrors(fieldErrors);
       setProblem({ text: api.errorText(e), atField: Object.keys(fieldErrors).length > 0 });
@@ -194,25 +210,28 @@ export function FitnessReportDialog({ open, onOpenChange, report, grade }: { ope
 /** The Marine's own reports: add, correct, share and remove them. */
 export function MyFitnessReports({ reports, grade }: { reports: api.FitnessReport[]; grade: string | null }) {
   const qc = useQueryClient();
+  const keep = useKeepReport();
   const toast = useToast();
+  // A removed report's buttons go with it, so focus moves to the one control that stays.
+  const addButton = useRef<HTMLButtonElement | null>(null);
   const rows = useStandings(reports);
   const [editing, setEditing] = useState<{ report: api.FitnessReport | null; n: number } | null>(null);
   const [removing, setRemoving] = useState<api.FitnessReport | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteFitnessReport(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: keys.fitnessReports }); toast.success('Report removed.'); setRemoving(null); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: keys.fitnessReports }); toast.success('Report removed.'); setRemoving(null); requestAnimationFrame(() => addButton.current?.focus()); },
     onError: (e) => toast.error(api.errorText(e)),
   });
   const share = useMutation({
     mutationFn: (r: api.FitnessReport) => api.saveFitnessReport(r.id, bodyOf({ ...draftOf(r, null), shared: !r.shared }, r.version)),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: keys.fitnessReports }); toast.success(r.shared ? 'Shared with the leaders who see your readiness.' : 'No longer shared.'); },
-    onError: (e) => toast.error(api.errorText(e)),
+    onSuccess: (r) => { void keep.saved(r); toast.success(r.shared ? 'Shared with the leaders who see your readiness.' : 'No longer shared.'); },
+    onError: (e) => { keep.refused(e); toast.error(api.errorText(e)); },
   });
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-ink-2">The record is your Master Brief Sheet. These are its sums, worked the published way with the working shown.</p>
-        <Button size="sm" variant="soft" onClick={() => setEditing({ report: null, n: Date.now() })}><Plus className="h-3.5 w-3.5" aria-hidden />Add a report</Button>
+        <Button ref={addButton} size="sm" variant="soft" onClick={() => setEditing({ report: null, n: Date.now() })}><Plus className="h-3.5 w-3.5" aria-hidden />Add a report</Button>
       </div>
       {rows.length > 0 && <ThirdsSummary standings={rows.map((x) => x.standing)} />}
       {rows.length ? rows.map(({ report: r, standing }) => (
@@ -231,20 +250,27 @@ export function MyFitnessReports({ reports, grade }: { reports: api.FitnessRepor
   );
 }
 
-interface Profile { key: string; label: string; grade: string; avg: number; high: number; reports: number; earlier: api.FitnessReport[] }
+interface Profile { key: string; label: string; grade: string; avg: number; high: number; reports: number; observed: number | null; earlier: api.FitnessReport[] }
 
-/** Each profile the Marine has a report in, with its figures from the latest of those reports. */
+/**
+ * Each profile the Marine has a report in: every one of their reports in it, the profile's figures from the newest
+ * report that carries them, and the marks observed on the newest report whose marks were entered.
+ */
 function profilesOf(reports: api.FitnessReport[]): Profile[] {
-  const out = new Map<string, Profile>();
-  for (const r of [...reports].sort((a, b) => (a.period_to < b.period_to ? 1 : -1))) {
+  const groups = new Map<string, api.FitnessReport[]>();
+  for (const r of [...reports].sort((a, b) => (a.period_to < b.period_to ? 1 : a.period_to > b.period_to ? -1 : 0))) {
     const key = profileKey(r);
     if (!key) continue;
-    const p = out.get(key);
-    if (p) { p.earlier.push(r); continue; }
-    if (r.rs_avg == null || r.rs_high == null || r.reports_cumulative == null) continue;
-    out.set(key, { key, label: r.rs_label!, grade: r.grade, avg: r.rs_avg, high: r.rs_high, reports: r.reports_cumulative, earlier: [r] });
+    groups.set(key, [...(groups.get(key) ?? []), r]);
   }
-  return [...out.values()];
+  const out: Profile[] = [];
+  for (const [key, list] of groups) {
+    const withFigures = list.find((r) => r.rs_avg != null && r.rs_high != null && r.reports_cumulative != null);
+    if (!withFigures) continue;
+    const marked = list.map((r) => averageOfMarks(r.marks)).find(Boolean);
+    out.push({ key, label: withFigures.rs_label!, grade: withFigures.grade, avg: withFigures.rs_avg!, high: withFigures.rs_high!, reports: withFigures.reports_cumulative!, observed: marked?.observed ?? null, earlier: list });
+  }
+  return out;
 }
 
 const ENTER = '__enter';
@@ -257,7 +283,7 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
   const [choice, setChoice] = useState('');
   const chosen = choice === ENTER ? null : profiles.find((p) => p.key === choice) ?? profiles[0] ?? null;
   const [typed, setTyped] = useState({ avg: '', high: '', reports: '' });
-  const [expect, setExpect] = useState({ fra: '', marks: '' });
+  const [expect, setExpect] = useState({ fra: '', marks: '', observed: '' });
   const method = methodOn(standingDay()).data;
   const base = chosen
     ? { rsAvg: chosen.avg, rsHigh: chosen.high, reports: chosen.reports }
@@ -265,7 +291,10 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
   const ready = inRange(base.rsAvg) && inRange(base.rsHigh) && base.rsHigh >= base.rsAvg && base.reports != null && Number.isInteger(base.reports) && base.reports >= 0;
   const marks = /^[A-H]{14}$/i.test(expect.marks.trim()) ? expect.marks.trim().toUpperCase() : null;
   const fra = numberOf(expect.fra);
-  const p = ready ? project({ rsAvg: base.rsAvg!, rsHigh: base.rsHigh!, reports: base.reports!, fra: inRange(fra) ? fra : null, marks, earlier: chosen?.earlier ?? [] }, method) : null;
+  // Fourteen attributes unless one is not observed: the newest marks entered in the profile say how many were.
+  const observedDefault = chosen?.observed ?? method.attributes;
+  const observed = numberOf(expect.observed) ?? observedDefault;
+  const p = ready ? project({ rsAvg: base.rsAvg!, rsHigh: base.rsHigh!, reports: base.reports!, fra: inRange(fra) ? fra : null, marks, observed, earlier: chosen?.earlier ?? [] }, method) : null;
   const byId = new Map(reports.map((r) => [r.id, r]));
   const moved = p ? p.earlier.filter((e) => e.after != null && e.id && byId.has(e.id)) : [];
   return (
@@ -281,7 +310,8 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
           <Field label="Reports the RS has written on the grade" hint="0 or more"><NumberInput value={typed.reports} onChange={(e) => setTyped((f) => ({ ...f, reports: e.target.value }))} /></Field>
         </>}
         <Field label="Average you expect" hint="1.00 to 7.00"><NumberInput value={expect.fra} onChange={(e) => setExpect((x) => ({ ...x, fra: e.target.value }))} /></Field>
-        <Field label="Or the marks you expect" hint="Fourteen letters, A to H" className="sm:col-span-2"><Input value={expect.marks} onChange={(e) => setExpect((x) => ({ ...x, marks: e.target.value }))} /></Field>
+        <Field label="Or the marks you expect" hint="Fourteen letters, A to H"><Input value={expect.marks} onChange={(e) => setExpect((x) => ({ ...x, marks: e.target.value }))} /></Field>
+        <Field label="Attributes observed" hint={`1 to ${method.attributes}; ${observedDefault} unless you change it`}><NumberInput value={expect.observed} placeholder={String(observedDefault)} onChange={(e) => setExpect((x) => ({ ...x, observed: e.target.value }))} /></Field>
       </div>
       <p aria-live="polite" className="rounded-md bg-surface-2 px-3 py-2 text-sm text-ink">
         {!p ? 'Choose a profile, or enter the RS Avg, RS High and how many reports the RS has written on the grade.'
@@ -300,7 +330,7 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
           <ul className="space-y-1">{p.targets.map((t) => (
             <li key={t.key} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
               <span className="text-ink-2">{t.label.charAt(0).toUpperCase() + t.label.slice(1)}</span>
-              <span className="fig text-ink">{t.fra == null ? 'Out of reach' : <>{fig(t.fra)} <span className="text-2xs text-ink-3">({t.total} over {p.observed})</span></>}{t.reach === 'reached' && <Badge tone="good" className="ml-1.5">Reached</Badge>}</span>
+              <span className="fig text-ink">{t.reach === 'no_value' ? 'No RV yet' : t.fra == null ? 'Out of reach' : <>{fig(t.fra)} <span className="text-2xs text-ink-3">({t.total} over {p.observed})</span></>}{t.reach === 'reached' && <Badge tone="good" className="ml-1.5">Reached</Badge>}</span>
             </li>
           ))}</ul>
         </div>
@@ -317,7 +347,7 @@ export function SharedFitnessReports({ reports, sharedOnly }: { reports: api.Fit
     <div className="space-y-3">
       <p className="text-xs text-ink-2">The record is the Master Brief Sheet. These are the figures the Marine copied from it, worked the published way.{sharedOnly ? ' Only the reports the Marine shares are shown, and each view is logged.' : ''}</p>
       {rows.length ? <>
-        <ThirdsSummary standings={rows.map((x) => x.standing)} />
+        <ThirdsSummary standings={rows.map((x) => x.standing)} label="Shared reports by third" />
         {rows.map(({ report, standing }) => <ReportCard key={report.id} report={report} standing={standing} />)}
       </> : <p className="text-sm text-ink-3">{sharedOnly ? 'The Marine shares no fitness reports.' : 'No reports entered.'}</p>}
       <FitrepMethodSources />

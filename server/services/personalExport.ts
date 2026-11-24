@@ -1,5 +1,5 @@
 import type { AppContext } from '../context.ts';
-import { reportsForExport } from './fitnessReports.ts';
+import { FITNESS_REPORT_COLUMNS, reportsForExport } from './fitnessReports.ts';
 import { RECORD_TABLE_NAMES, getRecord, hydrate, withGoalProgress } from './records.ts';
 import { withCourseDetail } from './courses.ts';
 import { scopeFor } from '../authz/scope.ts';
@@ -207,7 +207,7 @@ function narrowExport<T extends Record<string, unknown> & { records: Record<stri
     // So does a counseling's amendment history (ADR-0027).
     ...(records.counselings ? { counseling_revisions: full.counseling_revisions.filter((v) => kept.has(`counselings:${String(v.counseling_id)}`)) } : {}),
   };
-  out.counts = { ...Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length])), attachments: attachments.length, ...(career ? { career_steps: career.steps.length } : {}) };
+  out.counts = { ...Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length])), attachments: attachments.length, ...(career ? { career_steps: career.steps.length } : {}), ...(sel.profile ? { fitness_reports: full.fitness_reports.length } : {}) };
   return out as T;
 }
 
@@ -308,6 +308,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
     // The import's own columns; a bare "Unit" is an import alias for the action unit, so the unit is "Unit ID".
     entries.push({ name: `${table}.csv`, data: `\uFEFF${rowsToCsv(ownRows(rows, userId).map((r) => ({ ...sheetRow(table as ImportTable, r), ...extraColumns(table, r) })), [...sheetHeaders(table as ImportTable), ...extraHeaders(table)])}` });
   }
+  if (archive.fitness_reports) entries.push({ name: 'fitness-reports.csv', data: `\uFEFF${rowsToCsv(archive.fitness_reports.map(flat), FITNESS_REPORT_HEADERS)}` });
   if (archive.career) entries.push({ name: 'career-steps.csv', data: `\uFEFF${rowsToCsv(archive.career.steps.map((r) => sheetRow('career_steps', r)), sheetHeaders('career_steps'))}` });
   entries.push({ name: 'attachments.csv', data: rowsToCsv(archive.attachments.map(flat)) });
   if (archive.notifications) {
@@ -385,6 +386,9 @@ function counselingRevisionHistory(ctx: AppContext, counselings: Row[], userId: 
  */
 const ownRows = (rows: Row[], userId: string) => rows.filter((r) => !r.user_id || String(r.user_id) === userId);
 
+/** The fitness reports as the Marine entered them, a removed one with the day it was removed (ADR-0047). */
+const FITNESS_REPORT_HEADERS = ['id', ...FITNESS_REPORT_COLUMNS, 'version', 'created_at', 'updated_at', 'deleted_at'];
+
 /** The export as one workbook: a sheet per record type under the import's columns, the profile, and an About sheet. */
 export function buildPersonalExportWorkbook(ctx: AppContext, userId: string, { sections = null as readonly string[] | null } = {}): { buffer: Buffer; filename: string; counts: Record<string, number> } {
   const { _files, ...archive } = buildPersonalExport(ctx, userId, { sections, attachments: false });
@@ -402,6 +406,7 @@ export function buildPersonalExportWorkbook(ctx: AppContext, userId: string, { s
     sheets.push({ name: TABLE_LABELS[t].many, rows: grid([...sheetHeaders(t), ...extraHeaders(t)], own.map((r) => ({ ...sheetRow(t, r), ...extraColumns(t, r) }))) });
   }
   if (archive.career) sheets.push({ name: TABLE_LABELS.career_steps.many, rows: grid(sheetHeaders('career_steps'), archive.career.steps.map((r) => sheetRow('career_steps', r))) });
+  if (archive.fitness_reports) sheets.push({ name: 'Fitness reports', rows: grid(FITNESS_REPORT_HEADERS, archive.fitness_reports) });
   if (archive.personnel) sheets.push({ name: 'Personnel history', rows: grid(['at', 'org_id', 'unit_id', 'field', 'from_value', 'to_value', 'source', 'reason', 'actor'], archive.personnel.history as Row[]) });
   sheets.push({ name: 'About', rows: [
     ['Vantage personal export'], ['Exported', archive.exported_at], ['For', owner], ['Format', `${PERSONAL_FORMAT} as a workbook`],

@@ -1,7 +1,8 @@
 import type { AppContext } from '../context.ts';
-import { conflict, notFound } from '../lib/errors.ts';
+import { badRequest, conflict, notFound } from '../lib/errors.ts';
+import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
-import type { FitnessReportBody } from '../../shared/schemas.ts';
+import { fitnessReportSchema, type FitnessReportBody } from '../../shared/schemas.ts';
 
 /**
  * The fitness reports a Marine received (ADR-0047). Each is the Marine's own: only they write, change or remove one,
@@ -55,6 +56,19 @@ export function saveReport(ctx: AppContext, userId: string, id: string | null, b
   ctx.db.prepare(`INSERT INTO fitness_reports (id, user_id, ${FITNESS_REPORT_COLUMNS.join(', ')}, version, created_at, updated_at) VALUES (?, ?, ${FITNESS_REPORT_COLUMNS.map(() => '?').join(', ')}, 1, ?, ?)`)
     .run(created, userId, ...values(body), at, at);
   return ownRow(ctx, userId, created);
+}
+
+/**
+ * A change to one of the Marine's reports. It names the version it changes, so a change made in another window is
+ * refused rather than overwritten, and a field it leaves out keeps what is stored (a null clears one). The checks
+ * across fields run on the report as it will be saved.
+ */
+export function updateReport(ctx: AppContext, userId: string, id: string, raw: unknown): FitnessReportRow {
+  const row = ownRow(ctx, userId, id);
+  const given = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  if (given.version == null) throw badRequest('Send the version of the report you are changing, so a change made in another window is not overwritten.', { fieldErrors: { version: 'Required.' } });
+  const stored = Object.fromEntries(FITNESS_REPORT_COLUMNS.map((c) => [c, row[c]]));
+  return saveReport(ctx, userId, id, parse(fitnessReportSchema, { ...stored, ...given }));
 }
 
 export function removeReport(ctx: AppContext, userId: string, id: string): void {

@@ -8,8 +8,11 @@ import { createApp, createContext } from '../server/app.ts';
  * are there to refuse; they are raised here so the scan reaches the handlers behind them. Production keeps its limits.
  */
 const port = Number(process.env.VANTAGE_SCAN_PORT || 8799);
+// The scanner's own key is never the app's to read, whichever step starts it.
+const { HAWK_API_KEY: _key, API_KEY: _alias, ...env } = process.env;
+void _key; void _alias;
 const config = loadConfig({
-  ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_ACCESS_MODE: 'demo', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'none',
+  ...env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_ACCESS_MODE: 'demo', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'none',
   VANTAGE_MARADMIN_ENABLED: 'false', VANTAGE_AI_ENABLED: 'false', VANTAGE_SECRET: 'security-scan-secret-security-scan-secret-12', VANTAGE_PUBLIC_URL: `http://localhost:${port}`,
   VANTAGE_MUTATIONS_PER_15_MINUTES: '100000', VANTAGE_CONSOLE_READS_PER_15_MINUTES: '100000', VANTAGE_REGISTRATIONS_PER_15_MINUTES: '1000',
 } as NodeJS.ProcessEnv);

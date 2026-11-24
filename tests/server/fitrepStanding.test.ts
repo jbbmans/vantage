@@ -8,7 +8,9 @@ import { FITREP_ATTRIBUTES, FITREP_METHOD, OCCASIONS } from '../../shared/fitrep
 import { averageOfMarks, fig, methodOn, profileKey, project, relativeValue, round2, standingOf, summarize, thirdOf } from '../../shared/fitrepStanding.ts';
 import { fitrepEvidence, inPeriod, recommendFitrep } from '../../shared/evaluation.ts';
 import { fitnessReportSchema } from '../../shared/schemas.ts';
-import { buildPersonalExport } from '../../server/services/personalExport.ts';
+import { buildPersonalExport, buildPersonalExportWorkbook, buildPersonalExportZip } from '../../server/services/personalExport.ts';
+import { readWorkbook } from '../../server/lib/workbook.ts';
+import { listZip } from '../../server/lib/zip.ts';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 
 /**
@@ -56,7 +58,7 @@ test('the report average is the mean of the observed marks, A as 1 to G as 7, wi
 
 test('the relative value: the RS High is 100, the RS Avg 90, raised to 80, and it matches the Master Brief Sheet CNA publishes', () => {
   // CNA 2024, Figure 1: RPT Avg 2.50, RS Avg 2.99, RS High 5.00, Cum RV 87.56.
-  const cna = relativeValue(2.5, 2.99, 5, method);
+  const cna = relativeValue(2.5, 2.99, 5, method)!;
   assert.equal(cna.value, 87.56);
   assert.equal(cna.arithmetic, '90 − 10 × 0.49 ÷ 2.01 = 87.56');
   const row = standingOf({ occasion: 'AN', grade: 'O-3', rpt_avg: 2.5, rs_avg: 2.99, rs_high: 5, reports_at_processing: 5, reports_cumulative: 10, cum_rv_printed: 87.56 }, method);
@@ -65,21 +67,38 @@ test('the relative value: the RS High is 100, the RS Avg 90, raised to 80, and i
   assert.equal(row.check, null, 'the working agrees with the MBS');
   assert.equal(row.average?.source, 'printed');
 
-  assert.equal(relativeValue(3.6, 3.2, 3.6, method).value, 100, 'the RS High is 100');
-  assert.equal(relativeValue(3.2, 3.2, 3.6, method).value, 90, 'the RS Avg is 90');
-  assert.equal(relativeValue(2.8, 3.2, 3.6, method).value, 80, 'as far under the average as the high is over it is 80');
-  const raised = relativeValue(3.15, 3.23, 3.3, method);
+  assert.equal(relativeValue(3.6, 3.2, 3.6, method)!.value, 100, 'the RS High is 100');
+  assert.equal(relativeValue(3.2, 3.2, 3.6, method)!.value, 90, 'the RS Avg is 90');
+  assert.equal(relativeValue(2.8, 3.2, 3.6, method)!.value, 80, 'as far under the average as the high is over it is 80');
+  const raised = relativeValue(3.15, 3.23, 3.3, method)!;
   assert.equal(raised.value, 80);
   assert.ok(raised.raised);
   assert.match(raised.arithmetic, /= 78\.57, raised to 80$/);
-  const same = relativeValue(3.4, 3.4, 3.4, method);
+  const same = relativeValue(3.4, 3.4, 3.4, method)!;
   assert.deepEqual([same.value, same.allSame], [90, true], 'a profile whose reports share one average values each at 90');
+  // With the RS High at the RS Avg, a report above both is above the high; one below them gives no line to read.
+  const over = relativeValue(3.9, 3.5, 3.5, method)!;
+  assert.deepEqual([over.value, over.capped, over.allSame], [100, true, false]);
+  assert.equal(over.arithmetic, '3.90 is above the RS High (3.50), so 100');
+  assert.equal(relativeValue(3.49, 3.5, 3.5, method), null, 'the printed figures are rounded, so the spread is too small to show');
+  assert.equal(relativeValue(3.4, 3.6, 3.5, method), null, 'an RS High below the RS Avg is no profile');
+  const flat = standingOf({ occasion: 'AN', rpt_avg: 3.49, rs_avg: 3.5, rs_high: 3.5, reports_cumulative: 6 }, method);
+  assert.equal(flat.rv, null);
+  assert.match(flat.reason ?? '', /both 3\.50 and this report’s average is below them\. The MBS rounds both/);
+  assert.ok(flat.position, 'its place is still shown');
+  const flatOver = standingOf({ occasion: 'AN', rpt_avg: 3.9, rs_avg: 3.5, rs_high: 3.5, reports_cumulative: 6 }, method);
+  assert.equal(flatOver.rv?.value, 100);
+  assert.match(flatOver.notes.join(' '), /above the RS High entered/);
   const above = standingOf({ occasion: 'AN', rpt_avg: 3.9, rs_avg: 3.2, rs_high: 3.6, reports_cumulative: 6 }, method);
   assert.equal(above.rv?.value, 100);
   assert.match(above.notes.join(' '), /above the RS High entered/, 'a report above its profile’s high is flagged, not hidden');
   // A figure off the MBS that the working does not reach is said, and the MBS stays the record.
   const off = standingOf({ occasion: 'AN', rpt_avg: 2.5, rs_avg: 2.99, rs_high: 5, reports_cumulative: 10, cum_rv_printed: 88.1 }, method);
   assert.match(off.check ?? '', /Your MBS prints 88\.10; these figures work to 87\.56\. The MBS is the record/);
+  // One hundredth either side is the last place, the same both ways; two is a different figure.
+  const printedAs = (cum: number) => standingOf({ occasion: 'AN', rpt_avg: 2.5, rs_avg: 2.99, rs_high: 5, reports_cumulative: 10, cum_rv_printed: cum }, method).check;
+  assert.deepEqual([87.55, 87.56, 87.57].map(printedAs), [null, null, null]);
+  assert.ok(printedAs(87.54) && printedAs(87.58), 'two hundredths off is said');
 });
 
 test('the thirds are read from the value at two places, at 86.66 and 86.67, 93.33 and 93.34', () => {
@@ -108,6 +127,10 @@ test('no relative value under the minimum profile, or for an EN, not observed, e
   const early = standingOf({ ...base, reports_at_processing: 2, reports_cumulative: 4, rv_at_processing: 95 }, method);
   assert.equal(early.atProcessing.value, null);
   assert.match(early.atProcessing.reason ?? '', /holds 2 reports/);
+  // With the count at processing left blank, a profile under the minimum now was under it then too.
+  const unsaid = standingOf({ ...base, reports_cumulative: 2, rv_at_processing: 95 }, method);
+  assert.equal(unsaid.atProcessing.value, null);
+  assert.match(unsaid.atProcessing.reason ?? '', /holds 2 reports/);
   // What is missing is said, never guessed.
   assert.match(standingOf({ occasion: 'AN', rs_avg: 3, rs_high: 3.5, reports_cumulative: 9 }, method).reason ?? '', /Enter the marks, or the RPT Avg/);
   assert.match(standingOf({ ...base }, method).reason ?? '', /how many reports the RS profile holds now/);
@@ -139,7 +162,13 @@ test('the coming report counts in its own profile, and each target average gives
   assert.equal(m.fra, 3.69);
   assert.equal(m.observed, 13);
   assert.ok(m.targets.filter((t) => t.reach === 'reached').every((t) => m.rv!.value >= t.rv), 'reached means the coming report is valued there');
-  assert.ok(project({ rsAvg: 3.3, rsHigh: 3.85, reports: 0 }, method).targets.every((t) => t.reach === 'out_of_reach'), 'a first report has no value to reach');
+  assert.ok(project({ rsAvg: 3.3, rsHigh: 3.85, reports: 0 }, method).targets.every((t) => t.reach === 'no_value' && t.fra == null), 'a first report has no value yet, which no average changes');
+  assert.ok(project({ rsAvg: 3.3, rsHigh: 3.85, reports: 2 }, method).targets.every((t) => t.reach === 'needs'), 'the third report has one');
+  // Over the attributes observed: an average typed over 13 needs 46 for the upper third, not 49 over 14.
+  const upper = (o?: number | null) => project({ rsAvg: 3.3, rsHigh: 3.85, reports: 10, fra: 3.4, observed: o }, method).targets.find((t) => t.key === 'upper')!;
+  assert.deepEqual([upper(13).total, upper(13).fra], [46, 3.54]);
+  assert.deepEqual([upper(null).total, upper(null).fra], [49, 3.5], 'fourteen unless one is not observed');
+  for (const o of [0, 15, 2.5]) assert.equal(project({ rsAvg: 3.3, rsHigh: 3.85, reports: 10, observed: o }, method).observed, 14, `${o} is no count of attributes`);
   // The Marine's earlier report in the profile moves as the coming one is added.
   const earlier = project({ rsAvg: 3.41, rsHigh: 3.79, reports: 2, fra: 3.6, earlier: [{ id: 'a', occasion: 'AN', marks: 'DDCDCCDCDCCCCH' }] }, method).earlier;
   assert.deepEqual(earlier, [{ id: 'a', before: null, after: 87.19 }]);
@@ -172,6 +201,13 @@ test('evidence strength grades each attribute by the writer’s strength points,
   assert.ok(award.every((s) => s.entries === 0));
   // The window: on or after its start, on or before its end, and an undated entry counts.
   assert.deepEqual(inPeriod([{ date: '2026-05-31' }, { date: '2026-06-01' }, { date: '2027-05-31' }, { date: '2027-06-01' }, { date: null }], window).map((a) => a.date), ['2026-06-01', '2027-05-31', null]);
+  // Work begun before the period and still going, or running across its start, is in it (ADR-0018); work over before it is not.
+  const spans = [{ date: '2026-03-01', ongoing: 1 }, { date: '2026-04-15', end_date: '2026-09-30' }, { date: '2026-03-01', end_date: '2026-05-31' }];
+  assert.deepEqual(inPeriod(spans, window).map((a) => a.date), ['2026-03-01', '2026-04-15']);
+  const going = fitrepEvidence([{ ...STRONG_1, date: '2026-03-01', ongoing: 1 }] as never, window);
+  assert.equal(attr(going, 'Developing Subordinates').level, 'some', 'an ongoing mentorship begun before the period is its evidence');
+  // A period end before the period's start says nothing about the end: entries from the start on count.
+  assert.deepEqual(inPeriod([{ date: '2026-05-30' }, { date: '2026-07-01' }, { date: '2028-01-01' }], { from: '2026-06-01', to: '2026-05-31' }).map((a) => a.date), ['2026-07-01', '2028-01-01']);
   // The coaching reads the same evidence.
   const recs = recommendFitrep({}, { total: 3, withOutcome: 2 }, { evidence: ev, daysToEnd: 90 });
   assert.ok(recs.some((r) => r.id === 'thin-evidence' && /Ensuring Well-Being of Subordinates/.test(r.detail)));
@@ -251,10 +287,23 @@ test('a Marine’s reports are theirs: only they add, correct and remove one, an
   }
   const stale = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { ...REPORT, version: 9 } });
   assert.equal(stale.status, 409);
+  const unversioned = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { ...REPORT, cum_rv_printed: 80 } });
+  assert.equal(unversioned.status, 400, 'a change names the version it changes');
+  assert.ok(unversioned.body.fieldErrors?.version);
   const fixed = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { ...REPORT, cum_rv_printed: 92.9, version: 1 } });
   assert.equal(fixed.status, 200);
   assert.equal(fixed.body.version, 2);
   assert.equal(fixed.body.cum_rv_printed, 92.9);
+  // A field left out keeps what is stored; a null clears it; the checks across fields read the report as saved.
+  const partial = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { cum_rv_printed: 92.91, version: 2 } });
+  assert.equal(partial.status, 200);
+  assert.deepEqual([partial.body.marks, partial.body.rs_avg, partial.body.rs_label, partial.body.shared, partial.body.cum_rv_printed, partial.body.version], [REPORT.marks, 3.3, 'Capt Alvarez', 0, 92.91, 3]);
+  const cleared = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { rv_at_processing: null, version: 3 } });
+  assert.deepEqual([cleared.body.rv_at_processing, cleared.body.rs_high], [null, 3.85]);
+  const crossed = await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { rs_high: 3.1, version: 4 } });
+  assert.equal(crossed.status, 400, 'an RS High below the stored RS Avg is refused');
+  assert.ok(crossed.body.fieldErrors?.rs_high);
+  assert.equal((await app.call('PUT', `/api/me/fitness-reports/${made.body.id}`, { token: marine.token, body: { rv_at_processing: 93.64, version: 4 } })).body.version, 5);
 
   // Through the readiness route, the Marine reads all of theirs and nothing is logged as a view of someone else.
   const self = await app.call('GET', `/api/me/readiness/${marine.id}/fitness-reports`, { token: marine.token });
@@ -291,4 +340,12 @@ test('a leader who sees the Marine’s readiness reads only the reports shared, 
   assert.equal(exported.fitness_reports.length, 2);
   assert.ok(exported.fitness_reports.find((r) => r.id === first.id)?.deleted_at, 'kept as removed');
   assert.equal((buildPersonalExport(app.ctx, leader.id, { attachments: false }) as unknown as { fitness_reports: unknown[] }).fitness_reports.length, 0, 'a leader’s own export holds none of the Marine’s');
+  // The workbook and the ZIP carry them too, and a narrowed export counts them with the profile.
+  const book = readWorkbook(buildPersonalExportWorkbook(app.ctx, marine.id).buffer);
+  const sheet = book.sheets.find((x) => x.name === 'Fitness reports');
+  assert.ok(sheet, 'a Fitness reports sheet');
+  assert.equal(sheet!.rows.length, 3, 'a header and both reports');
+  assert.ok(sheet!.rows[0].includes('deleted_at') && !sheet!.rows[0].includes('user_id'));
+  assert.ok(listZip(buildPersonalExportZip(app.ctx, marine.id).buffer).includes('fitness-reports.csv'));
+  assert.equal(buildPersonalExportWorkbook(app.ctx, marine.id, { sections: ['profile'] }).counts.fitness_reports, 2);
 });
