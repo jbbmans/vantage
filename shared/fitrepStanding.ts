@@ -188,7 +188,8 @@ export interface Projection {
   rv: Valued | null;
   third: Third | null;
   reason: string | null;
-  earlier: Array<{ id?: string; before: number | null; after: number | null }>;
+  /** Each earlier report's cumulative value now and after; `beforeUnworked` when the figures now give no line to read it from. */
+  earlier: Array<{ id?: string; before: number | null; after: number | null; beforeUnworked: boolean }>;
   targets: Target[];
   observed: number;
 }
@@ -216,12 +217,17 @@ export function project(input: ProjectionInput, method: FitrepMethod = methodOn(
   const after = fra == null ? null : grown(avg, high, reports, fra);
   const tooFew = (n: number) => `With this report the RS will have written ${n} on the grade. A report has a relative value once the RS has written ${method.minimumProfile}.`;
   const rv = fra == null ? null : valueIn(fra);
-  const reason = fra == null ? 'Enter the average you expect, or the marks, to see where the coming report would sit.' : after && after.reports < method.minimumProfile ? tooFew(after.reports) : null;
+  const reason = fra == null ? 'Enter the average you expect, or the marks, to see where the coming report would sit.'
+    : after && after.reports < method.minimumProfile ? tooFew(after.reports)
+      // A profile whose RS Avg and RS High would print the same, with this report below them: no line to read.
+      : !rv && after ? `With this report the profile would read RS Avg ${fig(after.avg)} and RS High ${fig(after.high)}, and this report is below them. The MBS rounds both to two places, so the profile’s spread is too small to work a value from.`
+        : null;
 
   const earlier = (input.earlier || []).map((r) => {
     const a = reportAverage(r, method)?.value;
-    const at = (p: { avg: number; high: number; reports: number } | null) => (a == null || !p || p.reports < method.minimumProfile || noValueReason(r, method, null) ? null : relativeValue(a, p.avg, p.high, method)?.value ?? null);
-    return { id: r.id, before: at(before), after: at(after) };
+    const valued = (p: { avg: number; high: number; reports: number } | null) => (a == null || !p || p.reports < method.minimumProfile || noValueReason(r, method, null) ? undefined : relativeValue(a, p.avg, p.high, method));
+    const now = valued(before);
+    return { id: r.id, before: now?.value ?? null, after: valued(after)?.value ?? null, beforeUnworked: now === null };
   });
 
   // The lowest average the RS could give, in steps of one mark over the attributes observed, that reaches each value.

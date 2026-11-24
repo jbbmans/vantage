@@ -61,7 +61,7 @@ export function ReportCard({ report: r, standing: s, actions }: { report: api.Fi
   const method = methodOn(standingDay()).data;
   const avg = s.average;
   return (
-    <article className="rounded-lg border border-line p-3" aria-label={`Fitness report ${periodText(r)}`}>
+    <article className="rounded-lg border border-line p-3" aria-label={`Fitness report ${periodText(r)}`} data-report-id={r.id}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-ink">{periodText(r)}</h3>
@@ -219,7 +219,16 @@ export function MyFitnessReports({ reports, grade }: { reports: api.FitnessRepor
   const [removing, setRemoving] = useState<api.FitnessReport | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteFitnessReport(id),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: keys.fitnessReports }); toast.success('Report removed.'); setRemoving(null); requestAnimationFrame(() => addButton.current?.focus()); },
+    onSuccess: (_done, id) => {
+      void qc.invalidateQueries({ queryKey: keys.fitnessReports });
+      toast.success('Report removed.');
+      setRemoving(null);
+      // Only when focus went nowhere, or is still on the removed report: a Marine who moved on keeps their place.
+      requestAnimationFrame(() => {
+        const at = document.activeElement;
+        if (!at || at === document.body || at.closest(`[data-report-id="${CSS.escape(id)}"]`)) addButton.current?.focus();
+      });
+    },
     onError: (e) => toast.error(api.errorText(e)),
   });
   const share = useMutation({
@@ -293,7 +302,9 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
   const fra = numberOf(expect.fra);
   // Fourteen attributes unless one is not observed: the newest marks entered in the profile say how many were.
   const observedDefault = chosen?.observed ?? method.attributes;
-  const observed = numberOf(expect.observed) ?? observedDefault;
+  const typedObserved = numberOf(expect.observed);
+  const observedOk = typedObserved == null || (Number.isInteger(typedObserved) && typedObserved >= 1 && typedObserved <= method.attributes);
+  const observed = typedObserved != null && observedOk ? typedObserved : observedDefault;
   const p = ready ? project({ rsAvg: base.rsAvg!, rsHigh: base.rsHigh!, reports: base.reports!, fra: inRange(fra) ? fra : null, marks, observed, earlier: chosen?.earlier ?? [] }, method) : null;
   const byId = new Map(reports.map((r) => [r.id, r]));
   const moved = p ? p.earlier.filter((e) => e.after != null && e.id && byId.has(e.id)) : [];
@@ -311,7 +322,7 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
         </>}
         <Field label="Average you expect" hint="1.00 to 7.00"><NumberInput value={expect.fra} onChange={(e) => setExpect((x) => ({ ...x, fra: e.target.value }))} /></Field>
         <Field label="Or the marks you expect" hint="Fourteen letters, A to H"><Input value={expect.marks} onChange={(e) => setExpect((x) => ({ ...x, marks: e.target.value }))} /></Field>
-        <Field label="Attributes observed" hint={`1 to ${method.attributes}; ${observedDefault} unless you change it`}><NumberInput value={expect.observed} placeholder={String(observedDefault)} onChange={(e) => setExpect((x) => ({ ...x, observed: e.target.value }))} /></Field>
+        <Field label="Attributes observed" hint={`1 to ${method.attributes}; ${observedDefault} unless you change it`} error={observedOk ? undefined : `A whole number from 1 to ${method.attributes}. Worked over ${observedDefault} until then.`}><NumberInput value={expect.observed} placeholder={String(observedDefault)} onChange={(e) => setExpect((x) => ({ ...x, observed: e.target.value }))} /></Field>
       </div>
       <p aria-live="polite" className="rounded-md bg-surface-2 px-3 py-2 text-sm text-ink">
         {!p ? 'Choose a profile, or enter the RS Avg, RS High and how many reports the RS has written on the grade.'
@@ -321,7 +332,7 @@ export function ComingReport({ reports }: { reports: api.FitnessReport[] }) {
       {p?.rv && <p className="fig text-xs text-ink-2">{marks && p.fra != null ? `The marks average ${fig(p.fra)}. ` : ''}{p.rv.arithmetic}.</p>}
       {moved.length > 0 && (
         <ul className="space-y-1 text-xs text-ink-2" aria-label="Your earlier reports in this profile">
-          {moved.map((e) => <li key={e.id}>Your report of {periodText(byId.get(e.id!)!)}: cumulative RV {e.before == null ? 'none now' : <><span className="fig">{fig(e.before)}</span> now</>}, <span className="fig">{fig(e.after!)}</span> after.</li>)}
+          {moved.map((e) => <li key={e.id}>Your report of {periodText(byId.get(e.id!)!)}: cumulative RV {e.before == null ? (e.beforeUnworked ? 'not worked from these figures now (your MBS prints it)' : 'none now') : <><span className="fig">{fig(e.before)}</span> now</>}, <span className="fig">{fig(e.after!)}</span> after.</li>)}
         </ul>
       )}
       {p && (
@@ -347,7 +358,7 @@ export function SharedFitnessReports({ reports, sharedOnly }: { reports: api.Fit
     <div className="space-y-3">
       <p className="text-xs text-ink-2">The record is the Master Brief Sheet. These are the figures the Marine copied from it, worked the published way.{sharedOnly ? ' Only the reports the Marine shares are shown, and each view is logged.' : ''}</p>
       {rows.length ? <>
-        <ThirdsSummary standings={rows.map((x) => x.standing)} label="Shared reports by third" />
+        <ThirdsSummary standings={rows.map((x) => x.standing)} label={sharedOnly ? 'Shared reports by third' : 'Your reports by third'} />
         {rows.map(({ report, standing }) => <ReportCard key={report.id} report={report} standing={standing} />)}
       </> : <p className="text-sm text-ink-3">{sharedOnly ? 'The Marine shares no fitness reports.' : 'No reports entered.'}</p>}
       <FitrepMethodSources />

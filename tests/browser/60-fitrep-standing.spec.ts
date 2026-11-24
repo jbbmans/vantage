@@ -92,6 +92,9 @@ test('a Staff Sergeant adds their reports, sees where each stands and what the c
   await expect(coming).toContainText('Nothing here is saved.');
   // Over the attributes the newest marks in the profile observed: 13, as Section H was not observed.
   await expect(coming.getByRole('heading', { name: 'The average each needs, over 13 observed marks' })).toBeVisible();
+  await coming.getByLabel('Attributes observed', { exact: true }).fill('0');
+  await expect(coming).toContainText('A whole number from 1 to 14. Worked over 13 until then.');
+  await expect(coming.getByRole('heading', { name: 'The average each needs, over 13 observed marks' })).toBeVisible();
   await coming.getByLabel('Attributes observed', { exact: true }).fill('14');
   await expect(coming.getByRole('heading', { name: 'The average each needs, over 14 observed marks' })).toBeVisible();
   // A profile the coming report leaves under three: no average gives it a value yet, and the page says so.

@@ -171,7 +171,14 @@ test('the coming report counts in its own profile, and each target average gives
   for (const o of [0, 15, 2.5]) assert.equal(project({ rsAvg: 3.3, rsHigh: 3.85, reports: 10, observed: o }, method).observed, 14, `${o} is no count of attributes`);
   // The Marine's earlier report in the profile moves as the coming one is added.
   const earlier = project({ rsAvg: 3.41, rsHigh: 3.79, reports: 2, fra: 3.6, earlier: [{ id: 'a', occasion: 'AN', marks: 'DDCDCCDCDCCCCH' }] }, method).earlier;
-  assert.deepEqual(earlier, [{ id: 'a', before: null, after: 87.19 }]);
+  assert.deepEqual(earlier, [{ id: 'a', before: null, after: 87.19, beforeUnworked: false }]);
+  // A profile that would print one figure for its RS Avg and RS High, with the coming report below it: said, not valued.
+  const flat = project({ rsAvg: 3.5, rsHigh: 3.5, reports: 4, fra: 3.48 }, method);
+  assert.deepEqual([flat.rv, flat.third, flat.profile.after], [null, null, { avg: 3.5, high: 3.5, reports: 5 }]);
+  assert.match(flat.reason ?? '', /would read RS Avg 3\.50 and RS High 3\.50, and this report is below them/);
+  // An earlier report a flat profile gives no line for now is told apart from one with no value.
+  const unworked = project({ rsAvg: 3.5, rsHigh: 3.5, reports: 10, fra: 3.6, earlier: [{ id: 'b', occasion: 'AN', rpt_avg: 3.49 }] }, method).earlier;
+  assert.deepEqual(unworked, [{ id: 'b', before: null, after: 87.78, beforeUnworked: true }]);
   assert.equal(profileKey({ rs_label: '  Maj   Okafor ', grade: 'E-6' }), profileKey({ rs_label: 'maj okafor', grade: 'E-6' }), 'one RS and one grade is one profile');
   assert.notEqual(profileKey({ rs_label: 'Maj Okafor', grade: 'E-6' }), profileKey({ rs_label: 'Maj Okafor', grade: 'E-7' }));
 });
