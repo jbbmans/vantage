@@ -11,8 +11,9 @@ export const EVAL_REFERENCES: Record<string, EvalReference> = {
     url: 'https://www.marines.mil/News/Publications/MCPEL/Electronic-Library-Display/Article/2431802/mco-16161/',
     updates: [
       { id: 'MARADMIN 025/21', note: 'MarineNet self-education points became CEUs', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/2473454/' },
-      { id: 'MARADMIN 367/21', note: 'MOS Courses and Qualifications initiative', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/2693294/' },
+      { id: 'MARADMIN 367/21', note: 'MOS Courses and Qualifications initiative; the Mental Agility lines reweighted', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/2693294/' },
       { id: 'MARADMIN 046/24', note: 'MOS Qualifications expanded to all MOSs; reported via MCTIMS', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/3662965/' },
+      { id: 'MARADMIN 695/21', note: 'Reserve affiliation incentive: 50 bonus points for an eligible Corporal', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/2864282/' },
     ],
     authoritative: 'Your JEPES score of record is the one on Marine Online (MOL).',
   },
@@ -43,4 +44,5 @@ export const REC_KINDS: Record<string, { label: string; tone: 'neutral' | 'accen
   data: { label: 'From your log', tone: 'neutral' },
   heuristic: { label: 'Coaching heuristic', tone: 'accent' },
   official: { label: 'Official reference', tone: 'good' },
+  estimate: { label: 'From the order’s tables', tone: 'good' },
 };

@@ -294,6 +294,18 @@ export const READINESS_COLUMNS: TransferColumn[] = [
   { key: 'cmd_character', header: 'Command Input: Character', kind: 'number' }, { key: 'cmd_mos', header: 'Command Input: MOS', kind: 'number' },
   { key: 'cmd_leadership', header: 'Command Input: Leadership', kind: 'number' },
   { key: 'fitrep_period_end', header: 'FITREP Period End', kind: 'date' },
+  { key: 'rifle_score', header: 'Rifle Score', kind: 'number' }, { key: 'mcmap_instructor', header: 'MCMAP Instructor', kind: 'flag' },
+  { key: 'associate_degrees', header: 'Associate Degrees', kind: 'number' },
+  { key: 'courses_in_service', header: 'Off-Duty Courses In Service', aliases: ['CRS-SVS'], kind: 'number' },
+  { key: 'courses_in_grade', header: 'Off-Duty Courses In Grade', aliases: ['CRS-GRD'], kind: 'number' },
+  { key: 'mos_qual_points', header: 'MOS Qualification Points', kind: 'number' },
+  { key: 'bonus_di_school', header: 'Bonus: Drill Instructor School', kind: 'flag' },
+  { key: 'bonus_recruiter_school', header: 'Bonus: Recruiter School', kind: 'flag' },
+  { key: 'bonus_msg_school', header: 'Bonus: Marine Security Guard School', kind: 'flag' },
+  { key: 'bonus_combat_instructor', header: 'Bonus: Combat Instructor', kind: 'flag' },
+  { key: 'bonus_security_forces', header: 'Bonus: Marine Corps Security Forces', kind: 'flag' },
+  { key: 'bonus_reserve_affiliation', header: 'Bonus: Reserve Affiliation', kind: 'flag' },
+  { key: 'recruiting_referrals', header: 'Command Recruiting Referrals', kind: 'number' },
 ];
 
 // Routing a sheet or a row to its record type

@@ -28,6 +28,7 @@ import { unitSettingsOf } from '../services/unitConfig.ts';
 import { buildPersonalExport, buildPersonalExportCsv, buildPersonalExportWorkbook, buildPersonalExportZip } from '../services/personalExport.ts';
 import { cancelImport, commitImport, getImport, listImports, planImport, stageImport, undoImport } from '../services/recordImport.ts';
 import { CATEGORY_KEYS } from '../../shared/recordTransfer.ts';
+import { JEPES_READINESS_COLUMNS } from '../../shared/jepesEstimate.ts';
 import { demoStatus } from '../services/demo.ts';
 import { listNotices, markAllRead } from '../services/notifications.ts';
 import { myRequests } from '../services/comments.ts';
@@ -319,7 +320,8 @@ meRouter.delete('/passkeys/:id', requireSudo, wrap((req, res) => {
   res.json({ ok: true, passkeys: listPasskeys(req.ctx, req.user.id) });
 }));
 
-const READINESS_SELECT = `SELECT r.pft_score, r.cft_score, r.rifle_qual, r.mcmap_belt, r.ceus, r.college_credits, r.degree, r.pme_complete, r.cmd_character, r.cmd_mos, r.cmd_leadership, r.fitrep_period_end, rk.grade AS rank_grade, rk.abbr AS rank_abbr
+const READINESS_SELECT = `SELECT r.pft_score, r.cft_score, r.rifle_qual, r.mcmap_belt, r.ceus, r.college_credits, r.degree, r.pme_complete, r.cmd_character, r.cmd_mos, r.cmd_leadership, r.fitrep_period_end,
+  ${JEPES_READINESS_COLUMNS.map((c) => `r.${c}`).join(', ')}, rk.grade AS rank_grade, rk.abbr AS rank_abbr
   FROM users u LEFT JOIN readiness r ON r.user_id = u.id LEFT JOIN ranks rk ON rk.id = u.rank_id WHERE u.id = ?`;
 
 meRouter.get('/readiness', wrap((req, res) => res.json(req.ctx.db.prepare(READINESS_SELECT).get(req.user.id) || {})));

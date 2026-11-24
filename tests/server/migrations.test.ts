@@ -1250,3 +1250,37 @@ test('043 adds the indexes the reads that scanned a table need, rebuilds the uni
     again.close();
   } finally { cleanup(); }
 });
+
+test('044 adds the JEPES estimate’s figures to readiness, empty, each held to its range, and changes no row', () => {
+  const at = '2026-11-24T12:00:00.000Z';
+  const added = ['rifle_score', 'mcmap_instructor', 'associate_degrees', 'courses_in_service', 'courses_in_grade', 'mos_qual_points', 'bonus_di_school', 'bonus_recruiter_school', 'bonus_msg_school', 'bonus_combat_instructor', 'bonus_security_forces', 'bonus_reserve_affiliation', 'recruiting_referrals'];
+  const { path, cleanup } = atVersion(43, (db) => {
+    // Readiness as 043 left it: none of the estimate's own figures.
+    for (const column of added) db.exec(`ALTER TABLE readiness DROP COLUMN ${column}`);
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO readiness (user_id, pft_score, cft_score, rifle_qual, mcmap_belt, ceus, degree, cmd_mos, updated_at) VALUES ('u1', 250, 280, 'Expert', 'Grey', 25, 'associate', 4.2, ?)").run(at);
+  });
+  try {
+    const raw = new Database(path, { readonly: true });
+    const before = raw.prepare('SELECT * FROM readiness ORDER BY user_id').all();
+    raw.close();
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 44 && m.name === '044_jepes_inputs'));
+    const after = db.prepare('SELECT * FROM readiness ORDER BY user_id').all() as Array<Record<string, unknown>>;
+    assert.deepEqual(after.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !added.includes(k)))), before, 'every value already kept, as it was');
+    assert.deepEqual(added.map((k) => after[0][k]), added.map(() => null), 'each new figure starts blank: nothing is guessed for a Marine');
+    for (const [column, bad] of [['rifle_score', 351], ['mcmap_instructor', 2], ['associate_degrees', 10], ['courses_in_grade', -1], ['mos_qual_points', 101], ['bonus_security_forces', 2], ['recruiting_referrals', 100]] as const) {
+      assert.throws(() => db.prepare(`UPDATE readiness SET ${column} = ? WHERE user_id = 'u1'`).run(bad), /CHECK/, `${column} refuses ${bad}`);
+    }
+    db.prepare("UPDATE readiness SET rifle_score = 310, mcmap_instructor = 1, recruiting_referrals = 2 WHERE user_id = 'u1'").run();
+    // Run again, it adds nothing: every column is already there.
+    const version = () => Number(db.pragma('schema_version', { simple: true }));
+    const was = version();
+    db.transaction(() => BUILD_MIGRATIONS.find((m) => m.id === 44)!.run(db))();
+    assert.equal(version(), was, 'nothing added the second time');
+    db.close();
+    const again = openDatabase(path);
+    assert.equal(migrationHistory(again).filter((m) => m.id === 44).length, 1, 'a second boot runs it once');
+    again.close();
+  } finally { cleanup(); }
+});

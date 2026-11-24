@@ -221,13 +221,17 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: { id: 'none', grade: 'none', abbr: 'none', name: 'none', tier: 'none', sort: 'none' },
   },
   readiness: {
-    purpose: 'Readiness facts a person keeps about themselves (PFT, CFT, rifle, MCMAP, PME, education) to see where they stand.',
+    purpose: 'Readiness facts a person keeps about themselves (PFT, CFT, rifle, MCMAP, PME, education, the JEPES lines MOL shows) to see where they stand and estimate their JEPES score.',
     authority: 'Voluntarily recorded by the person.',
     access: 'The person. A leader with member detail for their unit sees it on the member page.',
     columns: {
       user_id: 'identifier', pft_score: 'performance', cft_score: 'performance', rifle_qual: 'performance', mcmap_belt: 'performance',
       ceus: 'employment', college_credits: 'employment', degree: 'employment', pme_complete: 'employment', cmd_character: 'performance',
       cmd_mos: 'performance', cmd_leadership: 'performance', fitrep_period_end: 'employment', updated_at: 'technical',
+      rifle_score: 'performance', mcmap_instructor: 'performance', associate_degrees: 'employment', courses_in_service: 'employment',
+      courses_in_grade: 'employment', mos_qual_points: 'performance', bonus_di_school: 'employment', bonus_recruiter_school: 'employment',
+      bonus_msg_school: 'employment', bonus_combat_instructor: 'employment', bonus_security_forces: 'employment',
+      bonus_reserve_affiliation: 'employment', recruiting_referrals: 'employment',
     },
   },
   passkeys: {

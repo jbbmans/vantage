@@ -255,6 +255,16 @@ export const HELP: HelpSection[] = [
         also: ['narrative', 'writer', 'jepes', 'fitrep', 'billet accomplishments', 'section c', 'appendix e', 'reviewer', 'bullets'],
       },
       {
+        id: 'jepes-estimate',
+        q: 'How does Readiness estimate my JEPES score?',
+        a: [
+          'It works the MCO 1616.1 worksheet (Appendix B) on the figures you enter, line by line, with the tables in force that day: Tables 1 to 4 for your grade, the Mental Agility weights from MARADMIN 367/21, and the bonus lines with the reserve affiliation incentive from MARADMIN 695/21. Each line says what it read, the value the table gives it and the page it is on, and each pillar shows its sum, the 1.25 multiplier and the rounding.',
+          'A figure left blank counts as its whole range, so the estimate is a range until you enter it; a degree or bonus school left blank counts as none. With no rank set, both grades’ tables are read, so the lines that differ are ranges too. The reserve affiliation incentive is for an eligible Corporal only. The figures that come from MOL or MCTIMS, such as your rifle score, MarineNet CEUs and MOS qualification points, are the ones you type in. What if lets you try other figures without saving them, and Where the points are ranks each next step by the points the tables say it adds.',
+          'Your score of record is the one on MOL, which uses the year’s tables for the rifle, PFT and CFT; only the tables the order prints are published, so those lines may differ. A leader who can open your readiness sees the same estimate, and each time they open it is recorded. Vantage never ranks or compares Marines by it.',
+        ],
+        also: ['jepes', 'estimate', 'score', 'readiness', 'what if', 'mcmap', 'pft', 'cft', 'rifle', 'marinenet', 'mos qualifications', 'bonus'],
+      },
+      {
         id: 'provenance',
         q: 'What happens if a record changes after I cited it?',
         a: [

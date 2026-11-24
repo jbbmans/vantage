@@ -172,14 +172,14 @@ const PRIVACY: TrustPage = {
   eyebrow: 'Privacy',
   heading: 'Your record is yours.',
   lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s Unit Instance decides some of this; where it does, the page says so.',
-  updated: '2026-10-07',
+  updated: '2026-11-24',
   sections: [
     {
       id: 'never', title: 'What Vantage never does',
       body: <Facts items={[
         ['Tracking', 'No analytics, tag managers, advertising or social scripts, on this site or in the app'],
         ['Selling or sharing', 'Nothing about anyone is sold, rented or shared for marketing'],
-        ['Profiling', 'People are never scored, ranked or labelled; counts are not a measure of effort'],
+        ['Profiling', 'People are never ranked or labelled, and counts are not a measure of effort. The one score is the JEPES estimate, worked from the order’s tables on a Marine’s own figures and shown to them and to leaders who may open their readiness, never to compare Marines'],
         ['Systems of record', 'Vantage never writes to an official Marine Corps or DoD system'],
       ]} />,
     },

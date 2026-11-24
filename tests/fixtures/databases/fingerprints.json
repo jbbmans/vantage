@@ -24,6 +24,12 @@
       "migration": "043_tune_up_indexes",
       "recordedAt": "2026-11-23T00:29:14.008Z",
       "from": "build"
+    },
+    "44": {
+      "fingerprint": "a941eb91bfb2149710ddf2c5c5e0afe4a5339529dd2da89d009895ac12f8bd89",
+      "migration": "044_jepes_inputs",
+      "recordedAt": "2026-11-24T01:19:16.706Z",
+      "from": "build"
     }
   }
 }

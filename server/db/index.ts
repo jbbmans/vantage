@@ -624,7 +624,36 @@ const MIGRATIONS: Migration[] = [
         db.exec(sql);
       }
     },
+  },  {
+    id: 44,
+    name: '044_jepes_inputs',
+    // The figures a JEPES estimate reads that readiness did not keep (ADR-0046): the rifle score the order's tables
+    // read, whether the Marine is an MCMAP instructor at their belt, a second associate degree, off-duty courses in
+    // service and in grade, the MOS qualification points MOL shows, and the bonus lines of the worksheet. Thirteen
+    // columns, each added empty with its range checked; no row is changed, and each is added only while missing, so a
+    // rerun does nothing. Rolled back by restoring the pre-upgrade copy with the previous build.
+    run: (db) => {
+      const have = columnsOf(db, 'readiness');
+      for (const [column, definition] of JEPES_INPUT_COLUMNS) if (!have.has(column)) db.exec(`ALTER TABLE readiness ADD COLUMN ${column} ${definition}`);
+    },
   },
+];
+
+/** The readiness columns migration 044 adds, as schema.sql declares them, so a new and an upgraded database match. */
+const JEPES_INPUT_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ['rifle_score', 'INTEGER CHECK (rifle_score IS NULL OR rifle_score BETWEEN 0 AND 350)'],
+  ['mcmap_instructor', 'INTEGER CHECK (mcmap_instructor IS NULL OR mcmap_instructor IN (0, 1))'],
+  ['associate_degrees', 'INTEGER CHECK (associate_degrees IS NULL OR associate_degrees BETWEEN 0 AND 9)'],
+  ['courses_in_service', 'INTEGER CHECK (courses_in_service IS NULL OR courses_in_service BETWEEN 0 AND 99)'],
+  ['courses_in_grade', 'INTEGER CHECK (courses_in_grade IS NULL OR courses_in_grade BETWEEN 0 AND 99)'],
+  ['mos_qual_points', 'INTEGER CHECK (mos_qual_points IS NULL OR mos_qual_points BETWEEN 0 AND 100)'],
+  ['bonus_di_school', 'INTEGER CHECK (bonus_di_school IS NULL OR bonus_di_school IN (0, 1))'],
+  ['bonus_recruiter_school', 'INTEGER CHECK (bonus_recruiter_school IS NULL OR bonus_recruiter_school IN (0, 1))'],
+  ['bonus_msg_school', 'INTEGER CHECK (bonus_msg_school IS NULL OR bonus_msg_school IN (0, 1))'],
+  ['bonus_combat_instructor', 'INTEGER CHECK (bonus_combat_instructor IS NULL OR bonus_combat_instructor IN (0, 1))'],
+  ['bonus_security_forces', 'INTEGER CHECK (bonus_security_forces IS NULL OR bonus_security_forces IN (0, 1))'],
+  ['bonus_reserve_affiliation', 'INTEGER CHECK (bonus_reserve_affiliation IS NULL OR bonus_reserve_affiliation IN (0, 1))'],
+  ['recruiting_referrals', 'INTEGER CHECK (recruiting_referrals IS NULL OR recruiting_referrals BETWEEN 0 AND 99)'],
 ];
 
 /** The tables the recycle bin keeps deleted rows in until its sweep removes them (purgeDeleted). */

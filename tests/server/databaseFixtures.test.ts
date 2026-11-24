@@ -35,8 +35,9 @@ function putBack(entry: FixtureEntry, path: string) {
   copyFilePrivate(join(FIXTURE_DIR, entry.file), path);
 }
 
-test('the fixtures are the release tag and the two main builds the plan names, each the file its manifest records', () => {
-  assert.deepEqual(manifest.fixtures.map((f) => [f.ref, f.schema]), [['v5.0.0', 14], ['2b2ccf2', 22], ['caebfab', 42]]);
+test('the fixtures are the release tag and the main builds frozen since, each the file its manifest records', () => {
+  // The release tag and the two main builds the plan named, then main before migration 044 (the JEPES inputs).
+  assert.deepEqual(manifest.fixtures.map((f) => [f.ref, f.schema]), [['v5.0.0', 14], ['2b2ccf2', 22], ['caebfab', 42], ['eb0f5ca', 43]]);
   for (const entry of manifest.fixtures) {
     assert.ok(fixtureIntact(entry), `${entry.file} is the file frozen from ${entry.ref}; fixtures are never written again`);
     assert.equal(statSync(join(FIXTURE_DIR, entry.file)).size, entry.bytes);

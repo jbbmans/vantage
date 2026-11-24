@@ -8,6 +8,7 @@ import * as C from '../../shared/csv.ts';
 import * as D from '../../shared/duplicates.ts';
 import * as E from '../../shared/evaluation.ts';
 import * as J from '../../shared/jepes.ts';
+import { estimateJepes } from '../../shared/jepesEstimate.ts';
 import { recordHealth, todayActions } from '../../shared/health.ts';
 import { passwordProblem, passwordStrength } from '../../shared/password.ts';
 import { activitySchema, fieldErrors, goalSchema, projectSchema, readinessSchema, registrationSchema } from '../../shared/schemas.ts';
@@ -137,18 +138,26 @@ test('evaluation track mapping and coaching', () => {
   assert.equal(E.trackForGrade('O-3'), 'fitrep');
   assert.equal(E.mapAreaToTrack('MOS / Mission Accomplishment', 'fitrep'), 'Mission Accomplishment');
   assert.equal(E.mapAreaToTrack('Intellect and Wisdom', 'jepes'), 'MOS / Mission Accomplishment');
-  const recs = J.recommend({ rank_grade: 'E-4', pft_score: 220, mcmap_belt: 'Tan', rifle_qual: 'Marksman', ceus: 5, pme_complete: 'distance', cmd_character: 3.2 }, { total: 10, withOutcome: 2 });
-  assert.ok(recs.find((r) => r.id === 'pft'));
+  const on = '2026-11-24';
+  const recs = J.recommend({ rank_grade: 'E-4', pft_score: 220, mcmap_belt: 'Tan', rifle_qual: 'Marksman', ceus: 5, pme_complete: 'distance', cmd_character: 3.2 }, { total: 10, withOutcome: 2 }, { on });
+  const pft = recs.find((r) => r.id === 'pft')!;
+  assert.equal(pft.kind, 'estimate');
+  assert.ok((pft.points ?? 0) > 0 && (pft.upTo ?? 0) >= (pft.points ?? 0), 'a step says what it adds and what is left on its line');
   assert.ok(recs.find((r) => r.id === 'outcomes'));
-  const est = J.estimate({ pft_score: 290 });
-  assert.equal(est.pillars.physical.items[0].state, 'top');
+  // The estimator's levers come first, blank figures before steps, and the coaching no table scores after them.
+  const kinds = recs.map((r) => (r.kind === 'data' && r.upTo !== undefined ? 0 : r.kind === 'estimate' ? 1 : 2));
+  assert.deepEqual(kinds, [...kinds].sort((a, b) => a - b));
+  const est = estimateJepes({ pft_score: 290, rank_grade: 'E-3' }, { on });
+  assert.equal(est.pillars.find((p) => p.key === 'physical')!.lines[0].entered, true);
   // Only the marks entered are compared: a blank one is never a 0.0, and spaces are blank.
   const weakest = recs.find((r) => r.id === 'command-input')!;
-  assert.equal(weakest.title, 'Individual Character is your weakest command mark at 3.2');
+  assert.equal(weakest.title, 'Raise your Individual Character average from 3.2 to 3.7');
   assert.doesNotMatch(weakest.detail, /quarter|only part someone else controls/);
-  const blank = J.recommend({ cmd_character: '4.5', cmd_mos: '  ', cmd_leadership: null });
-  assert.ok(!blank.some((r) => r.id === 'command-input'), 'one mark of 4.5 entered: nothing is weakest');
-  assert.equal(J.estimate({ cmd_mos: '  ' }).pillars.command.items[1].value, null);
+  const blank = J.recommend({ cmd_character: '4.5', cmd_mos: '  ', cmd_leadership: null }, {}, { on });
+  assert.equal(blank.find((r) => r.id === 'command-input')?.title, 'Raise your Individual Character average from 4.5 to 5.0', 'the one mark entered is the weakest, the blanks are not 0.0');
+  assert.ok(blank.some((r) => r.id === 'enter-cmd_mos') && blank.some((r) => r.id === 'enter-cmd_leadership'), 'a blank mark asks to be entered');
+  const spaced = estimateJepes({ cmd_mos: '  ' }, { on }).pillars.find((p) => p.key === 'command')!.lines[0];
+  assert.deepEqual([spaced.entered, spaced.shown, spaced.value], [false, null, { low: 0, high: 250 }]);
   // Saved, spaces are blank too, not a 0.
   assert.deepEqual(readinessSchema.parse({ cmd_character: '3.5', cmd_mos: '  ', cmd_leadership: '$' }), { cmd_character: 3.5, cmd_mos: null, cmd_leadership: null });
   // A PFT or CFT of spaces is no score: no class under the field, and no "PFT 0" on the FITREP track.
@@ -161,11 +170,10 @@ test('evaluation track mapping and coaching', () => {
     assert.equal(projectSchema.parse({ name: 'P', progress: v }).progress, 0, JSON.stringify(v));
     assert.equal(goalSchema.parse({ title: 'G', current_value: v }).current_value, 0, JSON.stringify(v));
   }
-  // "None" is an answer, not a blank.
-  const none = J.estimate({ pme_complete: 'none' }).pillars.mental;
-  assert.deepEqual(none.items.find((i) => i.key === 'pme'), { key: 'pme', label: 'PME for grade', value: 'None', state: 'attention' });
-  assert.ok(none.known);
-  const pme = (profile: Record<string, unknown>) => J.recommend(profile).filter((r) => r.id.startsWith('pme')).map((r) => r.title);
+  // "None" is an answer, not a blank: no degree reads 0, exactly.
+  const none = estimateJepes({ degree: '' }, { on }).pillars.find((p) => p.key === 'mental')!.lines.find((l) => l.key === 'degree')!;
+  assert.deepEqual([none.shown, none.value], ['None', { low: 0, high: 0 }]);
+  const pme = (profile: Record<string, unknown>) => J.recommend(profile, {}, { on }).filter((r) => r.id.startsWith('pme')).map((r) => r.title);
   assert.deepEqual(pme({ pme_complete: 'none' }), ['Complete the PME for your grade']);
   assert.deepEqual(pme({ pme_complete: 'distance' }), ['Complete the resident PME for your grade']);
   assert.deepEqual(pme({ pme_complete: 'resident' }), []);
