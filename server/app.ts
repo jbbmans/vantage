@@ -7,7 +7,7 @@ import type { AppConfig } from './config.ts';
 import { PROJECT_ROOT } from './config.ts';
 import { openDatabase, metaSet, metaGet } from './db/index.ts';
 import type { AppContext } from './context.ts';
-import { createMailer } from './services/email.ts';
+import { auditMailRefusal, createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
 import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
@@ -74,7 +74,7 @@ export function createContext(config: AppConfig): AppContext {
   const resealed = resealStoredSecrets(db, config);
   if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
   const runtime = loadRuntime(db, config);
-  const ctx: AppContext = { db, config, chainKey, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
+  const ctx: AppContext = { db, config, chainKey, mailer: createMailer(config, db, (refused) => auditMailRefusal(ctx, refused)), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
   assertDatabaseMatchesMode(ctx);
   // A dedicated deployment's database holds one Unit Instance; the database connection refuses a second (ADR-0007).
   installTopologyGuard(db, config.deployment);

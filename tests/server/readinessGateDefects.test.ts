@@ -962,7 +962,7 @@ async function plainRelay() {
 
 test('on MCEN a reset link never goes to a mail relay that will not start TLS, and an SMTP_URL that sets its own TLS terms stops the start', async () => {
   const relay = await plainRelay();
-  const app = await startApp({ VANTAGE_DEPLOYMENT_PROFILE: 'mcen', VANTAGE_SELF_REGISTRATION: '', VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: `smtp://127.0.0.1:${relay.port}` });
+  const app = await startApp({ VANTAGE_DEPLOYMENT_PROFILE: 'mcen', VANTAGE_SELF_REGISTRATION: '', VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: `smtp://127.0.0.1:${relay.port}`, VANTAGE_EMAIL_ALLOWED_DOMAINS: 'example.mil' });
   try {
     const sent = await app.ctx.mailer.send({ to: 'marine@example.mil', subject: 'Reset your password', text: 'Reset link: https://vantage.example.mil/reset?token=SECRET-RESET-TOKEN', html: '<p>SECRET-RESET-TOKEN</p>', kind: 'reset' });
     assert.equal(sent.ok, false, 'the message is not sent');
@@ -972,7 +972,7 @@ test('on MCEN a reset link never goes to a mail relay that will not start TLS, a
     assert.equal((app.ctx.db.prepare("SELECT status FROM email_log WHERE kind = 'reset'").get() as { status: string }).status, 'failed');
   } finally { await app.close(); await relay.close(); }
 
-  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', VANTAGE_EMAIL_ALLOWED_DOMAINS: 'example.mil' };
   assert.equal(refusal({ ...smtp, SMTP_URL: 'smtp://relay.example.mil:587' }), null);
   assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:pa55@relay.example.mil:465' }), null);
   for (const url of ['', 'http://relay.example.mil', 'not a url', 'smtp://relay.example.mil:25?ignoreTLS=true', 'smtp://relay.example.mil?requireTLS=false', 'smtps://relay.example.mil?tls.rejectUnauthorized=false', 'smtp://relay.example.mil?secure=false', 'smtp://relay.example.mil?TLS.minVersion=TLSv1']) {
@@ -986,7 +986,7 @@ test('on MCEN a reset link never goes to a mail relay that will not start TLS, a
 
 test('an SMTP_URL whose sign-in holds a % that starts no escape stops the start and says how to write it, and a workbook retention of 0 still keeps them', async () => {
   const { tlsOnlyTransport } = await import('../../server/services/email.ts');
-  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp' };
+  const smtp = { ...MCEN_ENV, VANTAGE_EMAIL_PROVIDER: 'smtp', VANTAGE_EMAIL_ALLOWED_DOMAINS: 'example.mil' };
   const message = refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%off@relay.example.mil:465' });
   assert.match(message ?? '', /SMTP_URL has a % in its user name or password/);
   assert.equal(refusal({ ...smtp, SMTP_URL: 'smtps://mailer:50%25off@relay.example.mil:465' }), null);

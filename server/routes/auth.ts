@@ -18,7 +18,7 @@ import { record } from '../services/telemetry.ts';
 import { facesOf } from '../lib/hosts.ts';
 import { audit } from '../services/audit.ts';
 import { maintenanceNotice, publicMaintenance } from '../services/maintenance.ts';
-import { layout } from '../services/mailLayout.ts';
+import { RESET_SUBJECT, resetMessage } from '../services/mailMessages.ts';
 import { newId, now } from '../lib/ids.ts';
 import { claimUnit, addMember, guardSelfReach, mayCarryRole } from '../services/org.ts';
 import { scopeFor, seatedOrgRole } from '../authz/scope.ts';
@@ -383,22 +383,16 @@ authRouter.post('/forgot', wrap(async (req, res) => {
   // Always respond the same way; never confirm whether an account exists.
   if (row?.email && ctx.mailer.enabled && !limiters.resetUser.limited(row.id)) {
     limiters.resetUser.bump(row.id);
-    revokeTokens(ctx, 'reset', row.id);
-    const { token } = issueToken(ctx, 'reset', { userId: row.id, email: row.email, ttlMinutes: 30, payload: { ip } });
-    const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
-    const mail = layout({
-      eyebrow: 'Account recovery',
-      title: 'Reset your password',
-      preheader: 'A one-time link to choose a new Vantage password. It works for 30 minutes.',
-      intro: `${row.first_name}, someone asked to reset the password for your Vantage account. Choose a new one with the button below.`,
-      details: [{ label: 'Username', value: row.username, mono: true }],
-      cta: { label: 'Choose a new password', url },
-      note: 'This link works once and expires in 30 minutes. If you did not ask for it, ignore this message: your password stays as it is.',
-      footer: 'Vantage sent this because a password reset was requested for your account.',
-      origin: ctx.config.urls.app,
-    });
+    // An address outside the allowed domains gets no link (refused and audited), and the answer is the same.
+    const refused = ctx.mailer.checkRecipient({ to: row.email, subject: RESET_SUBJECT, kind: 'reset', userId: row.id });
     audit(ctx, { actor_id: row.id, action: 'password_reset_requested', subject_id: row.id, ip });
-    void ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);
+    if (!refused) {
+      revokeTokens(ctx, 'reset', row.id);
+      const { token } = issueToken(ctx, 'reset', { userId: row.id, email: row.email, ttlMinutes: 30, payload: { ip } });
+      const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
+      const mail = resetMessage({ firstName: row.first_name, username: row.username, url, origin: ctx.config.urls.app });
+      void ctx.mailer.send({ to: row.email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);
+    }
   }
   res.json({ ok: true, emailEnabled: ctx.mailer.enabled });
 }));

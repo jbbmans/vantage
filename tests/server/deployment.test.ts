@@ -50,8 +50,9 @@ test('MCEN starts on the enterprise defaults: the consent banner, no self-regist
   assert.equal(config.security.browserBackups, false);
   assert.equal(config.search.indexNow, false);
   // An enterprise relay, an SSO issuer and a SIEM are the deployment's own services, and allowed.
-  const enterprise = mcen({ VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.mil:25', VANTAGE_AUDIT_SYSLOG: 'tls://siem.example.mil:6514', VANTAGE_CONSENT_BANNER: 'custom', VANTAGE_CONSENT_TEXT: 'Notice.', VANTAGE_BROWSER_BACKUPS: 'true', VANTAGE_TOPOLOGY: 'dedicated' });
+  const enterprise = mcen({ VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://relay.example.mil:25', VANTAGE_EMAIL_ALLOWED_DOMAINS: 'example.mil', VANTAGE_AUDIT_SYSLOG: 'tls://siem.example.mil:6514', VANTAGE_CONSENT_BANNER: 'custom', VANTAGE_CONSENT_TEXT: 'Notice.', VANTAGE_BROWSER_BACKUPS: 'true', VANTAGE_TOPOLOGY: 'dedicated' });
   assert.equal(enterprise.email.provider, 'smtp');
+  assert.deepEqual(enterprise.email.allowedDomains, ['example.mil']);
   assert.equal(enterprise.security.consentBanner, 'custom');
   assert.equal(enterprise.security.browserBackups, true, 'browser backups stay an explicit choice');
   assert.equal(enterprise.deployment.topology, 'dedicated');

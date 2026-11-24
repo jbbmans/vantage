@@ -54,7 +54,10 @@ The start fails, naming every problem at once, if any of these is set:
 - a `VANTAGE_SITE_URL` different from the application's address;
 - `VANTAGE_EMAIL_PROVIDER=smtp` with an `SMTP_URL` that is empty, is not `smtp://` or `smtps://`, or sets its own TLS
   terms in its query (`secure`, `requireTLS`, `ignoreTLS`, `opportunisticTLS`, `tls.*`), or whose user name or
-  password holds a `%` that starts no escape (write it `%25`).
+  password holds a `%` that starts no escape (write it `%25`);
+- `VANTAGE_EMAIL_PROVIDER=smtp` with no `VANTAGE_EMAIL_ALLOWED_DOMAINS`: on MCEN mail goes only to the domains the
+  enterprise names (I-37), for example `usmc.mil, mail.mil`. `*.usmc.mil` names every subdomain of `usmc.mil`. A
+  recipient outside the list is refused and audited (`email_refused`, ADR-0048).
 
 Mail to the relay goes only over TLS 1.2 or later, to a certificate that checks: `smtps://` is TLS from the first byte
 (port 465 unless the address names one), and `smtp://` must start TLS (port 587 unless it names one). The
@@ -74,7 +77,7 @@ Each is off until it is set. Each points at a service the enterprise names.
 |---|---|---|
 | Sign-in with CAC/PIV | `CAC_MODE=proxy` (with `CAC_PROXY_SECRET`) or `direct` (with `CAC_CA_BUNDLE`, `CAC_CRL_DIR`) | I-05 |
 | Sign-in with the enterprise IdP | `VANTAGE_OIDC_ISSUER`, `VANTAGE_OIDC_CLIENT_ID`, `VANTAGE_OIDC_CLIENT_SECRET` | I-05 |
-| Mail through the enterprise relay | `VANTAGE_EMAIL_PROVIDER=smtp`, `SMTP_URL`, `VANTAGE_EMAIL_FROM` | I-15 |
+| Mail through the enterprise relay | `VANTAGE_EMAIL_PROVIDER=smtp`, `SMTP_URL`, `VANTAGE_EMAIL_FROM`, `VANTAGE_EMAIL_ALLOWED_DOMAINS` | I-15, I-37 |
 | Audit records to the SIEM | `VANTAGE_AUDIT_SYSLOG=tls://<collector>:6514` | I-08 |
 | Malware scanning of uploads | `VANTAGE_CLAMD`, and `VANTAGE_SCAN_REQUIRED=true` | I-07 |
 

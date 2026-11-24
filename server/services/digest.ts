@@ -1,7 +1,8 @@
 import { zonedDay } from '../lib/clock.ts';
 import { withGoalProgress } from './records.ts';
 import type { AppContext } from '../context.ts';
-import { layout } from './mailLayout.ts';
+import { digestMessage } from './mailMessages.ts';
+import { DEFAULT_REPORT_MARKING } from '../../shared/reportMarking.ts';
 import { audit } from './audit.ts';
 import { formatDollars } from '../../shared/metrics.ts';
 import { isSummable } from '../../shared/constants.ts';
@@ -72,29 +73,18 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   if (followUps.length) sections.push({ heading: 'Counseling follow-ups', lines: followUps.map((f) => `${f.first_name} ${f.last_name} on ${f.follow_up_date}`) });
   if (maradmins.length) sections.push({ heading: 'New MARADMINs', lines: maradmins.map((m) => `${m.number}: ${m.title}`) });
 
-  const subject = `Vantage weekly: ${acts.length} logged${overdueCount ? `, ${overdueCount} overdue` : ''}`;
-  const content = layout({
-    eyebrow: 'Weekly digest',
-    title: `Your week, ${user.first_name}`,
-    intro: acts.length ? 'Here is what your record picked up this week and what needs attention next.' : 'Nothing was logged this week. One entry keeps the record current.',
-    stats: [
-      { label: acts.length === 1 ? 'entry logged' : 'entries logged', value: String(acts.length) },
-      ...(dollars ? [{ label: 'headline impact', value: formatDollars(dollars), tone: 'good' as const }] : []),
-      { label: 'overdue tasks', value: String(overdueCount), ...(overdueCount ? { tone: 'bad' as const } : {}) },
-      { label: 'due in 14 days', value: String(dueSoonCount), ...(dueSoonCount ? { tone: 'warn' as const } : {}) },
-    ],
-    sections,
-    cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/` },
-    footer: 'You receive this weekly digest because it is enabled in Settings. Turn it off there at any time.',
-    origin: ctx.config.urls.app,
+  const content = digestMessage({
+    firstName: user.first_name, logged: acts.length, impact: dollars ? formatDollars(dollars) : null, overdue: overdueCount, dueSoon: dueSoonCount,
+    sections, appUrl: ctx.config.urls.app, marking: ctx.runtime.reportMarking || DEFAULT_REPORT_MARKING, origin: ctx.config.urls.app,
   });
-  return { subject, ...content, stats: { activities: acts.length, overdue: overdueCount } };
+  return { ...content, stats: { activities: acts.length, overdue: overdueCount } };
 }
 
-export async function sendDigest(ctx: AppContext, user: DigestUser) {
+/** One person's digest, now. `actorId` names them when they asked for it themselves; the weekly run sends as the service. */
+export async function sendDigest(ctx: AppContext, user: DigestUser, actorId: string | null = null) {
   if (!user.email) return { ok: false, error: 'No email on file.' };
   const digest = composeDigest(ctx, user);
-  const result = await ctx.mailer.send({ to: user.email, subject: digest.subject, text: digest.text, html: digest.html, kind: 'digest', userId: user.id });
+  const result = await ctx.mailer.send({ to: user.email, subject: digest.subject, text: digest.text, html: digest.html, kind: 'digest', userId: user.id, actorId });
   if (result.ok) {
     ctx.db.prepare('UPDATE users SET digest_last_sent_at = ? WHERE id = ?').run(now(), user.id);
     audit(ctx, { actor_id: null, action: 'digest_sent', entity: 'user', entity_id: user.id, subject_id: user.id });

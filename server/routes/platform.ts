@@ -25,7 +25,7 @@ import { databaseSize } from '../db/size.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
-import { layout } from '../services/mailLayout.ts';
+import { testMessage } from '../services/mailMessages.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext, SessionUser } from '../context.ts';
 import { usageReport, MIN_COHORT } from '../services/usage.ts';
@@ -345,6 +345,8 @@ function emailSetup(ctx: AppContext) {
     path: direct ? lastPath(ctx.db) : null,
     helo: direct ? heloName(ctx.db, ctx.config) : null,
     queue: { waiting: queue.n, oldest: queue.oldest },
+    // Who mail may go to (ADR-0048): null when every domain is allowed.
+    allowedDomains: ctx.mailer.allowedDomains,
     recent: ctx.db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 15').all(),
   };
 }
@@ -366,16 +368,9 @@ platformRouter.post('/email/test', requirePlatform('platform.email'), wrap(async
   if (!ctx.mailer.enabled) throw badRequest('Email is not configured. Set VANTAGE_EMAIL_PROVIDER and its credentials.');
   const to = String(req.body?.to || req.user.email || '');
   if (!to) throw badRequest('Provide a destination address or add an email to your profile.');
-  const mail = layout({
-    eyebrow: 'Test message',
-    title: 'Email is working',
-    intro: 'If you are reading this, Vantage can reach this inbox. Reset links, invitations, sign-in details and digests will arrive the same way.',
-    details: [{ label: 'Sent from', value: ctx.config.urls.app }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
-    note: 'Check that this message did not land in spam. For direct delivery, open the message headers and look for “dkim=pass”.',
-    footer: 'Vantage staff sent this test from the Vantage Administrator console.',
-    origin: ctx.config.urls.app,
-  });
-  const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
+  const sentAt = new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const mail = testMessage({ appUrl: ctx.config.urls.app, provider: ctx.mailer.provider, from: ctx.config.email.from, sentAt, origin: ctx.config.urls.app });
+  const result = await ctx.mailer.send({ to, subject: mail.subject, text: mail.text, html: mail.html, kind: 'test', userId: req.user.id, actorId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'Send failed.');
   res.json({ ok: true, queued: Boolean(result.queued) });
 }));

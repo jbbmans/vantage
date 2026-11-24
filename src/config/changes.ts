@@ -8,6 +8,16 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-11-24',
+    title: 'Vantage email in dress blues, and only to the domains your deployment names',
+    items: [
+      'Every email Vantage sends wears the app’s dress blues: the navy masthead with its gold and scarlet piping, a white card and a cobalt button. It reads as well in a dark inbox, where a red or amber figure in the weekly digest now stays red or amber.',
+      'Nothing is loaded when you open one, not even a logo, so opening it tells nobody you read it.',
+      'Team messages and the weekly digest carry your deployment’s handling marking at the top and the foot.',
+      'Where your deployment limits the domains Vantage emails, an address at another domain is not emailed, and each time is recorded. Changing your address to one says so on the field; an invitation is still made for you to hand over; a message to your team shows how many get it in Vantage only.',
+    ],
+  },
+  {
+    date: '2026-11-24',
     title: 'Your fitness reports on Readiness, with where each one stands',
     items: [
       'Add the fitness reports you received, copied from your Master Brief Sheet: the period, occasion, grade, your RS, the fourteen marks or the RPT Avg, and the RS Avg, RS High and report counts. Readiness works each one the published way and shows its report average, where it sits against the RS Avg and RS High, its relative value and third, and the working. Your MBS is still the record.',

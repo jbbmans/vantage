@@ -264,7 +264,7 @@ test('a leader emails the team: one copy each, replies to the leader, and everyo
   const noEmail = await app.register('teamnomail');
   for (const u of [withEmail, noEmail]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, appOnly: 1, emailEnabled: true, limit: 300 });
+  assert.deepEqual(audience.body, { members: 2, withEmail: 1, outsideDomains: 0, appOnly: 1, emailEnabled: true, limit: 300 });
 
   const before = mx.received.length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Close-out Friday', body: 'Line one.\nLine two.' } });

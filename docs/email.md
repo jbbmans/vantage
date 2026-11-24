@@ -72,6 +72,27 @@ roots, so a relay certificate signed by an enterprise CA needs that CA in `NODE_
 - Weekly digest: opt-in per user, at their chosen day and hour in the instance time zone; what they logged, what is overdue, and what is closing.
 - Team messages: a leader who manages a unit's members can email everyone in it and the teams beneath it from **Team → Email the team**. Each Marine gets their own copy, replies go to the leader, everyone also sees it in Vantage, and it is recorded in the unit's access log. Five messages an hour per leader.
 
-Every message shares one design (`server/services/mailLayout.ts`): table-based so Outlook lays it out, inline styles so Gmail keeps them, a dark-mode palette for Apple Mail, a plain-text part that says everything the HTML does, and the mark served from `/brand/email-mark.png` (only over HTTPS; the wordmark beside it is live text, so a blocked image loses nothing).
+Every message shares one design (`server/services/mailLayout.ts`, words in `server/services/mailMessages.ts`, [ADR-0048](engineering/ADR/0048-email-look-and-allowed-domains.md)): dress blues as the app wears it, with the wordmark as text on a navy masthead, the gold and scarlet piping, a white card on warm paper and a cobalt button. It is table-based so Outlook lays it out, with inline styles so Gmail keeps them. Every coloured element has a class that dark mode maps, for Apple Mail and Gmail and again for Outlook.com, so a red or amber figure stays red or amber. Nothing is fetched when a message opens: no image, stylesheet or font, the deployment's included. The plain-text part says everything the HTML does. Team messages and the weekly digest print the deployment's handling marking (set by Vantage Administrators) at the top and the foot.
+
+## Who mail may go to
+
+`VANTAGE_EMAIL_ALLOWED_DOMAINS` limits the domains Vantage sends to, for example `usmc.mil, mail.mil` or `*.usmc.mil`
+(every subdomain of `usmc.mil`, not `usmc.mil` itself). Separate entries with commas or spaces; case does not matter.
+An entry that is not a domain stops the start and is named. Unset, any domain is allowed. On MCEN with
+`VANTAGE_EMAIL_PROVIDER=smtp` it is required.
+
+The mailer checks every message before any provider sees it, and checks a queued message again before each retry.
+Whatever the list, a message goes to one plain address: a list of addresses, a display name or a quoted part is
+refused. A refused message is not sent, is logged with the status `refused` and the reason, and is audited as
+`email_refused` with its kind and the recipient's domain. What each sender sees:
+
+- **Email change:** the reason, on the address field. No confirmation link is made.
+- **Password reset:** the same answer as always. No link is made.
+- **Invitation:** the invitation is made, and the leader is told why it was not emailed and copies the link.
+- **Sign-in details:** that person is listed as not sent, with the reason. Their earlier link keeps working.
+- **Team message:** the dialog counts those with an address outside the list, and the result counts them again. They get the message in Vantage.
+- **Weekly digest and the console's test:** the reason.
+
+The Email tab of the Vantage Administrator console shows the list as the server read it.
 
 Every send is logged in `email_log` (recipient, kind, status, error) and shown on the owner overview and the Email tab.

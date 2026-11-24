@@ -355,6 +355,7 @@ export const HELP: HelpSection[] = [
         q: 'How do I add somebody?',
         a: [
           'Invitations are links that work once, for seven days. Enter an email address and, where email is set up, Send invitation emails it; otherwise Create link gives you a link to copy and hand over.',
+          'Where Vantage emails only certain domains, such as usmc.mil, an invitation to an address at another domain is still made but not emailed. Vantage says why, and you copy the link and hand it over.',
           'A join code, made on Administration → Invitations, lets a whole formation join at once: each Marine enters it in Settings, under Join with a code. Enroll an existing account, on Personnel → Roster, adds a Marine you already lead in another unit you manage.',
         ],
         also: ['add marine', 'invitation', 'join'],
