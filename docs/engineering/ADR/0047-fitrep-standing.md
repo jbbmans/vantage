@@ -49,7 +49,8 @@ Read on `7be00d3`:
    type, grade, how the Marine names the RS, the fourteen marks or the RPT Avg, the RS Avg and High, the report counts,
    the values as printed, and `shared` (0 by default). CHECKs hold every range and order (the high at or above the
    average, the count now at or above the count at processing). Soft delete. Only `server/services/fitnessReports.ts`
-   reads or writes the table, which a structural test holds.
+   names the table in its SQL, which a structural test holds; the instance move, the privacy inventory's row count
+   and the demo's clean-up reach it, as every table, through a table name they are given.
 4. **Who sees a report.** The Marine, at `GET/POST /api/me/fitness-reports` and `PUT/DELETE /api/me/fitness-reports/:id`
    (another Marine's id reads as no report). A change names the version it changes, so a stale one is refused, and a
    field it leaves out keeps what is stored; the checks across fields read the report as it will be saved. A leader who may open the Marine's
@@ -72,7 +73,9 @@ Read on `7be00d3`:
 
 ## Readings the sources leave open
 
-Each is a note on the method version, shown with the sources on the page:
+Readings 1 and 3, and the RS High half of reading 2, are notes on the method version, shown with the sources on the
+page. Readings 4 and 5 show where they apply: in the hints on the RS figures, and on a report whose figures disagree
+or give no value.
 
 1. Chapter 8 of MCO 1610.7B could not be read where the rules were gathered. They are the ones The Basic School
    teaches and CNA quotes from the PES Manual; they are to be checked against Chapter 8.
@@ -81,14 +84,19 @@ Each is a note on the method version, shown with the sources on the page:
 3. Figures are worked as the MBS prints them, to two places. The sources do not say whether the system rounds the
    averages before it works the value; CNA's 3.15 / 3.23 / 3.30 example fits only if 3.23 is the average it used.
 4. The cumulative value is worked from the RS Avg and RS High the Marine copies from their current MBS; the value at
-   processing is the printed one.
-5. A report above the RS High entered is inconsistent: it shows 100 and says the figures disagree.
+   processing is the printed one and is never worked again.
+5. A report above the RS High entered is inconsistent: it shows 100 and says the figures disagree. With the RS High
+   equal to the RS Avg, a report below both gives no line to read (the MBS rounds both), so no value is worked and the
+   page says why.
 
 ## Consequences
 
 - A change in the method is a new version with its own date and source; the test refuses an edit to a released one.
 - `fitrepCoverage` is gone; `recommendFitrep` takes `evidence`. The FITREP balance label reads "Evidence strength".
 - The Section C draft, the strength badge and evidence strength grade an entry the same way.
+- A build from before migration 045 refuses a database at schema 45. Going back means keeping 045 in `MIGRATIONS`
+  (it is a no-op, and the table stays unused) or restoring the copy taken before the upgrade (ADR-0041) with the
+  previous build, which loses what was written since.
 
 ## Tests
 
@@ -99,5 +107,7 @@ processing, and with its count blank; the hundredth either side of the printed C
 the projection counting the report in its own profile and each target giving back its value, one mark less not, over
 13 or 14 observed, and "No RV yet" under three; evidence levels, the period window (ongoing and spanning work, a period end before its start) and an award for an earlier period; the body schema; the structural
 test; routes (owner only, 404 for another's, version required and conflicting, a field left out kept, a leader reads shared only and is audited, a peer and
-an outsider refused) and the personal export (JSON, workbook sheet, ZIP CSV, counts). `migrations.test.ts` (045), `databaseFixtures.test.ts` (a fixture frozen
-from `7be00d3` at schema 44), `writer.test.ts`, `shared.test.ts`, and `tests/browser/60-fitrep-standing.spec.ts`.
+an outsider refused) and the personal export (JSON, workbook sheet, ZIP CSV, counts), and an import of it naming the reports as staying in the export. `migrations.test.ts` (045), `databaseFixtures.test.ts` (a fixture frozen
+from `7be00d3` at schema 44), `writer.test.ts`, `shared.test.ts`, and `tests/browser/60-fitrep-standing.spec.ts`, which also holds a quick Share then
+Stop sharing to no refusal, and focus after a removal: to Add a report when it would be lost, kept where the Marine
+moved it otherwise.

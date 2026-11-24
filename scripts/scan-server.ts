@@ -8,9 +8,11 @@ import { createApp, createContext } from '../server/app.ts';
  * are there to refuse; they are raised here so the scan reaches the handlers behind them. Production keeps its limits.
  */
 const port = Number(process.env.VANTAGE_SCAN_PORT || 8799);
-// The scanner's own key is never the app's to read, whichever step starts it.
-const { HAWK_API_KEY: _key, API_KEY: _alias, ...env } = process.env;
-void _key; void _alias;
+// The scanner's own key is never the app's to read: out of process.env before the app starts, and out of the settings
+// it is given. The workflow also starts this step without the key.
+delete process.env.HAWK_API_KEY;
+delete process.env.API_KEY;
+const env = { ...process.env };
 const config = loadConfig({
   ...env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_ACCESS_MODE: 'demo', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'none',
   VANTAGE_MARADMIN_ENABLED: 'false', VANTAGE_AI_ENABLED: 'false', VANTAGE_SECRET: 'security-scan-secret-security-scan-secret-12', VANTAGE_PUBLIC_URL: `http://localhost:${port}`,

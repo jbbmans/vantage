@@ -25,7 +25,7 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 | End-to-end browser suite | `npx playwright test --trace off` | Yes | Pass | `0058137` | 267 of 267 in the cloud container (30.8 min), also 267 of 267 on 9383ebb. The only later change to code, ac51f60, is to the gate script and its test, which no browser test reaches. The run on 080fed6 failed one test, spec 33’s Unit Auditor test, which found stale-page-load-clears-new-sign-in; it was fixed in 9383ebb. |
 | The register checks out and READINESS_GATE.md is drawn from it | `node scripts/readiness-gate.ts` | Yes | Pass | `ac51f60` | Also run, with tests/server/readinessGate.test.ts, on the commit that records these results. |
 | Dependency audit | `npm audit` | Yes | Pass | `0058137` | 0 vulnerabilities. |
-| Dynamic scan (HawkScan) | `hawk scan` | No | Not run | `none` | No StackHawk API key in this environment, so it cannot run; listed under owners outside the code (dynamic-scan). |
+| Dynamic scan (HawkScan) | `hawk scan` | No | Not run | `none` | Not run for this gate’s candidate: there was no StackHawk API key then (dynamic-scan). Since 2026-11-24 it runs on GitHub from every pushed branch, and the next gate reads it there. |
 | GitHub Actions on the pull request | `.github/workflows/ci.yml` | No | Not run | `none` | Not read for this gate: John’s standing instruction is to disregard CI. Its browser job also stops at 25 minutes, and the suite needs about 31, so the suite ran in the container instead. |
 
 ## Gate items
@@ -176,7 +176,7 @@ _Task 28, Final Production Readiness Gate (P0). Drawn from [readiness-gate.json]
 | Item | Owner | Source | Note |
 |---|---|---|---|
 | The sign-in method and assurance policy for MCEN: which methods an instance accepts and what step-up must prove (`sign-in-method-policy`) | The service’s sign-in owner (MCEN identity) | Security review C06, C07 | Open defect c06-passkey-accepted-under-exclusive-modes waits on it. |
-| A dynamic application scan (HawkScan) of the candidate (`dynamic-scan`) | John: a StackHawk API key for this environment | Project setup | HAWK_API_KEY is not set, so no scan has ever run. |
+| A dynamic application scan (HawkScan) of the candidate (`dynamic-scan`) | John: a StackHawk API key for this environment | Project setup | At this gate HAWK_API_KEY was not set, so no scan had run. The key was added on 2026-11-24: the scan now runs on GitHub from every pushed branch (.github/workflows/hawkscan.yml), and the next gate reads the candidate’s result there. |
 | Code-scanning alerts: 14 on PR #69, the 12 high on PR #84 and the high on PR #86, each fixed or dismissed with a reason (`code-scanning-alerts`) | John, as repository owner | Task 19; security review §8 | Dismissals are a repository owner’s decision; none has been made. PR #86 drew 5 high at 0872fcb: three on the record list’s queries in server/services/records.ts, traced on their threads as a checked table name with every value bound; one on this summary’s escaping, fixed in ac51f60; one not shown on the pull request’s lines. |
 | An approved MCeLE course source for the course lookup (`mcele-source`) | John, with the training office | Task 22 | The lookup ships with its built-in catalog until a source is named. |
 | Who approves a support reset of a sign-in: the Task 7 decision card was never answered (`task7-support-reset-approver`) | John | Task 7 | Built as “Second staff member”. |

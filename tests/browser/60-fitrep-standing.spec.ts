@@ -122,11 +122,37 @@ test('a Staff Sergeant adds their reports, sees where each stands and what the c
   await page.getByRole('dialog', { name: 'Remove this report?' }).getByRole('button', { name: 'Remove' }).click();
   await expect(reports.getByRole('article')).toHaveCount(2);
   await expect(reports.getByRole('button', { name: 'Add a report' })).toBeFocused();
+  // A Marine who moves on while a removal is on its way keeps their place.
+  await addReport(page, { from: '2026-11-01', to: '2026-11-20', occasion: 'AN, Annual' }).then((d) => d.getByRole('button', { name: 'Add report' }).click());
+  await expect(reports.getByRole('article')).toHaveCount(3);
+  let release!: () => void;
+  const held = new Promise<void>((done) => { release = done; });
+  const oneReport = (url: URL) => url.pathname.startsWith('/api/me/fitness-reports/');
+  await page.route(oneReport, async (route) => { if (route.request().method() === 'DELETE') await held; await route.continue(); });
+  const removeLast = reports.getByRole('button', { name: 'Remove the report of 2026-11-01 to 2026-11-20' });
+  await removeLast.click();
+  await page.getByRole('dialog', { name: 'Remove this report?' }).getByRole('button', { name: 'Remove' }).click();
+  await expect(removeLast).toBeFocused();
+  const expecting = coming.getByLabel('Average you expect', { exact: true });
+  await expecting.focus();
+  release();
+  await expect(reports.getByRole('article')).toHaveCount(2);
+  await expect(expecting).toBeFocused();
+  await page.unroute(oneReport);
 
   // Shared, the leader who sees this Marine's readiness reads that one report and its standing; the other stays private.
   await alvarez.getByRole('button', { name: 'Share the report of 2025-06-01 to 2026-05-31' }).click();
   await expect(page.getByText('Shared with the leaders who see your readiness.')).toBeVisible();
   await expect(alvarez).toContainText('Shared');
+  // A quick Share then Stop sharing is not refused: the saved report is in the list before the list is read again.
+  const theList = (url: URL) => url.pathname === '/api/me/fitness-reports';
+  await page.route(theList, async (route) => { if (route.request().method() === 'GET') await new Promise((done) => setTimeout(done, 3000)); await route.continue(); });
+  await okafor.getByRole('button', { name: 'Share the report of 2026-06-01 to 2026-10-31' }).click();
+  await okafor.getByRole('button', { name: 'Stop sharing the report of 2026-06-01 to 2026-10-31' }).click({ timeout: 2000 });
+  await expect(page.getByText('No longer shared.')).toBeVisible();
+  await page.unroute(theList);
+  await expect(okafor.getByRole('button', { name: 'Share the report of 2026-06-01 to 2026-10-31' })).toBeVisible();
+  await expect(okafor).not.toContainText('Shared');
 
   const me = await (await page.request.get('/api/me')).json();
   const leader = await playwrightRequest.newContext({ baseURL: page.url().replace(/^(https?:\/\/[^/]+).*$/, '$1') });

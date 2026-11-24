@@ -4,13 +4,15 @@ _Updated 2026-11-24_
 
 ## What changed (2026-11-24: better grading, part 3, FITREP standing)
 
-**In review.** HawkScan runs from the pushed branch (a new workflow); its results are in the PR. CI results not acted on.
+**In review.** HawkScan runs from every pushed branch (a new workflow) and passes at the high threshold; the findings
+are read in the PR. CI results not acted on.
 
 Round 2, from `7be00d3` ([ADR-0047](engineering/ADR/0047-fitrep-standing.md)). Migration `045_fitness_reports`.
 
 - **The method** (`shared/fitrepMethod.ts`): the report average, the relative value (RS High 100, RS Avg 90, floor
   80), the three-report minimum, the reports with no value, and the thirds, as a versioned table, frozen, fingerprinted
-  and cited (MCO 1610.7B, The Basic School, MMOA-4, CNA). The readings the sources leave open are notes on it.
+  and cited (MCO 1610.7B, The Basic School, MMOA-4, CNA). The ADR lists the five readings the sources leave open;
+  three are notes on the method.
 - **The standing** (`shared/fitrepStanding.ts`): each report's average, position, cumulative value with its working,
   third, the value at processing as printed and a check against the MBS; the coming report in a profile, counted in
   it, with the average each third needs. Pure, so the page and a leader's view work it alike.

@@ -147,14 +147,16 @@ test('the coming report counts in its own profile, and each target average gives
   assert.match(project({ rsAvg: 3.41, rsHigh: 3.79, reports: 1, fra: 3.6 }, method).reason ?? '', /will have written 2 on the grade/);
   // A report above the high becomes the high, so it is valued 100.
   assert.equal(project({ rsAvg: 3.41, rsHigh: 3.79, reports: 9, fra: 3.9 }, method).rv?.value, 100);
-  for (const reports of [2, 5, 30]) {
-    const q = project({ rsAvg: 3.3, rsHigh: 3.85, reports, observed: 13 }, method);
-    for (const t of q.targets) {
-      assert.ok(t.fra != null && t.total != null, `${t.key} is in reach`);
-      const at = project({ rsAvg: 3.3, rsHigh: 3.85, reports, fra: t.total! / 13 }, method).rv!.value;
-      const under = project({ rsAvg: 3.3, rsHigh: 3.85, reports, fra: (t.total! - 1) / 13 }, method).rv!.value;
-      assert.ok(at >= t.rv, `${t.key} with ${reports}: ${t.total} over 13 reaches ${t.rv} (${at})`);
-      assert.ok(under < t.rv, `${t.key} with ${reports}: one mark less does not (${under})`);
+  for (const observed of [13, 14]) {
+    for (const reports of [2, 5, 30]) {
+      const q = project({ rsAvg: 3.3, rsHigh: 3.85, reports, observed }, method);
+      for (const t of q.targets) {
+        assert.ok(t.fra != null && t.total != null, `${t.key} is in reach`);
+        const at = project({ rsAvg: 3.3, rsHigh: 3.85, reports, fra: t.total! / observed }, method).rv!.value;
+        const under = project({ rsAvg: 3.3, rsHigh: 3.85, reports, fra: (t.total! - 1) / observed }, method).rv!.value;
+        assert.ok(at >= t.rv, `${t.key} with ${reports}: ${t.total} over ${observed} reaches ${t.rv} (${at})`);
+        assert.ok(under < t.rv, `${t.key} with ${reports}: one mark less over ${observed} does not (${under})`);
+      }
     }
   }
   // Marks set the average and the count of observed marks the targets use.
@@ -355,4 +357,11 @@ test('a leader who sees the Marine’s readiness reads only the reports shared, 
   assert.ok(sheet!.rows[0].includes('deleted_at') && !sheet!.rows[0].includes('user_id'));
   assert.ok(listZip(buildPersonalExportZip(app.ctx, marine.id).buffer).includes('fitness-reports.csv'));
   assert.equal(buildPersonalExportWorkbook(app.ctx, marine.id, { sections: ['profile'] }).counts.fitness_reports, 2);
+  // Imported back, the reports are named as staying in the export, with the Master Brief Sheet as the record.
+  const staged = await app.call('POST', '/api/me/imports', { token: marine.token, raw: buildPersonalExportZip(app.ctx, marine.id).buffer, headers: { 'content-type': 'application/zip', 'x-filename': 'vantage-export.zip' } });
+  assert.equal(staged.status, 201, JSON.stringify(staged.body).slice(0, 500));
+  const kept = staged.body.notImported.find((n: { key: string }) => n.key === 'fitness_reports');
+  assert.deepEqual([kept?.label, kept?.count], ['Fitness reports', 2], JSON.stringify(staged.body.notImported));
+  assert.match(kept.reason, /stay in the export.*Master Brief Sheet, which is the record/);
+  assert.equal((await app.call('DELETE', `/api/me/imports/${staged.body.id}`, { token: marine.token })).status, 200);
 });
