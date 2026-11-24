@@ -17,7 +17,9 @@ the evidence in their evaluation input next quarter. None of it is typed twice.
   remain authoritative. Vantage organizes the human work around them, calculates transparently, keeps the
   evidence, and says where every value came from.
 - Not a scoring or surveillance tool. It never labels people and never estimates effort from typing
-  or open tabs. A count always comes with its definition, its window, and what it cannot show.
+  or open tabs. A count always comes with its definition, its window, and what it cannot show. The one score
+  it works is the JEPES estimate: the order's published tables on a Marine's own figures, each part with its
+  reason, shown to the Marine and to leaders who may open their readiness, never used to rank Marines.
 - Not dependent on a commercial host, a public CDN, an AI service or a personal account.
 
 ## Who it is for first

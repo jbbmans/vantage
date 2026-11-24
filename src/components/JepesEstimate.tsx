@@ -1,11 +1,11 @@
 import { ExternalLink } from 'lucide-react';
 import { Progress } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
-import { totalArithmetic, type JepesEstimate, type Range } from '../../shared/jepesEstimate';
+import { formatFigure, openReason, totalArithmetic, type JepesEstimate, type Range } from '../../shared/jepesEstimate';
 
 /** The JEPES estimate as the worksheet works it (ADR-0046): the total, each pillar's points and the reason for each line. */
 
-const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString('en-US') : n.toFixed(2).replace(/0$/, ''));
+const fmt = formatFigure;
 export const showRange = (r: Range) => (r.low === r.high ? fmt(r.low) : `${fmt(r.low)} to ${fmt(r.high)}`);
 
 /** How the estimate reads in a sentence, for a summary line or a live region. */
@@ -18,7 +18,7 @@ export function EstimateTotal({ est, className }: { est: JepesEstimate; classNam
     <div className={cn('flex flex-wrap items-baseline gap-x-2', className)}>
       <span className="fig text-3xl font-semibold text-ink">{showRange(est.total)}</span>
       <span className="text-sm text-ink-3">of {fmt(est.max)}</span>
-      {!est.exact && <span className="text-xs text-warn">a range until the blank figures are entered</span>}
+      {!est.exact && <span className="text-xs text-warn">a range until {openReason(est)}</span>}
     </div>
   );
 }

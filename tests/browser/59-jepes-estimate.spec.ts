@@ -50,6 +50,10 @@ test('a Lance Corporal sees the estimate, the reason for each line, a what-if th
   await expect(estimate).toContainText('0 to 975');
   await expect(estimate).toContainText('a range until the blank figures are entered');
 
+  // The reserve affiliation incentive is for an eligible Corporal, so a Lance Corporal is not offered it.
+  await expect(page.getByRole('switch', { name: /Drill Instructor School/ })).toBeVisible();
+  await expect(page.getByRole('switch', { name: /Reserve affiliation incentive/ })).toHaveCount(0);
+
   await enterFigures(page);
   await expect(estimate.locator('.text-3xl')).toHaveText('656');
   await page.getByRole('button', { name: 'Save' }).click();
@@ -84,6 +88,7 @@ test('a Lance Corporal sees the estimate, the reason for each line, a what-if th
   await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
   await whatIf.getByRole('button', { name: 'Start over' }).click();
   await expect(result).toHaveText(/Type a figure above/);
+  await expect(result).toBeFocused();
 
   const scan = await new AxeBuilder({ page }).include('main').analyze();
   expect(scan.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);

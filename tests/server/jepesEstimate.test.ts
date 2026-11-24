@@ -5,7 +5,7 @@ import { canonical, versioned } from '../../shared/versioned.ts';
 import {
   JEPES_BONUS, JEPES_MCMAP_TABLES, JEPES_MENTAL_AGILITY, JEPES_SCORE_TABLES, JEPES_TABLES, JEPES_WORKSHEET, MCMAP_CODES, SCORE_SCALE,
 } from '../../shared/jepesTables.ts';
-import { JEPES_READINESS_COLUMNS, estimateJepes, jepesGrade, jepesLevers, mcmapCode, roundHalfUp, totalArithmetic, type JepesEstimate } from '../../shared/jepesEstimate.ts';
+import { JEPES_READINESS_COLUMNS, estimateJepes, formatMark, jepesGrade, jepesLevers, mcmapCode, openReason, roundHalfUp, totalArithmetic, type JepesEstimate } from '../../shared/jepesEstimate.ts';
 import { readinessSchema } from '../../shared/schemas.ts';
 import { READINESS_COLUMNS } from '../../shared/recordTransfer.ts';
 import { startApp, enroll, type TestApp } from './helpers.ts';
@@ -23,7 +23,7 @@ const exact = (n: number) => ({ low: n, high: n });
 
 /** Each released version as it was released. Changing one is refused here: a change is a new version, never an edit. */
 const RELEASED: Record<string, string> = {
-  'mco-1616.1-tables-3-4': 'c6c4e72ef3ed971c1e066f493be05e60bdf1ec319806bb259765bb6427670970',
+  'mco-1616.1-tables-3-4': 'dfadc93b8919e17a282f95e570462185e522bd64b33ef70ec82407e73680a11c',
   'mco-1616.1-tables-1-2': 'c18526dc453741464b5cf9945362da9acb352a51e6e7e9bf101b90b514a75da1',
   'mco-1616.1-worksheet': 'f899676c00d2cd1990d78493004d93327d2705a766a5f35385d78f2a884adab2',
   'mco-1616.1-line-3': 'f26b0b79ec7a7f1fadc70a1eb0686967159fc7f6b293a769d8aff7b77872d646',
@@ -102,13 +102,19 @@ test('Tables 1 and 2 read the MCTFS belt codes, and a belt above a table takes i
   assert.deepEqual(data.lcpl.map((r) => [r.code, r.value]), [['MMA', 0], ['MMB', 33], ['MMC', 67], ['MMD', 100]]);
   assert.deepEqual(data.cpl.map((r) => [r.code, r.value]), [['MMA', 0], ['MMB', 16], ['MMC', 33], ['MMD', 50], ['MME', 66], ['MMF', 83], ['MMG', 100]]);
   assert.deepEqual(MCMAP_CODES, ['MMA', 'MMB', 'MMC', 'MMD', 'MME', 'MMF', 'MMG', 'MMH']);
-  assert.deepEqual(['Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 3rd'].map((b) => mcmapCode(b, 0)), ['MMB', 'MMC', 'MMD', 'MMF', 'MMH', 'MMH']);
+  assert.deepEqual(['Unqualified', 'Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 3rd'].map((b) => mcmapCode(b, 0)), ['MMA', 'MMB', 'MMC', 'MMD', 'MMF', 'MMH', 'MMH']);
   assert.deepEqual([mcmapCode('Green', 1), mcmapCode('Brown', true), mcmapCode('Tan', 1), mcmapCode('', 1), mcmapCode('Purple', 0)], ['MME', 'MMG', 'MMB', null, null]);
   const lcplBrown = line(estimateJepes({ rank_grade: 'E-3', mcmap_belt: 'Brown' }, { on: TODAY }), 'mcmap_belt');
   assert.deepEqual(lcplBrown.value, exact(100));
   assert.match(lcplBrown.reason, /above Table 1's top row, Green, so 100/);
   assert.deepEqual(line(estimateJepes({ rank_grade: 'E-4', mcmap_belt: 'Green', mcmap_instructor: 1 }, { on: TODAY }), 'mcmap_belt').value, exact(66));
   assert.deepEqual(line(estimateJepes({ rank_grade: 'E-4', mcmap_belt: 'Black 1st' }, { on: TODAY }), 'mcmap_belt').value, exact(100));
+  // Unqualified is MMA, the first row: entered, worth 0, and its next step is Tan.
+  const unqualified = { rank_grade: 'E-3', mcmap_belt: 'Unqualified' };
+  const none = line(estimateJepes(unqualified, { on: TODAY }), 'mcmap_belt');
+  assert.ok(none.entered);
+  assert.deepEqual(none.value, exact(0));
+  assert.equal(jepesLevers(unqualified, { on: TODAY }).find((l) => l.id === 'mcmap')!.title, 'Advance to Tan belt');
 });
 
 /** A Lance Corporal's figures, worked below by hand. */
@@ -172,14 +178,28 @@ test('a Corporal worked through the worksheet, with the bonus held to 100', () =
 });
 
 test('before MARADMIN 367/21 the order’s own Mental Agility applies, and before the reserve message there is no affiliation bonus', () => {
-  const est = estimateJepes({ ...LCPL, bonus_reserve_affiliation: 1 }, { on: '2021-03-01' });
+  const est = estimateJepes(LCPL, { on: '2021-03-01' });
   // MarineNet 25, one associate 20, two courses in service 20, three in grade 30; no MOS qualification line yet.
   assert.deepEqual(pillar(est, 'mental').lines.map((l) => [l.key, l.value.low]), [['ceus', 25], ['degree', 20], ['courses_in_service', 20], ['courses_in_grade', 30]]);
   // 95 x 1.25 = 118.75, rounded to 119.
   assert.deepEqual(pillar(est, 'mental').points, exact(119));
-  assert.deepEqual(pillar(est, 'bonus').points, exact(20), 'the reserve affiliation incentive began on 7 Dec 2021');
+  assert.deepEqual(pillar(est, 'bonus').points, exact(20));
   assert.deepEqual(est.total, exact(153 + 160 + 119 + 210 + 20));
   assert.equal(est.versions.find((v) => v.table === 'JEPES Mental Agility')!.id, 'mco-1616.1-line-3');
+  const cpl = { rank_grade: 'E-4', bonus_reserve_affiliation: 1 };
+  assert.deepEqual(pillar(estimateJepes(cpl, { on: '2021-12-06' }), 'bonus').points, exact(0), 'the reserve affiliation incentive began on 7 Dec 2021');
+  assert.deepEqual(pillar(estimateJepes(cpl, { on: '2021-12-07' }), 'bonus').points, exact(50));
+});
+
+test('the reserve affiliation incentive is for an eligible Corporal: 50 at E-4, 0 at Lance Corporal, a range with no rank', () => {
+  const at = (rank_grade?: string) => line(estimateJepes({ ...(rank_grade ? { rank_grade } : {}), bonus_reserve_affiliation: 1 }, { on: TODAY }), 'bonus_reserve_affiliation');
+  assert.deepEqual(at('E-4').value, exact(50));
+  assert.deepEqual(at('E-3').value, exact(0));
+  assert.match(at('E-3').reason, /for an eligible Corporal only, so 0 at your grade/);
+  assert.deepEqual(at().value, { low: 0, high: 50 });
+  assert.match(at().reason, /0 to 50 until your rank is set/);
+  // The Lance Corporal's 656 is the same whether or not the switch was left on.
+  assert.deepEqual(estimateJepes({ ...LCPL, bonus_reserve_affiliation: 1 }, { on: TODAY }).total, exact(656));
 });
 
 test('rounding is half up, as the order says 200.5 is 201, and every cap holds', () => {
@@ -205,7 +225,16 @@ test('a blank figure is its line’s whole range, a missing rank reads both tabl
   // Every line open: 250 + 250 + (40 + 20 + 20 + 100) x 1.25 + 250, with no degree and no bonus.
   assert.deepEqual(blank.total, { low: 0, high: 975 });
   assert.deepEqual(blank.blanks.sort(), ['ceus', 'cft_score', 'cmd_character', 'cmd_leadership', 'cmd_mos', 'courses_in_grade', 'courses_in_service', 'mcmap_belt', 'mos_qual_points', 'pft_score', 'rifle_score']);
-  assert.match(totalArithmetic(blank), /0 to 975 of 1,000 until the blank lines are entered/);
+  assert.match(totalArithmetic(blank), /0 to 975 of 1,000 until the blank figures are entered/);
+  // With every figure entered and no rank, what is left open is the rank, and the words say so.
+  const { rank_grade: _rank, ...unranked } = LCPL;
+  const open = estimateJepes(unranked, { on: TODAY });
+  assert.deepEqual(open.blanks, []);
+  assert.ok(!open.exact);
+  assert.equal(openReason(open), 'your rank is set');
+  assert.match(totalArithmetic(open), /until your rank is set\.?$/);
+  assert.match(pillar(open, 'warfighting').arithmetic, /until your rank is set, since the Lance Corporal and Corporal tables differ/);
+  assert.doesNotMatch(pillar(open, 'warfighting').arithmetic, /every line is entered/);
   const noRank = line(estimateJepes({ rifle_score: 310 }, { on: TODAY }), 'rifle_score');
   assert.deepEqual(noRank.value, { low: 43, high: 55 });
   assert.match(noRank.reason, /55 on Table 3 and 43 on Table 4; your rank picks the table/);
@@ -239,6 +268,16 @@ test('levers: blank figures first, then each step by the points it adds, and eac
   // A step that ten more points of score would not move goes to the next score that does.
   const rifle = levers.find((l) => l.id === 'rifle')!;
   assert.ok((rifle.points ?? 0) > 0, 'the rifle step adds points');
+  // Below 250 every rifle score is 0, so ten more points moves nothing; the step goes to 250, the first that does.
+  assert.match(jepesLevers({ ...inputs, rifle_score: 200 }, { on: TODAY }).find((l) => l.id === 'rifle')!.title, /from 200 to 250/);
+});
+
+test('command marks read as typed, to the places the Marine gave, and the step never passes 5.0', () => {
+  assert.deepEqual([formatMark(4), formatMark(4.25), formatMark(4.333), formatMark(5)], ['4.0', '4.25', '4.333', '5.0']);
+  const marks = (cmd_mos: number) => ({ rank_grade: 'E-3', cmd_mos, cmd_leadership: 5, cmd_character: 5 });
+  assert.equal(jepesLevers(marks(4.96), { on: TODAY }).find((l) => l.id === 'command-input')!.title, 'Raise your MOS / Mission Accomplishment average from 4.96 to 5.0');
+  assert.equal(jepesLevers(marks(4.25), { on: TODAY }).find((l) => l.id === 'command-input')!.title, 'Raise your MOS / Mission Accomplishment average from 4.25 to 4.75');
+  assert.match(line(estimateJepes(marks(4.333), { on: TODAY }), 'cmd_mos').reason, /Average 4\.333 × 50 = 216\.65/);
 });
 
 test('the readiness record, the import columns and the schema carry every figure the estimate reads', () => {

@@ -77,7 +77,17 @@ const span = (low: number, high: number): Range => ({ low, high });
 const add = (a: Range, b: Range): Range => ({ low: a.low + b.low, high: a.high + b.high });
 const isExact = (r: Range) => r.low === r.high;
 const show = (r: Range) => (isExact(r) ? fmt(r.low) : `${fmt(r.low)} to ${fmt(r.high)}`);
-const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString('en-US') : n.toFixed(2).replace(/0$/, ''));
+/** A figure as the worksheet would write it: whole numbers with commas, a fraction to as many places as it has, up to four. */
+export const formatFigure = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+const fmt = formatFigure;
+/** A command mark as entered: one place at least ("4.0"), and every place it was entered with, up to four. */
+export const formatMark = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 4 });
+/** What is still open on a set of lines: a blank figure, or a rank that would pick between the two tables. */
+function stillOpen(lines: JepesLine[]): string {
+  const blank = lines.some((l) => !l.entered);
+  const rank = lines.some((l) => l.entered && l.value.low !== l.value.high);
+  return [blank && 'every line is entered', rank && 'your rank is set, since the Lance Corporal and Corporal tables differ'].filter(Boolean).join(' and ');
+}
 
 /** The worksheet's rounding (p. B-2): to the nearest whole number, .5 and above up. Float noise is cleared first. */
 export function roundHalfUp(n: number): number {
@@ -103,6 +113,7 @@ export function mcmapCode(belt: unknown, instructor: unknown): McmapCode | null 
   const b = String(belt ?? '').trim();
   if (!b) return null;
   const i = flag(instructor);
+  if (b === 'Unqualified') return 'MMA';
   if (b === 'Tan') return 'MMB';
   if (b === 'Grey') return 'MMC';
   if (b === 'Green') return i ? 'MME' : 'MMD';
@@ -171,7 +182,7 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
       blanks.push('mcmap_belt');
       return { key: 'mcmap_belt', line: '1b', label: 'MCMAP belt', shown: null, entered: false, value: span(0, 100), max: 100, cite: order(page), reason: 'Not entered, so 0 to 100.' };
     }
-    const belt = `${inputs.mcmap_belt} belt${flag(inputs.mcmap_instructor) && (code === 'MME' || code === 'MMG') ? ', instructor' : ''}`;
+    const belt = code === 'MMA' ? 'Unqualified' : `${inputs.mcmap_belt} belt${flag(inputs.mcmap_instructor) && (code === 'MME' || code === 'MMG') ? ', instructor' : ''}`;
     const read = grades.map((g) => ({ g, row: mcmapRow(mcmap.data[g], code) }));
     const values = read.map((r) => r.row.value);
     const says = ({ g, row }: { g: JepesGrade; row: McmapRow }) => (row.code === code || (code === 'MMH' && row.code === 'MMG' && g === 'cpl')
@@ -192,7 +203,7 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
       const capped = rounded > sheet.pillarCap ? `, most ${sheet.pillarCap}` : '';
       return `Line ${sumLine}: ${lines.map((l) => fmt(l.value.low)).join(' + ')} = ${fmt(sum.low)}. Line ${pointsLine}: ${fmt(sum.low)} × ${sheet.multiplier} = ${fmt(raw)}${Number.isInteger(raw) ? '' : `, rounded to ${rounded}`}${capped}.`;
     }
-    return `Line ${sumLine}: ${show(sum)}. Line ${pointsLine}: ${show(points)} (× ${sheet.multiplier}, rounded) until every line is entered.`;
+    return `Line ${sumLine}: ${show(sum)}. Line ${pointsLine}: ${show(points)} (× ${sheet.multiplier}, rounded) until ${stillOpen(lines)}.`;
   };
   const pillar = (key: PillarKey, label: string, lines: JepesLine[], sumLine: string, pointsLine: string): JepesPillar => {
     const sum = lines.reduce((acc, l) => add(acc, l.value), exact(0));
@@ -255,7 +266,7 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
     if (m === null) { blanks.push(key); return { key, line, label, shown: null, entered: false, value: span(0, 5 * sheet.perMark), max: 5 * sheet.perMark, cite, reason: `Not entered, so 0 to ${5 * sheet.perMark}. Your average mark in grade, 0.0 to 5.0, as MOL shows it.` }; }
     const mark = Math.min(Math.max(m, 0), 5);
     const value = mark * sheet.perMark;
-    return { key, line, label, shown: mark.toFixed(Number.isInteger(mark * 10) ? 1 : 2), entered: true, value: exact(Math.round(value * 1e6) / 1e6), max: 5 * sheet.perMark, cite, reason: `Average ${mark.toFixed(Number.isInteger(mark * 10) ? 1 : 2)} × ${sheet.perMark} = ${fmt(Math.round(value * 1e6) / 1e6)}.` };
+    return { key, line, label, shown: formatMark(mark), entered: true, value: exact(Math.round(value * 1e6) / 1e6), max: 5 * sheet.perMark, cite, reason: `Average ${formatMark(mark)} × ${sheet.perMark} = ${fmt(Math.round(value * 1e6) / 1e6)}.` };
   });
   const markSum = markLines.reduce((acc, l) => add(acc, l.value), exact(0));
   const command = (s: number) => Math.min(sheet.pillarCap, roundHalfUp(s / sheet.commandDivisor));
@@ -269,11 +280,16 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
 
   // Line 5: Bonus. A yes or no the Marine knows, so a blank reads as no.
   const bonusCite = (where: string): Citation => ({ ...bonus.cites[0], where });
-  const bonusLines: JepesLine[] = bonus.data.items.filter((item) => flag(inputs[item.key])).map((item) => ({
-    key: item.key, line: item.line, label: item.label, shown: 'Yes', entered: true, value: exact(item.points), max: item.points,
-    cite: item.key === 'bonus_reserve_affiliation' ? (bonus.cites[1] ?? bonus.cites[0]) : bonusCite(`Appendix B, line ${item.line}, pp. B-1 and B-6`),
-    reason: `${item.label}: ${item.points}.`,
-  }));
+  const bonusLines: JepesLine[] = bonus.data.items.filter((item) => flag(inputs[item.key])).map((item) => {
+    const cite = item.key === 'bonus_reserve_affiliation' ? (bonus.cites[1] ?? bonus.cites[0]) : bonusCite(`Appendix B, line ${item.line}, pp. B-1 and B-6`);
+    // The reserve affiliation incentive is for an eligible Corporal (MARADMIN 695/21), so the rank decides it.
+    if (item.key === 'bonus_reserve_affiliation' && grade !== 'cpl') {
+      return grade === null
+        ? { key: item.key, line: item.line, label: item.label, shown: 'Yes', entered: true, value: span(0, item.points), max: item.points, cite, reason: `${item.label}: ${item.points} for an eligible Corporal, so 0 to ${item.points} until your rank is set.` }
+        : { key: item.key, line: item.line, label: item.label, shown: 'Yes', entered: true, value: exact(0), max: item.points, cite, reason: `${item.label}: for an eligible Corporal only, so 0 at your grade.` };
+    }
+    return { key: item.key, line: item.line, label: item.label, shown: 'Yes', entered: true, value: exact(item.points), max: item.points, cite, reason: `${item.label}: ${item.points}.` };
+  });
   const referrals = Math.max(0, Math.floor(num(inputs.recruiting_referrals) ?? 0));
   if (referrals > 0) {
     const r = bonus.data.recruiting;
@@ -287,9 +303,10 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
   const bonusPoints = span(Math.min(bonus.data.cap, bonusSum.low), Math.min(bonus.data.cap, bonusSum.high));
   const bonusPillar: JepesPillar = {
     key: 'bonus', label: 'Bonus', lines: bonusLines, sum: bonusSum, points: bonusPoints, max: bonus.data.cap,
-    arithmetic: bonusLines.length
-      ? `Line 5g: ${bonusLines.length > 1 ? `${bonusLines.map((l) => fmt(l.value.low)).join(' + ')} = ` : ''}${fmt(bonusSum.low)}. Line 5h: ${fmt(bonusPoints.low)}${bonusSum.low > bonus.data.cap ? `, most ${bonus.data.cap}` : ''}.`
-      : 'None entered.',
+    arithmetic: !bonusLines.length ? 'None entered.'
+      : isExact(bonusSum)
+        ? `Line 5g: ${bonusLines.length > 1 ? `${bonusLines.map((l) => fmt(l.value.low)).join(' + ')} = ` : ''}${fmt(bonusSum.low)}. Line 5h: ${fmt(bonusPoints.low)}${bonusSum.low > bonus.data.cap ? `, most ${bonus.data.cap}` : ''}.`
+        : `Line 5g: ${show(bonusSum)}. Line 5h: ${show(bonusPoints)} (most ${bonus.data.cap}) until ${stillOpen(bonusLines)}.`,
   };
 
   const pillars = [warfighting, physical, mentalPillar, commandPillar, bonusPillar];
@@ -303,12 +320,20 @@ export function estimateJepes(inputs: JepesInputs = {}, opts: EstimateOptions = 
   };
 }
 
+/** Why an estimate is still a range: blank figures, a rank not set, or both. */
+export function openReason(est: JepesEstimate): string {
+  const lines = est.pillars.flatMap((p) => p.lines);
+  const blank = est.blanks.length > 0;
+  const rank = lines.some((l) => l.entered && l.value.low !== l.value.high);
+  return [blank && 'the blank figures are entered', rank && 'your rank is set'].filter(Boolean).join(' and ') || 'every figure is entered';
+}
+
 /** The arithmetic of line 6a in words. */
 export function totalArithmetic(est: JepesEstimate): string {
   const parts = est.pillars.map((p) => show(p.points)).join(' + ');
   return est.exact
     ? `Line 6a: ${parts} = ${fmt(est.total.low)}, of ${fmt(est.max)}.`
-    : `Line 6a: ${parts}, so ${fmt(est.total.low)} to ${fmt(est.total.high)} of ${fmt(est.max)} until the blank lines are entered.`;
+    : `Line 6a: ${parts}, so ${fmt(est.total.low)} to ${fmt(est.total.high)} of ${fmt(est.max)} until ${openReason(est)}.`;
 }
 
 export interface JepesLever {
@@ -329,7 +354,7 @@ export interface JepesLever {
 }
 
 const BELT_STEPS: Array<{ belt: string; instructor: 0 | 1 }> = [
-  { belt: 'Tan', instructor: 0 }, { belt: 'Grey', instructor: 0 }, { belt: 'Green', instructor: 0 }, { belt: 'Green', instructor: 1 },
+  { belt: 'Unqualified', instructor: 0 }, { belt: 'Tan', instructor: 0 }, { belt: 'Grey', instructor: 0 }, { belt: 'Green', instructor: 0 }, { belt: 'Green', instructor: 1 },
   { belt: 'Brown', instructor: 0 }, { belt: 'Brown', instructor: 1 },
 ];
 
@@ -374,7 +399,7 @@ export function jepesLevers(inputs: JepesInputs = {}, opts: EstimateOptions = {}
   }
 
   const code = mcmapCode(inputs.mcmap_belt, inputs.mcmap_instructor);
-  if (!code) blank('mcmap_belt', 'MCMAP belt', { mcmap_belt: 'Brown', mcmap_instructor: 1 }, { mcmap_belt: 'Tan', mcmap_instructor: 0 }, 'Your belt, and whether you are a certified instructor at it.', 'Warfighting');
+  if (!code) blank('mcmap_belt', 'MCMAP belt', { mcmap_belt: 'Brown', mcmap_instructor: 1 }, { mcmap_belt: 'Unqualified', mcmap_instructor: 0 }, 'Your belt, and whether you are a certified instructor at it.', 'Warfighting');
   else {
     const at = BELT_STEPS.findIndex((s) => mcmapCode(s.belt, s.instructor) === code);
     const ahead = at < 0 ? [] : BELT_STEPS.slice(at + 1);
@@ -418,7 +443,8 @@ export function jepesLevers(inputs: JepesInputs = {}, opts: EstimateOptions = {}
   for (const key of markKeys) if (num(inputs[key]) === null) blank(key, `${markNames[key]} average`, { [key]: 5 }, { [key]: 0 }, 'Your average mark in grade, as MOL shows it.', 'Command');
   const weakest = markKeys.map((key) => ({ key, mark: num(inputs[key]) })).filter((m): m is { key: (typeof markKeys)[number]; mark: number } => m.mark !== null && m.mark < 5).sort((a, b) => a.mark - b.mark)[0];
   if (weakest) {
-    step({ id: 'command-input', input: weakest.key, title: `Raise your ${markNames[weakest.key]} average from ${weakest.mark.toFixed(1)} to ${Math.min(5, weakest.mark + 0.5).toFixed(1)}`, detail: 'Marks move when a reporting senior has specific, quantified accomplishments in front of them: take your bullet package to your next counseling.', effort: 'medium', category: 'Command', next: { [weakest.key]: Math.min(5, weakest.mark + 0.5) }, best: { [weakest.key]: 5 } });
+    const to = Math.min(5, Math.round((weakest.mark + 0.5) * 1e4) / 1e4);
+    step({ id: 'command-input', input: weakest.key, title: `Raise your ${markNames[weakest.key]} average from ${formatMark(weakest.mark)} to ${formatMark(to)}`, detail: 'Marks move when a reporting senior has specific, quantified accomplishments in front of them: take your bullet package to your next counseling.', effort: 'medium', category: 'Command', next: { [weakest.key]: to }, best: { [weakest.key]: 5 } });
   }
 
   const referrals = Math.max(0, Math.floor(num(inputs.recruiting_referrals) ?? 0));

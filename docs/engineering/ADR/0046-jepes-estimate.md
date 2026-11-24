@@ -77,6 +77,11 @@ Each is a note on the version that applies it, shown with the estimate's sources
 4. Line 5e is read as the worksheet prints it, 50 for yes and 0 for no; the instruction text says 100 for no.
 5. Appendix A's dashboard example gives a Corporal's 310 as the 37th percentile; Table 4 gives 310 the value 43. The
    estimate follows the table.
+6. 695/21's reserve affiliation incentive is for an eligible Corporal: 50 at E-4, 0 at Lance Corporal and below, and
+   0 to 50 while the rank is not set. Readiness offers the switch only when the rank is Corporal or not set.
+
+A Marine with no belt is "Unqualified", MCTFS code MMA, the first row of Tables 1 and 2: entered, worth 0, with Tan
+as the next step. It is a choice on Readiness, so a Marine can say so rather than leave the line blank.
 
 ## Consequences
 
@@ -93,7 +98,8 @@ Each is a note on the version that applies it, shown with the estimate's sources
 version in force on each boundary day; Tables 3 and 4 one rising run per column with the order's anchors and rows
 read off the pages; Tables 1 and 2 and the belt codes; a Lance Corporal (656) and a Corporal (828) worked through the
 worksheet by hand, line by line; the same Lance Corporal under the order's own Mental Agility (662); rounding half up
-and every cap; blanks as ranges, no rank, Sergeant; levers in order, each step equal to the difference of two
+and every cap; blanks as ranges, no rank (and the words for what is still open), Sergeant; the reserve affiliation
+incentive by grade and date; an Unqualified belt; marks shown as typed; levers in order, each step equal to the difference of two
 estimates; the schema and import columns; the route saving the figures, a leader's read audited and others refused.
 `migrations.test.ts`: 044 adds the columns empty, holds each to its range, changes no row and runs once.
 `databaseFixtures.test.ts`: the schema 43 fixture. `shared.test.ts`: the advice. Browser:

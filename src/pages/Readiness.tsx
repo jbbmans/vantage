@@ -219,18 +219,18 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
               </>)}
               <fieldset className="min-w-0">
                 <legend className="eyebrow mb-2">Bonus</legend>
-                <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">{bonuses.map((b) => flag(b.key, b.label, `${b.points} points`))}</div>
+                <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">{bonuses.filter((b) => b.key !== 'bonus_reserve_affiliation' || est.grade !== 'lcpl').map((b) => flag(b.key, b.label, b.key === 'bonus_reserve_affiliation' ? `${b.points} points, for an eligible Corporal` : `${b.points} points`))}</div>
                 <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">{num('recruiting_referrals', 'Recruiting referrals who enlisted', '20 points each')}</div>
               </fieldset>
             </div>
           </Panel>
 
-          <Panel title="What if" subtitle="Change a figure to see what it does. Nothing here is saved." action={trying ? <button type="button" className="inline-flex items-center gap-1 text-xs text-accent hover:underline" onClick={() => setWhatIf({})}><RotateCcw className="h-3 w-3" aria-hidden />Start over</button> : undefined}>
+          <Panel title="What if" subtitle="Change a figure to see what it does. Nothing here is saved." action={trying ? <button type="button" className="inline-flex items-center gap-1 text-xs text-accent hover:underline" onClick={() => { setWhatIf({}); requestAnimationFrame(() => whatIfResult.current?.focus()); }}><RotateCcw className="h-3 w-3" aria-hidden />Start over</button> : undefined}>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {WHAT_IF.map((f) => {
                 const onSet = (v: string) => setWhatIf((w) => ({ ...w, [f.key]: v }));
-                if (f.kind === 'belt') return <Field key={f.key} label={`What if: ${f.label}`} hint={`Now ${form.mcmap_belt || 'not entered'}`}><Select value={whatIf[f.key] || ''} onValueChange={onSet} options={MCMAP_BELTS.map((r) => ({ value: r, label: r }))} placeholder="As now" /></Field>;
-                if (f.kind === 'degree') return <Field key={f.key} label={`What if: ${f.label}`} hint={`Now ${form.degree ? humanize(form.degree) : 'none'}`}><Select value={whatIf[f.key] || ''} onValueChange={onSet} options={DEGREES.map((r) => ({ value: r, label: humanize(r) }))} placeholder="As now" /></Field>;
+                if (f.kind === 'belt') return <Field key={f.key} label={`What if: ${f.label}`} hint={`Now ${form.mcmap_belt || 'not entered'}`}><Select value={whatIf[f.key] || ''} onValueChange={onSet} options={[{ value: '', label: 'As now' }, ...MCMAP_BELTS.map((r) => ({ value: r, label: r }))]} /></Field>;
+                if (f.kind === 'degree') return <Field key={f.key} label={`What if: ${f.label}`} hint={`Now ${form.degree ? humanize(form.degree) : 'none'}`}><Select value={whatIf[f.key] || ''} onValueChange={onSet} options={[{ value: '', label: 'As now' }, ...DEGREES.map((r) => ({ value: r, label: humanize(r) }))]} /></Field>;
                 return <Field key={f.key} label={`What if: ${f.label}`} hint={`Now ${form[f.key] || 'not entered'}`}><NumberInput value={whatIf[f.key] || ''} onChange={(e) => onSet(e.target.value)} placeholder={f.hint || 'As now'} /></Field>;
               })}
               {INSTRUCTOR_BELTS.has(String(tried.mcmap_belt ?? '')) && <div className="col-span-2 sm:col-span-3"><Switch checked={String(tried.mcmap_instructor ?? '') === '1'} onChange={(v) => setWhatIf((w) => ({ ...w, mcmap_instructor: v ? '1' : '0' }))} label={`What if: certified instructor at ${String(tried.mcmap_belt)} belt`} /></div>}
@@ -241,7 +241,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
             {trying && <ul className="mt-2 space-y-1">{triedEst.pillars.map((p, i) => {
               const before = est.pillars[i].points;
               if (before.low === p.points.low && before.high === p.points.high) return null;
-              return <li key={p.key} className="flex items-baseline justify-between gap-2 text-xs"><span className="text-ink-2">{p.label}</span><span className="fig text-ink">{showRange(before)} to {showRange(p.points)}</span></li>;
+              return <li key={p.key} className="flex items-baseline justify-between gap-2 text-xs"><span className="text-ink-2">{p.label}</span><span className="fig text-ink">{showRange(before)} now, {showRange(p.points)} with the changes</span></li>;
             })}</ul>}
           </Panel>
         </div>

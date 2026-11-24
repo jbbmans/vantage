@@ -151,7 +151,8 @@ export const COUNSELING_TYPES = ['initial', 'monthly', 'quarterly', 'semi_annual
 
 export const DEGREES = ['associate', 'bachelor', 'master', 'doctorate'] as const;
 export const PME_STATUS = ['none', 'distance', 'resident'] as const;
-export const MCMAP_BELTS = ['Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 2nd', 'Black 3rd'] as const;
+/** The belts a Marine can hold, from none (MCTFS code MMA, value 0 on JEPES Tables 1 and 2) to Black 3rd. */
+export const MCMAP_BELTS = ['Unqualified', 'Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 2nd', 'Black 3rd'] as const;
 export const RIFLE_QUALS = ['Unqualified', 'Marksman', 'Sharpshooter', 'Expert'] as const;
 
 export const ECHELONS = [

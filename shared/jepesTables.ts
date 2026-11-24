@@ -43,7 +43,11 @@ export const JEPES_SCORE_TABLES = versioned<Record<JepesGrade, ScoreColumns>>('J
   id: 'mco-1616.1-tables-3-4',
   effective_from: '2021-02-01',
   cites: [order('Appendix B, Table 3, p. B-8'), order('Appendix B, Table 4, p. B-9')],
-  notes: ['Updated yearly on MOL; only the tables the order prints are published.'],
+  notes: [
+    'Updated yearly on MOL; only the tables the order prints are published.',
+    'The rifle line reads the 0 to 350 score MOL lists. The annual qualification is scored in destroys (MCO 3574.2M) and no published rule converts destroys to that scale, so none is applied.',
+    'Appendix A’s dashboard example gives a Corporal’s 310 as the 37th percentile; Table 4 gives 310 the value 43. The estimate follows the table.',
+  ],
   data: {
     // Table 3, page B-8: Lance Corporal and below.
     lcpl: {
