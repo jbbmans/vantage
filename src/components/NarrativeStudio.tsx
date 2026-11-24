@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, Copy, EyeOff, Lightbulb, PenLine, Pin, PinOff, Plus, RotateCcw, Shuffle, Undo2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Panel, Segmented, Select } from '@/components/ui/primitives';
 import { composeNarrative, type Narrative } from '../../shared/narrative';
-import { reviewText, type Finding, type Review } from '../../shared/writer/review';
+import { reviewEdit, type Finding, type Review } from '../../shared/writer/review';
+import { GRADE_BANDS, GRADE_NOTE } from '../../shared/writer/grade';
 import type { Sentence } from '../../shared/writer/compose';
 import type { CaseWork } from '../../shared/writer/compose';
 import { plain, printable } from '../../shared/writer/realize';
@@ -152,9 +153,10 @@ interface ReportShape {
 
 function ScoreRing({ score, grade }: { score: number; grade: string }) {
   const r = 30; const c = 2 * Math.PI * r;
-  const tone = score >= 85 ? 'text-good' : score >= 70 ? 'text-accent' : score >= 50 ? 'text-warn' : 'text-bad';
+  const [strong, solid, work] = GRADE_BANDS;
+  const tone = score >= strong.from ? 'text-good' : score >= solid.from ? 'text-accent' : score >= work.from ? 'text-warn' : 'text-bad';
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-4" role="group" aria-label={`Grade ${score} of 100, ${grade}`}>
       <svg viewBox="0 0 72 72" className="h-[72px] w-[72px] shrink-0 -rotate-90" aria-hidden>
         <circle cx="36" cy="36" r={r} fill="none" strokeWidth="7" className="stroke-surface-3" />
         <circle cx="36" cy="36" r={r} fill="none" strokeWidth="7" strokeLinecap="round" className={cn('stroke-current transition-[stroke-dashoffset] duration-700', tone)} strokeDasharray={c} strokeDashoffset={c * (1 - score / 100)} />
@@ -194,11 +196,14 @@ function ReviewPanel({ review, edited }: { review: Review; edited: boolean }) {
   return (
     <Panel title="Reviewer" subtitle={edited ? 'Reading your edited text' : 'How this narrative reads, and what would make it stronger'}>
       <ScoreRing score={review.score} grade={review.grade} />
-      <ul className="mt-4 space-y-2">
+      <p className="mt-3 text-xs text-ink-3">{GRADE_NOTE}{edited ? ' A sentence you left as written keeps what its entry says; one you typed or changed is read from your words.' : ''}</p>
+      <ul className="mt-4 space-y-3" aria-label="How the grade is made">
         {review.parts.map((p) => (
-          <li key={p.key}>
-            <span className="flex justify-between text-xs"><span className="text-ink-2">{p.label}</span><span className="fig text-ink-3">{p.note}</span></span>
+          <li key={p.key} data-part={p.key}>
+            <span className="flex flex-wrap justify-between gap-x-3 text-xs"><span className="text-ink-2">{p.label}</span><span className="fig min-w-0 text-right text-ink-3">{p.earned} of {p.of} · {p.note}</span></span>
             <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-surface-3"><span className={cn('block h-full rounded-full', p.earned >= p.of * 0.8 ? 'bg-good' : p.earned >= p.of * 0.5 ? 'bg-accent' : 'bg-warn')} style={{ width: `${(p.earned / p.of) * 100}%` }} /></span>
+            <span className="mt-1 block text-2xs text-ink-3">From: {p.from}</span>
+            {p.raise && <span className="block text-2xs text-ink-2">{p.raise.text} (+{p.raise.points})</span>}
           </li>
         ))}
       </ul>
@@ -267,7 +272,11 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
   const output = hasEdit ? choices.edited! : narrative.text;
   const text = output;
   const limit = narrative.limit;
-  const review = useMemo(() => (hasEdit ? reviewText(choices.edited!, limit) : narrative.review), [hasEdit, choices.edited, limit, narrative.review]);
+  // One scale for both: an edit's unchanged sentences keep their entries' reading, so pressing Edit text alone changes nothing.
+  const review = useMemo(
+    () => (hasEdit ? reviewEdit(choices.edited!, narrative, { ...narrativeConfig(report.track), metrics: report.metricsConfig }) : narrative.review),
+    [hasEdit, choices.edited, narrative, report.track, report.metricsConfig],
+  );
   // What changed in the record since the text was edited: the text stays as written, and the Marine is told.
   const edit = useMemo(() => editStateOf(choices, report.activities, report.casework), [choices, report.activities, report.casework]);
   const drift = edit.kind === 'changed' ? edit.drift : null;
@@ -301,10 +310,10 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
         >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="soft" onClick={() => { setChoices({ seed: (choices.seed + 1) % 1_000_000, edited: null }); setEditing(false); }} disabled={choices.edited != null}><Shuffle className="h-3.5 w-3.5" />Another wording</Button>
-            <Segmented size="sm" label="Density" value={choices.density} onChange={(v) => setChoices({ density: v })} options={[{ value: 'auto', label: 'Best fit' }, { value: 'full', label: 'Full' }, { value: 'compact', label: 'Compact' }]} />
-            {/* Format and spelling rewrite the text, so they wait while a hand edit stands rather than throw it away. */}
+            <Segmented size="sm" label="Density" value={choices.density} onChange={(v) => { if (choices.edited == null) setChoices({ density: v }); }} disabled={choices.edited != null} options={[{ value: 'auto', label: 'Best fit' }, { value: 'full', label: 'Full' }, { value: 'compact', label: 'Compact' }]} />
+            {/* Density, format, length and spelling rewrite the text the edit is read against, so they wait while a hand edit stands. */}
             <Segmented size="sm" label="Format" value={choices.format} onChange={(v) => { if (choices.edited == null) setChoices({ format: v }); }} disabled={choices.edited != null} options={[{ value: 'bullets', label: 'Bullets' }, { value: 'paragraph', label: 'Paragraph' }]} />
-            <Select aria-label="Length" className="h-8 w-44 text-xs" value={choices.chars ? String(choices.chars) : ''} onValueChange={(v) => setChoices({ chars: v ? Number(v) : null })} options={lengths} />
+            <Select aria-label="Length" className="h-8 w-44 text-xs" value={choices.chars ? String(choices.chars) : ''} onValueChange={(v) => { if (choices.edited == null) setChoices({ chars: v ? Number(v) : null }); }} disabled={choices.edited != null} options={lengths} />
             <label className={cn('flex items-center gap-1.5 text-xs text-ink-2', choices.edited != null && 'opacity-60')}><input type="checkbox" checked={choices.spell} disabled={choices.edited != null} onChange={(e) => setChoices({ spell: e.target.checked })} />Spell out acronyms</label>
             <span className="ml-auto flex gap-1">
               {!editing && <Button size="sm" variant="ghost" onClick={() => { setEditing(true); if (choices.edited == null) setChoices({ edited: narrative.text, basis: basisOf(report.activities, report.casework) }); }}><PenLine className="h-3.5 w-3.5" />Edit text</Button>}
@@ -331,7 +340,7 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
                 {choices.edited != null && !hasEdit
                   ? 'The box is empty, so Copy and the PDF use the written version. '
                   : 'Edits are kept in this tab until it closes or you sign out, and go into the PDF. The reviewer reads them as you type. '}
-                Format and Spell out acronyms wait until you go back to the written version.
+                Density, Format, Length and Spell out acronyms wait until you go back to the written version.
                 <Button size="xs" variant="ghost" onClick={backToWritten}><Undo2 className="h-3.5 w-3.5" />Back to the written version</Button>
               </p>
             </div>

@@ -24,7 +24,8 @@ const optDate = isoDate.nullish().or(z.literal('')).transform((v) => (v === unde
 const optNumber = (lo: number, hi: number, integer = false) =>
   z.union([z.number(), z.string(), z.null()]).optional().transform((v, ctx) => {
     if (v === undefined) return undefined;
-    if (v === null || v === '') return null;
+    // Spaces, or a bare "$", are nothing typed: blank, not 0.
+    if (v === null || (typeof v === 'string' && v.replace(/[$,\s]/g, '') === '')) return null;
     const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, ''));
     if (!Number.isFinite(n)) { ctx.addIssue({ code: 'custom', message: 'Must be a number.' }); return z.NEVER; }
     if (integer && !Number.isInteger(n)) { ctx.addIssue({ code: 'custom', message: 'Must be a whole number.' }); return z.NEVER; }
@@ -32,6 +33,10 @@ const optNumber = (lo: number, hi: number, integer = false) =>
     if (n > hi) { ctx.addIssue({ code: 'custom', message: `Must be at most ${hi}.` }); return z.NEVER; }
     return n;
   });
+// A number the record always has (a project's progress, a goal's current value): left blank, it is 0.
+const numberOr0 = (lo: number, hi: number) => optNumber(lo, hi).transform((v) => (v === null ? 0 : v));
+/** The fields `numberOr0` reads, by table: a blank there says 0, so an import comparing a blank cell compares 0. */
+export const BLANK_IS_ZERO: Record<string, readonly string[]> = { projects: ['progress'], goals: ['current_value'] };
 /** A time of day as Marines write it, "0800" or "08:00" (24-hour), kept as HH:MM (ADR-0018). */
 export const optTime = z.string().max(8).nullish().or(z.literal('')).transform((v, ctx) => {
   if (v === undefined) return undefined;
@@ -89,7 +94,7 @@ export const projectSchema = z.object({
   description: optText(4000),
   status: optEnum(WORK_STATUS),
   priority: optEnum(PRIORITIES),
-  progress: optNumber(0, 100),
+  progress: numberOr0(0, 100),
   start_date: optDate,
   target_date: optDate,
   organization: optText(200),
@@ -117,7 +122,7 @@ export const goalSchema = z.object({
   type: optEnum(GOAL_TYPES),
   category: optText(80),
   metric: optEnum(GOAL_METRICS),
-  current_value: optNumber(-1_000_000_000, 1_000_000_000_000),
+  current_value: numberOr0(-1_000_000_000, 1_000_000_000_000),
   target_value: optNumber(-1_000_000_000, 1_000_000_000_000),
   unit_label: optText(60),
   status: optEnum(GOAL_STATUS),

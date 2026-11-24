@@ -2,6 +2,9 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { UMT_2WAY } from '../../shared/procedures.ts';
+import { composeNarrative } from '../../shared/narrative.ts';
+import { reviewEdit } from '../../shared/writer/review.ts';
+import { areaAmong, narrativeConfig } from '../../shared/evaluation.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -58,6 +61,16 @@ test('the report writes the narrative with its sentences, sources, review and ca
   const uloSentence = n.sentences.find((s: { sources: string[] }) => s.sources.includes(ids.ulo));
   assert.ok(uloSentence?.reasons.length, 'each sentence says why it made the cut');
   assert.ok(n.review.score > 0 && n.review.parts.length === 5);
+  // One grade on every screen: the studio writes the same narrative in the browser from the report, and pressing
+  // Edit text without changing a word keeps the grade, part by part.
+  const cfg = narrativeConfig(r.track);
+  const studio = composeNarrative(r.activities.map((a: { eval_area: string | null }) => ({ ...a, eval_area: areaAmong(a.eval_area, cfg.areas) })), {
+    ...cfg, limit: n.limit, metrics: r.metricsConfig, casework: r.casework, recentFrom: r.recentFrom, format: 'bullets', spellOut: true,
+  });
+  assert.equal(studio.text, n.text);
+  assert.deepEqual(studio.review, n.review);
+  const edited = reviewEdit(n.text, studio, { ...cfg, metrics: r.metricsConfig });
+  assert.deepEqual([edited.score, edited.grade, edited.parts.map((p) => [p.key, p.earned, p.note, p.from])], [n.review.score, n.review.grade, n.review.parts.map((p: { key: string; earned: number; note: string; from: string }) => [p.key, p.earned, p.note, p.from])]);
   assert.ok(n.review.findings.some((f: { id: string }) => f.id === 'inferred'), 'the untagged training entry was placed by what it says');
 
   // Choices made on screen: leave one out, shorten, reword.

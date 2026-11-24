@@ -10,7 +10,7 @@ import * as E from '../../shared/evaluation.ts';
 import * as J from '../../shared/jepes.ts';
 import { recordHealth, todayActions } from '../../shared/health.ts';
 import { passwordProblem, passwordStrength } from '../../shared/password.ts';
-import { activitySchema, fieldErrors, registrationSchema } from '../../shared/schemas.ts';
+import { activitySchema, fieldErrors, goalSchema, projectSchema, readinessSchema, registrationSchema } from '../../shared/schemas.ts';
 import { totpCode, verifyTotp, base32Encode, base32Decode, generateTotpSecret } from '../../server/auth/totp.ts';
 import { parseMaradminFeed } from '../../server/services/maradmins.ts';
 import { encryptSecret, decryptSecret, hashPassword, verifyPassword } from '../../server/lib/crypto.ts';
@@ -142,6 +142,34 @@ test('evaluation track mapping and coaching', () => {
   assert.ok(recs.find((r) => r.id === 'outcomes'));
   const est = J.estimate({ pft_score: 290 });
   assert.equal(est.pillars.physical.items[0].state, 'top');
+  // Only the marks entered are compared: a blank one is never a 0.0, and spaces are blank.
+  const weakest = recs.find((r) => r.id === 'command-input')!;
+  assert.equal(weakest.title, 'Individual Character is your weakest command mark at 3.2');
+  assert.doesNotMatch(weakest.detail, /quarter|only part someone else controls/);
+  const blank = J.recommend({ cmd_character: '4.5', cmd_mos: '  ', cmd_leadership: null });
+  assert.ok(!blank.some((r) => r.id === 'command-input'), 'one mark of 4.5 entered: nothing is weakest');
+  assert.equal(J.estimate({ cmd_mos: '  ' }).pillars.command.items[1].value, null);
+  // Saved, spaces are blank too, not a 0.
+  assert.deepEqual(readinessSchema.parse({ cmd_character: '3.5', cmd_mos: '  ', cmd_leadership: '$' }), { cmd_character: 3.5, cmd_mos: null, cmd_leadership: null });
+  // A PFT or CFT of spaces is no score: no class under the field, and no "PFT 0" on the FITREP track.
+  assert.equal(J.fitnessClass('  '), null);
+  assert.equal(J.fitnessClass(240), '1st class');
+  assert.ok(!E.recommendFitrep({ pft_score: '  ', cft_score: ' ' }).some((r) => /fitness/.test(r.id)));
+  assert.ok(E.recommendFitrep({ pft_score: 180 }).some((r) => r.id === 'fitness'));
+  // A number the record always has is 0 when left blank, never a missing value the database refuses.
+  for (const v of ['', '  ', '$']) {
+    assert.equal(projectSchema.parse({ name: 'P', progress: v }).progress, 0, JSON.stringify(v));
+    assert.equal(goalSchema.parse({ title: 'G', current_value: v }).current_value, 0, JSON.stringify(v));
+  }
+  // "None" is an answer, not a blank.
+  const none = J.estimate({ pme_complete: 'none' }).pillars.mental;
+  assert.deepEqual(none.items.find((i) => i.key === 'pme'), { key: 'pme', label: 'PME for grade', value: 'None', state: 'attention' });
+  assert.ok(none.known);
+  const pme = (profile: Record<string, unknown>) => J.recommend(profile).filter((r) => r.id.startsWith('pme')).map((r) => r.title);
+  assert.deepEqual(pme({ pme_complete: 'none' }), ['Complete the PME for your grade']);
+  assert.deepEqual(pme({ pme_complete: 'distance' }), ['Complete the resident PME for your grade']);
+  assert.deepEqual(pme({ pme_complete: 'resident' }), []);
+  assert.deepEqual(pme({ ceus: 12 }), ['Enter your PME status']);
   const cov = E.fitrepCoverage([{ title: 'Mentored 3 Marines', eval_area: 'Leadership' }]);
   assert.ok(cov.find((s) => s.key === 'Leadership')!.attributes.find((a) => a.attribute === 'Developing Subordinates')!.likely >= 1);
   const frecs = E.recommendFitrep({ pft_score: 240 }, { total: 6, withOutcome: 2 }, { coverage: cov, daysToEnd: 10 });

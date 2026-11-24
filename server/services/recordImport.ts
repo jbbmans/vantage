@@ -23,7 +23,7 @@ import { attachmentPath } from './personalExport.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem, DATA_EXPORT_FORMATS } from '../../shared/dataTransfer.ts';
 import { DUTY_REVIEW_COLUMNS } from '../../shared/dutyReview.ts';
 import { parseDelimited, MAX_IMPORT_COLUMNS } from '../../shared/csv.ts';
-import { prefsSchema, profileSchema, readinessSchema, type RecordTable } from '../../shared/schemas.ts';
+import { BLANK_IS_ZERO, prefsSchema, profileSchema, readinessSchema, type RecordTable } from '../../shared/schemas.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { screenImport } from '../../shared/duplicates.ts';
 import { cleanCourseCode } from '../../shared/courses.ts';
@@ -760,9 +760,11 @@ const editRefusal = (scope: Scope, user: SessionUser, current: Row) => (canEdit(
 /** A spreadsheet row with the Vantage ID of the person's own record: an update, of the columns the file has. */
 function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: ImportTable, current: Row, record: Row, mode: 'keep' | 'private', reqKey: object, ip: string | undefined, state: RunState, c: Candidate): { outcome: RowOutcome; extra: Partial<ImportReviewRow> } {
   const changes: Row = {};
-  for (const [k, v] of Object.entries(record)) {
+  for (const [k, cell] of Object.entries(record)) {
     if (k === 'visibility' || k === 'unit_id' || k === 'kind_confirmed') continue;
     const was = current[k];
+    // A blank progress or current value is 0 when saved (shared/schemas.ts), so a blank cell over a 0 changes nothing.
+    const v = (cell === null || cell === '') && BLANK_IS_ZERO[table]?.includes(k) ? 0 : cell;
     // A duty's conditions are its claims: the order a sheet lists them in, and the weekend and overnight its times give,
     // say nothing new (ADR-0023 §3).
     const same = table === 'duties' && k === 'conditions' ? sameClaims(v, was)

@@ -21,6 +21,23 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
+test('a blank progress or current value saves as 0, not a server error', async () => {
+  for (const v of ['', '  ', '$']) {
+    const project = await app.call('POST', '/api/records/projects', { token: rivera.token, body: { name: `Blank ${JSON.stringify(v)}`, progress: v } });
+    assert.equal(project.status, 201, JSON.stringify(project.body));
+    assert.equal(project.body.progress, 0);
+    const goal = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: `Blank ${JSON.stringify(v)}`, current_value: v } });
+    assert.equal(goal.status, 201, JSON.stringify(goal.body));
+    assert.equal(goal.body.current_value, 0);
+    const put = await app.call('PUT', `/api/records/goals/${goal.body.id}`, { token: rivera.token, body: { current_value: v, version: goal.body.version } });
+    assert.equal(put.status, 200, JSON.stringify(put.body));
+    assert.equal(put.body.current_value, 0);
+    const moved = await app.call('PUT', `/api/records/projects/${project.body.id}`, { token: rivera.token, body: { progress: v, version: project.body.version } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(moved.body.progress, 0);
+  }
+});
+
 test('validation rejects bad records with field errors', async () => {
   const res = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: '', date: '2026-13-01', quantity: -1 } });
   assert.equal(res.status, 400);
