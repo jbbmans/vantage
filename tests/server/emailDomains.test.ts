@@ -115,11 +115,15 @@ test('a team message counts who is outside the list, before and after, and email
   const outside = await app.register('outsidemarine', { email: 'outside@gmail.com' });
   for (const u of [inside, outside]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, refused: 1, appOnly: 1, emailEnabled: true, limit: 300 });
+  const { files: filesGate, ...reach } = audience.body;
+  assert.deepEqual(reach, { members: 2, withEmail: 1, refused: 1, appOnly: 1, emailEnabled: true, limit: 300 });
+  assert.match(filesGate.refusal, /outside the allowed domains \(gmail\.com\)/, 'files are refused while anyone on the list is outside it');
   const before = refusals().length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Muster', body: 'At 0700.' } });
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
-  assert.deepEqual({ ...sent.body }, { recipients: 2, emailed: 1, queued: 0, failed: 0, refused: 1, appOnly: 1 });
+  const { id: kept, ...counts } = sent.body;
+  assert.deepEqual(counts, { recipients: 2, emailed: 1, queued: 0, failed: 0, refused: 1, appOnly: 1, files: 0 });
+  assert.ok(app.ctx.db.prepare('SELECT 1 FROM team_messages WHERE id = ?').get(kept), 'the message is kept');
   assert.equal(app.ctx.mailer.outbox.filter((m) => m.kind === 'team_message' && m.to === 'outside@gmail.com').length, 0);
   assert.equal(refusals().length, before + 1);
   assert.equal(lastRefusal().subject_id, outside.id);

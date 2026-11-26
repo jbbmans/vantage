@@ -41,6 +41,7 @@ const PrintReport = lazy(() => import('@/pages/PrintReport'));
 const PrintCounseling = lazy(() => import('@/pages/PrintCounseling'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
+const TeamMessage = lazy(() => import('@/pages/TeamMessage'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const AcceptInvitation = lazy(() => import('@/pages/AcceptInvitation'));
 const DemoGovernance = lazy(() => import('@/pages/DemoGovernance'));
@@ -263,6 +264,7 @@ function AppRoutes() {
         <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="team" element={<Here><D><Team section="overview" /></D></Here>} />
         {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
+        <Route path="team/messages/:id" element={<D><TeamMessage /></D>} />
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="notifications" element={<D><Notifications /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />

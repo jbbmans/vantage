@@ -1,11 +1,14 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer, Paperclip } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
 import { AssignmentDialog, ACCOUNT_STATUS, type AssignmentTarget } from '@/components/PersonnelRecord';
 import { PersonPicker, type PersonSearch } from '@/components/PersonPicker';
 import PersonnelBulkDialog from '@/components/PersonnelBulk';
+import { FILE_INPUT, acceptFor, typeList } from '@/components/Attachments';
+import { formatFileSize } from '../../shared/attachments';
+import { TEAM_MESSAGE_RETENTION_DAYS } from '../../shared/teamMessages';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -298,34 +301,106 @@ function inVantageOnly(noEmail: number, refused: number) {
   return noEmail ? `${noEmail} with no email on file, ${away}` : away;
 }
 
+/** A file's bytes as base64, the way a team message carries its files in one request (ADR-0049). */
+const base64Of = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => { const url = String(reader.result); resolve(url.slice(url.indexOf(',') + 1)); };
+  reader.onerror = () => reject(new Error(`${file.name} could not be read. Choose it again.`));
+  reader.readAsDataURL(file);
+});
+
 function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean; onOpenChange: (o: boolean) => void; unitId: string; unitLabel: string }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const { data: identity } = useIdentity();
   const { data: audience } = useQuery({ queryKey: ['team-audience', unitId], queryFn: () => api.teamAudience(unitId), enabled: open });
   const [subject, setSubject] = useState(''); const [body, setBody] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!open) { setSubject(''); setBody(''); } }, [open]);
+  const [files, setFiles] = useState<File[]>([]); const [confirmed, setConfirmed] = useState(false); const [failure, setFailure] = useState<string | null>(null);
+  const filesHint = useId();
+  useEffect(() => { if (!open) { setSubject(''); setBody(''); setFiles([]); setConfirmed(false); setFailure(null); } }, [open]);
+  const limits = audience?.files;
+  const total = files.reduce((n, f) => n + f.size, 0);
+  const empty = files.find((f) => f.size === 0);
+  const fileProblem = !limits || !files.length ? null
+    : empty ? `${empty.name} is empty. Remove it.`
+      : files.length > limits.maxFiles ? `A message carries at most ${limits.maxFiles} files. Remove ${files.length - limits.maxFiles}.`
+        : total > limits.maxBytes ? `Together the files are ${formatFileSize(total)}; a message carries at most ${formatFileSize(limits.maxBytes)}.`
+          : null;
+  const add = (list: FileList | null) => {
+    const picked = [...(list ?? [])];
+    setFiles((current) => [...current, ...picked.filter((f) => !current.some((c) => c.name === f.name && c.size === f.size && c.lastModified === f.lastModified))]);
+    setFailure(null);
+  };
   const send = async () => {
-    setBusy(true);
+    setBusy(true); setFailure(null);
     try {
-      const r = await api.messageTeam(unitId, { subject, body });
+      const encoded = await Promise.all(files.map(async (f) => ({ name: f.name, type: f.type, content: await base64Of(f) })));
+      const r = await api.messageTeam(unitId, { subject, body, ...(encoded.length ? { files: encoded, confirmFiles: confirmed } : {}) });
       const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`, r.refused && `${r.refused} not emailed (an address Vantage does not send to)`].filter(Boolean);
-      toast.success(`Sent to ${r.recipients} ${r.recipients === 1 ? 'Marine' : 'Marines'} in Vantage${parts.length ? `; ${parts.join(', ')}` : ''}.`);
+      const carried = r.files ? ` with ${r.files} ${r.files === 1 ? 'file' : 'files'}` : '';
+      toast.success(`Sent to ${r.recipients} ${r.recipients === 1 ? 'Marine' : 'Marines'} in Vantage${carried}${parts.length ? `; ${parts.join(', ')}` : ''}.`, { label: 'Open', onClick: () => navigate(`/team/messages/${encodeURIComponent(r.id)}`) });
       onOpenChange(false);
-    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+    } catch (e) {
+      // The reason stays in the dialog beside what was written, so nothing has to be typed again.
+      setFailure(api.errorText(e));
+    } finally { setBusy(false); }
   };
   const tooMany = Boolean(audience && audience.members > audience.limit);
   const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
     : tooMany ? `${audience.members} Marines are in ${unitLabel} and the teams beneath it; one message reaches at most ${audience.limit}. Send it to each team beneath instead.`
     : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (${inVantageOnly(audience.appOnly - (audience.refused || 0), audience.refused || 0)})` : ''}.`
       : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on Vantage right now.`;
+  // Files chosen before a refusal appeared (the audience is read again when the window regains focus) stay listed, so
+  // they can be removed, and Send waits until they are.
+  const filesRefused = files.length > 0 && Boolean(limits?.refusal);
+  const blocked = !subject.trim() || !body.trim() || !audience?.members || tooMany || Boolean(fileProblem) || filesRefused || (files.length > 0 && !confirmed);
+  // A send with files can take a while (each file scanned, the relay asked, one copy per Marine). The dialog stays open
+  // until it answers, so its answer lands on the message it is about.
+  const close = (o: boolean) => { if (!busy) onOpenChange(o); };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"
-      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members || tooMany}><Send className="h-4 w-4" />Send</Button></>}>
-      <div className="space-y-3">
-        <Field label="Subject"><Input autoFocus value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} placeholder="Q4 close-out: what is due Friday" /></Field>
-        <Field label="Message" hint={`${body.length} / 5000`}><Textarea rows={8} value={body} maxLength={5000} onChange={(e) => setBody(e.target.value)} placeholder="Plain words. Each Marine gets their own copy; no one sees anyone else’s address." /></Field>
-        <p className="text-2xs leading-relaxed text-ink-3">It goes to everyone in {unitLabel}{' '}and the teams beneath it, from Vantage’s own address, and is recorded in the unit’s access log. Five messages an hour at most.</p>
-      </div>
+    <Dialog open={open} onOpenChange={close} title={`Email ${unitLabel}`} description={reach} size="md"
+      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" disabled={busy} onClick={() => close(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={blocked}><Send className="h-4 w-4" />Send</Button></>}>
+      {/* Nothing changes while a send is out: what the dialog shows is what went. */}
+      <fieldset disabled={busy} className="min-w-0 space-y-3">
+        <Field label="Subject"><Input autoFocus value={subject} maxLength={120} onChange={(e) => { setSubject(e.target.value); setFailure(null); }} placeholder="Q4 close-out: what is due Friday" /></Field>
+        <Field label="Message" hint={`${body.length} / 5000`}><Textarea rows={8} value={body} maxLength={5000} onChange={(e) => { setBody(e.target.value); setFailure(null); }} placeholder="Plain words. Each Marine gets their own copy; no one sees anyone else’s address." /></Field>
+        {limits && (
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm font-medium text-ink">Files <span className="font-normal text-ink-3">(optional)</span></legend>
+            {limits.refusal ? <p className="text-2xs leading-relaxed text-ink-3">{limits.refusal}</p> : (
+              <>
+                <input type="file" multiple className={FILE_INPUT} accept={acceptFor(limits.allowedTypes) || undefined} aria-label="Add files" aria-describedby={filesHint}
+                  disabled={files.length >= limits.maxFiles} onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
+                <p id={filesHint} className="text-2xs leading-relaxed text-ink-3">
+                  Up to {limits.maxFiles} files, {formatFileSize(limits.maxBytes)} together: {typeList(limits.allowedTypes)}. Each is scanned for malware before the message goes{limits.byEmail ? ', then attached to each Marine’s email' : ''}.
+                </p>
+              </>
+            )}
+            {files.length > 0 && (
+              <ul className="divide-y divide-line rounded-md border border-line" aria-label="Files to send">
+                {files.map((f, i) => (
+                  <li key={`${f.name}:${f.size}:${f.lastModified}`} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{f.name}</span>
+                    <span className="shrink-0 text-2xs text-ink-3">{formatFileSize(f.size)}</span>
+                    <Button size="xs" variant="ghost" aria-label={`Remove ${f.name}`} onClick={() => { setFiles(files.filter((_, j) => j !== i)); setFailure(null); }}>Remove</Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {filesRefused && <p role="alert" className="text-2xs text-bad">Remove the files to send the message without them.</p>}
+            {files.length > 0 && !limits.refusal && (
+              <label className="flex items-start gap-2 text-sm text-ink-2">
+                <input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+                <span>{limits.byEmail ? 'I understand these files go to each Marine’s inbox and cannot be withdrawn once the message is sent.' : 'I understand these files cannot be withdrawn once the message is sent.'}</span>
+              </label>
+            )}
+            {fileProblem && <p role="alert" className="text-2xs text-bad">{fileProblem}</p>}
+          </fieldset>
+        )}
+        {failure && <p role="alert" className="rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">{failure}</p>}
+        <p className="text-2xs leading-relaxed text-ink-3">It goes to everyone in {unitLabel}{' '}and the teams beneath it, from Vantage’s own address, and is recorded in the unit’s access log. Vantage keeps the message and its files for {TEAM_MESSAGE_RETENTION_DAYS} days, where each Marine it went to can open them. Five messages an hour at most.</p>
+      </fieldset>
     </Dialog>
   );
 }

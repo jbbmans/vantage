@@ -36,6 +36,12 @@
       "migration": "045_fitness_reports",
       "recordedAt": "2026-11-24T04:34:57.766Z",
       "from": "build"
+    },
+    "46": {
+      "fingerprint": "200466053c90aff7bd09c4e13df534767e117cc9a26811605795946535ecad92",
+      "migration": "046_team_messages",
+      "recordedAt": "2026-11-26T10:05:56.573Z",
+      "from": "build"
     }
   }
 }

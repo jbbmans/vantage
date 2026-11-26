@@ -196,7 +196,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   unit('POST', '/units/:unitId/members/:userId/responsibilities', ['MANAGE_MEMBERS'], writes('add_responsibility'), 'Above the Marine’s position; never one’s own.'),
   unit('POST', '/responsibilities/:id/end', ['MANAGE_MEMBERS'], writes('end_responsibility'), 'MANAGE_MEMBERS in a unit of the Marine in that Unit Instance, above their position; never one’s own.'),
   unit('POST', '/units/:unitId/personnel/bulk', ['MANAGE_MEMBERS'], writes('personnel_bulk', 'edit_membership', 'add_responsibility', 'move_member', 'work_claim_released_on_departure', 'unit_role_withheld'), 'Every row is decided as its single change would be; a preview or any refused row changes nothing.'),
-  unit('POST', '/units/:unitId/message', ['MANAGE_MEMBERS'], writes('team_message')),
+  unit('POST', '/units/:unitId/message', ['MANAGE_MEMBERS'], writes('team_message', 'team_message_file', 'team_message_recipient', 'team_message_refused')),
   unit('POST', '/units/:unitId/members/:userId/move', ['MANAGE_MEMBERS'], writes('move_member', 'unit_leader_ended', 'work_claim_released_on_departure', 'unit_role_withheld'), 'MANAGE_MEMBERS in both units.'),
   unit('DELETE', '/units/:unitId/members/:userId', ['MANAGE_MEMBERS'], writes('remove_member', ...DEPARTURE)),
   unit('POST', '/units/:unitId/invites', ['MANAGE_MEMBERS'], writes('invite_created')),

@@ -1884,3 +1884,59 @@ CREATE TRIGGER IF NOT EXISTS course_catalog_entries_kept BEFORE DELETE ON course
 FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
   AND COALESCE((SELECT status FROM course_catalog_loads WHERE id = OLD.load_id), 'staged') <> 'staged'
 BEGIN SELECT RAISE(ABORT, 'a catalog entry is kept once its catalog was applied'); END;
+
+-- A leader's message to a unit and every team beneath it, kept as it was sent so the Marines it went to can read it in
+-- Vantage (ADR-0049). The names are as they read at the send, as the email printed them. Kept 180 days unless a legal
+-- hold keeps it (server/services/teamMessages.ts), then removed with its files and its list of recipients.
+CREATE TABLE IF NOT EXISTS team_messages (
+  id                 TEXT PRIMARY KEY,
+  org_id             TEXT NOT NULL REFERENCES organizations(id),
+  unit_id            TEXT NOT NULL REFERENCES units(id),
+  sender_id          TEXT NOT NULL REFERENCES users(id),
+  sender_name        TEXT NOT NULL CHECK (length(sender_name) BETWEEN 1 AND 200),
+  unit_label         TEXT NOT NULL CHECK (length(unit_label) BETWEEN 1 AND 200),
+  unit_name          TEXT NOT NULL CHECK (length(unit_name) BETWEEN 1 AND 200),
+  subject            TEXT NOT NULL CHECK (length(subject) BETWEEN 1 AND 120),
+  body               TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 5000),
+  marking            TEXT NOT NULL CHECK (length(marking) BETWEEN 1 AND 200),
+  files_confirmed_at TEXT,
+  created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_team_messages_created ON team_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_team_messages_org ON team_messages(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_team_messages_sender ON team_messages(sender_id, created_at);
+CREATE TRIGGER IF NOT EXISTS team_messages_kept BEFORE UPDATE ON team_messages FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a team message is kept as it was sent'); END;
+
+-- Who a team message went to, decided at the send, and how each was reached. Only these Marines and the sender open it,
+-- and only while they belong to its Unit Instance.
+CREATE TABLE IF NOT EXISTS team_message_recipients (
+  message_id   TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  org_id       TEXT NOT NULL REFERENCES organizations(id),
+  delivery     TEXT NOT NULL CHECK (delivery IN ('pending', 'emailed', 'queued', 'failed', 'refused', 'app_only')),
+  -- A copy the receiving server asked to retry: its mail log row, which the retry settles. How it ended is read there.
+  email_log_id TEXT CHECK (email_log_id IS NULL OR delivery = 'queued'),
+  PRIMARY KEY (message_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_team_message_recipients_user ON team_message_recipients(user_id);
+
+-- The files a team message carried, as each was attached to every email: five at most, each scanned clean before the
+-- send (a message with a file that was not is never kept). Never changed.
+CREATE TABLE IF NOT EXISTS team_message_files (
+  id            TEXT PRIMARY KEY,
+  message_id    TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+  org_id        TEXT NOT NULL REFERENCES organizations(id),
+  position      INTEGER NOT NULL CHECK (position BETWEEN 1 AND 5),
+  original_name TEXT NOT NULL CHECK (length(original_name) BETWEEN 1 AND 120),
+  mime_type     TEXT NOT NULL CHECK (length(mime_type) BETWEEN 1 AND 100),
+  size_bytes    INTEGER NOT NULL CHECK (size_bytes > 0),
+  sha256        TEXT NOT NULL CHECK (length(sha256) = 64),
+  scan_status   TEXT NOT NULL CHECK (scan_status = 'clean'),
+  scanner       TEXT NOT NULL CHECK (length(scanner) BETWEEN 1 AND 40),
+  content       BLOB NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE (message_id, position)
+);
+CREATE TRIGGER IF NOT EXISTS team_message_files_kept BEFORE UPDATE ON team_message_files FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a file sent with a team message is kept as it was sent'); END;

@@ -20,7 +20,8 @@ export const MAIL_SAMPLES: Record<string, MailMessage> = {
   }),
   team_message: teamMessage({
     unitLabel: 'G8', unitName: 'G-8 Comptroller', subject: 'Close-out Friday', body: 'Line one.\nLine two.\n\nA second paragraph.',
-    senderName: 'SSgt Blake Rivers', replies: true, appUrl: origin, marking, origin,
+    senderName: 'SSgt Blake Rivers', replies: true, messageUrl: `${origin}/team/messages/sample-message`, marking, origin,
+    files: [{ name: 'Close-out checklist.pdf', mime: 'application/pdf', size: 248_320 }, { name: 'Funds status.csv', mime: 'text/csv', size: 3_412 }], keptDays: 180,
   }),
   digest: digestMessage({
     firstName: 'Avery', logged: 4, impact: '$1.2M', overdue: 2, dueSoon: 3,

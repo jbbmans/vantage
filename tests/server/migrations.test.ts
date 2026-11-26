@@ -1325,3 +1325,43 @@ test('045 adds the fitness reports a Marine received, empty, private by default,
     again.close();
   } finally { cleanup(); }
 });
+
+test('046 adds the kept team messages, empty, each held as it was sent, removed with what it carried', () => {
+  const at = '2026-11-26T12:00:00.000Z';
+  const { path, cleanup } = atVersion(45, (db) => {
+    // The database as 045 left it: a team message was sent and not kept.
+    db.exec('DROP TABLE team_message_files; DROP TABLE team_message_recipients; DROP TABLE team_messages');
+    db.prepare("INSERT INTO users (id, username, email, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'u1@example.mil', 'x', 'Una', 'One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO organizations (id, slug, name, created_at, updated_at) VALUES ('o1', 'org-one', 'Org One', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO units (id, code, name, created_at, org_id) VALUES ('U1', 'U1', 'Unit One', ?, 'o1')").run(at);
+    db.prepare("INSERT INTO notifications (id, user_id, kind, title, message, action_url, created_at) VALUES ('n1', 'u1', 'unit', 'U1: Formation', 'At 0700.', '/team', ?)").run(at);
+  });
+  try {
+    const raw = new Database(path, { readonly: true });
+    const before = raw.prepare('SELECT * FROM notifications').all();
+    raw.close();
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 46 && m.name === '046_team_messages'));
+    assert.deepEqual(db.prepare('SELECT * FROM notifications').all(), before, 'a notice sent before keeps its words and its link');
+    for (const t of ['team_messages', 'team_message_recipients', 'team_message_files']) assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n, 0, `${t} starts empty: nothing sent before is invented`);
+    db.prepare("INSERT INTO team_messages (id, org_id, unit_id, sender_id, sender_name, unit_label, unit_name, subject, body, marking, created_at) VALUES ('m1', 'o1', 'U1', 'u1', 'Una One', 'U1', 'Unit One', 'Formation', 'At 0700.', 'CUI', ?)").run(at);
+    db.prepare("INSERT INTO team_message_recipients (message_id, user_id, org_id, delivery) VALUES ('m1', 'u1', 'o1', 'emailed')").run();
+    db.prepare("INSERT INTO team_message_files (id, message_id, org_id, position, original_name, mime_type, size_bytes, sha256, scan_status, scanner, content, created_at) VALUES ('f1', 'm1', 'o1', 1, 'a.csv', 'text/csv', 3, ?, 'clean', 'clamd', ?, ?)").run('a'.repeat(64), Buffer.from('a,b'), at);
+    assert.throws(() => db.prepare("UPDATE team_messages SET body = 'changed' WHERE id = 'm1'").run(), /kept as it was sent/);
+    assert.throws(() => db.prepare("UPDATE team_message_files SET content = X'00' WHERE id = 'f1'").run(), /kept as it was sent/);
+    for (const [sql, why] of [
+      ["INSERT INTO team_message_files (id, message_id, org_id, position, original_name, mime_type, size_bytes, sha256, scan_status, scanner, content, created_at) VALUES ('f2', 'm1', 'o1', 2, 'b.csv', 'text/csv', 3, 'aaaa', 'clean', 'clamd', X'00', 'x')", 'a digest that is not SHA-256'],
+      ["INSERT INTO team_message_files (id, message_id, org_id, position, original_name, mime_type, size_bytes, sha256, scan_status, scanner, content, created_at) VALUES ('f3', 'm1', 'o1', 3, 'c.csv', 'text/csv', 3, '" + 'b'.repeat(64) + "', 'skipped', 'none', X'00', 'x')", 'a file not scanned clean'],
+      ["INSERT INTO team_message_files (id, message_id, org_id, position, original_name, mime_type, size_bytes, sha256, scan_status, scanner, content, created_at) VALUES ('f4', 'm1', 'o1', 6, 'd.csv', 'text/csv', 3, '" + 'c'.repeat(64) + "', 'clean', 'clamd', X'00', 'x')", 'a sixth file'],
+      ["INSERT INTO team_message_recipients (message_id, user_id, org_id, delivery) VALUES ('m1', 'u1', 'o1', 'lost')", 'a delivery that is not one'],
+      ["INSERT INTO team_messages (id, org_id, unit_id, sender_id, sender_name, unit_label, unit_name, subject, body, marking, created_at) VALUES ('m2', 'o1', 'U1', 'u1', 'Una', 'U1', 'Unit One', '', 'x', 'CUI', 'x')", 'an empty subject'],
+    ] as const) assert.throws(() => db.prepare(sql).run(), /CHECK|UNIQUE|PRIMARY/, `refused: ${why}`);
+    db.prepare("DELETE FROM team_messages WHERE id = 'm1'").run();
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM team_message_files').get() as { n: number }).n, 0, 'its files go with it');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM team_message_recipients').get() as { n: number }).n, 0, 'and who it went to');
+    db.close();
+    const again = openDatabase(path);
+    assert.equal(migrationHistory(again).filter((m) => m.id === 46).length, 1, 'a second boot runs it once');
+    again.close();
+  } finally { cleanup(); }
+});

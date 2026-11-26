@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-26',
+    title: 'Team messages stay in Vantage, and can carry files',
+    items: [
+      'A message you send from Email the team is kept for 180 days on a page of its own. Each Marine’s notice and the email’s Read it in Vantage open it. Only you and the Marines it went to can open it.',
+      'Add up to five files to a message: PDF, JPEG, PNG, TXT or CSV. They go to each Marine as attachments to the email, and stay on the message’s page.',
+      'Files go only once each is scanned clean, every address on the message is on your deployment’s allowed domains, and the mail relay takes TLS. If not, nothing is sent, and the dialog says why and keeps what you wrote.',
+      'You confirm that files cannot be withdrawn once sent. Each file is recorded by name, size and SHA-256, and each Marine it went to.',
+    ],
+  },
+  {
     date: '2026-11-24',
     title: 'Vantage email in dress blues, and only to the domains your deployment names',
     items: [

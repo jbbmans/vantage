@@ -32,10 +32,13 @@ import { pruneStagedImports } from './services/recordImport.ts';
 import { expireFormDrafts } from './services/drafts.ts';
 import { DRAFT_KEPT_DAYS } from '../shared/drafts.ts';
 import { expireNotifications } from './services/notifications.ts';
+import { expireTeamMessages, settleInterruptedTeamSends } from './services/teamMessages.ts';
+import { TEAM_MESSAGE_RETENTION_DAYS } from '../shared/teamMessages.ts';
 import { NOTICE_RETENTION_DAYS } from '../shared/notifications.ts';
 import { pruneStagedCatalogs } from './services/courseCatalog.ts';
 import { STAGED_CATALOG_HOURS } from '../shared/courses.ts';
 import { orgRouter } from './routes/org.ts';
+import { teamMessagesRouter } from './routes/teamMessages.ts';
 import { miscRouter } from './routes/misc.ts';
 import { reportCenterRouter } from './routes/reportCenter.ts';
 import { errorReportsRouter } from './routes/errorReports.ts';
@@ -109,6 +112,8 @@ export function createContext(config: AppConfig): AppContext {
   pruneSessions(ctx);
   const interrupted = reconcileInterruptedJobs(ctx);
   if (interrupted) console.warn(`Marked ${interrupted} interrupted import job(s) as failed.`);
+  const unsent = settleInterruptedTeamSends(ctx);
+  if (unsent) console.warn(`Marked ${unsent} team message copies a stopped send never emailed as not delivered.`);
   if (!metaGet(db, 'case_seals_backfilled')) {
     const sealed = sealBacklog(ctx);
     metaSet(db, 'case_seals_backfilled', now());
@@ -372,8 +377,9 @@ export function createApp(ctx: AppContext) {
 
   const json = express.json({ limit: '4mb' });
   // Paths whose body is a file, taken in by the route itself once it has decided who is asking. A file sent to a record
-  // (ADR-0025) is one of them whatever type it is declared as, so a body declared as JSON is not read here first.
-  const RAW_BODY_PATHS = /^\/api\/(?:(?:admin|platform)\/import\/?$|work\/sources\/?$|correspondence\/messages\/import\/?$|me\/imports\/?$|records\/[^/]+\/[^/]+\/attachments\/?$|platform\/course-sources\/[^/]+\/import\/?$)/i;
+  // (ADR-0025) is one of them whatever type it is declared as, so a body declared as JSON is not read here first. A
+  // message to a unit carries its files in JSON, read by the route's own parser once the sender is settled (ADR-0049).
+  const RAW_BODY_PATHS = /^\/api\/(?:(?:admin|platform)\/import\/?$|work\/sources\/?$|correspondence\/messages\/import\/?$|me\/imports\/?$|records\/[^/]+\/[^/]+\/attachments\/?$|platform\/course-sources\/[^/]+\/import\/?$|org\/units\/[^/]+\/message\/?$)/i;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
@@ -389,6 +395,7 @@ export function createApp(ctx: AppContext) {
   app.use('/api/drafts', draftsRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
+  app.use('/api/team-messages', teamMessagesRouter);
   app.use('/api/support', supportRouter);
   app.use('/api/public-support', publicSupportRouter);
   app.use('/api/report-center', reportCenterRouter);
@@ -597,6 +604,7 @@ export function startSchedulers(ctx: AppContext) {
   every('form_drafts_expire', 'Saved draft expiry', 6 * 60 * 60_000, () => { const removed = expireFormDrafts(ctx); if (removed) console.log(`${now()} removed ${removed} saved drafts not saved again in ${DRAFT_KEPT_DAYS} days`); });
   // Notices are kept 180 days, read or not, unless a legal hold keeps them (ADR-0031).
   every('notifications_expire', 'Notice expiry', 6 * 60 * 60_000, () => { const r = expireNotifications(ctx); if (r.expired) console.log(`${now()} removed ${r.expired} notices older than ${NOTICE_RETENTION_DAYS} days`); });
+  every('team_messages_expire', 'Team message expiry', 6 * 60 * 60_000, () => { const r = expireTeamMessages(ctx); if (r.expired) console.log(`${now()} removed ${r.expired} team messages older than ${TEAM_MESSAGE_RETENTION_DAYS} days`); });
   every('course_catalog_prune', 'Course catalog prune', 60 * 60_000, () => { const discarded = pruneStagedCatalogs(ctx); if (discarded) console.log(`${now()} discarded ${discarded} course catalogs left waiting past ${STAGED_CATALOG_HOURS} hours`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {

@@ -8,6 +8,7 @@ import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, LineageTable, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { DutyCandidatesResponse, DutyOptionsResponse, DutyStatus } from '../../shared/duty';
 import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../../shared/attachments';
+import type { TeamAudience, TeamMessageFileUpload, TeamMessageResult, TeamMessageView } from '../../shared/teamMessages';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
@@ -306,8 +307,11 @@ export const supervisorCandidates = (unitId: string, q: string, except?: string)
 export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => withSudo(() => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload));
 export const endResponsibility = (id: string, reason?: string | null) => withSudo(() => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null }));
 export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => withSudo(() => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload));
-export const teamAudience = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/message`);
-export const messageTeam = (unitId: string, payload: { subject: string; body: string }) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/message`, payload));
+export const teamAudience = (unitId: string) => api.get<TeamAudience>(`/org/units/${encodeURIComponent(unitId)}/message`);
+export const messageTeam = (unitId: string, payload: { subject: string; body: string; files?: TeamMessageFileUpload[]; confirmFiles?: boolean }) => withSudo(() => api.post<TeamMessageResult>(`/org/units/${encodeURIComponent(unitId)}/message`, payload));
+// A kept team message and its files (ADR-0049), on a route only the application's host answers.
+export const teamMessage = (id: string) => api.get<TeamMessageView>(`/team-messages/${encodeURIComponent(id)}`);
+export const teamMessageFileUrl = (id: string, fileId: string) => `/api/team-messages/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`;
 export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload));
 export const removeMember = (unitId: string, userId: string) => withSudo(() => api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`));
 export const createInvite = (unitId: string, payload: unknown) => withSudo(() => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload));

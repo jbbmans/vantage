@@ -72,6 +72,21 @@ roots, so a relay certificate signed by an enterprise CA needs that CA in `NODE_
 - Weekly digest: opt-in per user, at their chosen day and hour in the instance time zone; what they logged, what is overdue, and what is closing.
 - Team messages: a leader who manages a unit's members can email everyone in it and the teams beneath it from **Team → Email the team**. Each Marine gets their own copy, replies go to the leader, everyone also sees it in Vantage, and it is recorded in the unit's access log. Five messages an hour per leader.
 
+## Team messages and their files
+
+Vantage keeps every team message for 180 days on a page of its own (`/team/messages/:id`), which each Marine's notice and the email's **Read it in Vantage** open. Only the sender and the Marines it went to can open it, while they are members of its Unit Instance. A legal hold on its Unit Instance, on `team_messages`, or on the sender or a Marine it went to keeps it past 180 days ([ADR-0049](engineering/ADR/0049-team-messages-and-real-attachments.md)).
+
+A message can carry up to five files, together within `VANTAGE_ATTACHMENT_MAX_BYTES` (10 MiB by default): PDF, JPEG, PNG, TXT or CSV. They go to each Marine as real attachments, and the email lists each with its type and size in both parts. Files go by email only when all of these hold, checked before anything is kept or sent:
+
+- the malware scanner (`VANTAGE_CLAMD` or `VANTAGE_SCANNER_COMMAND`) finds each file clean now. No scanner, an error or a timeout is not clean;
+- `VANTAGE_EMAIL_ALLOWED_DOMAINS` is set, and every Marine on the message with an address on file is inside it;
+- mail goes through the SMTP relay (`VANTAGE_EMAIL_PROVIDER=smtp`), and the relay takes a TLS 1.2 connection to a certificate that checks. Vantage opens that connection first and closes it without sending; files never go by direct delivery or Resend, and never over a connection that fell back to clear text, whatever the profile;
+- the leader confirms the files cannot be withdrawn once sent.
+
+If any of them fails, nothing is kept, no one is notified, nothing is emailed, the five-an-hour count is not used, and the dialog says why beside what was written. The leader can send the message without its files. Each refusal is audited (`team_message_refused`, never naming a file). With email off, files stay with the message in Vantage.
+
+A sent message's trail names each file (`team_message_file`: name, size, SHA-256, verdict) and each Marine it went to (`team_message_recipient`, by email at which domain or in Vantage only, and in Vantage only for an address the check refuses), written before the first email leaves. The sender's page counts how each Marine was reached; a copy the receiving server asked to retry is shown as the retry left it. Base64 makes a message about 1.37 times its files' size, so 10 MiB of files is about 14 MiB to the relay for each Marine; whether the relay takes that is I-38. Lower `VANTAGE_ATTACHMENT_MAX_BYTES` if it does not.
+
 Every message shares one design (`server/services/mailLayout.ts`, words in `server/services/mailMessages.ts`, [ADR-0048](engineering/ADR/0048-email-look-and-allowed-domains.md)): dress blues as the app wears it, with the wordmark as text on a navy masthead, the gold and scarlet piping, a white card on warm paper and a cobalt button. It is table-based so Outlook lays it out, with inline styles so Gmail keeps them. Every coloured element has a class that dark mode maps, so a red or amber figure stays red or amber: once for clients that follow the device's dark setting (Apple Mail, Outlook for Mac and iOS) and again for Outlook.com's own dark mode. Gmail ignores both and applies its own dark colours. Nothing is fetched when a message opens: no image, stylesheet or font, the deployment's included. The plain-text part says everything the HTML does. Team messages and the weekly digest print the deployment's handling marking (set by Vantage Administrators) at the top and the foot.
 
 ## Who mail may go to
@@ -96,7 +111,7 @@ A weekly digest that is refused is tried once that week, not at every tick. What
 - **Password reset:** the same answer as always. No link is made.
 - **Invitation:** the invitation is made, and the leader is told why it was not emailed and copies the link.
 - **Sign-in details:** that person is listed as not sent, with the reason. Their earlier link keeps working.
-- **Team message:** the dialog counts those with an address outside the list, and the result counts them again. They get the message in Vantage.
+- **Team message:** the dialog counts those with an address outside the list, and the result counts them again. They get the message in Vantage. A message with files is refused whole while anyone on it is outside the list.
 - **Weekly digest and the console's test:** the reason.
 
 When a message is not refused but still does not go, the provider's own words stay in the mail log on the Email tab.
