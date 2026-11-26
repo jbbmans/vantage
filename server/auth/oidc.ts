@@ -1,4 +1,5 @@
 import { constants, createHash, createPublicKey, randomBytes, verify as verifySignature, type JsonWebKey, type KeyObject } from 'node:crypto';
+import { isPlainEmail } from '../../shared/emailAddress.ts';
 import type { AppContext } from '../context.ts';
 import { encryptSecret, decryptSecret, safeEqual, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
@@ -216,7 +217,7 @@ export async function completeSignIn(ctx: AppContext, query: { code?: string; st
 
 /** The address a person signed in with, from whichever claim the provider uses for it. */
 export function emailOf(claims: OidcClaims): string | null {
-  for (const v of [claims.email, claims.preferred_username, claims.upn]) if (typeof v === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return v.toLowerCase();
+  for (const v of [claims.email, claims.preferred_username, claims.upn]) if (typeof v === 'string' && isPlainEmail(v)) return v.toLowerCase();
   return null;
 }
 

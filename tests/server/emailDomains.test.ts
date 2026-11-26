@@ -5,6 +5,11 @@ import { loadConfig } from '../../server/config.ts';
 import { orgOfUnit } from '../../server/authz/scope.ts';
 import { newId, now } from '../../server/lib/ids.ts';
 import { startApp, enroll, type TestApp } from './helpers.ts';
+import { issueToken } from '../../server/auth/tokens.ts';
+import { encryptSecret } from '../../server/lib/crypto.ts';
+import { localClock, runDigestTick } from '../../server/services/digest.ts';
+import { zoneOf } from '../../server/lib/zone.ts';
+import { isPlainEmail, plainAddress } from '../../shared/emailAddress.ts';
 
 // Who Vantage may email (VANTAGE_EMAIL_ALLOWED_DOMAINS, ADR-0048): a recipient outside the list is refused before any
 // provider sees the message, logged, and audited.
@@ -110,7 +115,7 @@ test('a team message counts who is outside the list, before and after, and email
   const outside = await app.register('outsidemarine', { email: 'outside@gmail.com' });
   for (const u of [inside, outside]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, outsideDomains: 1, appOnly: 1, emailEnabled: true, limit: 300 });
+  assert.deepEqual(audience.body, { members: 2, withEmail: 1, refused: 1, appOnly: 1, emailEnabled: true, limit: 300 });
   const before = refusals().length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Muster', body: 'At 0700.' } });
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
@@ -120,7 +125,7 @@ test('a team message counts who is outside the list, before and after, and email
   assert.equal(lastRefusal().subject_id, outside.id);
   assert.equal(lastRefusal().actor_id, op.id);
   const trail = app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'team_message' ORDER BY rowid DESC LIMIT 1").get() as { detail: string };
-  assert.match(trail.detail, /1 emailed, 0 queued, 0 failed, 1 outside the allowed domains, 1 in Vantage only/);
+  assert.match(trail.detail, /1 emailed, 0 queued, 0 failed, 1 in Vantage only \(1 refused by the address check\)/);
   // Both still have it in Vantage.
   assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = 'unit'").get(outside.id) as { n: number }).n, 1);
 });
@@ -184,12 +189,18 @@ test('the Vantage Administrator console test, the weekly digest and sign-in deta
   const imported = await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: Buffer.from(csv), headers: { 'content-type': 'text/csv', 'x-vantage-filename': 'roster.csv' } });
   assert.equal(imported.status, 200, JSON.stringify(imported.body));
   const gale = (app.ctx.db.prepare('SELECT id FROM users WHERE username = ?').get('gale.moss') as { id: string }).id;
+  // A link Gale already holds, sent before the list changed.
+  const earlier = issueToken(app.ctx, 'reset', { userId: gale, email: 'gale.moss@gmail.com', ttlMinutes: 60 });
   const before = tokens('reset', gale);
   const details = await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [gale] } });
   assert.equal(details.status, 200, JSON.stringify(details.body));
   assert.equal(details.body.results[0].status, 'failed');
   assert.match(details.body.results[0].error, REASON);
-  assert.equal(tokens('reset', gale), before, 'no new link, so one already sent keeps working');
+  assert.equal(tokens('reset', gale), before, 'no new link was made');
+  const held = app.ctx.db.prepare('SELECT used_at FROM tokens WHERE id = ?').get(earlier.id) as { used_at: string | null };
+  assert.equal(held.used_at, null, 'the link already sent keeps working');
+  const check = await app.call('GET', `/api/auth/reset?token=${encodeURIComponent(earlier.token)}`);
+  assert.equal(check.body.valid, true);
   assert.equal(lastRefusal().detail, 'sign_in; gmail.com is not on the allowed domains');
   assert.equal(lastRefusal().org_id, orgOfUnit(app.ctx, 'G8'));
 });
@@ -211,5 +222,106 @@ test('a message waiting for a retry is checked again, and refused if its domain 
     const entry = direct.ctx.db.prepare("SELECT * FROM audit_log WHERE action = 'email_refused'").get() as Record<string, string | null>;
     assert.equal(entry.entity_id, logId);
     assert.equal(entry.detail, 'invite; gmail.com is not on the allowed domains');
+    assert.equal(entry.actor_id, null, 'a payload that cannot be read names nobody');
+
+    // Queued with who caused it, the refusal at retry names them, as one at send would.
+    const leader = (await direct.setupOperator()).id;
+    const sealedLog = newId();
+    direct.ctx.db.prepare('INSERT INTO email_log (id, user_id, to_address, kind, subject, status, error, created_at, org_id) VALUES (?, NULL, ?, ?, ?, ?, NULL, ?, NULL)').run(sealedLog, 'team@gmail.com', 'team_message', 'Muster', 'queued', at);
+    const payload = encryptSecret(direct.ctx.config.secret, JSON.stringify({ subject: 'Muster', text: 't', html: '<p>h</p>', replyTo: null, userId: null, actorId: leader }));
+    direct.ctx.db.prepare('INSERT INTO email_queue (id, log_id, to_address, kind, payload, attempts, next_attempt_at, expires_at, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
+      .run(newId(), sealedLog, 'team@gmail.com', 'team_message', payload, new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() + 3_600_000).toISOString(), at);
+    await direct.ctx.mailer.retryQueued();
+    const named = direct.ctx.db.prepare("SELECT actor_id FROM audit_log WHERE action = 'email_refused' AND entity_id = ?").get(sealedLog) as { actor_id: string | null };
+    assert.equal(named.actor_id, leader);
   } finally { await direct.close(); }
+});
+
+test('a weekly digest to a refused address is refused once that week, not at every tick of its hour', async () => {
+  const reader = await app.register('weeklyoutside', { email: 'weekly.outside@gmail.com' });
+  // Four ticks a quarter hour apart, all in the hour the digest is set for.
+  const hourStart = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000 + 60_000);
+  const clock = localClock(zoneOf(app.ctx, null), hourStart);
+  app.ctx.db.prepare('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ digest: { enabled: true, weekday: clock.weekday, hour: clock.hour } }), reader.id);
+  for (const minutes of [0, 15, 30, 45]) await runDigestTick(app.ctx, new Date(hourStart.getTime() + minutes * 60_000));
+  const logged = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM email_log WHERE user_id = ? AND kind = 'digest' AND status = 'refused'").get(reader.id) as { n: number };
+  assert.equal(logged.n, 1);
+  const audited = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'email_refused' AND subject_id = ?").get(reader.id) as { n: number };
+  assert.equal(audited.n, 1);
+  assert.equal((app.ctx.db.prepare('SELECT digest_last_sent_at FROM users WHERE id = ?').get(reader.id) as { digest_last_sent_at: string | null }).digest_last_sent_at, null, 'nothing is stamped as sent');
+});
+
+test('an address field and the mailer read an address by one rule, and the mailer sends to the form it checked', async () => {
+  const taken: Array<[string, string]> = [
+    ['a@usmc.mil', 'a@usmc.mil'], ['First.Last@USMC.MIL', 'First.Last@usmc.mil'], ['a+tag@usmc.mil', 'a+tag@usmc.mil'], ["o'neil@usmc.mil", "o'neil@usmc.mil"],
+    ['a@fleet.navy.mil', 'a@fleet.navy.mil'], ['a@bücher.de', 'a@xn--bcher-kva.de'], ['a@xn--bcher-kva.de', 'a@xn--bcher-kva.de'], ['a@bu\u0308cher.de', 'a@xn--bcher-kva.de'],
+    ['a@1st-mardiv.usmc.mil', 'a@1st-mardiv.usmc.mil'], ['a@ß.de', 'a@xn--zca.de'],
+  ];
+  for (const [address, sent] of taken) {
+    assert.equal(isPlainEmail(address), true, address);
+    assert.equal(plainAddress(address), sent, `${address} goes to ${sent}`);
+    assert.equal(recipientDomain(address), sent.split('@')[1], `${address} is checked at ${sent.split('@')[1]}`);
+  }
+  // Not one address, or a domain that does not mean what was written: refused by the field and by the mailer alike.
+  const refused = [
+    'name<a@x.mil>', '"n"<a@x.mil>', 'a;b@x.mil', 'a,b@x.mil', 'a(x)@x.mil', 'a@x.mil.', 'a@x', 'a@-x.mil', 'a@x-.mil', 'a@x..mil', 'a@x.mil/x', 'a@x.mil?q', 'a@x.mil:25',
+    'a@1.2.3.4', 'me%gmail.com@usmc.mil', 'gmail.com!me@usmc.mil', 'a\u200b@x.mil', 'a@usmc.mil\u200b', 'a@usmc\u00admil.com', 'a@x.mil ', ' a@x.mil', 'a@usmc%2Emil',
+    // Look-alikes that a URL parser would quietly map to another name: full-width, a Roman numeral, a ligature, a circled digit.
+    'a@ｕsmc.mil', 'a@usmc.ｍｉｌ', 'a@Ⅻnavy.mil', 'a@ﬀ.com', 'a@①.com',
+    // A variation selector, a label that starts with a combining mark, a bad punycode label, a symbol.
+    'a@usmc.mil\uFE0F', 'a@\u0301x.mil', 'a@xn--a.com', 'a@☃.com', 'a@i❤.ws',
+    'a@' + 'ü'.repeat(63) + '.de',
+  ];
+  for (const address of refused) {
+    assert.equal(isPlainEmail(address), false, `field refuses ${JSON.stringify(address)}`);
+    assert.equal(recipientDomain(address), null, `mailer refuses ${JSON.stringify(address)}`);
+  }
+
+  const registered = await app.call('POST', '/api/auth/register', { body: { username: 'displayname', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'D', last_name: 'N', rank_id: 'LCpl', email: 'name<a@example.mil>' } });
+  assert.equal(registered.status, 400);
+  // The field says so itself, before the mailer is asked, so nothing is logged or audited for it.
+  const logged = (app.ctx.db.prepare("SELECT COUNT(*) AS n FROM email_log WHERE status = 'refused'").get() as { n: number }).n;
+  const audited = refusals().length;
+  const changed = await app.call('POST', '/api/me/email/verify', { token: op.token, body: { email: 'boletz@example.mil.' } });
+  assert.equal(changed.status, 400);
+  assert.equal(changed.body.fieldErrors?.email, 'Not a valid email.');
+  assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM email_log WHERE status = 'refused'").get() as { n: number }).n, logged);
+  assert.equal(refusals().length, audited);
+
+  // What the provider is given is the form the check read, whatever the case or script it was written in.
+  const idn = await startApp({ VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_EMAIL_ALLOWED_DOMAINS: 'bücher.de' });
+  try {
+    const result = await idn.ctx.mailer.send({ to: 'Ähre@BÜCHER.de', subject: 'S', text: 't', html: '<p>h</p>', kind: 'test' });
+    assert.equal(result.ok, true);
+    assert.equal(idn.ctx.mailer.outbox.at(-1)!.to, 'Ähre@xn--bcher-kva.de', 'the local part as written, the domain in ASCII');
+    assert.equal((idn.ctx.db.prepare("SELECT to_address FROM email_log WHERE status = 'sent'").get() as { to_address: string }).to_address, 'Ähre@BÜCHER.de', 'the log keeps the address as given');
+  } finally { await idn.close(); }
+});
+
+test('a provider’s own error stays in the mail log; the person asking is told only that it was not sent', async () => {
+  const broken = await startApp({ VANTAGE_EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtp://127.0.0.1:1' });
+  try {
+    const marine = await broken.setupOperator();
+    const digest = await broken.call('POST', '/api/me/digest/send-now', { token: marine.token });
+    assert.equal(digest.status, 400);
+    assert.equal(digest.body.error, 'The digest could not be sent. Try again later.');
+    const change = await broken.call('POST', '/api/me/email/verify', { token: marine.token, body: { email: 'relay.new@example.mil' } });
+    assert.equal(change.status, 400);
+    assert.equal(change.body.error, 'The confirmation could not be sent. Try again later.');
+    // Sign-in details tell the Unit Manager the same, and the Unit Instance's trail carries no more than they see.
+    const member = await broken.register('relaydown', { email: 'relay.down@example.mil' });
+    await enroll(broken, marine.token, 'G8', member.id);
+    const details = await broken.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: marine.token, body: { userIds: [member.id] } });
+    assert.equal(details.status, 200, JSON.stringify(details.body));
+    assert.deepEqual(details.body.results[0], { id: member.id, status: 'failed', error: 'The sign-in details could not be sent. Try again later.' });
+    const trail = broken.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'sign_in_details_sent' AND subject_id = ?").get(member.id) as { detail: string };
+    assert.equal(trail.detail, 'relaydown; failed; The sign-in details could not be sent. Try again later.');
+    // An invitation says what the leader can do about it.
+    const invite = await broken.call('POST', '/api/org/units/G8/invites', { token: marine.token, body: { email: 'new.hand@example.mil' } });
+    assert.equal(invite.status, 201, JSON.stringify(invite.body));
+    assert.equal(invite.body.emailError, 'The invitation could not be sent. Try again later. Copy the link and send it yourself.');
+    assert.doesNotMatch(JSON.stringify([digest.body, change.body, details.body, invite.body, trail]), /ECONNREFUSED|127\.0\.0\.1/);
+    const logged = broken.ctx.db.prepare("SELECT COUNT(*) AS n FROM email_log WHERE status = 'failed' AND error LIKE '%ECONNREFUSED%'").get() as { n: number };
+    assert.equal(logged.n, 4, 'the mail log keeps each reason');
+  } finally { await broken.close(); }
 });

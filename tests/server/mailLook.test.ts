@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { DARK_CLASSES, LAYOUT_CLASSES, MAIL_PALETTE, layout } from '../../server/services/mailLayout.ts';
 import { MAIL_SAMPLES, SAMPLE_MARKING } from './mailSamples.ts';
 import { startApp, enroll, type TestApp } from './helpers.ts';
+import { MAIL_KINDS } from '../../server/services/email.ts';
 
 // The one look every message wears (ADR-0048): dress blues, nothing fetched when it opens, and as readable in a dark
 // inbox as in a light one.
@@ -21,8 +22,14 @@ const classesOf = (attrs: string) => (attrs.match(/\bclass="([^"]*)"/)?.[1] || '
 const body = (html: string) => html.replace(/<style>[\s\S]*?<\/style>/, '').replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/g, '');
 
 test('the seven messages are the seven kinds the mailer knows', () => {
-  assert.deepEqual([...KINDS].sort(), ['digest', 'email_change', 'invite', 'reset', 'sign_in', 'team_message', 'test']);
+  assert.deepEqual([...KINDS].sort(), [...MAIL_KINDS].sort());
+  assert.equal(KINDS.length, 7);
 });
+
+/** The masthead, which stands on the frame's navy in both schemes: everything from its cell to the end of the piping. */
+const MASTHEAD = /<tr><td class="v-pad" bgcolor="#0C1930"[\s\S]*?<\/table><\/td><\/tr>/;
+/** The rules inside the dark-mode media query, and none after it. */
+const mediaBlock = (html: string) => html.match(/@media \(prefers-color-scheme: dark\) \{\n([\s\S]*?)\n {2}\}\n/)?.[1] ?? '';
 
 for (const kind of KINDS) {
   test(`${kind}: nothing is fetched when it opens, and it reads as a document`, () => {
@@ -40,8 +47,12 @@ for (const kind of KINDS) {
     assert.equal(html.match(/<h1\b/g)?.length, 1, 'the title is the one heading at the top');
     assert.match(html, />Vantage<\/p>/, 'the wordmark is text');
     // Layout tables say they are layout; the one data table is the details, with a header on each row.
-    for (const t of tags(body(html)).filter((x) => x.name === 'table')) {
-      if (!/role="presentation"/.test(t.attrs)) assert.ok(/<th scope="row"/.test(html), `${kind} has a data table without row headers`);
+    const data = [...body(html).matchAll(/<table\b(?![^>]*role="presentation")[^>]*>([\s\S]*?)<\/table>/g)];
+    assert.equal(data.length, html.includes('<th scope="row"') ? 1 : 0, `${kind}: the details are the only data table`);
+    for (const [, inner] of data) {
+      assert.doesNotMatch(inner, /<table\b/, 'a data table holds no layout table');
+      const rows = inner.match(/<tr>/g)?.length ?? 0;
+      assert.equal(inner.match(/<th scope="row"/g)?.length ?? 0, rows, `${kind}: every row of the details has its header`);
     }
     for (const th of [...html.matchAll(/<th\b[^>]*>/g)]) assert.match(th[0], /scope="row"/);
     // The preheader and the button's arrow are not read aloud.
@@ -57,21 +68,35 @@ for (const kind of KINDS) {
     const known = new Set([...DARK_CLASSES, ...LAYOUT_CLASSES]);
     const textClasses = new Set(['v-ink', 'v-ink2', 'v-ink3', 'v-good', 'v-warn', 'v-bad', 'v-link', 'v-btn']);
     const groundClasses = new Set(['v-bg', 'v-card', 'v-panel', 'v-btn-cell']);
+    const borderClasses = new Set(['v-card', 'v-panel', 'v-rule', 'v-note']);
+    // What stands on the masthead keeps the frame's colours in both schemes, as the app's frame does; it is checked
+    // apart, and everything else must name its colour by a class.
+    const masthead = body(html).match(MASTHEAD)?.[0] ?? '';
+    assert.ok(masthead.includes('<h1'), `${kind}: the masthead holds the title`);
     const frame = new Set(Object.values(MAIL_PALETTE.frame).map((c) => c.toLowerCase()));
-    for (const t of tags(body(html))) {
+    for (const t of tags(masthead)) {
+      const style = t.attrs.match(/\bstyle="([^"]*)"/)?.[1] || '';
+      for (const m of style.matchAll(/(?:^|;)(?:color|background-color):(#[0-9a-f]{6})/gi)) assert.ok(frame.has(m[1].toLowerCase()), `${kind}: the masthead uses ${m[1]}, not a frame colour`);
+    }
+    for (const t of tags(body(html).replace(MASTHEAD, ''))) {
       const classes = classesOf(t.attrs);
       for (const c of classes) assert.ok(known.has(c), `${kind}: ${c} has no rule`);
       const style = t.attrs.match(/\bstyle="([^"]*)"/)?.[1] || '';
       if (/display:none/.test(style)) continue;
-      const color = style.match(/(?:^|;)color:(#[0-9a-f]{6})/i)?.[1]?.toLowerCase();
-      // What stands on the masthead keeps the frame's colours in both schemes, as the app's frame does.
-      if (color && !frame.has(color)) assert.ok(classes.some((c) => textClasses.has(c)), `${kind}: <${t.name}> sets color ${color} with no class for dark mode`);
-      const ground = style.match(/background-color:(#[0-9a-f]{6})/i)?.[1]?.toLowerCase();
-      if (ground && !frame.has(ground)) assert.ok(classes.some((c) => groundClasses.has(c)), `${kind}: <${t.name}> sets background ${ground} with no class for dark mode`);
+      const color = style.match(/(?:^|;)color:(#[0-9a-f]{6})/i)?.[1];
+      if (color) assert.ok(classes.some((c) => textClasses.has(c)), `${kind}: <${t.name}> sets color ${color} with no class for dark mode`);
+      const ground = style.match(/background-color:(#[0-9a-f]{6})/i)?.[1];
+      // The short gold rule over a figure is the frame's gold in both schemes, as the piping is.
+      if (ground && ground.toLowerCase() !== MAIL_PALETTE.frame.gold.toLowerCase()) assert.ok(classes.some((c) => groundClasses.has(c)), `${kind}: <${t.name}> sets background ${ground} with no class for dark mode`);
+      const border = style.match(/border(?:-(?:top|right|bottom|left))?:\d+px solid (#[0-9a-f]{6})/i)?.[1];
+      // The note's gold rule is the frame's gold in both schemes, and v-note says so.
+      if (border) assert.ok(classes.some((c) => borderClasses.has(c)), `${kind}: <${t.name}> sets border ${border} with no class for dark mode`);
     }
     // Each rule is in the media query and again for Outlook.com's dark mode.
+    const media = mediaBlock(html);
+    assert.ok(media, `${kind} has the dark media query`);
     for (const cls of DARK_CLASSES) {
-      assert.match(html, new RegExp(`@media \\(prefers-color-scheme: dark\\)[\\s\\S]*\\.${cls} \\{`), `${cls} in the media query`);
+      assert.match(media, new RegExp(`^ {4}\\.${cls} \\{`, 'm'), `${cls} in the media query`);
       assert.match(html, new RegExp(`\\[data-og(?:sc|sb)\\] \\.${cls} \\{`), `${cls} for Outlook.com`);
     }
   });
@@ -85,7 +110,7 @@ test('a toned figure keeps its tone in dark mode: it names the tone, never the i
   assert.match(html, new RegExp(`<p class="v-good" style="[^"]*color:${L.good}">\\$1\\.2M</p>`), 'the impact is green');
   assert.match(html, /<p class="v-ink" style="[^"]*">4<\/p>/, 'an untoned figure is ink');
   for (const tone of ['good', 'warn', 'bad'] as const) {
-    assert.match(html, new RegExp(`\\.v-${tone} \\{ color:${MAIL_PALETTE.dark[tone]} !important; \\}`));
+    assert.match(mediaBlock(html), new RegExp(`\\.v-${tone} \\{ color:${MAIL_PALETTE.dark[tone]} !important; \\}`));
   }
   // The old fault: the ink's dark rule painted every figure white, whatever its tone.
   assert.doesNotMatch(html, /class="v-ink" style="[^"]*color:#(?:156E4E|8A4F05|B2122A)/i);

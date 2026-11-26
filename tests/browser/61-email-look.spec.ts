@@ -53,15 +53,51 @@ for (const kind of Object.keys(MAIL_SAMPLES)) {
   }
 }
 
+/** The message as a client that drops the stylesheet lays it out: only the attributes and inline styles are left. */
+const bare = (html: string) => html.replace(/<style>[\s\S]*?<\/style>/, '');
+const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
 test('on a phone the card fills the width and the button spans it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, MAIL_SAMPLES.sign_in.html);
   const shell = await page.locator('table.v-shell').boundingBox();
-  expect(shell!.width).toBeLessThanOrEqual(390);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow, 'no sideways scroll').toBeLessThanOrEqual(0);
+  // The page less the 12px gutter on each side: the card neither overflows nor shrinks to a column.
+  expect(shell!.width).toBeLessThanOrEqual(390 - 2 * 12);
+  expect(shell!.width).toBeGreaterThanOrEqual(390 - 2 * 12 - 1);
+  expect(await sideways(page), 'no sideways scroll').toBeLessThanOrEqual(0);
   const button = await page.locator('a.v-btn').boundingBox();
   expect(button!.width, 'the button spans the card, less its padding').toBeGreaterThan(shell!.width - 2 * 24 - 4);
+});
+
+test('on a phone, in a client that drops the stylesheet, the card still fits the screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, bare(MAIL_SAMPLES.sign_in.html));
+  const shell = await page.locator('table.v-shell').boundingBox();
+  expect(shell!.width, 'the shell is sized by its attributes, not the media query').toBeLessThanOrEqual(390 - 2 * 12);
+  expect(await sideways(page), 'no sideways scroll').toBeLessThanOrEqual(0);
+});
+
+test('a long unbroken word in the title or the card wraps instead of widening the message', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const word = 'x'.repeat(72);
+  const html = MAIL_SAMPLES.sign_in.html
+    .replace(/(<h1[^>]*>)/, `$1${word} `)
+    .replace(/(<td class="v-card[^>]*>[\s\S]*?<p[^>]*>)/, `$1${word} `);
+  for (const variant of [html, bare(html)]) {
+    await open(page, variant);
+    expect(await page.locator('h1').innerText()).toContain(word);
+    expect(await page.locator('td.v-card p').first().innerText()).toContain(word);
+    expect(await sideways(page), 'no sideways scroll').toBeLessThanOrEqual(0);
+    const shell = await page.locator('table.v-shell').boundingBox();
+    expect(shell!.width).toBeLessThanOrEqual(390 - 2 * 12);
+  }
+});
+
+test('on a wide screen the card stops at 600px', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await open(page, MAIL_SAMPLES.digest.html);
+  const shell = await page.locator('table.v-shell').boundingBox();
+  expect(Math.round(shell!.width)).toBe(600);
 });
 
 test('the counter would catch a fetch: an image in a message is one request, refused', async ({ page }) => {

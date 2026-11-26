@@ -8,6 +8,7 @@ import { passwordProblem } from '../../shared/password.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { addMember, mayCarryRole, seedRoles } from './org.ts';
 import { audit } from './audit.ts';
+import { isPlainEmail } from '../../shared/emailAddress.ts';
 
 export const MAX_ACCOUNT_ROWS = 500;
 
@@ -94,7 +95,6 @@ export interface AccountPlan {
 }
 
 const USERNAME = /^[a-z0-9._-]{3,40}$/;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * A unit of the organization by name. A command is a unit directly under the organization's top unit (or the top unit
@@ -152,7 +152,7 @@ export function planAccounts(ctx: AppContext, orgId: string, rows: RosterRow[]):
     if (!v.first_name || !v.last_name) problems.push('First and last name are both required.');
 
     let email: string | null = v.email ? v.email.toLowerCase() : null;
-    if (email && !EMAIL.test(email)) { warnings.push('The email address is not valid, so the account is created without one.'); email = null; }
+    if (email && !isPlainEmail(email)) { warnings.push('The email address is not valid, so the account is created without one.'); email = null; }
     if (email && (seenEmails.has(email) || ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(email))) {
       warnings.push('That email already belongs to another account, so this one is created without it.');
       email = null;

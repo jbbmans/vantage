@@ -25,7 +25,7 @@ function allowedLine(domains: string[] | null | undefined) {
   if (!domains?.length) return 'Mail may go to any domain. Set VANTAGE_EMAIL_ALLOWED_DOMAINS on the host to limit it.';
   const words = domains.map((d) => d.startsWith('*.') ? `any subdomain of ${d.slice(2)}` : d);
   const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`;
-  return `Mail goes only to addresses at ${list}. Any other address is refused and recorded in the platform access log.`;
+  return `Mail goes only to addresses at ${list}. Any other address is refused, shows in the mail log here, and is recorded in the access log of the Unit Instance it was sent for, or the platform's for an account's own mail.`;
 }
 
 const STATUS: Record<string, { label: string; tone: 'good' | 'bad' | 'warn' | 'neutral'; icon: typeof CheckCircle2 }> = {

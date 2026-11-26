@@ -13,6 +13,7 @@ import { CEUS_MAX, COURSE_CODE_MAX, cleanCourseCode, courseKey } from './courses
 import { MUTABLE_GROUPS } from './notifications.ts';
 import { TUTORIAL_IDS } from './tutorials.ts';
 import { OCCASIONS, REPORT_TYPES } from './fitrepMethod.ts';
+import { isPlainEmail } from './emailAddress.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -335,14 +336,13 @@ export type FitnessReportBody = z.infer<typeof fitnessReportSchema>;
 export const usernameField = z.string().trim().min(3, '3 to 40 characters.').max(40, '3 to 40 characters.')
   .regex(/^[a-zA-Z0-9._-]+$/, 'Letters, numbers, dot, dash and underscore only.').transform((v) => v.toLowerCase());
 export const passwordField = z.string().superRefine((v, ctx) => { const p = passwordProblem(v); if (p) ctx.addIssue({ code: 'custom', message: p }); });
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const optEmail = z.string().trim().max(254).toLowerCase().nullish().or(z.literal('')).transform((v, ctx) => {
   if (v === undefined) return undefined;
   if (!v) return null;
-  if (!EMAIL_RE.test(v)) { ctx.addIssue({ code: 'custom', message: 'Not a valid email.' }); return z.NEVER; }
+  if (!isPlainEmail(v)) { ctx.addIssue({ code: 'custom', message: 'Not a valid email.' }); return z.NEVER; }
   return v;
 });
-export const emailField = z.string().trim().max(254).toLowerCase().refine((v) => EMAIL_RE.test(v), 'Not a valid email.');
+export const emailField = z.string().trim().max(254).toLowerCase().refine((v) => isPlainEmail(v), 'Not a valid email.');
 
 export const profileSchema = z.object({
   first_name: text(80).trim().min(1, 'Required.').optional(),

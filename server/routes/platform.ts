@@ -371,6 +371,7 @@ platformRouter.post('/email/test', requirePlatform('platform.email'), wrap(async
   const sentAt = new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const mail = testMessage({ appUrl: ctx.config.urls.app, provider: ctx.mailer.provider, from: ctx.config.email.from, sentAt, origin: ctx.config.urls.app });
   const result = await ctx.mailer.send({ to, subject: mail.subject, text: mail.text, html: mail.html, kind: 'test', userId: req.user.id, actorId: req.user.id });
+  // The one place a provider's own words are shown: this is the Vantage Administrator's test of the provider.
   if (!result.ok) throw badRequest(result.error || 'Send failed.');
   res.json({ ok: true, queued: Boolean(result.queued) });
 }));

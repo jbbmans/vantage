@@ -291,10 +291,10 @@ function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: st
   );
 }
 
-/** Why some Marines get a team message in Vantage only: no address on file, or one Vantage may not email. */
-function inVantageOnly(noEmail: number, outside: number) {
-  if (!outside) return 'no email on file';
-  const away = `${outside} with an address outside the allowed domains`;
+/** Why some Marines get a team message in Vantage only: no address on file, or one the mailer refuses. */
+function inVantageOnly(noEmail: number, refused: number) {
+  if (!refused) return 'no email on file';
+  const away = `${refused} with an address Vantage does not send to`;
   return noEmail ? `${noEmail} with no email on file, ${away}` : away;
 }
 
@@ -308,7 +308,7 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
     setBusy(true);
     try {
       const r = await api.messageTeam(unitId, { subject, body });
-      const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`, r.refused && `${r.refused} not emailed (address outside the allowed domains)`].filter(Boolean);
+      const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`, r.refused && `${r.refused} not emailed (an address Vantage does not send to)`].filter(Boolean);
       toast.success(`Sent to ${r.recipients} ${r.recipients === 1 ? 'Marine' : 'Marines'} in Vantage${parts.length ? `; ${parts.join(', ')}` : ''}.`);
       onOpenChange(false);
     } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
@@ -316,7 +316,7 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
   const tooMany = Boolean(audience && audience.members > audience.limit);
   const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
     : tooMany ? `${audience.members} Marines are in ${unitLabel} and the teams beneath it; one message reaches at most ${audience.limit}. Send it to each team beneath instead.`
-    : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (${inVantageOnly(audience.appOnly - (audience.outsideDomains || 0), audience.outsideDomains || 0)})` : ''}.`
+    : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (${inVantageOnly(audience.appOnly - (audience.refused || 0), audience.refused || 0)})` : ''}.`
       : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on Vantage right now.`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"

@@ -12,6 +12,7 @@ import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { consumeDraft, draftParam } from '../services/drafts.ts';
 import { issueToken } from '../auth/tokens.ts';
+import { notSentMessage } from '../services/email.ts';
 import { inviteMessage } from '../services/mailMessages.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/records.ts';
@@ -343,7 +344,7 @@ orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
   if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
   limiters.teamMail.bump(req.user.id);
   const result = await sendTeamMessage(ctx, req.user, unitId, body);
-  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.refused} outside the allowed domains, ${result.appOnly} in Vantage only; subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only (${result.refused} refused by the address check); subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
   res.json(result);
 }));
 
@@ -413,7 +414,7 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
     const sent = await ctx.mailer.send({ to: body.email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'invite', orgId: orgOfUnit(ctx, unitId), actorId: req.user.id });
     emailed = sent.ok;
     // The allow-list's reason is meant for the leader; a provider's own error stays in the mail log.
-    emailError = sent.ok ? null : sent.refused && sent.error ? sent.error : 'The invitation could not be emailed. Copy the link and send it yourself.';
+    emailError = sent.ok ? null : sent.refused ? sent.error! : `${notSentMessage(sent, 'The invitation')} Copy the link and send it yourself.`;
   }
   audit(ctx, { actor_id: req.user.id, action: 'invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${body.email || 'link'}; emailed: ${emailed}`, ip: clientIp(req) });
   res.status(201).json({ ok: true, id, url, emailed, ...(emailError ? { emailError } : {}), expiresInDays: 7 });

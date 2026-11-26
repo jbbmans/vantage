@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { issueToken, revokeTokens } from '../auth/tokens.ts';
 import { SIGN_IN_SUBJECT, signInMessage } from './mailMessages.ts';
+import { notSentMessage } from './email.ts';
 import { audit } from './audit.ts';
 
 /**
@@ -77,7 +78,9 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   // An undelivered link is one nobody should hold.
   if (!result.ok) revokeTokens(ctx, 'reset', account.id);
   const status = !result.ok ? 'failed' : result.queued ? 'queued' : 'sent';
+  // The Unit Manager, and the Unit Instance's trail, get what they can act on; a provider's own words stay in the mail log.
+  const shown = result.ok ? null : notSentMessage(result, 'The sign-in details');
   // Sent by Vantage support (no Unit Instance) it is enterprise administration; by a Unit Manager, unit administration.
-  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
-  return { id: account.id, status, ...(result.error ? { error: result.error } : {}) };
+  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${shown ? `; ${shown.slice(0, 200)}` : ''}`, ip });
+  return { id: account.id, status, ...(shown ? { error: shown } : {}) };
 }

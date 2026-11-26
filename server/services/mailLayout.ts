@@ -147,7 +147,7 @@ function html(m: MailContent) {
   const masthead = `<tr><td class="v-pad" bgcolor="${F.ground}" style="background-color:${F.ground};border-radius:6px 6px 0 0;padding:22px 40px 26px">
       <p style="margin:0 0 22px;font-family:${SANS};font-size:13px;line-height:16px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:${F.ink}">Vantage</p>
       ${m.eyebrow ? `<p style="margin:0 0 10px;font-family:${SANS};font-size:12px;line-height:16px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:${F.gold}">${escapeHtml(m.eyebrow)}</p>` : ''}
-      <h1 class="v-title" style="margin:0;font-family:${SERIF};font-size:28px;line-height:34px;font-weight:400;letter-spacing:-0.2px;color:${F.ink}">${escapeHtml(m.title)}</h1>
+      <h1 class="v-title" style="margin:0;font-family:${SERIF};font-size:28px;line-height:34px;font-weight:400;letter-spacing:-0.2px;overflow-wrap:anywhere;word-break:break-word;color:${F.ink}">${escapeHtml(m.title)}</h1>
     </td></tr>
     <tr><td style="font-size:0;line-height:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>${bar(F.gold, 2)}</tr><tr>${bar(F.ground, 2)}</tr><tr>${bar(F.scarlet, 3)}</tr>
@@ -170,7 +170,7 @@ function html(m: MailContent) {
   const details = m.details?.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 8px"><tr><td class="v-panel" bgcolor="${L.panel}" style="background-color:${L.panel};border:1px solid ${L.line};border-radius:4px;padding:4px 20px">
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">${m.details.map((d, i) => `<tr>
       <th scope="row" class="v-ink3 v-rule" align="left" valign="top" width="34%" style="padding:12px 12px 12px 0;${i ? `border-top:1px solid ${L.line};` : ''}font-family:${SANS};font-size:13px;line-height:20px;font-weight:400;text-align:left;color:${L.ink3}">${escapeHtml(d.label)}</th>
-      <td class="v-ink v-rule" valign="top" style="padding:12px 0;${i ? `border-top:1px solid ${L.line};` : ''}font-family:${d.mono ? MONO : SANS};font-size:${d.mono ? 15 : 14}px;line-height:20px;font-weight:600;color:${L.ink};word-break:break-all">${escapeHtml(d.value)}</td>
+      <td class="v-ink v-rule" valign="top" style="padding:12px 0;${i ? `border-top:1px solid ${L.line};` : ''}font-family:${d.mono ? MONO : SANS};font-size:${d.mono ? 15 : 14}px;line-height:20px;font-weight:600;color:${L.ink};${d.mono ? 'word-break:break-all' : 'overflow-wrap:anywhere;word-break:break-word'}">${escapeHtml(d.value)}</td>
     </tr>`).join('')}</table>
   </td></tr></table>` : '';
 
@@ -230,10 +230,10 @@ ${darkCss()}
 <table role="presentation" class="v-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${L.paper}" style="background-color:${L.paper}">
   <tr><td align="center" style="padding:32px 12px 40px">
     <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-    <table role="presentation" class="v-shell" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px">
+    <table role="presentation" class="v-shell" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">
       ${markingRow('0 0 12px')}
       ${masthead}
-      <tr><td class="v-card v-pad" bgcolor="${L.card}" style="background-color:${L.card};border:1px solid ${L.line};border-top:0;border-radius:0 0 6px 6px;padding:32px 40px 34px">
+      <tr><td class="v-card v-pad" bgcolor="${L.card}" style="background-color:${L.card};border:1px solid ${L.line};border-top:0;border-radius:0 0 6px 6px;padding:32px 40px 34px;overflow-wrap:anywhere;word-break:break-word">
         ${intro}${stats}${details}${sections}${cta}${note}
       </td></tr>
       ${footer}

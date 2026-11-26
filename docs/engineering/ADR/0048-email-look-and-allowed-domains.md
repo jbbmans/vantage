@@ -32,8 +32,10 @@ Read on `25e7b51`:
    - **Nothing is fetched.** No `<img>`, no `background=`, no CSS `url()`, no `<link>`, no `@import`, no web font.
      The mark is gone from mail; `public/brand/email-mark.png` stays so mail already sent still shows it.
    - **Dark mode by class.** Every coloured element names its colour by a class, and the dark rules map each class to
-     the app's dark tokens, once in `@media (prefers-color-scheme: dark)` and again for Outlook.com's own dark mode
-     (`[data-ogsc]` for text, `[data-ogsb]` for grounds). A toned figure names its tone (`v-good`, `v-warn`, `v-bad`),
+     the app's dark tokens, once in `@media (prefers-color-scheme: dark)` for the clients that honour it (Apple Mail,
+     Outlook for Mac and iOS) and again for Outlook.com's own dark mode (`[data-ogsc]` for text, `[data-ogsb]` for
+     grounds). Gmail honours neither and applies its own dark colours; the palette's pairs keep their contrast there
+     only as far as Gmail's own mapping does. A toned figure names its tone (`v-good`, `v-warn`, `v-bad`),
      never the ink. The masthead keeps the frame's navy in both schemes, as the app's frame does.
    - **Accessible.** `lang` and `dir`; an `article` wrapper named by the title; layout tables are presentational; the
      title is the one `h1` and section headings are `h2`; section lines are a list; details are a table with a header
@@ -58,33 +60,56 @@ Read on `25e7b51`:
      which checks a queued message again in case the list changed while it waited. Every message, and any added later,
      passes it. A route that would issue a link first asks the same check (`checkRecipient`), so a link it cannot
      deliver is never made: the reset, the email change and sign-in details.
-   - **One plain address.** Exactly one `@`, nothing that separates addresses, names one, quotes, comments or breaks a
-     header line, and a domain exactly as written: `domainToASCII` reads its input as a URL's host, so it would take
-     `usmc.mil/x` as `usmc.mil` and map away invisible characters. A name is taken only when it is what was written,
-     in ASCII or in Unicode. Anything else is refused, list or no list, so no form of address carries a second
-     recipient past the check.
+   - **One plain address, by one rule** (`shared/emailAddress.ts`). Exactly one `@`; a local part with nothing that
+     separates addresses, names one, quotes, comments, routes mail on (`%`, `!`) or breaks a header line; and a
+     domain with at least one dot and a lettered top level, read as a URL's host is read, which gives its ASCII form.
+     A URL parser would quietly take `usmc.mil/x` as `usmc.mil`, decode `usmc%2Emil`, and map a full-width, ligature
+     or Roman-numeral letter and an invisible character to another name, so the domain is taken only when that form
+     means what was written: lower case, stable under compatibility normalization, no invisible character, each
+     label starting with a letter or digit, and, written in ASCII, identical to its parsed form. Anything else is
+     refused, list or no list, so no form of address carries a second recipient past the check. **The provider is
+     given the form the check read**: the local part as written at the domain's ASCII form, so the domain checked
+     is the domain the message goes to, whatever the case or script it was typed in.
    - **Refused means:** nothing reaches the provider; `email_log` keeps the row with status `refused` and the reason;
      the audit trail gets `email_refused` (enterprise category: the service enforcing a deployment setting) with the
      kind, the domain (never the whole address), who caused it, whom it was for, and the Unit Instance it was sent
-     for, so it lands in that Unit Instance's trail, or the platform's for an account's own mail.
+     for, so it lands in that Unit Instance's trail, or the platform's for an account's own mail. A queued message
+     keeps who caused it, so a refusal at retry names them too. A weekly digest to a refused address is refused once
+     that week, not at every quarter-hour tick of its hour.
+   - **Address fields read by the same function**: registration, Settings, invitations, account fields, the roster
+     import and the address a sign-in provider asserts (`server/auth/oidc.ts`) accept exactly what the mailer sends
+     to and nothing else, so an address that is stored is one the mailer will take.
    - **What people see:** the reason, "Vantage emails only addresses at usmc.mil or mail.mil. gmail.com is not one of
      them." The email-change form shows it on the field; an invitation is still made and the leader is told why it
-     was not emailed (a provider's own error stays in the mail log); sign-in details show it per person; a team
-     message counts those outside the list before it is sent and after, and they still get it in Vantage; the Email
-     tab shows the list. A password reset answers the same whatever happens, so it says nothing about the account.
+     was not emailed; sign-in details show it per person; a team message counts those outside the list before it is
+     sent and after, and they still get it in Vantage; the Email tab shows the list. A password reset answers the
+     same whatever happens, so it says nothing about the account.
+   - **A provider's own words stay in the mail log** (`notSentMessage`, `server/services/email.ts`). They can name
+     hosts and addresses, so the person who asked for a message (the digest, an email change, an invitation,
+     sign-in details) is told what they can do instead: "Try again later" when another try may work; that a Vantage
+     Administrator can see why on the Email tab when the provider said no for good; and, when the receiving mail
+     server refused the address itself (no mail server for its domain, or a 5xx to `RCPT TO`), to check the
+     address, said on the field. The Unit Instance's trail carries the same words for sign-in details, never the
+     provider's. The one place the provider's words are shown is the Vantage Administrator console's test, which
+     exists to read them.
 
 ## Consequences
 
 - A change to a message's words is made in `mailMessages.ts`, and the look tests render it.
 - A deployment that sets the list and has accounts at other domains stops mailing those accounts until their
-  addresses change or the list grows. Each refusal is in the trail, so a Vantage Administrator can see who.
+  addresses change or the list grows. Each refusal is in the mail log on the Email tab. A refusal sent for a Unit
+  Instance is in that Unit Instance's trail, and one for an account's own mail in the platform's, so its Lead Unit
+  Managers or a Vantage Administrator can see who.
 - On MCEN, a deployment that sends through the relay must set the list before it upgrades, or it does not start. The
   refusal names the setting and gives an example.
-- A display-name address (`"Name" <a@usmc.mil>`) was never stored (the address fields take one plain address); it is
-  now refused at send too.
-- No migration. `email_log.status` gains the value `refused`; the column has no constraint. The Email tab and the
-  support queue show the status as stored, in the not-sent colour. The health counts of sent and failed mail leave a
-  refusal out of both: it is a setting doing its job, not a delivery that failed.
+- Address fields now take one plain address only (`shared/emailAddress.ts`). Before, they took a looser pattern, so
+  an older stored address may not be one (a display name, a trailing dot, a `%`, a full-width letter). Such an
+  address is refused at every send, logged and audited, until its holder changes it in Settings.
+- No migration. `email_log.status` gains the value `refused`; the column has no constraint. The Email tab shows the
+  status as stored (`refused`) with its reason in the not-sent colour; Vantage support's queue shows the status and
+  the reason; a unit's support queue shows the status alone, as it does for every delivery (ADR-0013). The health
+  counts of sent and failed mail leave a refusal out of both: it is a setting doing its job, not a delivery that
+  failed.
 
 ## Tests
 
@@ -95,9 +120,16 @@ tone; every colour pair at 4.5:1, light and dark; the marking top and foot only 
 text holds every word of the HTML; and each of the seven sent through its real route or service arrives in the look.
 `tests/server/emailDomains.test.ts`: parsing (exact, wildcard, case, `@`, international names, what is refused,
 including a path, a query and invisible characters); matching (the domain only, subdomains only with `*.`, lookalikes
-such as `usmc.mil.evil.com` and `evilusmc.mil`, lists, display names, quoting and header breaks refused); the MCEN
-start; a refused send logged and audited with actor, subject, Unit Instance and domain only; each flow refusing an
-outside recipient (the reset answering the same and making no link, the email change on its field, the invitation
-made with its reason, the console test, the digest, sign-in details making no link); a team message's counts; and a
-queued message refused at retry. `tests/browser/61-email-look.spec.ts` opens all seven in Chromium, light and dark,
+such as `usmc.mil.evil.com` and `evilusmc.mil`, lists, display names, quoting and header breaks refused); the one
+rule read by the fields and the mailer alike, over addresses both take (case, a decomposed letter, `ß`) and both
+refuse (a path, a port, an encoded dot, full-width and ligature letters, a Roman numeral, a variation selector, a
+leading combining mark, bad punycode, a symbol, an over-long label), a field refusing before the mailer is asked, and
+the provider given the ASCII form; the MCEN start; a refused send logged and audited with actor, subject, Unit
+Instance and domain only; each flow refusing an outside recipient (the reset answering the same and making no link,
+the email change on its field, the invitation made with its reason, the console test, the digest, sign-in details
+making no link and leaving an earlier one working); a team message's counts; a queued message refused at retry,
+naming who queued it; one digest refusal a week; and a relay that cannot be reached kept out of what the Marine, the
+Unit Manager, the leader and the Unit Instance's trail see. `tests/server/directMail.test.ts`: the queued payload
+carries who caused it, and a `550` to `RCPT TO` is said to be the address's trouble, on the field, in words that are
+not the server's, with nothing queued. `tests/browser/61-email-look.spec.ts` opens all seven in Chromium, light and dark,
 with every request refused and counted, axe on each, and the dark colours and a toned figure checked.

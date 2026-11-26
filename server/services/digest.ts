@@ -104,6 +104,10 @@ export async function runDigestTick(ctx: AppContext, at = new Date()) {
     const clock = localClock(zoneOf(ctx, user), at);
     if (!d?.enabled || d.weekday !== clock.weekday || d.hour !== clock.hour) continue;
     if (user.digest_last_sent_at && at.getTime() - new Date(user.digest_last_sent_at).getTime() < 6 * 86_400_000) continue;
+    // An address the mailer refuses stays refused, and the tick runs four times in the hour: one refusal a week is
+    // logged and audited, not four. Nothing is stamped as sent.
+    if (user.email && ctx.mailer.refusal(user.email) && ctx.db.prepare("SELECT 1 FROM email_log WHERE user_id = ? AND kind = 'digest' AND status = 'refused' AND created_at > ?")
+      .get(user.id, new Date(at.getTime() - 6 * 86_400_000).toISOString())) continue;
     const result = await sendDigest(ctx, user);
     if (result.ok) sent += 1;
   }

@@ -19,6 +19,7 @@ import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
 import { auditQuery } from '../services/auditQuery.ts';
 import { EMAIL_CHANGE_SUBJECT, emailChangeMessage } from '../services/mailMessages.ts';
+import { notSentMessage } from '../services/email.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds, orgSummaries, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
@@ -419,7 +420,8 @@ meRouter.post('/digest/send-now', wrap(async (req, res) => {
   mailAllowance(req.user.id);
   if (!req.user.email) throw badRequest('Add an email address to your profile first.');
   const result = await sendDigest(req.ctx, { id: req.user.id, email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, prefs: req.user.prefs, digest_last_sent_at: null }, req.user.id);
-  if (!result.ok) throw badRequest(result.error || 'The digest could not be sent.');
+  // The allow-list's reason is meant for the reader; a provider's own error stays in the mail log.
+  if (!result.ok) throw badRequest(notSentMessage(result, 'The digest'));
   res.json({ ok: true });
 }));
 
@@ -436,7 +438,11 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
   const url = `${ctx.config.urls.app}/settings?verify=${encodeURIComponent(token)}`;
   const mail = emailChangeMessage({ username: req.user.username, email, url, origin: ctx.config.urls.app });
   const result = await ctx.mailer.send({ to: email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'email_change', userId: req.user.id, actorId: req.user.id });
-  if (!result.ok) throw badRequest(result.error || 'The confirmation could not be sent.');
+  if (!result.ok) {
+    const message = notSentMessage(result, 'The confirmation');
+    // An address its own mail server would not take is the field's problem, as one outside the list is.
+    throw badRequest(message, result.recipient ? { fieldErrors: { email: message } } : {});
+  }
   res.json({ ok: true });
 }));
 meRouter.post('/email/confirm', wrap((req, res) => {

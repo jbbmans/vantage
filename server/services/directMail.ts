@@ -17,7 +17,14 @@ import { now } from '../lib/ids.ts';
 
 export interface DkimKey { domain: string; selector: string; privateKey: string; publicKey: string; createdAt: string }
 export interface Outgoing { from: string; to: string; subject: string; text: string; html: string; replyTo?: string | null }
-export interface Delivery { ok: boolean; permanent: boolean; error?: string; server?: string }
+export interface Delivery {
+  ok: boolean;
+  permanent: boolean;
+  error?: string;
+  server?: string;
+  /** The permanent failure was the address's: its domain has no mail server or takes no mail, or the server refused it. */
+  recipient?: boolean;
+}
 export interface PathReport { checkedAt: string; open: boolean; ip: string | null; ptr: string | null; forwardConfirmed: boolean; server: string | null; error?: string }
 
 /** Node may report failed IPv4/IPv6 attempts as an AggregateError with an empty message. */
@@ -168,10 +175,14 @@ export function heloName(db: Db, config: AppConfig): string {
 /** One attempt at delivery. A 5xx answer is permanent; anything else is worth another try later. */
 export async function deliver(db: Db, config: AppConfig, mail: Outgoing): Promise<Delivery> {
   const domain = domainOf(mail.to);
-  if (!domain) return { ok: false, permanent: true, error: 'That address has no domain.' };
+  if (!domain) return { ok: false, permanent: true, recipient: true, error: 'That address has no domain.' };
   let servers: Array<{ host: string; port: number }>;
   try { servers = await mailServers(domain, config); }
-  catch (error) { return { ok: false, permanent: Boolean((error as { permanent?: boolean }).permanent), error: (error as Error).message }; }
+  catch (error) {
+    // What mailServers refuses for good is the domain itself: it takes no mail, or nothing answers for it.
+    const permanent = Boolean((error as { permanent?: boolean }).permanent);
+    return { ok: false, permanent, recipient: permanent, error: (error as Error).message };
+  }
   const key = dkimKey(db, config);
   const name = heloName(db, config);
   let last: Delivery = { ok: false, permanent: false, error: 'No mail server answered.' };
@@ -198,9 +209,10 @@ export async function deliver(db: Db, config: AppConfig, mail: Outgoing): Promis
       });
       return { ok: true, permanent: false, server: server.host };
     } catch (error) {
-      const e = error as { responseCode?: number; response?: string; message: string };
+      const e = error as { responseCode?: number; response?: string; command?: string; message: string };
       const permanent = Boolean(e.responseCode && e.responseCode >= 500 && e.responseCode < 600);
-      last = { ok: false, permanent, error: `${server.host}: ${(e.response || e.message).slice(0, 300)}`, server: server.host };
+      // A 5xx to RCPT TO is the server refusing this address; to anything else, refusing us.
+      last = { ok: false, permanent, recipient: permanent && e.command === 'RCPT TO', error: `${server.host}: ${(e.response || e.message).slice(0, 300)}`, server: server.host };
       if (permanent) return last;
     } finally {
       transport.close();

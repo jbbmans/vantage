@@ -20,15 +20,15 @@ function recipients(ctx: AppContext, unitId: string, senderId: string) {
 }
 
 /**
- * Who a message to this unit (and every team beneath it) would reach, and how. An address outside the allowed domains
- * (VANTAGE_EMAIL_ALLOWED_DOMAINS) is counted apart: that Marine gets the message in Vantage only.
+ * Who a message to this unit (and every team beneath it) would reach, and how. An address the mailer refuses (outside
+ * VANTAGE_EMAIL_ALLOWED_DOMAINS, or not one plain address) is counted apart: that Marine gets the message in Vantage only.
  */
 export function teamAudience(ctx: AppContext, unitId: string, senderId: string) {
   const list = recipients(ctx, unitId, senderId);
   const onFile = list.filter((r) => r.email);
-  const outsideDomains = onFile.filter((r) => ctx.mailer.refusal(r.email!)).length;
-  const withEmail = onFile.length - outsideDomains;
-  return { members: list.length, withEmail, outsideDomains, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled, limit: MAX_RECIPIENTS };
+  const refused = onFile.filter((r) => ctx.mailer.refusal(r.email!)).length;
+  const withEmail = onFile.length - refused;
+  return { members: list.length, withEmail, refused, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled, limit: MAX_RECIPIENTS };
 }
 
 /**
