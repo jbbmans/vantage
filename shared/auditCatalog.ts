@@ -129,6 +129,8 @@ const ENTERPRISE = [
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
   'maintenance_off', 'maintenance_task', 'database_upkeep', 'purge_deleted', 'drafts_expired', 'notifications_expired',
+  // A message the allowed recipient domains kept from leaving (ADR-0048): the service enforcing the deployment's setting.
+  'email_refused',
   // What the service does to itself: a new build, each schema migration it runs, and what counting rows around them found.
   'release_deployed', 'secret_rotated', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
   // Features turned off for one Unit Instance, and given back.

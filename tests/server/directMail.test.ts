@@ -5,6 +5,8 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessage } from '../../server/services/directMail.ts';
 import { createMailer } from '../../server/services/email.ts';
+import { decryptSecret } from '../../server/lib/crypto.ts';
+import { secretsOf } from '../../server/lib/keys.ts';
 
 interface Received { helo: string; from: string; to: string[]; data: string }
 
@@ -192,6 +194,10 @@ test('a refusal is final, and a “try later” is queued encrypted and retried'
   const row = app.ctx.db.prepare('SELECT * FROM email_queue').get() as { payload: string; log_id: string };
   assert.ok(row && !row.payload.includes('Vantage email is working'), 'the queued message is encrypted');
   assert.equal((app.ctx.db.prepare('SELECT status FROM email_log WHERE id = ?').get(row.log_id) as { status: string }).status, 'queued');
+  // Sealed with it: who caused it, so a refusal at retry can name them (ADR-0048).
+  const sealed = JSON.parse(decryptSecret(secretsOf(app.ctx.config), row.payload)!) as { actorId: string | null; subject: string };
+  assert.equal(sealed.actorId, op.id);
+  assert.equal(sealed.subject, (app.ctx.db.prepare('SELECT subject FROM email_log WHERE id = ?').get(row.log_id) as { subject: string }).subject);
 
   mx.reply('250 OK');
   const before = mx.received.length;
@@ -211,6 +217,20 @@ test('the owner sees the records and the path in one place', async () => {
   assert.equal(res.body.domain, 'vantage.test');
   assert.equal(res.body.records.length, 3);
   assert.equal(res.body.path.open, true);
+});
+
+test('an address its own mail server refuses is said to be the trouble, in words that are not the server’s', async () => {
+  mx.reply('550 5.1.1 user unknown');
+  try {
+    const change = await app.call('POST', '/api/me/email/verify', { token: op.token, body: { email: 'nobody.here@example.test' } });
+    assert.equal(change.status, 400, JSON.stringify(change.body));
+    assert.equal(change.body.error, 'The confirmation could not be sent: the mail server for that address did not accept it. Check the address.');
+    assert.equal(change.body.fieldErrors.email, change.body.error, 'said on the field');
+    assert.doesNotMatch(JSON.stringify(change.body), /550|127\.0\.0\.1/);
+    const logged = app.ctx.db.prepare("SELECT error FROM email_log WHERE kind = 'email_change' ORDER BY rowid DESC LIMIT 1").get() as { error: string };
+    assert.match(logged.error, /550 5\.1\.1 user unknown/, 'the mail log keeps the server’s answer');
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue WHERE to_address = ?').get('nobody.here@example.test') as { n: number }).n, 0, 'nothing waits for a retry that would get the same answer');
+  } finally { mx.reply('250 OK'); }
 });
 
 test('expired queued mail is never delivered even when the receiver recovers', async () => {
@@ -264,7 +284,7 @@ test('a leader emails the team: one copy each, replies to the leader, and everyo
   const noEmail = await app.register('teamnomail');
   for (const u of [withEmail, noEmail]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, appOnly: 1, emailEnabled: true, limit: 300 });
+  assert.deepEqual(audience.body, { members: 2, withEmail: 1, refused: 0, appOnly: 1, emailEnabled: true, limit: 300 });
 
   const before = mx.received.length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Close-out Friday', body: 'Line one.\nLine two.' } });

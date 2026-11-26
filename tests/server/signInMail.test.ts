@@ -130,9 +130,10 @@ test('the layout escapes everything it is given and keeps a plain-text part', ()
   assert.match(mail.html, /Title &lt;script&gt;/);
   assert.match(mail.html, /href="https:\/\/example\.test\/a\?b=1&amp;c=&quot;2&quot;"/);
   assert.match(mail.html, /Line one<br>Line two<\/p><p[^>]*>Second &quot;paragraph&quot;/);
-  assert.match(mail.html, /https:\/\/vantage\.example\.test\/brand\/email-mark\.png/);
   assert.match(mail.text, /Go: https:\/\/example\.test\/a\?b=1&c="2"/);
   assert.match(mail.text, /User<name>: a&b/);
-  // No mark over plain http: a local deployment's image would only ever be broken.
-  assert.doesNotMatch(layout({ title: 't', intro: 'i', origin: 'http://localhost:5173' }).html, /email-mark\.png/);
+  // No image of any kind, over HTTPS or not: the wordmark is text, so nothing is fetched when the message opens.
+  for (const origin of ['https://vantage.example.test', 'http://localhost:5173']) {
+    assert.doesNotMatch(layout({ title: 't', intro: 'i', origin }).html, /<img|email-mark\.png/);
+  }
 });

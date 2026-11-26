@@ -291,6 +291,13 @@ function Roster({ unit, unitLabel, canManage, subtree, moveTargets }: { unit: st
   );
 }
 
+/** Why some Marines get a team message in Vantage only: no address on file, or one the mailer refuses. */
+function inVantageOnly(noEmail: number, refused: number) {
+  if (!refused) return 'no email on file';
+  const away = `${refused} with an address Vantage does not send to`;
+  return noEmail ? `${noEmail} with no email on file, ${away}` : away;
+}
+
 function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean; onOpenChange: (o: boolean) => void; unitId: string; unitLabel: string }) {
   const toast = useToast();
   const { data: identity } = useIdentity();
@@ -301,7 +308,7 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
     setBusy(true);
     try {
       const r = await api.messageTeam(unitId, { subject, body });
-      const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`].filter(Boolean);
+      const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`, r.refused && `${r.refused} not emailed (an address Vantage does not send to)`].filter(Boolean);
       toast.success(`Sent to ${r.recipients} ${r.recipients === 1 ? 'Marine' : 'Marines'} in Vantage${parts.length ? `; ${parts.join(', ')}` : ''}.`);
       onOpenChange(false);
     } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
@@ -309,7 +316,7 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
   const tooMany = Boolean(audience && audience.members > audience.limit);
   const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
     : tooMany ? `${audience.members} Marines are in ${unitLabel} and the teams beneath it; one message reaches at most ${audience.limit}. Send it to each team beneath instead.`
-    : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (no email on file)` : ''}.`
+    : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (${inVantageOnly(audience.appOnly - (audience.refused || 0), audience.refused || 0)})` : ''}.`
       : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on Vantage right now.`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"
@@ -407,7 +414,7 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
   const [form, setForm] = useState({ email: '', first_name: '', last_name: '', rank_id: '', billet: '', role_id: '' });
   const [busy, setBusy] = useState(false); const [created, setCreated] = useState<any>(null);
   const roles = (rolesData?.roles || []).filter((r) => r.unit_id === unitId && r.key !== 'unit-leader' && !r.is_default);
-  const create = async () => { setBusy(true); try { const r = await api.createInvite(unitId, { email: form.email || undefined, first_name: form.first_name || undefined, last_name: form.last_name || undefined, rank_id: form.rank_id || null, billet: form.billet || null, role_id: form.role_id || null }); setCreated(r); refetch(); toast.success(r.emailed ? `Invitation emailed to ${form.email}.` : 'Invitation link created. Copy it and send it yourself.'); setForm({ email: '', first_name: '', last_name: '', rank_id: '', billet: '', role_id: '' }); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const create = async () => { setBusy(true); try { const r = await api.createInvite(unitId, { email: form.email || undefined, first_name: form.first_name || undefined, last_name: form.last_name || undefined, rank_id: form.rank_id || null, billet: form.billet || null, role_id: form.role_id || null }); setCreated(r); refetch(); if (r.emailed) toast.success(`Invitation emailed to ${form.email}.`); else if (r.emailError) toast.error(r.emailError); else toast.success('Invitation link created. Copy it and send it yourself.'); setForm({ email: '', first_name: '', last_name: '', rank_id: '', billet: '', role_id: '' }); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel title={`Invite to ${unitLabel(unitId)}`} subtitle="A link that works for seven days" className="lg:col-span-1">

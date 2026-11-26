@@ -18,10 +18,9 @@ const app = createApp(ctx);
 /**
  * The film opens the email a Marine receives. The instance's own outbox holds it; this route shows the latest one
  * to an address as a page, as it reads from the public deployment: the address shown is vantageusmc.com rather
- * than this local instance (the links still point here, so the film can follow them), and the mark sits beside
- * the wordmark, which a local instance leaves out only because recipients could not load it.
+ * than this local instance (the links still point here, so the film can follow them). The email itself is shown as
+ * sent: it carries no image, so nothing is added to it.
  */
-const MARK = '<td valign="middle" style="padding-right:12px"><img src="/brand/email-mark.png" width="36" height="36" alt="" style="display:block;width:36px;height:36px;border:0"></td>';
 createServer((req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${port}`);
   if (url.pathname === '/__film/mail') {
@@ -29,7 +28,6 @@ createServer((req, res) => {
     const mail = [...ctx.mailer.outbox].reverse().find((m) => m.to === to);
     if (!mail) { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('no mail'); return; }
     const html = mail.html
-      .replace(/(<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>)(\s*<td valign="middle" style="font-family:[^"]*letter-spacing:4px)/, `$1${MARK}$2`)
       // Only text a reader sees changes; the href attributes still point at this instance.
       .replace(/>http:\/\/localhost:\d+/g, '>https://secure.vantageusmc.com')
       .replace(/(>| from )localhost:\d+/g, '$1secure.vantageusmc.com');

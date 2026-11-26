@@ -12,7 +12,8 @@ import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { consumeDraft, draftParam } from '../services/drafts.ts';
 import { issueToken } from '../auth/tokens.ts';
-import { layout } from '../services/mailLayout.ts';
+import { notSentMessage } from '../services/email.ts';
+import { inviteMessage } from '../services/mailMessages.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withEvidenceCounts, withGoalProgress } from '../services/records.ts';
 import { withCourseDetail } from '../services/courses.ts';
@@ -343,7 +344,7 @@ orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
   if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
   limiters.teamMail.bump(req.user.id);
   const result = await sendTeamMessage(ctx, req.user, unitId, body);
-  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only; subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only (${result.refused} refused by the address check); subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
   res.json(result);
 }));
 
@@ -404,24 +405,19 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   const { token, id } = issueToken(ctx, 'invite', { email: body.email || null, ttlMinutes: 7 * 24 * 60, createdBy: req.user.id, payload: { unit_id: unitId, role_id: body.role_id || null, billet: body.billet || null, first_name: body.first_name || null, last_name: body.last_name || null, rank_id: body.rank_id || null } });
   const url = `${ctx.config.urls.app}/invite?token=${encodeURIComponent(token)}`;
   let emailed = false;
+  // Why it was not emailed, when it was meant to be: the leader still has the link to hand over.
+  let emailError: string | null = null;
   if (body.email && ctx.mailer.enabled) {
     mailAllowance(req.user.id);
     const inviter = [req.user.rank_id, req.user.first_name, req.user.last_name].filter(Boolean).join(' ');
-    const mail = layout({
-      eyebrow: 'Invitation',
-      title: `Join ${unit.short_name || unit.name} on Vantage`,
-      preheader: `${inviter} invited you to ${unit.name}. The invitation works for seven days.`,
-      intro: `${inviter} invited you to join ${unit.name} on Vantage, where your team keeps its work, record and career plans in one place. Accept with the button below. If you already use Vantage, sign in with that account: your record and history come with you.`,
-      details: [{ label: 'Unit', value: unit.name }, { label: 'Invited by', value: inviter }],
-      cta: { label: 'Accept invitation', url },
-      note: 'The invitation works once, for seven days. If you were not expecting it, you can ignore this message.',
-      footer: `${inviter} sent this invitation through Vantage.`,
-      origin: ctx.config.urls.app,
-    });
-    emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite', orgId: orgOfUnit(ctx, unitId) })).ok;
+    const mail = inviteMessage({ inviter, unitName: unit.name, unitShortName: unit.short_name, url, origin: ctx.config.urls.app });
+    const sent = await ctx.mailer.send({ to: body.email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'invite', orgId: orgOfUnit(ctx, unitId), actorId: req.user.id });
+    emailed = sent.ok;
+    // The allow-list's reason is meant for the leader; a provider's own error stays in the mail log.
+    emailError = sent.ok ? null : sent.refused ? sent.error! : `${notSentMessage(sent, 'The invitation')} Copy the link and send it yourself.`;
   }
   audit(ctx, { actor_id: req.user.id, action: 'invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${body.email || 'link'}; emailed: ${emailed}`, ip: clientIp(req) });
-  res.status(201).json({ ok: true, id, url, emailed, expiresInDays: 7 });
+  res.status(201).json({ ok: true, id, url, emailed, ...(emailError ? { emailError } : {}), expiresInDays: 7 });
 }));
 
 orgRouter.get('/units/:unitId/invites', wrap((req, res) => {

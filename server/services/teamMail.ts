@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { subtreeIds, membersAcross, orgOfUnit } from '../authz/scope.ts';
-import { layout } from './mailLayout.ts';
+import { teamMessage } from './mailMessages.ts';
+import { DEFAULT_REPORT_MARKING } from '../../shared/reportMarking.ts';
 import { notify } from './notifications.ts';
 import { getUnit } from './org.ts';
 import { HttpError } from '../lib/errors.ts';
@@ -18,11 +19,16 @@ function recipients(ctx: AppContext, unitId: string, senderId: string) {
   return members.map((m) => ({ id: m.id, email: emails.get(m.id) || null }));
 }
 
-/** Who a message to this unit (and every team beneath it) would reach, and how. */
+/**
+ * Who a message to this unit (and every team beneath it) would reach, and how. An address the mailer refuses (outside
+ * VANTAGE_EMAIL_ALLOWED_DOMAINS, or not one plain address) is counted apart: that Marine gets the message in Vantage only.
+ */
 export function teamAudience(ctx: AppContext, unitId: string, senderId: string) {
   const list = recipients(ctx, unitId, senderId);
-  const withEmail = list.filter((r) => r.email).length;
-  return { members: list.length, withEmail, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled, limit: MAX_RECIPIENTS };
+  const onFile = list.filter((r) => r.email);
+  const refused = onFile.filter((r) => ctx.mailer.refusal(r.email!)).length;
+  const withEmail = onFile.length - refused;
+  return { members: list.length, withEmail, refused, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled, limit: MAX_RECIPIENTS };
 }
 
 /**
@@ -39,24 +45,22 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
   const list = recipients(ctx, unitId, sender.id);
   // The roster is ordered by rank, so cutting it short would quietly leave out the most junior Marines.
   if (list.length > MAX_RECIPIENTS) throw new HttpError(400, `${unitLabel} and the teams beneath it hold ${list.length} Marines; one message reaches at most ${MAX_RECIPIENTS}. Send it to each team beneath instead.`, 'too_many_recipients');
-  const mail = layout({
-    eyebrow: `Message to ${unitLabel}`,
-    title: message.subject,
-    intro: message.body,
-    details: [{ label: 'From', value: senderName }, { label: 'To', value: `${unit.name} and every team beneath it` }],
-    cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/team` },
-    footer: `${senderName} sent this to ${unitLabel} through Vantage.${sender.email ? ' Reply to reach them directly.' : ''}`,
-    origin: ctx.config.urls.app,
+  const mail = teamMessage({
+    unitLabel, unitName: unit.name, subject: message.subject, body: message.body, senderName, replies: Boolean(sender.email),
+    appUrl: ctx.config.urls.app, marking: ctx.runtime.reportMarking || DEFAULT_REPORT_MARKING, origin: ctx.config.urls.app,
   });
   const orgId = orgOfUnit(ctx, unitId);
-  let emailed = 0; let queued = 0; let failed = 0;
+  let emailed = 0; let queued = 0; let failed = 0; let refused = 0;
   for (const r of list) {
     notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team', orgId });
     if (!r.email || !ctx.mailer.enabled) continue;
-    const result = await ctx.mailer.send({ to: r.email, subject: `[${unitLabel}] ${message.subject}`, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null, orgId });
+    // Each address goes through the mailer's own check, so one outside the allowed domains is logged and audited.
+    const result = await ctx.mailer.send({ to: r.email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null, orgId, actorId: sender.id });
     if (result.ok && result.queued) queued++;
     else if (result.ok) emailed++;
+    else if (result.refused) refused++;
     else failed++;
   }
-  return { recipients: list.length, emailed, queued, failed, appOnly: list.filter((r) => !r.email).length + (ctx.mailer.enabled ? 0 : list.filter((r) => r.email).length) };
+  const noEmail = list.filter((r) => !r.email).length + (ctx.mailer.enabled ? 0 : list.filter((r) => r.email).length);
+  return { recipients: list.length, emailed, queued, failed, refused, appOnly: noEmail + refused };
 }

@@ -1,8 +1,8 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { issueToken, revokeTokens } from '../auth/tokens.ts';
-import { layout } from './mailLayout.ts';
+import { SIGN_IN_SUBJECT, signInMessage } from './mailMessages.ts';
+import { notSentMessage } from './email.ts';
 import { audit } from './audit.ts';
-import { MIN_PASSWORD_LENGTH } from '../../shared/password.ts';
 
 /**
  * Sign-in details: each person's username and a one-time link to choose their own password. Passwords are stored
@@ -45,28 +45,8 @@ export function composeSignInMail(ctx: AppContext, account: Account, sender: Ses
   const greeting = account.rank_abbr ? `${account.rank_abbr} ${account.last_name}` : account.first_name;
   const host = new URL(ctx.config.urls.app).host;
   const expires = expiresAt.toLocaleString('en-US', { timeZone: ctx.config.timezone, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-  const returning = Boolean(account.last_login_at);
-  return layout({
-    eyebrow: 'Your sign-in details',
-    title: returning ? `Your Vantage sign-in, ${greeting}` : `Welcome to Vantage, ${greeting}`,
-    preheader: `Your username is ${account.username}. ${returning ? 'Keep this for when you need it.' : 'Choose your password to sign in.'}`,
-    intro: returning
-      ? `${senderName} sent everyone their Vantage sign-in details. If you already know your password, keep using it: nothing about your account has changed. If you do not, choose a new one with the button below.`
-      : `${senderName} set up your Vantage account${unit ? ` in ${unit.name}` : ''}. Here is everything you need to sign in. Keep this email: your username does not change.`,
-    details: [
-      { label: 'Username', value: account.username, mono: true },
-      { label: 'Sign-in page', value: `${host}/login` },
-      ...(unit ? [{ label: 'Unit', value: unit.name }] : []),
-    ],
-    cta: { label: returning ? 'Choose a new password' : 'Choose your password', url },
-    sections: returning ? [] : [{ heading: 'Signing in for the first time', lines: [
-      `Press the button and choose a password of at least ${MIN_PASSWORD_LENGTH} characters. A short phrase you will remember works well.`,
-      'You are signed in as soon as it is saved. After that, sign in on the sign-in page with your username and that password.',
-      'Then add an authenticator app or a passkey under Settings, so a password alone is never enough.',
-    ] }],
-    note: `This link works once and expires ${expires}. After that, use “Forgot password” on the sign-in page, or ask your leader for a new link. Vantage never asks for your password by email.`,
-    footer: `${senderName} sent this from ${host}. If you were not expecting a Vantage account, you can ignore this message.`,
-    origin: ctx.config.urls.app,
+  return signInMessage({
+    greeting, username: account.username, returning: Boolean(account.last_login_at), senderName, unitName: unit?.name ?? null, host, url, expires, origin: ctx.config.urls.app,
   });
 }
 
@@ -81,6 +61,12 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   // The link sets a password, and where a CAC or the organization's provider is the only way in, none is accepted.
   if (ctx.config.cac.exclusive || ctx.config.oidc.exclusive) return { id: userId, status: 'skipped', error: 'Passwords are off here: people sign in with their CAC or their organization’s sign-in.' };
   if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is off on Vantage right now.' };
+  // An address outside the allowed domains gets no new link, so the one its holder may already have keeps working.
+  const refused = ctx.mailer.checkRecipient({ to: account.email, subject: SIGN_IN_SUBJECT, kind: 'sign_in', userId: account.id, orgId, actorId: sender.id });
+  if (refused) {
+    audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; refused; ${refused.error!.slice(0, 200)}`, ip });
+    return { id: account.id, status: 'failed', error: refused.error };
+  }
 
   // Only the newest link works, whichever way it was sent.
   revokeTokens(ctx, 'reset', account.id);
@@ -88,11 +74,13 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   const { token } = issueToken(ctx, 'reset', { userId: account.id, email: account.email, ttlMinutes: SIGN_IN_LINK_HOURS * 60, createdBy: sender.id, payload: { purpose: 'sign_in', ip: ip ?? null } });
   const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
   const mail = composeSignInMail(ctx, account, sender, url, expiresAt);
-  const result = await ctx.mailer.send({ to: account.email, subject: 'Your Vantage sign-in details', text: mail.text, html: mail.html, kind: 'sign_in', userId: account.id, orgId });
+  const result = await ctx.mailer.send({ to: account.email, subject: mail.subject, text: mail.text, html: mail.html, kind: 'sign_in', userId: account.id, orgId, actorId: sender.id });
   // An undelivered link is one nobody should hold.
   if (!result.ok) revokeTokens(ctx, 'reset', account.id);
   const status = !result.ok ? 'failed' : result.queued ? 'queued' : 'sent';
+  // The Unit Manager, and the Unit Instance's trail, get what they can act on; a provider's own words stay in the mail log.
+  const shown = result.ok ? null : notSentMessage(result, 'The sign-in details');
   // Sent by Vantage support (no Unit Instance) it is enterprise administration; by a Unit Manager, unit administration.
-  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
-  return { id: account.id, status, ...(result.error ? { error: result.error } : {}) };
+  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${shown ? `; ${shown.slice(0, 200)}` : ''}`, ip });
+  return { id: account.id, status, ...(shown ? { error: shown } : {}) };
 }

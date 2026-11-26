@@ -16,6 +16,16 @@ interface Setup {
   queue: { waiting: number; oldest: string | null };
   dnsHost?: { name: string | null; nameservers: string[] };
   recent: Array<{ to_address: string; kind: string; status: string; error: string | null; created_at: string }>;
+  /** VANTAGE_EMAIL_ALLOWED_DOMAINS as the server read it; null when it is not set and every domain is allowed. */
+  allowedDomains?: string[] | null;
+}
+
+/** Who mail may go to, in words: the list as set on the host, or that there is none. */
+function allowedLine(domains: string[] | null | undefined) {
+  if (!domains?.length) return 'Mail may go to any domain. Set VANTAGE_EMAIL_ALLOWED_DOMAINS on the host to limit it.';
+  const words = domains.map((d) => d.startsWith('*.') ? `any subdomain of ${d.slice(2)}` : d);
+  const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`;
+  return `Mail goes only to addresses at ${list}. Any other address is refused, shows in the mail log here, and is recorded in the access log of the Unit Instance it was sent for, or the platform's for an account's own mail.`;
 }
 
 const STATUS: Record<string, { label: string; tone: 'good' | 'bad' | 'warn' | 'neutral'; icon: typeof CheckCircle2 }> = {
@@ -77,6 +87,7 @@ export default function EmailConsole() {
         <Field label="To" hint="blank sends to your own address" className="min-w-[14rem] flex-1"><Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com" /></Field>
         <Button variant="primary" onClick={test} loading={sending}><Mail className="h-4 w-4" />Send test</Button>
       </div>
+      <p data-allowed-domains className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />{allowedLine(view.allowedDomains)}</p>
       {direct && <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A receiver that says “try later” is retried automatically for up to two days (30 minutes for a reset link). A refusal is final, and its exact reason is logged below.</p>}
       <ul className="mt-3 space-y-1.5 text-xs">
         {view.recent.slice(0, 8).map((m, i) => (

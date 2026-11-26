@@ -1,5 +1,6 @@
 import { isAbsolute, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseAllowedDomains } from './lib/recipientDomains.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,6 +68,11 @@ export interface AppConfig {
     provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string; allowPrivate: boolean;
     /** Mail to the relay only over TLS 1.2 or later, to a certificate that checks: the MCEN profile (ADR-0040). */
     requireTls: boolean;
+    /**
+     * The domains mail may go to (VANTAGE_EMAIL_ALLOWED_DOMAINS, ADR-0048), each `usmc.mil` or `*.usmc.mil`; null for
+     * every domain. A recipient outside it is refused and audited at the mailer.
+     */
+    allowedDomains: string[] | null;
   };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   /** How the public page presents itself to search engines. */
@@ -337,7 +343,7 @@ export function readDeploymentConfig(env: NodeJS.ProcessEnv, production: boolean
  * What the MCEN profile refuses, all at once so one start names every problem. Each is a public-internet service or an
  * open door the legacy site used; on MCEN, traffic, mail and accounts go through the enterprise's own controls.
  */
-function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emailProvider: string; clientIp: string; site: string; app: string }): string[] {
+function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emailProvider: string; clientIp: string; site: string; app: string; allowedDomains: string[] | null }): string[] {
   const problems: string[] = [];
   if (values.accessMode === 'demo') problems.push('VANTAGE_ACCESS_MODE=demo: the synthetic demo is a non-production instance of its own.');
   if (envBool(env, 'VANTAGE_INDEXNOW', false)) problems.push('VANTAGE_INDEXNOW: search-engine notices belong to the public site, which MCEN does not serve.');
@@ -345,6 +351,7 @@ function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emai
   if (values.clientIp === 'cloudflare') problems.push('VANTAGE_CLIENT_IP=cloudflare: client addresses come from the enterprise proxy chain (TRUST_PROXY), not Cloudflare.');
   if (values.emailProvider === 'resend' || values.emailProvider === 'direct') problems.push(`VANTAGE_EMAIL_PROVIDER=${values.emailProvider}: mail leaves through the enterprise relay. Use smtp with SMTP_URL, or none.`);
   if (values.emailProvider === 'smtp') { const smtp = smtpUrlProblem(env.SMTP_URL); if (smtp) problems.push(smtp); }
+  if (values.emailProvider === 'smtp' && !values.allowedDomains) problems.push('VANTAGE_EMAIL_ALLOWED_DOMAINS: on MCEN mail goes only to the domains the enterprise names. List them, such as usmc.mil, mail.mil.');
   if (envBool(env, 'VANTAGE_SELF_REGISTRATION', false)) problems.push('VANTAGE_SELF_REGISTRATION=true: accounts come from invitations, the personnel roster or CAC provisioning.');
   if ((env.VANTAGE_CONSENT_BANNER || '').trim().toLowerCase() === 'off') problems.push('VANTAGE_CONSENT_BANNER=off: a DoD information system shows the Notice and Consent Banner (dod, or custom text).');
   if (values.site !== values.app) problems.push('VANTAGE_SITE_URL / VANTAGE_PUBLIC_URL: MCEN serves no public site, so the site address is the application\'s. Leave both unset, or equal to VANTAGE_APP_URL.');
@@ -429,6 +436,11 @@ export function loadConfig(env = process.env): AppConfig {
   if (!['none', 'resend', 'smtp', 'direct', 'memory'].includes(emailProvider)) throw new Error('VANTAGE_EMAIL_PROVIDER must be none, direct, resend, or smtp.');
   if (emailProvider === 'direct' && production && !/@[a-z0-9-]+(\.[a-z0-9-]+)+>?\s*$/i.test(env.VANTAGE_EMAIL_FROM || '')) throw new Error('Direct email needs VANTAGE_EMAIL_FROM on your own domain, such as "Vantage <no-reply@example.com>".');
   if (emailProvider === 'memory' && production) throw new Error('The memory email provider is for tests only.');
+  const allowed = parseAllowedDomains(env.VANTAGE_EMAIL_ALLOWED_DOMAINS);
+  if (allowed.problems.length) {
+    const named = allowed.problems.map((p) => `"${p}"`).join(', ');
+    throw new Error(`VANTAGE_EMAIL_ALLOWED_DOMAINS: ${named} ${allowed.problems.length === 1 ? 'is not a domain' : 'are not domains'}. List domains separated by commas, such as usmc.mil, mail.mil, or *.usmc.mil for every subdomain of one.`);
+  }
 
   const models = envList(env, 'VANTAGE_GENAI_MODELS', ['gemini-2.5-flash']);
   const baseUrl = String(env.VANTAGE_GENAI_BASE_URL || 'https://api.genai.mil/v1').replace(/\/$/, '');
@@ -450,7 +462,7 @@ export function loadConfig(env = process.env): AppConfig {
   }
   const clientIp = clientIpSource(env.VANTAGE_CLIENT_IP);
   if (deployment.profile === 'mcen') {
-    const problems = mcenRefusals(env, { accessMode, emailProvider, clientIp, site, app });
+    const problems = mcenRefusals(env, { accessMode, emailProvider, clientIp, site, app, allowedDomains: allowed.domains });
     if (problems.length) throw new Error(`VANTAGE_DEPLOYMENT_PROFILE=mcen refuses:\n- ${problems.join('\n- ')}`);
   }
 
@@ -544,6 +556,7 @@ export function loadConfig(env = process.env): AppConfig {
       // Direct delivery to a private address is refused unless the network's mail hosts really are private.
       allowPrivate: envBool(env, 'VANTAGE_EMAIL_ALLOW_PRIVATE', false),
       requireTls: deployment.profile === 'mcen',
+      allowedDomains: allowed.domains,
     },
     search: {
       googleVerification: verificationToken(env, 'VANTAGE_GOOGLE_SITE_VERIFICATION'),

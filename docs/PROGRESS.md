@@ -2,6 +2,30 @@
 
 _Updated 2026-11-24_
 
+## What changed (2026-11-24: better email, part 1, the look)
+
+**In review.** HawkScan runs from the pushed branch; the findings are read in the PR. CI results not acted on.
+
+Round 2, from `25e7b51` ([ADR-0048](engineering/ADR/0048-email-look-and-allowed-domains.md)). No migration.
+
+- **One look** (`server/services/mailLayout.ts`): dress blues for all seven messages, HTML and plain text. A navy
+  masthead with the wordmark as text and the gold and scarlet piping, a white card on warm paper, a cobalt button, the
+  book serif title. Nothing is fetched: the mark is gone from mail. Every coloured element has a class the dark rules
+  map, for `prefers-color-scheme` and for Outlook.com, so the digest's red and amber figures stay red and amber (they
+  turned white before) and the footer links read in dark. Accessible structure, every colour pair at 4.5:1 or better,
+  light and dark. Team messages and the digest print the deployment's handling marking top and foot.
+- **The seven in one module** (`server/services/mailMessages.ts`): the four messages written inside routes moved out,
+  words unchanged, so tests render all seven.
+- **Who mail may go to** (`VANTAGE_EMAIL_ALLOWED_DOMAINS`, `server/lib/recipientDomains.ts`): exact domains and
+  `*.` subdomain trees; required on MCEN with the relay. The mailer refuses anything else before a provider sees it,
+  at send and at retry, and a list, display name or a domain not exactly as written always. A refusal is logged
+  (`refused`) and audited (`email_refused`, enterprise) with the domain only. The reset, email change and sign-in
+  details make no link they cannot deliver. The email-change field, the invitation, sign-in details, the team
+  message's counts and the Email tab say so. I-37 asks MCEN which domains.
+- **Tests:** `tests/server/mailLook.test.ts`, `tests/server/emailDomains.test.ts`, `tests/server/mailSamples.ts`,
+  `tests/browser/61-email-look.spec.ts`; `signInMail.test.ts`, `directMail.test.ts`, `deployment.test.ts` and
+  `readinessGateDefects.test.ts` updated for the look and the MCEN list.
+
 ## What changed (2026-11-24: better grading, part 3, FITREP standing)
 
 **In review.** HawkScan runs from every pushed branch (a new workflow) and passes at the high threshold; the findings
