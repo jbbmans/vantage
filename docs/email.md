@@ -96,14 +96,14 @@ A weekly digest that is refused is tried once that week, not at every tick. What
 - **Password reset:** the same answer as always. No link is made.
 - **Invitation:** the invitation is made, and the leader is told why it was not emailed and copies the link.
 - **Sign-in details:** that person is listed as not sent, with the reason. Their earlier link keeps working.
+- **Team message:** the dialog counts those with an address outside the list, and the result counts them again. They get the message in Vantage.
+- **Weekly digest and the console's test:** the reason.
 
 When a message is not refused but still does not go, the provider's own words stay in the mail log on the Email tab.
 The person who asked is told what they can do: try again later; or, when the provider said no for good, that a
 Vantage Administrator can see why on the Email tab; or, when the receiving mail server refused the address itself,
 to check the address. The console's test is the exception and shows the provider's answer, since that is what it is
 for.
-- **Team message:** the dialog counts those with an address outside the list, and the result counts them again. They get the message in Vantage.
-- **Weekly digest and the console's test:** the reason.
 
 The Email tab of the Vantage Administrator console shows the list as the server read it.
 
