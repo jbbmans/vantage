@@ -567,6 +567,38 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 - The Vantage Administrator console's email checks are for staff with the email permission, behind step-up confirmation, and each run is audited (`email_setup_checked`).
 - Team messages need `MANAGE_MEMBERS` in the unit, go to each member separately so no address is shared, set Reply-To to the sender, are limited to five an hour per sender, and are audited (`team_message`). Subjects are flattened to one line, so typed text cannot add mail headers.
 
+## Team messages and their files (ADR-0049)
+
+- Every team message is kept in Vantage with the Marines it went to, as it was sent: the database refuses an update to a
+  message or a file. Its page, `/team/messages/:id`, is answered on the application's host only, under `/api/team-messages`,
+  never on the Unit Manager console's host. It opens for the sender and the Marines it went to while each is a member of
+  the message's Unit Instance; signed out is 401, and everyone else, a Marine who joined after it was sent or has left,
+  and an id that is no message all get the same 404. A file downloads with `Content-Disposition: attachment`, `nosniff`
+  and `Content-Security-Policy: sandbox; default-src 'none'`, as a record's file does.
+- The send is settled before its body is read: the unit, `MANAGE_MEMBERS` there, step-up confirmation and the hourly count.
+  The body is then read by a parser of its own, sized for at most five files within `VANTAGE_ATTACHMENT_MAX_BYTES`
+  together, as base64 that must decode exactly. Each file passes the checks of a record's file (type, extension,
+  signature, UTF-8 text), and the same file twice is refused.
+- **Files go by email only when every check passes, before anything is kept, notified or sent**: each file scanned and
+  found clean now (no scanner, a scanner error or a timeout refuses, whatever `VANTAGE_SCAN_REQUIRED` says); an allow-list
+  set and every recipient's address inside it; the SMTP relay, never direct delivery or Resend; a connection to it proven
+  first, TLS 1.2 or later to a certificate that checks, on every profile, by opening it and closing it without sending;
+  and the sender's confirmation that the files cannot be withdrawn. That connection reads no file path or URL a message
+  part might name. After the scans and the connection, the session, authority, unit, feature flag and recipient list are
+  read again and the allow-list checked again. Files withheld from the Unit Instance, or attachments off, refuse the files.
+- A refusal answers with its reason and is audited (`team_message_refused`) with the code, why and how many files, never
+  a file's name. Nothing is kept, notified or emailed, and the hourly count is not used: it is taken only once every check
+  passes, and asked again then.
+- A sent message's trail is written in the transaction that keeps it, before the first email: `team_message_file` for each
+  file (name, size, type, SHA-256 and the scanner's verdict) and `team_message_recipient` for each Marine (the Marine as
+  subject; the address's domain, never the address), then `team_message` with the delivery counts. **The file's name in
+  the trail departs from ADR-0025 §5**: a file that leaves Vantage by email cannot be called back, so what went and to whom
+  must be answerable after the message is removed.
+- Messages, their files and recipient lists are kept 180 days, then removed by the `team_messages_expire` job every six
+  hours, unless a legal hold keeps them: one on the Unit Instance or on every instance, a `team_messages` record-type
+  hold there or everywhere, or one on the sender or any Marine it went to. A run is a disposition run, audited
+  (`team_messages_expired`) when it removes anything. The trail entries stay.
+
 ## Product analytics
 
 - The event catalog is closed. A client can only send names and properties declared in `server/services/telemetry.ts`; anything else is dropped with a reason.
@@ -615,6 +647,8 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | A copy of the whole instance walking out | Browser downloads can be turned off; every other Lead Vantage Administrator is notified of each one |
 | CSRF / clickjacking | Client header, `SameSite`, `frame-ancestors 'none'` |
 | Malicious upload | Type proven by content and extension, size cap, cleaned filename, attachment disposition, `nosniff` and a sandboxed download, no inline render |
+| A file sent by email that cannot be called back, or sent to the wrong place | Files by email only after a clean scan now, to allow-listed addresses, over a relay connection proven TLS first, with the sender's confirmation; each file's name, size, SHA-256 and verdict and each Marine in the trail before the first email (ADR-0049) |
+| Reading a team message one was not sent | Opens only for its sender and the Marines it went to while members of its Unit Instance, on the application's host; the same 404 for everyone else (ADR-0049) |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |
 | Disk full | Write refusal near the size threshold; backups from the console |
 | Tracking pixel in imported mail | Remote images stripped, never fetched; the reader is told |

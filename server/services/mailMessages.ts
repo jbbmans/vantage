@@ -1,5 +1,6 @@
 import { layout, type MailContent } from './mailLayout.ts';
 import { MIN_PASSWORD_LENGTH } from '../../shared/password.ts';
+import { ATTACHMENT_TYPE_NAMES, formatFileSize } from '../../shared/attachments.ts';
 
 /**
  * The seven messages Vantage sends, each from what it needs to say and nothing else: no database, no request. Routes and
@@ -105,16 +106,25 @@ export function signInMessage(p: {
   });
 }
 
-/** A leader's message to their unit and the teams beneath it (teamMail.ts), with the deployment's handling line. */
+/**
+ * A leader's message to a unit and every team beneath it. Vantage keeps it, and the button opens that copy (ADR-0049).
+ * Files it carries are attached to the email; the message names each, with its type and size, in both parts.
+ */
 export function teamMessage(p: {
-  unitLabel: string; unitName: string; subject: string; body: string; senderName: string; replies: boolean; appUrl: string; marking: string; origin: string;
+  unitLabel: string; unitName: string; subject: string; body: string; senderName: string; replies: boolean; messageUrl: string; marking: string; origin: string;
+  files?: ReadonlyArray<{ name: string; mime: string; size: number }>; keptDays: number;
 }): MailMessage {
+  const files = p.files ?? [];
   return message(`[${p.unitLabel}] ${p.subject}`, {
     eyebrow: `Message to ${p.unitLabel}`,
     title: p.subject,
     intro: p.body,
     details: [{ label: 'From', value: p.senderName }, { label: 'To', value: `${p.unitName} and every team beneath it` }],
-    cta: { label: 'Open Vantage', url: `${p.appUrl}/team` },
+    ...(files.length ? { sections: [{ heading: files.length === 1 ? 'Attached file' : `${files.length} attached files`, lines: files.map((f) => `${f.name} (${ATTACHMENT_TYPE_NAMES[f.mime] ?? f.mime}, ${formatFileSize(f.size)})`) }] } : {}),
+    cta: { label: 'Read it in Vantage', url: p.messageUrl },
+    note: files.length
+      ? `${files.length === 1 ? 'The file is' : 'The files are'} attached to this email. Vantage scanned ${files.length === 1 ? 'it' : 'each one'} for malware and found nothing. The message and its files stay in Vantage for ${p.keptDays} days.`
+      : `The message stays in Vantage for ${p.keptDays} days.`,
     footer: `${p.senderName} sent this to ${p.unitLabel} through Vantage.${p.replies ? ' Reply to reach them directly.' : ''}`,
     marking: p.marking,
     origin: p.origin,

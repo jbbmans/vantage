@@ -1,6 +1,36 @@
 # Progress
 
-_Updated 2026-11-24_
+_Updated 2026-11-26_
+
+## What changed (2026-11-26: better email, part 2, team messages and their files)
+
+**In review.** HawkScan runs from the pushed branch; the findings are read in the PR. CI results not acted on.
+
+Round 2, from `4594c2b` ([ADR-0049](engineering/ADR/0049-team-messages-and-real-attachments.md)). Migration
+`046_team_messages`.
+
+- **Kept in Vantage** (`server/services/teamMail.ts`, `server/services/teamMessages.ts`): every team message, the
+  Marines it went to and how each was reached, and its files, as sent; the database refuses an update to a message or
+  a file. The page `/team/messages/:id` (`src/pages/TeamMessage.tsx`, `server/routes/teamMessages.ts`, application
+  host only) opens for the sender and the Marines it went to while members of the Unit Instance; everyone else gets
+  the same 404. The notice and the email's "Read it in Vantage" open it; the sender sees how the Marines were reached.
+- **Files as real email attachments**: up to five, within `VANTAGE_ATTACHMENT_MAX_BYTES` together, in the send itself,
+  checked as a record's file is. They go only when each is scanned clean now, every recipient is inside the allowed
+  domains, the SMTP relay is proven TLS by opening a connection first, and the sender confirms they cannot be
+  withdrawn. Any of those missing refuses the send with a reason and a `team_message_refused` entry that names no file;
+  nothing is kept, notified or emailed, and the hourly count is not used. The email carries the files as MIME parts,
+  lists them with type and size in both parts, and says they were scanned.
+- **The trail**: `team_message_file` per file (name, size, type, SHA-256, verdict) and `team_message_recipient` per
+  Marine (domain only), written with the message before the first email, then `team_message` with the counts. A file's
+  name in the trail departs from ADR-0025 §5, because a file sent by email cannot be called back.
+- **Kept 180 days**, then removed by `team_messages_expire` every six hours unless a legal hold keeps it (the Unit
+  Instance, every instance, the `team_messages` record type, the sender or any Marine on it); `team_messages` is a
+  type a hold can name. In the instance archive and the privacy inventory.
+- **The dialog** (`src/pages/Team.tsx`): files with their limits, the confirmation before Send, a refusal shown in
+  place with what was written kept, and the toast's Open. I-38 asks MCEN the relay's largest message.
+- **Tests:** `tests/server/teamMessages.test.ts` (a real STARTTLS relay with a test CA among them),
+  `tests/server/migrations.test.ts` (046), `tests/browser/62-team-messages.spec.ts`; `directMail.test.ts`,
+  `emailDomains.test.ts`, `mailSamples.ts` and the database fixtures updated.
 
 ## What changed (2026-11-24: better email, part 1, the look)
 

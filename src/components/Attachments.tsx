@@ -12,7 +12,7 @@ import {
 } from '../../shared/attachments';
 
 const KIND_OPTIONS = EVIDENCE_KINDS.map((k) => ({ value: k, label: EVIDENCE_KIND_LABELS[k] }));
-const FILE_INPUT = 'block w-full min-w-0 text-sm text-ink-2 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink';
+export const FILE_INPUT = 'block w-full min-w-0 text-sm text-ink-2 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink';
 
 /** A file kept without a clean malware scan says so beside its name; a clean one says nothing more. */
 export function ScanBadge({ status }: { status: ScanStatus | undefined }) {
@@ -21,12 +21,12 @@ export function ScanBadge({ status }: { status: ScanStatus | undefined }) {
 }
 
 /** "PDF, JPEG, PNG, TXT or CSV": the file types this service takes, as a sentence reads them. */
-function typeList(allowed: string[]): string {
+export function typeList(allowed: string[]): string {
   const names = allowed.map((t) => ATTACHMENT_TYPE_NAMES[t]).filter(Boolean);
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] || '';
 }
 /** What a file chooser offers: each allowed type and its extensions, since a browser does not always know a CSV's type. */
-const acceptFor = (allowed: string[]) => allowed.flatMap((t) => [t, ...(ATTACHMENT_EXTENSIONS[t] || []).map((e) => `.${e}`)]).join(',');
+export const acceptFor = (allowed: string[]) => allowed.flatMap((t) => [t, ...(ATTACHMENT_EXTENSIONS[t] || []).map((e) => `.${e}`)]).join(',');
 
 interface AddDraft { kind: EvidenceKind | ''; description: string; file: File | null }
 interface EditDraft { id: string; kind: EvidenceKind | ''; description: string }

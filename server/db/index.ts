@@ -646,6 +646,15 @@ const MIGRATIONS: Migration[] = [
     // restoring the pre-upgrade copy with the previous build.
     run: () => {},
   },
+  {
+    id: 46,
+    name: '046_team_messages',
+    // A leader's team message kept as it was sent, who it went to, and the files it carried as email attachments
+    // (ADR-0049). The three tables, their indexes and the triggers that keep a message and its files as sent come from
+    // schema.sql, which is safe to replay. Nothing already written is read, moved or reshaped; messages sent before this
+    // build were never kept and stay so. Rolled back by restoring the pre-upgrade copy with the previous build.
+    run: () => {},
+  },
 ];
 
 /** The readiness columns migration 044 adds, as schema.sql declares them, so a new and an upgraded database match. */

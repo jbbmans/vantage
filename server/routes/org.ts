@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import { Router, json, type NextFunction, type Response } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
+import { HttpError, badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, stepUpOnInstanceAuthority, assertSudo } from '../auth/middleware.ts';
 import { scopeFor, scopesFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, membersAcross, sameInstance, orgOfUnit, orgCan } from '../authz/scope.ts';
 import { createUnit, updateUnit, parentIdIn, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, leadsForEnrollment, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardSelfNamed, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
@@ -28,7 +28,9 @@ import type { Counseling, Duty, Goal, MemberActivity, MemberAward, MemberDetailR
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
-import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
+import { auditTeamMessageRefusal, sendTeamMessage, teamAudience } from '../services/teamMail.ts';
+import { TEAM_MESSAGE_MAX_FILES } from '../../shared/teamMessages.ts';
+import { formatFileSize } from '../../shared/attachments.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { checkRange } from '../lib/dateRange.ts';
 import type { Request } from 'express';
@@ -332,19 +334,52 @@ orgRouter.get('/units/:unitId/message', wrap((req, res) => {
   res.json(teamAudience(req.ctx, unitId, req.user.id));
 }));
 
-orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
-  const ctx = req.ctx;
+// A message to a unit may carry files (ADR-0049), sent in the one request as base64. Who is sending, their step-up and
+// their hourly count are settled before the body is read, so a caller who may not send is refused without the server
+// taking in a body up to the size limit; the body has a parser of its own, sized for the files.
+function teamMessageScope(req: Request) {
   const unitId = String(req.params.unitId);
-  const body = parse(z.object({ subject: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(5000) }), req.body);
-  if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
-  const scope = scopeFor(ctx, req.user, req);
+  if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
+  const scope = scopeFor(req.ctx, req.user, req);
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
-  stepUpOnInstanceAuthority(req, scope, [unitId]);
+  return scope;
+}
+function teamMessageAllowance(req: Request) {
   const limited = limiters.teamMail.limited(req.user.id);
   if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
-  limiters.teamMail.bump(req.user.id);
-  const result = await sendTeamMessage(ctx, req.user, unitId, body);
-  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only (${result.refused} refused by the address check); subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
+}
+// A body larger than files within the limit can be is refused as too large, with the reason and its entry in the trail,
+// as the service refuses files too large together; the files in it are never read.
+const teamMessageBody = (req: Request, res: Response, next: NextFunction) => {
+  const { maxBytes } = req.ctx.config.attachments;
+  json({ limit: Math.ceil(maxBytes / 3) * 4 + TEAM_MESSAGE_MAX_FILES * 2048 + 64 * 1024 })(req, res, (error?: unknown) => {
+    if ((error as { type?: string } | undefined)?.type !== 'entity.too.large') { next(error); return; }
+    // This runs after the parser's callback, outside Express's own catch: a failed write goes to the error handler.
+    try {
+      auditTeamMessageRefusal(req.ctx, { senderId: req.user.id, unitId: String(req.params.unitId), code: 'files_too_large', detail: `a request of ${String(req.headers['content-length'] ?? 'unknown')} bytes, more than files within the limit make`, files: null, ip: clientIp(req) });
+    } catch (failed) { next(failed); return; }
+    next(new HttpError(413, `Together the files are more than a message carries, ${formatFileSize(maxBytes)} at most. Remove some and send again.`, 'files_too_large'));
+  });
+};
+// How many files, and whether each decodes, are the service's to refuse, with a reason and an entry in the trail.
+const teamMessageSchema = z.object({
+  subject: z.string().trim().min(1).max(120),
+  body: z.string().trim().min(1).max(5000),
+  files: z.array(z.object({ name: z.string().max(1000), type: z.string().max(200), content: z.string() })).optional(),
+  confirmFiles: z.boolean().optional(),
+});
+
+orgRouter.post('/units/:unitId/message', wrap((req, _res, next) => { stepUpOnInstanceAuthority(req, teamMessageScope(req), [String(req.params.unitId)]); teamMessageAllowance(req); next(); }), teamMessageBody, wrap(async (req, res) => {
+  stepUpOnInstanceAuthority(req, teamMessageScope(req), [String(req.params.unitId)]);
+  teamMessageAllowance(req);
+  const body = parse(teamMessageSchema, req.body);
+  const result = await sendTeamMessage(req.ctx, req.user, String(req.params.unitId), body, {
+    sessionId: req.sessionId,
+    ip: clientIp(req),
+    // The hourly count is used only once every check has passed, and asked again then: two sends at once cannot both
+    // take the last of it while their files are scanned.
+    beforeKeep: () => { teamMessageAllowance(req); limiters.teamMail.bump(req.user.id); },
+  });
   res.json(result);
 }));
 

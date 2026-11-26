@@ -73,6 +73,11 @@ export interface AppConfig {
      * every domain. A recipient outside it is refused and audited at the mailer.
      */
     allowedDomains: string[] | null;
+    /**
+     * Tests only (VANTAGE_EMAIL_TEST_RELAY_CA): a PEM file the relay's certificate is also checked against when files go
+     * by email, so a test relay with its own certificate can stand in for the enterprise one. Empty everywhere else.
+     */
+    relayTestCa: string;
   };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   /** How the public page presents itself to search engines. */
@@ -557,6 +562,7 @@ export function loadConfig(env = process.env): AppConfig {
       allowPrivate: envBool(env, 'VANTAGE_EMAIL_ALLOW_PRIVATE', false),
       requireTls: deployment.profile === 'mcen',
       allowedDomains: allowed.domains,
+      relayTestCa: test ? (env.VANTAGE_EMAIL_TEST_RELAY_CA || '') : '',
     },
     search: {
       googleVerification: verificationToken(env, 'VANTAGE_GOOGLE_SITE_VERIFICATION'),

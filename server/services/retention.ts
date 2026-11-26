@@ -72,8 +72,9 @@ function identifyingColumns(ctx: AppContext, table: RecordTable): string[] {
 
 export const RETAINABLE_TYPES = RECORD_TABLE_NAMES.filter((t) => CLOCK[t]);
 
-// Saved forms (ADR-0030) are not records and no schedule disposes of them, but a hold can keep every one of them.
-export const HOLDABLE_TYPES = [...RECORD_TABLE_NAMES, 'work_items', 'source_files', 'form_drafts'] as const;
+// Saved forms (ADR-0030) are not records and no schedule disposes of them, but a hold can keep every one of them. Team
+// messages (ADR-0049) are removed after 180 days, and a hold on them keeps every one.
+export const HOLDABLE_TYPES = [...RECORD_TABLE_NAMES, 'work_items', 'source_files', 'form_drafts', 'team_messages'] as const;
 
 /**
  * An organization's schedules govern what it holds: the records shared with its units. A Marine's private entries are

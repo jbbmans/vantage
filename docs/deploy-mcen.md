@@ -80,6 +80,13 @@ Each is off until it is set. Each points at a service the enterprise names.
 | Mail through the enterprise relay | `VANTAGE_EMAIL_PROVIDER=smtp`, `SMTP_URL`, `VANTAGE_EMAIL_FROM`, `VANTAGE_EMAIL_ALLOWED_DOMAINS` | I-15, I-37 |
 | Audit records to the SIEM | `VANTAGE_AUDIT_SYSLOG=tls://<collector>:6514` | I-08 |
 | Malware scanning of uploads | `VANTAGE_CLAMD`, and `VANTAGE_SCAN_REQUIRED=true` | I-07 |
+| Files with team messages, by email | The relay, the allowed domains and the scanner above; `VANTAGE_ATTACHMENT_MAX_BYTES` within the relay's limit | I-07, I-37, I-38 |
+
+A team message's files go by email only when all of the first three are set: the relay, reached over TLS (Vantage opens
+the connection first and sends nothing if it will not start TLS), every recipient inside `VANTAGE_EMAIL_ALLOWED_DOMAINS`,
+and each file scanned clean then. Without them the dialog says files cannot go by email, and a message without files
+goes as before (ADR-0049). Each Marine's copy carries the files, about 1.37 times their size, so 10 MiB of files is about
+14 MiB per copy: until the relay's limit is known (I-38), set `VANTAGE_ATTACHMENT_MAX_BYTES` below it.
 
 These leave the enclave and need an approved connection before they are turned on:
 

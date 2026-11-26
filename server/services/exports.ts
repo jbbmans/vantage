@@ -52,6 +52,8 @@ export const EXPORT_TABLES = [
   'report_definitions',
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
   'attachments', 'comments', 'unit_invites', 'unit_invite_uses', 'support_tickets', 'support_messages',
+  // A leader's messages to a unit, who each went to and the files they carried (ADR-0049): kept 180 days wherever it runs.
+  'team_messages', 'team_message_recipients', 'team_message_files',
   'personnel_roster', 'personnel_sync_runs',
   // Holds and schedules decide what may be destroyed; a moved instance that forgot them would destroy what is held.
   'legal_holds', 'retention_schedules', 'disposition_runs',

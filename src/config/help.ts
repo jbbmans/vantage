@@ -360,6 +360,17 @@ export const HELP: HelpSection[] = [
         ],
         also: ['add marine', 'invitation', 'join'],
       },
+      {
+        id: 'team-message',
+        q: 'How do I message my unit, and send files with it?',
+        a: [
+          'On Team, Email the team writes to everyone in the unit you are viewing and every team beneath it, up to 300 Marines. Each gets it in Vantage, with a notice that opens it, and those with an address on file also get their own copy by email. Replies go to you.',
+          'Vantage keeps the message 180 days on a page of its own. Only you and the Marines it went to can open it, while you are members of the Unit Instance.',
+          'Add up to five files, 10 MB together by default: PDF, JPEG, PNG, TXT or CSV. They go only once the malware scanner finds each one clean, every address on the message is on your deployment’s allowed domains, and the mail relay takes a TLS connection. If any of that fails, nothing is sent, and the dialog says why; send the message without its files, or fix what it names.',
+          'Files that go by email cannot be called back. You confirm that before Send, and each file is recorded by name, size and SHA-256 with whom it went to.',
+        ],
+        also: ['email the team', 'unit message', 'attachment', 'attach', 'files', 'broadcast', 'message'],
+      },
     ],
   },
   {

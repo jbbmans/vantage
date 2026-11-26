@@ -523,6 +523,30 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       org_id: 'employment', entity: 'none', entity_id: 'technical', actor_id: 'identifier', count: 'none',
     },
   },
+  team_messages: {
+    purpose: 'A leader’s message to a unit and every team beneath it, kept as it was sent so the Marines it went to can read it in Vantage (ADR-0049). Kept 180 days unless a legal hold keeps it.',
+    authority: 'Command communication to members of the unit; necessary to operate the product.',
+    access: 'Its sender and the Marines it went to, while each is a member of its Unit Instance.',
+    columns: {
+      id: 'technical', org_id: 'employment', unit_id: 'employment', sender_id: 'identifier', sender_name: 'identifier', unit_label: 'employment',
+      unit_name: 'employment', subject: 'performance', body: 'performance', marking: 'none', files_confirmed_at: 'technical', created_at: 'technical',
+    },
+  },
+  team_message_recipients: {
+    purpose: 'Who a team message went to, captured when it was sent, and how each was reached: by email or in Vantage only.',
+    authority: 'Necessary to operate the product.',
+    access: 'The sender, as counts; each Marine, for their own.',
+    columns: { message_id: 'technical', user_id: 'identifier', org_id: 'employment', delivery: 'technical', email_log_id: 'technical' },
+  },
+  team_message_files: {
+    purpose: 'Files a team message carried as email attachments, kept with their name, type, size, SHA-256 and the clean verdict they were sent under.',
+    authority: 'Command communication to members of the unit; necessary to operate the product.',
+    access: 'Whoever may open the message.',
+    columns: {
+      id: 'technical', message_id: 'technical', org_id: 'employment', position: 'none', original_name: 'performance', mime_type: 'technical',
+      size_bytes: 'technical', sha256: 'technical', scan_status: 'technical', scanner: 'technical', content: 'performance', created_at: 'technical',
+    },
+  },
   maradmins: {
     purpose: 'Public MARADMIN messages fetched from marines.mil, for reference.',
     authority: 'Public information; not about any person.',

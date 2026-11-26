@@ -7,6 +7,7 @@ import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessa
 import { createMailer } from '../../server/services/email.ts';
 import { decryptSecret } from '../../server/lib/crypto.ts';
 import { secretsOf } from '../../server/lib/keys.ts';
+import { limiters } from '../../server/auth/limiter.ts';
 
 interface Received { helo: string; from: string; to: string[]; data: string }
 
@@ -284,7 +285,9 @@ test('a leader emails the team: one copy each, replies to the leader, and everyo
   const noEmail = await app.register('teamnomail');
   for (const u of [withEmail, noEmail]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, refused: 0, appOnly: 1, emailEnabled: true, limit: 300 });
+  const { files: filesGate, ...reach } = audience.body;
+  assert.deepEqual(reach, { members: 2, withEmail: 1, refused: 0, appOnly: 1, emailEnabled: true, limit: 300 });
+  assert.match(filesGate.refusal, /allowed domains, and none are set/, 'with no allow-list, files go by email to nobody');
 
   const before = mx.received.length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Close-out Friday', body: 'Line one.\nLine two.' } });
@@ -311,6 +314,27 @@ test('a leader emails the team: one copy each, replies to the leader, and everyo
   assert.match(injected, /^Subject: \[G8\] Hi Bcc: attacker@example\.test/m);
   for (let i = 0; i < 3; i++) assert.equal((await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: `Note ${i}`, body: 'text' } })).status, 200);
   assert.equal((await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'One too many', body: 'text' } })).status, 429);
+});
+
+test('a team message copy its server asks to retry is kept queued, and the sender’s page reads how the retry ended', async () => {
+  limiters.teamMail.clear(op.id);
+  mx.reply('451 4.7.1 greylisted, try again later');
+  let id = '';
+  try {
+    const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Greylisted formation', body: 'Formation at 0700.' } });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    assert.equal(sent.body.queued, 1);
+    id = sent.body.id;
+  } finally { mx.reply('250 OK'); }
+  const kept = app.ctx.db.prepare('SELECT r.delivery, l.id AS log, l.status FROM team_message_recipients r JOIN email_log l ON l.id = r.email_log_id WHERE r.message_id = ?').all(id) as Array<{ delivery: string; log: string; status: string }>;
+  assert.equal(kept.length, 1, 'the queued copy keeps its mail log row');
+  assert.deepEqual({ delivery: kept[0].delivery, status: kept[0].status }, { delivery: 'queued', status: 'queued' });
+  const page = async () => (await app.call('GET', `/api/team-messages/${id}`, { token: op.token })).body.delivery as Record<string, number>;
+  assert.equal((await page()).queued, 1, 'still waiting on the receiving server');
+  app.ctx.db.prepare("UPDATE email_queue SET next_attempt_at = '2000-01-01T00:00:00.000Z' WHERE log_id = ?").run(kept[0].log);
+  assert.ok((await app.ctx.mailer.retryQueued()).sent >= 1);
+  const settled = await page();
+  assert.deepEqual({ queued: settled.queued, emailed: settled.emailed }, { queued: 0, emailed: 1 }, 'read as the retry left it');
 });
 
 test('SPF is merged into the record a domain already has, never published twice', () => {

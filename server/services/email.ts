@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import nodemailer from 'nodemailer';
 import type { AppConfig } from '../config.ts';
 import type { Db } from '../db/index.ts';
@@ -9,14 +10,20 @@ import { recipientAddress, recipientDomain, recipientRefusal } from '../lib/reci
 import { audit } from './audit.ts';
 import type { AppContext } from '../context.ts';
 
+/** A file carried by a message as a MIME part: its bytes only, never a path or a URL for the mailer to read (ADR-0049). */
+export interface MailAttachment { filename: string; contentType: string; content: Buffer }
 export interface Mail {
   to: string; subject: string; text: string; html: string; kind: string; userId?: string | null; replyTo?: string | null; orgId?: string | null;
   /** Who caused the message (the leader inviting, the Marine changing their address); none for the service's own. */
   actorId?: string | null;
+  /** Files sent with a team message. Only a mailer whose attachmentRefusal() is null carries them. */
+  attachments?: readonly MailAttachment[];
 }
 export interface SendResult {
   ok: boolean;
   queued?: boolean;
+  /** A queued message's mail log row, which the retry settles as sent, failed or refused. */
+  logId?: string;
   /** Why not, for the mail log and the Email tab: a provider's own words, which stay there (see notSentMessage). */
   error?: string;
   /** Not sent: the address is outside the allowed domains or not one address. */
@@ -55,6 +62,16 @@ export interface Mailer {
   checkRecipient: (mail: Omit<Mail, 'text' | 'html'>) => SendResult | null;
   /** The allowed domains, or null for every domain. */
   allowedDomains: readonly string[] | null;
+  /**
+   * Why this mailer may not carry files, or null when it may (ADR-0049): files go only through the SMTP relay, on a
+   * connection that must be TLS 1.2 or later to a certificate that checks, or into the test outbox.
+   */
+  attachmentRefusal: () => string | null;
+  /**
+   * Opens a connection to the relay as files would go (TLS required) and closes it without sending, so a relay that
+   * will not take TLS refuses the send before anything is kept. ok when the relay took it.
+   */
+  verifyAttachmentRoute: () => Promise<{ ok: true } | { ok: false; reason: string; code: string | null }>;
   /** Retries direct deliveries a receiver asked to try again later. */
   retryQueued: () => Promise<{ sent: number; failed: number; waiting: number }>;
   outbox: Mail[];
@@ -95,6 +112,11 @@ export function tlsOnlyTransport(smtpUrl: string) {
   };
 }
 
+/** Why files do not go by a provider other than the relay, said to the leader sending them. */
+const FILES_NEED_RELAY = 'Files go by email only through a mail relay that requires TLS, and this deployment sends its mail another way.';
+const FILES_ROUTE_UNREADABLE = 'Files go by email only through a mail relay that requires TLS, and the relay this deployment names cannot be read. A Vantage Administrator can check SMTP_URL.';
+const FILES_RELAY_NO_TLS = 'Vantage could not open a TLS connection to the mail relay, so files cannot go by email right now. Send the message without its files, or try again later.';
+
 const RESEND_ATTEMPTS = 4;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,6 +148,23 @@ export function createMailer(config: AppConfig, db: Db, onRefused?: (refused: Ma
   };
   const replyTo = (mail: Mail) => mail.replyTo || config.email.replyTo || undefined;
 
+  // Mail that carries files goes to the relay on a connection of its own, whatever the profile: TLS 1.2 or later to a
+  // certificate that checks, or nothing is sent (ADR-0040's connection), and the mailer reads no file path or URL a
+  // part might name (only bytes are attached). Built on first use, so an SMTP_URL it cannot read refuses files, not the start.
+  let files: ReturnType<typeof nodemailer.createTransport> | null | undefined;
+  const filesTransport = () => {
+    if (files !== undefined) return files;
+    try {
+      const options = tlsOnlyTransport(smtpUrl);
+      const ca = config.email.relayTestCa ? readFileSync(config.email.relayTestCa, 'utf8') : null;
+      files = nodemailer.createTransport({ ...options, tls: { ...options.tls, ...(ca ? { ca } : {}) }, disableFileAccess: true, disableUrlAccess: true });
+    } catch (error) {
+      console.error('The relay connection for mail with files could not be built:', error instanceof Error ? error.message : String(error));
+      files = null;
+    }
+    return files;
+  };
+
   let transport: ((mail: Mail) => Promise<void | SendResult>) | null = null;
   if (provider === 'resend' && resendApiKey) {
     transport = async (mail) => {
@@ -149,7 +188,15 @@ export function createMailer(config: AppConfig, db: Db, onRefused?: (refused: Ma
     };
   } else if (provider === 'smtp' && smtpUrl) {
     const transporter = nodemailer.createTransport(config.email.requireTls ? tlsOnlyTransport(smtpUrl) : smtpUrl);
-    transport = async (mail) => { await transporter.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail) }); };
+    transport = async (mail) => {
+      if (mail.attachments?.length) {
+        const files = filesTransport();
+        if (!files) throw Object.assign(new Error(FILES_ROUTE_UNREADABLE), { permanent: true });
+        await files.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail), attachments: mail.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) });
+        return;
+      }
+      await transporter.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail) });
+    };
   } else if (provider === 'direct') {
     transport = async (mail) => {
       const result = await deliver(db, config, { from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail) });
@@ -162,11 +209,32 @@ export function createMailer(config: AppConfig, db: Db, onRefused?: (refused: Ma
       db.prepare('INSERT INTO email_queue (id, log_id, to_address, kind, payload, attempts, last_error, next_attempt_at, expires_at, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)')
         .run(newId(), logId, mail.to, mail.kind, encryptSecret(config.secret, JSON.stringify({ subject: mail.subject, text: mail.text, html: mail.html, replyTo: replyTo(mail) ?? null, userId: mail.userId ?? null, actorId: mail.actorId ?? null })),
           result.error?.slice(0, 500) ?? null, new Date(at + BACKOFF_MINUTES[0] * 60_000).toISOString(), new Date(at + minutes * 60_000).toISOString(), now());
-      return { ok: true, queued: true };
+      return { ok: true, queued: true, logId };
     };
   } else if (provider === 'memory') {
     transport = async (mail) => { outbox.push(mail); };
   }
+
+  const attachmentRefusal: Mailer['attachmentRefusal'] = () => {
+    if (!transport) return 'Email is off on Vantage right now.';
+    if (provider === 'memory') return null;
+    if (provider !== 'smtp') return FILES_NEED_RELAY;
+    return filesTransport() ? null : FILES_ROUTE_UNREADABLE;
+  };
+  const verifyAttachmentRoute: Mailer['verifyAttachmentRoute'] = async () => {
+    const refused = attachmentRefusal();
+    if (refused) return { ok: false, reason: refused, code: 'not_relay' };
+    if (provider === 'memory') return { ok: true };
+    try {
+      await filesTransport()!.verify();
+      return { ok: true };
+    } catch (error) {
+      // The relay's own words can name hosts; they go to the service log, and the leader is told what it means.
+      const e = error as { code?: string; message?: string };
+      console.error('The relay refused a TLS connection for mail with files:', e.message || String(error));
+      return { ok: false, reason: FILES_RELAY_NO_TLS, code: typeof e.code === 'string' ? e.code.slice(0, 40) : null };
+    }
+  };
 
   const retryBatch: Mailer['retryQueued'] = async () => {
     const counts = { sent: 0, failed: 0, waiting: 0 };
@@ -241,11 +309,16 @@ export function createMailer(config: AppConfig, db: Db, onRefused?: (refused: Ma
     refusal,
     allowedDomains,
     checkRecipient,
+    attachmentRefusal,
+    verifyAttachmentRoute,
     async send(mail) {
       if (!transport) { log(mail, 'skipped', 'no provider'); return { ok: false, disabled: true, error: 'Email is off on Vantage right now.' }; }
       // The one check every message passes before any provider sees it.
       const refused = checkRecipient(mail);
       if (refused) return refused;
+      // Files go only where attachmentRefusal allows; the team message checks first, and this holds if anything else asks.
+      const filesRefused = mail.attachments?.length ? attachmentRefusal() : null;
+      if (filesRefused) { log(mail, 'failed', filesRefused); return { ok: false, permanent: true, error: filesRefused }; }
       // The provider gets the address the check read: the local part as written, the domain in its ASCII form.
       const outgoing = { ...mail, to: recipientAddress(mail.to) ?? mail.to };
       try {
