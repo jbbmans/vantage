@@ -105,20 +105,33 @@ test('AUD-1: a rewrite the integrity check finds shows on every page that shows 
   assert.equal((await get(op.token, '/api/platform/audit')).body.chain.ok, true);
 });
 
-test('AUD-2: the action list comes with the unfiltered first page only, from the index, and never crosses Unit Instances', async () => {
+test('AUD-2: the action list comes with a first page that nothing but one person narrows, from the index, and never crosses Unit Instances', async () => {
   audit(app.ctx, { actor_id: op.id, action: 'scale_g8_probe', category: 'unit', entity: 'test', org_id: 'G8' });
   const g8 = await get(op.token, '/api/orgs/G8/audit');
   assert.ok(g8.body.actions.includes('scale_g8_probe'));
   assert.ok(!(await get(g1lead.token, '/api/orgs/G1/audit')).body.actions.includes('scale_g8_probe'), 'G-1’s list never holds what only G-8 did');
-  for (const filter of ['action=scale_g8_probe', 'q=probe', 'category=unit', 'from=2020-01-01&to=2021-12-31', 'from=2098-01-01&to=2099-01-01', 'unit=G8', `before=${g8.body.rows[0].seq}`]) {
+  for (const filter of ['action=scale_g8_probe', 'q=probe', 'category=unit', 'from=2020-01-01&to=2021-12-31', 'from=2098-01-01&to=2099-01-01', 'unit=G8', `before=${g8.body.rows[0].seq}`, `person=${op.id}&action=scale_g8_probe`, `person=${op.id}&before=${g8.body.rows[0].seq}`]) {
     const res = await get(op.token, `/api/orgs/G8/audit?${filter}`);
     assert.equal(res.status, 200, filter);
     assert.equal(res.body.actions, null, `${filter}: a filtered page carries no action list`);
   }
+  // One person only narrows the rows: the first page still carries the trail's whole list, whoever the person is and
+  // wherever else they serve, so a trail opened on one person can still be narrowed by action.
+  for (const person of [op.id, marine.id, g1lead.id]) {
+    const res = await get(op.token, `/api/orgs/G8/audit?person=${person}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.actions, g8.body.actions, `person=${person}: the trail’s list`);
+  }
+  const g1 = (await get(g1lead.token, '/api/orgs/G1/audit')).body.actions as string[];
+  const g1Marine = (await get(g1lead.token, `/api/orgs/G1/audit?person=${marine.id}`)).body.actions as string[];
+  assert.deepEqual(g1Marine, g1, 'G-1’s list for a G-8 Marine is G-1’s own');
+  assert.ok(!g1Marine.includes('scale_g8_probe'));
   const platform = await get(op.token, '/api/platform/audit');
   assert.ok(platform.body.actions.includes('login'));
   assert.ok(!platform.body.actions.includes('scale_g8_probe'), 'nor the platform’s');
   assert.equal((await get(op.token, '/api/platform/audit?action=login')).body.actions, null);
+  assert.deepEqual((await get(op.token, `/api/platform/audit?person=${op.id}`)).body.actions, platform.body.actions);
+  assert.equal((await get(op.token, `/api/platform/audit?person=${op.id}&q=login`)).body.actions, null);
 
   // The list is kept for a minute, and what was done a moment ago is already in it, in its place, without a full read.
   audit(app.ctx, { actor_id: op.id, action: 'scale_a_probe', category: 'unit', entity: 'test', org_id: 'G8' });
@@ -133,6 +146,40 @@ test('AUD-2: the action list comes with the unfiltered first page only, from the
   assert.doesNotMatch(actions, /TEMP B-TREE/);
   const instance = plan(app, 'SELECT DISTINCT al.action FROM audit_log al WHERE al.org_id = ? ORDER BY al.action', 'G8');
   assert.match(instance, /COVERING INDEX idx_audit_trail_action \(org_id=\?\)/);
+});
+
+test('one person’s entries in a trail and in a unit’s access log are read from their two indexes and merged, never sorted or walked', async () => {
+  for (let i = 0; i < 3; i++) audit(app.ctx, { actor_id: op.id, action: 'view_personnel', entity: 'user', entity_id: marine.id, subject_id: marine.id, unit_id: 'G8' });
+  const merged = (sql: string[]) => sql.find((s) => s.includes('UNION ALL') && s.includes('FROM audit_log al INDEXED BY idx_audit_actor'))!;
+  const bothIndexes = (what: string, detail: string) => {
+    assert.match(detail, /idx_audit_actor \(actor_id=\?/, `${what}: what they did, from idx_audit_actor`);
+    assert.match(detail, /idx_audit_subject \(subject_id=\?/, `${what}: what was done about them, from idx_audit_subject`);
+    assert.doesNotMatch(detail, /TEMP B-TREE|SCAN al\b|idx_audit_org|idx_audit_unit/, `${what}: no sort, no walk of the trail`);
+  };
+
+  // The Unit Instance trail, its file's count and its file.
+  const instance = await preparing(app, async () => [await get(op.token, `/api/orgs/G8/audit?limit=5&person=${marine.id}`), await get(op.token, `/api/orgs/G8/audit/export?format=json&person=${marine.id}`)]);
+  assert.ok(instance.result.every((r) => r.status === 200));
+  assert.ok(instance.result[0].body.rows.some((r: { subject_id: string }) => r.subject_id === marine.id));
+  bothIndexes('instance page', plan(app, merged(instance.sql), 'G8', marine.id, 'G8', marine.id, marine.id, 6));
+  const count = instance.sql.find((s) => s.startsWith('SELECT COUNT(*) AS n FROM (SELECT 1 FROM audit_log al INDEXED BY idx_audit_actor'))!;
+  bothIndexes('instance file count', plan(app, count, 'G8', marine.id, 'G8', marine.id, marine.id, 50_001));
+  // Paging back with an action filter too, each branch keeps its index.
+  const narrowed = await preparing(app, () => get(op.token, `/api/orgs/G8/audit?limit=5&person=${marine.id}&before=1000000&action=view_personnel`));
+  assert.equal(narrowed.result.status, 200);
+  bothIndexes('instance page back', plan(app, merged(narrowed.sql), 'G8', marine.id, 'view_personnel', 1e6, 'G8', marine.id, marine.id, 'view_personnel', 1e6, 6));
+
+  // The platform trail.
+  const platform = await preparing(app, () => get(op.token, `/api/platform/audit?limit=5&person=${marine.id}`));
+  assert.equal(platform.result.status, 200);
+  assert.ok(platform.result.body.rows.some((r: { action: string }) => r.action === 'login'));
+  bothIndexes('platform page', plan(app, merged(platform.sql), marine.id, marine.id, marine.id, 6));
+
+  // A unit's access log.
+  const unit = await preparing(app, () => get(op.token, `/api/org/units/G8/audit?limit=5&person=${marine.id}`));
+  assert.equal(unit.result.status, 200);
+  assert.ok(unit.result.body.rows.length > 0 && unit.result.body.rows.every((r: { actor_id: string; subject_id: string }) => r.actor_id === marine.id || r.subject_id === marine.id));
+  bothIndexes('unit log', plan(app, merged(unit.sql), { unit: 'G8', person: marine.id, before: 1e9, limit: 6 }));
 });
 
 test('AUD-3: a Unit Instance without older entries is read by org_id alone, with the same rows as the wider predicate', async () => {

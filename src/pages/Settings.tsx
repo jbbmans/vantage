@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer } from 'lucide-react';
+import { Save, KeyRound, Fingerprint, ShieldCheck, Smartphone, LogOut, Mail, Download, Upload, Sun, Moon, Monitor, Check, Copy, Printer, History } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, Badge, RoleBadge, Switch, Segmented, Skeleton, EmptyState, useRefusal } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -22,8 +22,10 @@ import { shortcutsOn, useFocusWhenShown } from '@/lib/keyboard';
 import { DEFAULT_PERIOD, PERIOD_OPTIONS } from '../../shared/metrics';
 import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 import { GROUP_HINTS, GROUP_LABELS, NOTICE_GROUPS, isMutableGroup, type MutableGroup } from '../../shared/notifications';
+import { AUDIT_CATALOG_GROUPS, AUDIT_CATEGORIES, AUDIT_CATEGORY_LABELS, isAuditCategory } from '../../shared/auditCatalog';
+import { rangeProblems, type RangeProblem } from '../../shared/dateRange';
 
-const SECTIONS = [{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }];
+const SECTIONS = [{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'activity', label: 'Your activity' }, { value: 'appearance', label: 'Appearance' }, { value: 'notifications', label: 'Notifications' }, { value: 'data', label: 'Your data' }];
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -48,6 +50,7 @@ export default function Settings() {
       <TabPanel id={panel} value={shown}>
         {shown === 'profile' && <Profile />}
         {shown === 'security' && <Security />}
+        {shown === 'activity' && <ActivityTab />}
         {shown === 'appearance' && <Appearance />}
         {shown === 'notifications' && <NotificationsTab />}
         {shown === 'data' && <DataTab />}
@@ -221,6 +224,114 @@ function RecordAccessLog() {
             <Table label="Who has looked at your record" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{rows.map((r) => <tr key={r.id} id={`my-access-${r.id}`} tabIndex={-1}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>
             <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
               <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown, newest first</span>
+              {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
+              {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
+            </div>
+          </>
+        )}
+    </Panel>
+  );
+}
+
+/** What an entry of one's own activity says happened: the common ones in words, the rest by the action's name. */
+const ACTIVITY_WORDS: Record<string, string> = {
+  login: 'Signed in', logout: 'Signed out', register: 'Signed in for the first time', self_register: 'Created your account',
+  password_reset_login: 'Signed in after resetting your password', invite_login: 'Signed in from an invitation', invite_accepted: 'Accepted an invitation',
+  login_failed: 'A sign-in failed', login_lockout: 'Locked after failed sign-ins', password_reset_requested: 'A password reset was asked for',
+  password_reset: 'Reset your password', password_change: 'Changed your password', password_step_up: 'Confirmed it was you with your password',
+  session_expired: 'A session ran out', session_evicted: 'A session was signed out to keep within the limit', session_revoked: 'Signed out a device',
+  revoke_sessions: 'Signed out everywhere', recovery_code_used: 'Used a recovery code', recovery_codes_regenerated: 'Made new recovery codes',
+  mfa_enabled: 'Turned on the authenticator app', mfa_disabled: 'Turned off the authenticator app', passkey_added: 'Added a passkey', passkey_removed: 'Removed a passkey',
+  edit_profile: 'Changed your profile', email_confirmed: 'Confirmed your email address', export_personal: 'Downloaded your data', digest_sent: 'Your weekly digest went out',
+  create: 'Added', edit: 'Changed', delete: 'Deleted', restore: 'Restored', view_record: 'Opened', export_record: 'Downloaded', comment_added: 'Commented on', request_sent: 'Sent a request on',
+};
+/** The record an entry is about, for the actions above that name one. */
+const ACTIVITY_RECORDS: Record<string, string> = {
+  activities: 'an activity', projects: 'a project', tasks: 'a task', goals: 'a goal', trainings: 'a training', awards: 'an award', counselings: 'a counseling',
+  duties: 'a duty', work_items: 'a case', contacts: 'a contact', threads: 'a thread', report_drafts: 'a report draft',
+};
+const ON_A_RECORD = new Set(['create', 'edit', 'delete', 'restore', 'view_record', 'export_record', 'comment_added', 'request_sent']);
+function activitySentence(r: api.MyActivityRow) {
+  const words = ACTIVITY_WORDS[r.action];
+  if (words && ON_A_RECORD.has(r.action) && r.entity) return `${words} ${ACTIVITY_RECORDS[r.entity] ?? humanize(r.entity).toLowerCase()}`;
+  return words ?? `${humanize(r.action)}${r.entity ? ` · ${r.entity}` : ''}`;
+}
+/** An action as the filter offers it: one that names a record says so. */
+const actionLabel = (action: string) => {
+  const words = ACTIVITY_WORDS[action];
+  return words ? `${words}${ON_A_RECORD.has(action) ? ' a record' : ''}` : humanize(action);
+};
+const ACTIVITY_CATEGORIES = [{ value: 'all', label: 'Every category' }, ...AUDIT_CATEGORIES.map((c) => ({ value: c, label: AUDIT_CATEGORY_LABELS[c] }))];
+/**
+ * The actions one may filter by, in the words the list uses: every catalogued action, whatever the category. Some
+ * entries are sealed in another category than the catalogue lists their action under (a refused administration page,
+ * a help queue answer), so narrowing this list by category would hide pairs that match.
+ */
+const ACTIVITY_ACTIONS = [...new Set(AUDIT_CATEGORIES.flatMap((c) => AUDIT_CATALOG_GROUPS[c]))]
+  .map((a) => ({ value: a, label: actionLabel(a) })).sort((a, b) => a.label.localeCompare(b.label));
+interface ActivityFilter { category: string; action: string; from: string; to: string }
+const NO_ACTIVITY_FILTER: ActivityFilter = { category: '', action: '', from: '', to: '' };
+
+/**
+ * What the Marine did in Vantage, in every Unit Instance, and what happened on their account with nobody signed in (a
+ * failed sign-in, a session that ran out), newest first and a page at a time. Filtered on the server as the audit trails
+ * are. Who opened their record is under Security; this is their own.
+ */
+function ActivityTab() {
+  const [draft, setDraft] = useState<ActivityFilter>(NO_ACTIVITY_FILTER);
+  const [filter, setFilter] = useState<ActivityFilter>(NO_ACTIVITY_FILTER);
+  const [rangeError, setRangeError] = useState<RangeProblem['fieldErrors'] | null>(null);
+  const sent: api.MyActivityFilter = Object.fromEntries(Object.entries(filter).filter(([, v]) => v));
+  const log = useInfiniteQuery({
+    queryKey: ['my-activity', sent],
+    queryFn: ({ pageParam }) => api.myActivity(sent, pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last: api.AccessLogPage<api.MyActivityRow>) => last.next,
+    refetchOnWindowFocus: false, retry: false,
+  });
+  const rows = (log.data?.pages ?? []).flatMap((p) => p.rows);
+  const filtered = Object.values(filter).some(Boolean);
+  const fieldErrors = log.error instanceof api.ApiError ? log.error.fieldErrors : null;
+  const focusWhenShown = useFocusWhenShown();
+  const loadOlder = async () => {
+    const before = rows.length;
+    const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
+    if (added) focusWhenShown(`my-activity-${added.id}`);
+  };
+  const apply = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Both days or neither, in order and within the span every range keeps (ADR-0038), checked before anything is sent.
+    const problem = draft.from || draft.to ? rangeProblems(draft.from, draft.to, { required: true }) : null;
+    if (problem) { setRangeError(problem.fieldErrors); return; }
+    setRangeError(null);
+    setFilter(draft);
+  };
+  return (
+    <Panel title="Your activity" subtitle="What you did in Vantage, and what happened on your account" padded={false}>
+      <form className="flex flex-wrap items-end gap-2 border-b border-line p-3" onSubmit={apply} noValidate>
+        <Field label="Category" className="w-52"><Select aria-label="Category" value={draft.category || 'all'} onValueChange={(v) => setDraft({ ...draft, category: v === 'all' ? '' : v })} options={ACTIVITY_CATEGORIES} /></Field>
+        <Field label="Action" className="w-52"><Select aria-label="Action" value={draft.action || 'all'} onValueChange={(v) => setDraft({ ...draft, action: v === 'all' ? '' : v })} options={[{ value: 'all', label: 'Every action' }, ...ACTIVITY_ACTIONS]} /></Field>
+        <Field label="From (UTC)" className="w-40" error={rangeError?.from ?? fieldErrors?.from}><Input type="date" value={draft.from} onChange={(e) => { setRangeError(null); setDraft({ ...draft, from: e.target.value }); }} /></Field>
+        <Field label="To (UTC)" className="w-40" error={rangeError?.to ?? fieldErrors?.to}><Input type="date" value={draft.to} onChange={(e) => { setRangeError(null); setDraft({ ...draft, to: e.target.value }); }} /></Field>
+        <Button type="submit" variant="primary">Apply</Button>
+        {filtered && <Button type="button" variant="ghost" onClick={() => { setRangeError(null); setDraft(NO_ACTIVITY_FILTER); setFilter(NO_ACTIVITY_FILTER); }}>Clear</Button>}
+      </form>
+      {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-24" /></div>
+        : log.isError && !log.data ? (fieldErrors?.from || fieldErrors?.to ? null : <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="Your activity" />)
+        : !rows.length ? <EmptyState icon={History} title={filtered ? 'Nothing matches' : 'Nothing yet'} description={filtered ? 'Try a wider date range, another category or another action.' : 'What you do in Vantage shows up here.'} /> : (
+          <>
+            <Table label="Your activity, newest first" minWidth={320} head={<><th className="w-40">When</th><th>What happened</th></>}>{rows.map((r) => (
+              <tr key={r.id} id={`my-activity-${r.id}`} tabIndex={-1}>
+                <td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td>
+                <td className="text-xs text-ink">
+                  {r.by === 'account' && <Badge tone="info" className="mr-1.5">On your account</Badge>}
+                  {activitySentence(r)}{r.detail ? <span className="text-ink-3 [overflow-wrap:anywhere]"> · {r.detail}</span> : ''}
+                  <span className="block text-2xs text-ink-3">{isAuditCategory(r.category) ? AUDIT_CATEGORY_LABELS[r.category] : 'Uncategorised'}</span>
+                </td>
+              </tr>
+            ))}</Table>
+            <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
+              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown{filtered ? ', filtered' : ''}, newest first</span>
               {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
               {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
             </div>

@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { clientVisual, DrillDialog, VisualView, type DrillTarget, type OnDrill } from '@/components/analytics';
 import { QueryFailure } from '@/components/QueryFailure';
+import { PersonChip, ShowOnlyPerson, personNamed } from '@/components/PersonFilter';
 import { DateText, Table, useParam } from '@/components/common';
 import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics, useMetricsReport } from '@/lib/queries';
 import { ContributorsDialog, MetricTotalsGrid } from '@/components/MetricTotals';
@@ -125,7 +126,8 @@ export default function Team({ section }: { section: TeamSection }) {
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
           {shown === 'units' && (team.isPending ? <Skeleton className="h-64" /> : team.error && !team.data ? <QueryFailure error={team.error} onRetry={() => team.refetch()} what="The units" />
             : <Units units={units} manageUnits={manageUnits} orgAdmin={Boolean(identity?.orgs?.some((o) => o.permissions.includes('org.units')))} roster={team.data?.roster || []} />)}
-          {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
+          {/* A link to one unit's log (?unit=) opens that log at once, before the view it also picks has been drawn. */}
+          {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(linked) ? linked : viewAudit.includes(unit) ? unit : viewAudit[0]} />}
         </>
       )}
       {unit && <MessageDialog open={messaging} onOpenChange={setMessaging} unitId={unit} unitLabel={viewLabel(view) || unitLabel(unit)} />}
@@ -853,14 +855,23 @@ function UnitOutput({ unitId, unitLabel, from, to, canExport, canDetail }: { uni
   );
 }
 
+const UNIT_ACCESS_PERSON = 'unit-access-person';
+/** Where focus goes when "Show everyone" takes the chip off the page: the log's own heading, which stays. */
+const UNIT_ACCESS_HEADING = 'unit-access-heading';
 /**
  * The unit's access log, newest first, a page at a time. Each entry names who opened what and whose it was; a read that
- * fails says so rather than showing an empty log.
+ * fails says so rather than showing an empty log. `?person=` narrows it to one person's entries in the unit, from a
+ * name in an entry or a link from their page.
  */
 function UnitAudit({ unitId }: { unitId: string }) {
+  const [person, setPerson] = useParam('person');
+  // The person's name: from the entry they were picked in, or from the first page that names them. It is kept while
+  // another page loads and when a unit's log holds nothing of theirs. Opened from a link to someone no page has named
+  // yet, the chip says only that one person's entries are shown.
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const log = useInfiniteQuery({
-    queryKey: ['unit-audit', unitId],
-    queryFn: ({ pageParam }) => api.unitAudit(unitId, pageParam),
+    queryKey: ['unit-audit', unitId, person],
+    queryFn: ({ pageParam }) => api.unitAudit(unitId, pageParam, person || undefined),
     initialPageParam: null as number | null,
     getNextPageParam: (last: api.AccessLogPage<api.UnitAccessRow>) => last.next,
     enabled: Boolean(unitId), refetchOnWindowFocus: false, retry: false,
@@ -873,25 +884,33 @@ function UnitAudit({ unitId }: { unitId: string }) {
     const added = ((await log.fetchNextPage()).data?.pages ?? []).flatMap((p) => p.rows)[before];
     if (added) focusWhenShown(`unit-access-${added.id}`);
   };
+  const who = (r: api.UnitAccessRow) => fullName({ rank_abbr: r.actor_rank, first_name: r.actor_first, last_name: r.actor_last });
+  const whose = (r: api.UnitAccessRow) => fullName({ first_name: r.subject_first, last_name: r.subject_last });
+  const pick = (id: string, name: string) => { setPicked({ id, name }); setPerson(id); focusWhenShown(UNIT_ACCESS_PERSON); };
+  const named = person ? personNamed(rows, person, who, whose) : '';
+  useEffect(() => { if (person && named) setPicked((p) => (p?.id === person && p.name === named ? p : { id: person, name: named })); }, [person, named]);
+  const everyone = () => { setPerson(''); focusWhenShown(UNIT_ACCESS_HEADING); };
+  const only = (id: string | null, name: string) => (id && id !== person ? <ShowOnlyPerson name={name} onPick={() => pick(id, name)} /> : null);
   return (
-    <Panel title="Who has been reading records in this unit" subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}>
+    <Panel title={<span id={UNIT_ACCESS_HEADING} tabIndex={-1}>Who has been reading records in this unit</span>} subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}
+      action={person ? <PersonChip id={UNIT_ACCESS_PERSON} name={named || (picked?.id === person ? picked.name : '')} onClear={everyone} /> : undefined}>
       {log.isPending ? <div className="p-3" aria-hidden><Skeleton className="h-48" /></div>
         : log.isError && !log.data ? <QueryFailure className="" error={log.error} onRetry={() => log.refetch()} what="The access log" />
-        : !rows.length ? <EmptyState icon={ClipboardList} title="No access events yet" /> : (
+        : !rows.length ? (person ? <EmptyState icon={ClipboardList} title="Nothing matches" description="This unit’s log has no entry by or about this person." /> : <EmptyState icon={ClipboardList} title="No access events yet" />) : (
           <>
             <Table label="Who has been reading records in this unit" head={<><th className="w-40">When</th><th className="w-40">Who</th><th>Action</th><th className="w-40">Subject</th><th>Detail</th></>}>
               {rows.map((r) => (
                 <tr key={r.id} id={`unit-access-${r.id}`} tabIndex={-1}>
                   <td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td>
-                  <td className="text-xs">{fullName({ rank_abbr: r.actor_rank, first_name: r.actor_first, last_name: r.actor_last }) || 'system'}</td>
+                  <td className="text-xs">{who(r) || 'system'}{only(r.actor_id, who(r))}</td>
                   <td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td>
-                  <td className="text-xs">{fullName({ first_name: r.subject_first, last_name: r.subject_last })}</td>
+                  <td className="text-xs">{whose(r)}{only(r.subject_id, whose(r))}</td>
                   <td className="text-xs text-ink-3 [overflow-wrap:anywhere]">{r.detail}</td>
                 </tr>
               ))}
             </Table>
             <div className="flex flex-wrap items-center justify-center gap-2 border-t border-line p-3">
-              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown, newest first</span>
+              <span className="text-xs text-ink-3" role="status" aria-live="polite">{rows.length} shown{person ? ', filtered' : ''}, newest first</span>
               {log.isFetchNextPageError && <span className="text-xs text-bad" role="alert">Older entries could not load. {api.errorText(log.error)}</span>}
               {log.hasNextPage && <Button size="sm" onClick={loadOlder} loading={log.isFetchingNextPage}>{log.isFetchNextPageError ? 'Try again' : 'Load older'}</Button>}
             </div>

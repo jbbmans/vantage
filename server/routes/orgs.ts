@@ -25,7 +25,7 @@ import { now } from '../lib/ids.ts';
 import { notify } from '../services/notifications.ts';
 import { authorityBeyond, tellOtherInstances } from '../services/identity.ts';
 import { membershipHistory } from '../services/membership.ts';
-import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditCount, auditDay, auditFilterLabel, auditQuery, auditRows, unfilteredFirstPage, type AuditTrail } from '../services/auditQuery.ts';
+import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditCount, auditDay, auditFilterLabel, auditQuery, auditRows, carriesActionList, type AuditTrail } from '../services/auditQuery.ts';
 import {
   addStandardDutyTypes, addStandardErrorReportTypes, applyConfigurationImport, exportUnitConfiguration, planConfigurationImport, saveBillet, saveDutyType,
   saveErrorReportType, saveTrainingRequirement, unitConfiguration, updateUnitSettings, type UnitConfigurationFile,
@@ -353,7 +353,9 @@ orgsRouter.get('/:orgId/privacy/inventory', inOrg('org.privacy'), wrap((req, res
 
 /**
  * The Unit Instance's trail (ADR-0012): its own entries and its units', filtered and paged on the server like the
- * platform's, so nothing older than a page is out of reach. A unit filter names one of its own units.
+ * platform's, so nothing older than a page is out of reach. A unit filter names one of its own units. A person filter
+ * only narrows the trail: an id it holds nothing for, whoever's, is the same empty page, so its body tells nobody where
+ * else a person is (how long it takes is not hidden, ADR-0050).
  */
 const orgAuditQuery = auditQuery.extend({ unit: z.string().trim().max(64).optional() });
 
@@ -392,9 +394,10 @@ orgsRouter.get('/:orgId/audit', inOrg('org.audit'), wrap((req, res) => {
     next: rows.length > limit ? page.at(-1)!.seq : null,
     // The chain's state on the first page only, not on every page back. The chain is the whole service's, so a Unit
     // Instance is told whether it holds and how many of the entries are its own, never the service's count or which
-    // entry broke it, which may be another instance's. The action list comes with the unfiltered first page only.
+    // entry broke it, which may be another instance's. The action list, the whole trail's, comes with a first page that
+    // nothing narrows but one person at most (carriesActionList).
     chain: whole ? instanceChain(req, whole) : null,
-    actions: whole && unfilteredFirstPage(q) ? auditActions(req.ctx, whole) : null,
+    actions: whole && carriesActionList(q) ? auditActions(req.ctx, whole) : null,
   });
 }));
 
@@ -408,7 +411,8 @@ orgsRouter.get('/:orgId/audit/export', inOrg('org.audit'), wrap((req, res) => {
   // Counted before anything is read, so a file too large is refused without holding its entries in memory first.
   if (auditCount(req.ctx, trail, q, AUDIT_EXPORT_MAX + 1) > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
   const rows = auditRows(req.ctx, trail, q, AUDIT_EXPORT_MAX, { seals: true });
-  const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to, unit: q.unit });
+  // One person is named by their id, never a name or a username: a username Vantage made from a card is an EDIPI.
+  const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to, unit: q.unit, person: q.person });
   audit(req.ctx, { actor_id: req.user.id, action: 'organization_audit_exported', entity: 'audit_log', org_id: org.id, detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-${org.slug.toLowerCase()}-audit-${now().slice(0, 10)}.${format}"`);
   if (format === 'json') return res.json({ exportedAt: now(), organization: { id: org.id, name: org.name }, filter: q, rows });

@@ -262,7 +262,7 @@ export default function ReportLibrary() {
                 : run.error || !doc ? <QueryFailure error={run.error} what="The report" onRetry={() => run.refetch()} denied={{ title: 'Not yours to run', description: api.errorText(run.error) }} /> : (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {doc.files.length < 4 ? <p className="mr-auto text-xs text-ink-3">{doc.files.length ? 'A PDF only: a spreadsheet or data file of someone else’s records needs the export permission in their unit.' : 'No file: taking a unit’s report away needs the export permission in that unit. It prints from here.'}</p> : null}
+                    {doc.files.length < 4 ? <p className="mr-auto text-xs text-ink-3">{doc.files.length ? 'A PDF only: a spreadsheet or data file of someone else’s records needs the export permission in every unit the report reads.' : 'No file: taking a unit’s report away needs the export permission in every unit the report reads. It prints from here.'}</p> : null}
                     <Button onClick={print} data-tutorial="report-print"><Printer className="h-4 w-4" aria-hidden />Print</Button>
                     {files.length ? <DownloadMenu choices={files} /> : null}
                   </div>

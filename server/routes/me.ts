@@ -17,7 +17,7 @@ import { registrationOptions, completeRegistration, listPasskeys, deletePasskey 
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
 import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
-import { auditQuery } from '../services/auditQuery.ts';
+import { auditQuery, auditRows, withoutEdipis, type AuditTrail } from '../services/auditQuery.ts';
 import { EMAIL_CHANGE_SUBJECT, emailChangeMessage } from '../services/mailMessages.ts';
 import { notSentMessage } from '../services/email.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -408,6 +408,48 @@ meRouter.get('/audit', wrap((req, res) => {
   const rows = req.ctx.db.prepare(`SELECT al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, u.first_name, u.last_name, r.abbr AS rank_abbr FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN ranks r ON r.id = u.rank_id
     WHERE al.subject_id = ? AND al.actor_id <> ? AND al.seq < ? ORDER BY al.seq DESC LIMIT ?`).all(req.user.id, req.user.id, q.before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number }>;
   const page = rows.slice(0, limit);
+  // An EDIPI in an entry's words goes out masked, as GET /me sends one (ADR-0033): a CAC correction names two, and the
+  // one it replaced may be somebody else's. The query stays as it is; only what is shown is masked.
+  for (const row of page) withoutEdipis(row);
+  res.json({ rows: page, next: rows.length > limit ? page.at(-1)!.seq : null });
+}));
+
+/**
+ * Actions written with the account as their actor that someone else may have set off while its owner was signed out: a
+ * password reset anyone can ask for by name, and a lockout after failed sign-ins from anywhere. Shown as on the account.
+ */
+const ON_THE_ACCOUNT: ReadonlySet<string> = new Set(['password_reset_requested', 'login_lockout']);
+/** An id as Vantage makes one (a UUID): of a person, a record, a comment or a message. None goes out in the words. */
+const AN_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
+ * The reader's own activity: the entries they wrote, and those on their account nobody did (a failed sign-in, a
+ * session Vantage ended), newest first, a page at a time, filtered as the audit trails are. Every Unit Instance they
+ * acted in, as the personal export gives it, and nothing anyone else did. Each entry says what happened and when, and
+ * less than the export does: no address, no seals, no unit or Unit Instance field, no entity id, and no id in its words, so
+ * nobody is named by id. No parameter names whose activity it is: the reader is always the session's own.
+ */
+meRouter.get('/activity', wrap((req, res) => {
+  const q = parse(auditQuery.pick({ category: true, action: true, from: true, to: true, before: true, limit: true }), req.query);
+  const limit = q.limit ?? 100;
+  const me = req.user.id;
+  // Two reads, each down its own index and newest first, merged by position: one OR over both columns would read and
+  // sort every entry of a busy leader (as the personal export's trail is read). Each is read with its words as written,
+  // not as a trail that hides EDIPIs reads them: that masks ten digits in a row first, and an id whose last group holds
+  // ten would then no longer read as an id, and most of it would go out. Nothing else that trail changes matters here:
+  // no username or entity id is sent, and no search is taken.
+  const read = (trail: AuditTrail) => auditRows(req.ctx, trail, q, limit + 1);
+  const rows = [
+    ...read({ where: 'al.actor_id = ?', params: [me], index: 'idx_audit_actor' }),
+    ...read({ where: 'al.actor_id IS NULL AND al.subject_id = ?', params: [me], index: 'idx_audit_subject' }),
+  ].sort((a, b) => b.seq - a.seq).slice(0, limit + 1);
+  // Every id in the words is blanked first, whole, and only then is an EDIPI the words still carry masked (ADR-0033).
+  const words = (detail: unknown) => (typeof detail === 'string' ? withoutEdipis({ detail: detail.replace(AN_ID, '…') }).detail : null);
+  const page = rows.slice(0, limit).map((r) => ({
+    seq: r.seq, id: r.id, at: r.at, action: r.action, category: r.category, entity: r.entity,
+    detail: words(r.detail),
+    by: r.actor_id == null || ON_THE_ACCOUNT.has(r.action) ? 'account' as const : 'you' as const,
+  }));
   res.json({ rows: page, next: rows.length > limit ? page.at(-1)!.seq : null });
 }));
 

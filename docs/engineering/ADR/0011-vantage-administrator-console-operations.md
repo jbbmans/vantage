@@ -196,8 +196,11 @@ turns a feature on for one Unit Instance.
 ### 9. Enterprise audit
 
 - `GET /api/platform/audit` filters on the server, by text (action, detail, usernames, an exact IP or
-  entity id), action and UTC dates, and pages back with `before`. The chain is verified, and the list of
-  actions read, on the first page only.
+  entity id), action, UTC dates and one person by user id (`person`, [ADR-0050](0050-reachable-statistics.md)), and
+  pages back with `before`. The chain is verified, and the list of actions read, on the first page only; a person
+  filter leaves the chain count and the action list the trail's, and a first page narrowed by person alone
+  still carries that list. Each account in Accounts links to the trail
+  filtered to it for holders of `platform.audit`.
 - `GET /api/platform/audit/export?format=csv|json` exports the filtered trail and is
   itself audited as `platform_audit_exported` with the filter and the row count. More than 50,000
   matching entries are refused with a request to narrow the dates: a file is complete or not made. CSV

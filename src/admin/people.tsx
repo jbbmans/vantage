@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Copy, KeyRound, LogOut, Plus, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
+import { Building2, Copy, KeyRound, LogOut, Plus, ScrollText, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -407,7 +408,10 @@ export function Accounts() {
                   <td className="text-xs text-ink-2">{[u.totp_enabled ? 'Authenticator' : '', u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || <span className="text-warn">none</span>}</td>
                   <td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td>
                   <td>{!u.active ? <Badge tone="bad">Deactivated</Badge> : u.locked_until ? <Badge tone="warn" title={`Locked until ${formatStamp(u.locked_until)}`}>Locked</Badge> : u.must_change_password ? <Badge tone="neutral">Temporary password</Badge> : <Badge tone="good">Active</Badge>}</td>
-                  <td className="text-right">{can('platform.accounts') && !self && <span className="flex flex-wrap justify-end gap-1">
+                  <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
+                    {/* Their sign-ins and account in the platform trail, for staff who read it. */}
+                    {can('platform.audit') && <Button size="xs" variant="ghost" asChild><Link to={`/audit?person=${encodeURIComponent(u.id)}`} aria-label={`Platform trail for ${u.username}`}><ScrollText className="h-3 w-3" aria-hidden />Platform trail</Link></Button>}
+                    {can('platform.accounts') && !self && <>
                     {u.active && u.locked_until && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'unlock', user: u })}><Unlock className="h-3 w-3" />Unlock</Button>}
                     {u.active ? <>
                       {u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}
@@ -417,7 +421,8 @@ export function Accounts() {
                       <Button size="xs" variant="ghost" onClick={() => setCard({ user: u, edipi: u.edipi || '', reason: '' })}>CAC link</Button>
                       <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>
                     </> : <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reactivate', user: u })}>Reactivate</Button>}
-                  </span>}</td>
+                    </>}
+                  </span></td>
                 </tr>
               );
             })}

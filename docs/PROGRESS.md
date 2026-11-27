@@ -2,6 +2,35 @@
 
 _Updated 2026-11-26_
 
+## What changed (2026-11-26: statistics, part 1, the reachable pieces)
+
+**In review.** HawkScan runs from the pushed branch; the findings are read in the PR. CI results not acted on.
+
+Round 2, from `cf82fa9` ([ADR-0050](engineering/ADR/0050-reachable-statistics.md)). No migration.
+
+- **A Marine's Analysis from their page** (`src/pages/MemberDetail.tsx`): Analysis, one per Unit Instance where the
+  reader opens them, and Access log with `VIEW_AUDIT`. One subject rule (`subjectUnits`, `server/authz/scope.ts`)
+  reads, about another Marine, what they shared with every unit of one Unit Instance where the reader opens them, in
+  the six `/api/reports*` routes, `/api/metrics` and its contributors, and the Report library, so the grid and the
+  Analysis count what the page lists for that instance, over the period they read. The CSV and the library's data files need `EXPORT_DATA` in every
+  unit read; a PDF is sent only while the reader still opens the Marine in each. `build_report`, the library's entries
+  and the page's `view_member` are written in each unit read; a drill into their figures writes `list_records`. Answers carry
+  `units`; another Marine's average entry strength is left out. The Reports page takes `?view=`, names the Marine from
+  the report and says which units it was drawn from. The grid is headed for the last 12 months it reads.
+- **Your activity** (`GET /api/me/activity`, Settings → Your activity): what the person did and what happened on their
+  account that nobody did, newest first, filtered by category, action and UTC days, through the actor and subject
+  indexes. No address, no unit or Unit Instance field and no id of anyone; EDIPIs masked (an entry's words may still
+  name a unit, as the personal export's do). `GET /api/me/audit` masks EDIPIs now too.
+- **One person's trail** (`person` in `server/services/auditQuery.ts`): the Unit Instance and platform trails, their
+  exports and a unit's access log, read as two indexed branches inside the trail. The same empty page for an id the
+  trail holds nothing for; the chain count and action list stay the trail's, and a page filtered by person alone still
+  lists the trail's actions; exports name it by id. A name in a trail
+  or the Team access log narrows it ("Show only"), a chip clears it, and the console's People and the admin's Accounts
+  link to it.
+- **Tests:** `tests/server/memberAnalysis.test.ts`, `ownActivity.test.ts`, `auditPerson.test.ts`, `auditScale.test.ts`
+  (the person plans, AUD-2), `tests/browser/63-member-analysis.spec.ts`, `64-own-activity.spec.ts`,
+  `65-audit-person.spec.ts`.
+
 ## What changed (2026-11-26: better email, part 2, team messages and their files)
 
 **In review.** HawkScan runs from the pushed branch; the findings are read in the PR. CI results not acted on.

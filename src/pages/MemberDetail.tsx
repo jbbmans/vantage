@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer, Printer } from 'lucide-react';
+import { ArrowLeft, FileDown, MessageSquare, Award as AwardIcon, Pencil, ShieldCheck, Sparkles, Activity, Timer, Printer, BarChart3, ScrollText } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Tabs, TabPanel, Panel, EmptyState, Badge, Skeleton, Stat } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -70,14 +70,18 @@ export default function MemberDetail() {
   useRememberVisit(identity?.user.id, person && id !== identity?.user.id ? { to: `/team/${id}`, title: `${person.rank_abbr ? `${person.rank_abbr} ` : ''}${person.last_name}, ${person.first_name}`, kind: 'marine' } : null);
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
-  const memberParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
-  const memberMetrics = useMetricsReport(memberParams, Boolean(data));
   // The Marine's own figures worked on the published tables, as they see it (ADR-0046); opening them is audited.
   const est = useMemo(() => (readiness && Object.keys(readiness).length ? estimateJepes(readiness) : null), [readiness]);
   // A Marine's fitness reports are read only when the overview shows them: each read by someone else is logged (ADR-0047).
   const fitrep = useMemberFitnessReports(data && track === 'fitrep' && tab === 'overview' ? id : '');
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0] ?? null;
+  // Another Marine's figures count what their Analysis counts: what they shared with the units of the first Unit Instance
+  // the page lists, read through its first unit. One's own count every record one keeps.
+  const figureUnit = isSelf ? null : unitId;
+  const memberParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id, ...(figureUnit ? { unit_id: figureUnit } : {}) }; }, [id, figureUnit]);
+  const memberMetrics = useMetricsReport(memberParams, Boolean(data));
+  const figurePeriod = rangeForPeriod(DEFAULT_PERIOD).label;
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
   // An award recommendation for this Marine saved as a draft (ADR-0030) opens here from ?draft=, in the unit it names.
   const restoreAward = (p: Record<string, unknown>) => ({ ...emptyAward('unit', unitId), ...p, user_id: id });
@@ -85,7 +89,7 @@ export default function MemberDetail() {
   const canManage = Boolean(data?.canManageMembers?.length);
   const [until, setUntil] = useState('');
   const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && Boolean(data) && tab === 'roles', retry: false });
-  const unitLabel = (u: string) => { const x = (org?.units || []).find((y) => y.id === u); return x ? x.short_name || x.name : u; };
+  const unitLabel = (u: string) => { const x = data?.detailInstances?.flatMap((i) => i.units).find((y) => y.id === u) || (org?.units || []).find((y) => y.id === u); return x ? x.short_name || x.name : u; };
   // A training open here closes once the page has been read again and no longer lists it: un-shared, moved or removed.
   // A read that failed closes nothing, and nothing reopens by itself.
   useEffect(() => { if (trainingView && data && !error && !data.trainings.some((t) => t.id === trainingView.id)) setTrainingView(null); }, [data, error, trainingView]);
@@ -117,6 +121,11 @@ export default function MemberDetail() {
   const counselingsCut = Boolean(records && records.counts.counselings > records.counselings.length);
   const goalsCut = Boolean(records && records.counts.goals > records.goals.length);
   const assignments = record.instances.flatMap((i) => i.assignments);
+  // Another Marine's Analysis reads one Unit Instance's units together, so there is one for each instance listed, opened
+  // through its first unit. The access log opens in the first unit listed whose log this reader may read.
+  const instances = records && !isSelf ? records.detailInstances : [];
+  const analysisLink = (unit: string) => `/reports/analysis?${new URLSearchParams({ user: id, unit, view: 'analysis' })}`;
+  const auditUnit = records && !isSelf ? records.detailUnits.find((u) => can(identity, PERMISSIONS.VIEW_AUDIT, u)) : undefined;
 
   return (
     <div className="page">
@@ -127,11 +136,17 @@ export default function MemberDetail() {
         {canCounsel && <Button onClick={() => setDuty({ kind: 'new', forUser: { id, name: fullName(person) } })}><Timer className="h-4 w-4" />Record duty</Button>}
         {canCounsel && <Button variant="primary" onClick={() => setCounseling({ draft: { ...emptyCounseling('unit', unitId), user_id: id } })} data-tutorial="counseling-new-for-marine"><MessageSquare className="h-4 w-4" />New counseling</Button>}
         {records && <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>}
+        {instances.map((i) => (
+          <Button key={i.org_id || i.units[0].id} asChild>
+            <Link to={analysisLink(i.units[0].id)}><BarChart3 className="h-4 w-4" aria-hidden />{instances.length > 1 ? `Analysis in ${i.org_name || i.units.map((u) => u.short_name || u.name).join(', ')}` : 'Analysis'}</Link>
+          </Button>
+        ))}
+        {auditUnit && <Button asChild><Link to={`/team/access-log?${new URLSearchParams({ unit: auditUnit, person: id })}`}><ScrollText className="h-4 w-4" aria-hidden />Access log</Link></Button>}
       </PageHeader>
       {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />{records ? `You are seeing only what this Marine shared with ${records.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.` : recordsLoading ? 'You are seeing their personnel record. What they shared with your units is loading. Each view is logged.' : 'You are seeing their personnel record: where they serve, in what billet and under whom. Their entries stay with those who may read them. This view was logged.'}</p>}
       {records && <>
       <div className="mb-4">
-        <h2 className="eyebrow mb-2">Shared outcomes, fiscal year to date</h2>
+        <h2 className="eyebrow mb-2">{`Shared outcomes${instances.length > 1 ? ` in ${instances[0].units.map((u) => u.short_name || u.name).join(', ')}` : ''}, ${figurePeriod.charAt(0).toLowerCase()}${figurePeriod.slice(1)}`}</h2>
         <MetricTotalsGrid
           headline={memberMetrics.data?.headline || []}
           tracked={memberMetrics.data?.tracked || []}

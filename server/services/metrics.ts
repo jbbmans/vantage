@@ -30,6 +30,11 @@ export interface MetricScopeOptions {
   unitId?: string | null;
   /** Restrict to one person. Omitted means everyone in scope. */
   subjectId?: string | null;
+  /**
+   * For another Marine: the units their figures are read in (subjectUnits), as their Analysis reads them. Only what they
+   * shared with these units counts, whatever else the reader reads.
+   */
+  subjectUnitIds?: string[] | null;
   /** Only the caller's own work, whatever else they can read. */
   mineOnly?: boolean;
   aggregation?: Aggregation;
@@ -67,8 +72,13 @@ function collectRows(load: RowLoader): SourceRow[] {
 
 function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions): SourceRow[] {
   return collectRows((table, columns) => {
-    const { clause, params } = readableClause(ctx, scope, user.id, 't');
     const period = periodClause(table, 't', opts.from, opts.to);
+    // Another Marine's figures read the units their Analysis reads, and nothing else: what they shared with those units.
+    if (opts.subjectId && opts.subjectUnitIds) {
+      return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.user_id = ? AND t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit' AND ${period.sql}`)
+        .all(opts.subjectId, JSON.stringify(opts.subjectUnitIds), ...period.params) as SourceRow[];
+    }
+    const { clause, params } = readableClause(ctx, scope, user.id, 't');
     const where = ['t.deleted_at IS NULL', clause, period.sql];
     params.push(...period.params);
     if (opts.unitId) { where.push("t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'"); params.push(JSON.stringify(subtreeIds(ctx, opts.unitId))); }
@@ -229,9 +239,9 @@ export interface Contributor {
 export interface ContributorList { count: number; value: number; records: Contributor[] }
 
 /**
- * The outcomes one figure counts, or one month of it. Read through the same authorization as the figure (readableClause),
- * so the count and the sum are of what the reader may see, and cut to DRILL_LIMIT only after that, with the count saying
- * how many there are in all.
+ * The outcomes one figure counts, or one month of it. Read through the same authorization as the figure (readableClause,
+ * or another Marine's units read), so the count and the sum are of what the reader may see, and cut to DRILL_LIMIT only
+ * after that, with the count saying how many there are in all.
  */
 export function metricContributors(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions & { metricId: string; month?: string | null }): ContributorList {
   const rows = sourceRows(ctx, user, scope, opts);

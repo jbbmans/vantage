@@ -325,6 +325,11 @@ export interface MemberDetailResponse {
   /** Membership periods, newest first (ADR-0009): the whole history on one's own page, otherwise the periods in units the reader can open in their own Unit Instance. */
   history: MembershipPeriod[];
   detailUnits: string[];
+  /**
+   * detailUnits by Unit Instance, in the same order, each with its units' names: an analysis about the Marine reads one
+   * instance's units together, so the page offers one for each. `org_name` is the instance's short name, else its name.
+   */
+  detailInstances: Array<{ org_id: string | null; org_name: string | null; units: Array<{ id: string; name: string; short_name: string | null }> }>;
   canCounsel: string[];
   canManageMembers: string[];
   activities: MemberActivity[]; trainings: Training[]; awards: MemberAward[]; duties: Duty[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];

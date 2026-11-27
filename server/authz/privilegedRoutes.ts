@@ -214,7 +214,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
 
   // Bulk downloads elsewhere: one’s own data, or another Marine’s through a unit permission
   { method: 'GET', path: '/api/me/export', kind: 'bulk', permission: ['self'], stepUp: true, audit: writes('export_personal'), note: 'Everything one keeps, or the categories one chooses: JSON, a ZIP with attachments, a workbook, or one category as CSV.' },
-  { method: 'GET', path: '/api/reports/csv', kind: 'bulk', permission: ['self', 'EXPORT_DATA'], stepUp: false, audit: writes('export_csv', 'build_report'), note: 'Another Marine’s activities take EXPORT_DATA in the unit as well as opening their record.' },
+  { method: 'GET', path: '/api/reports/csv', kind: 'bulk', permission: ['self', 'EXPORT_DATA'], stepUp: false, audit: writes('export_csv', 'build_report'), note: 'Another Marine’s activities take EXPORT_DATA in every unit read (one Unit Instance’s units where the reader opens their record) as well as opening their record there.' },
   { method: 'GET', path: '/api/reports/pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },
   { method: 'GET', path: '/api/reports/analysis.pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },
   {
