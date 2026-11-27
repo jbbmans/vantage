@@ -23,6 +23,11 @@ export const auditQuery = z.object({
   to: rangeDay,
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
+  /**
+   * One person, by user id: the entries they wrote and those about them that somebody else (or nobody) wrote, inside the
+   * trail. Never a name or a username. An id the trail holds nothing for reads as an empty page, whoever it belongs to.
+   */
+  person: z.string().trim().min(1).max(64).optional(),
 });
 export type AuditQuery = z.infer<typeof auditQuery>;
 
@@ -44,7 +49,16 @@ export interface AuditTrail {
    * EDIPI, and the number a card link's words carry (withoutEdipis).
    */
   hideCacUsernames?: boolean;
+  /**
+   * The index the trail is read through, where the planner could otherwise take one that walks more of the log: one
+   * person's entries by `idx_audit_actor` or `idx_audit_subject`, newest first. SQLite refuses the read if it is missing.
+   */
+  index?: AuditIndex;
 }
+
+/** The audit log's indexes a trail may name. A fixed list, so nothing but these names reaches the SQL. */
+export type AuditIndex = 'idx_audit_actor' | 'idx_audit_subject' | 'idx_audit_unit' | 'idx_audit_org';
+const indexed = (trail: AuditTrail) => (trail.index ? ` INDEXED BY ${trail.index}` : '');
 
 const CAC_USERNAME_GLOB = "'edipi-[0-9]*'";
 
@@ -73,6 +87,21 @@ export function withoutEdipis<T extends Record<string, unknown>>(row: T): T {
 const LIST_COLUMNS = 'al.seq, al.id, al.at, al.action, al.category, al.actor_id, al.subject_id, al.entity, al.entity_id, al.unit_id, al.org_id, al.detail, al.ip';
 const SEAL_COLUMNS = 'al.prev_hash, al.entry_hash';
 const JOINS = 'LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id';
+
+/**
+ * How a trail is read for a filter. Most filters narrow the trail's own SQL. One person is read as two branches merged in
+ * order, as the personal export reads one (personalAuditTrail): the entries they wrote, by idx_audit_actor, and those about
+ * them that somebody else or nobody wrote, by idx_audit_subject, each newest first and each still inside the trail. One OR
+ * over both columns would read the trail's whole index, or sort every entry of a busy person. The person never becomes
+ * part of the trail itself, so its count and its action list stay the trail's.
+ */
+function readAs(trail: AuditTrail, q: { person?: string }): AuditTrail[] {
+  if (!q.person) return [trail];
+  return [
+    { ...trail, where: `(${trail.where}) AND al.actor_id = ?`, params: [...trail.params, q.person], index: 'idx_audit_actor' },
+    { ...trail, where: `(${trail.where}) AND al.subject_id = ? AND al.actor_id IS NOT ?`, params: [...trail.params, q.person, q.person], index: 'idx_audit_subject' },
+  ];
+}
 
 /** The SQL that picks a trail's entries for a filter, over `al`, `u` (the actor) and `s` (the subject). */
 function filterSql(trail: AuditTrail, q: Omit<AuditQuery, 'limit'>) {
@@ -110,10 +139,15 @@ function filterSql(trail: AuditTrail, q: Omit<AuditQuery, 'limit'>) {
  * list page leaves out each entry's seals; an export asks for them (`seals`).
  */
 export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery, 'limit'>, limit: number, { seals = false } = {}) {
-  const { where, params, username } = filterSql(trail, q);
-  const rows = ctx.db.prepare(`SELECT ${LIST_COLUMNS}${seals ? `, ${SEAL_COLUMNS}` : ''}, ${username('u')} AS actor_username, ${username('s')} AS subject_username${trail.columns ? `, ${trail.columns}` : ''} FROM audit_log al
+  const parts = readAs(trail, q).map((t) => {
+    const { where, params, username } = filterSql(t, q);
+    return { params, sql: `SELECT ${LIST_COLUMNS}${seals ? `, ${SEAL_COLUMNS}` : ''}, ${username('u')} AS actor_username, ${username('s')} AS subject_username${t.columns ? `, ${t.columns}` : ''} FROM audit_log al${indexed(t)}
       ${JOINS}
-     WHERE ${where} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number; action: string; category: string | null }>;
+     WHERE ${where}` };
+  });
+  // One trail is ordered by its own column; a person's two branches are merged by the position each one returns.
+  const rows = ctx.db.prepare(`${parts.map((p) => p.sql).join('\n     UNION ALL ')} ORDER BY ${parts.length > 1 ? 'seq' : 'al.seq'} DESC LIMIT ?`)
+    .all(...parts.flatMap((p) => p.params), limit) as Array<Record<string, unknown> & { seq: number; action: string; category: string | null }>;
   for (const row of rows) {
     row.category ??= auditCategoryOf(row.action);
     if (trail.hideCacUsernames) withoutEdipis(row);
@@ -126,13 +160,24 @@ export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery
  * before it reads a single entry of it.
  */
 export function auditCount(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery, 'limit' | 'before'>, cap: number): number {
-  const { where, params } = filterSql(trail, q);
-  // Only a text search reads the actor's and the subject's names; without one the count walks the entries alone.
-  return (ctx.db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM audit_log al ${q.q ? JOINS : ''} WHERE ${where} LIMIT ?)`).get(...params, cap) as { n: number }).n;
+  const parts = readAs(trail, q).map((t) => {
+    const { where, params } = filterSql(t, q);
+    // Only a text search reads the actor's and the subject's names; without one the count walks the entries alone.
+    return { params, sql: `SELECT 1 FROM audit_log al${indexed(t)} ${q.q ? JOINS : ''} WHERE ${where}` };
+  });
+  return (ctx.db.prepare(`SELECT COUNT(*) AS n FROM (${parts.map((p) => p.sql).join(' UNION ALL ')} LIMIT ?)`).get(...parts.flatMap((p) => p.params), cap) as { n: number }).n;
 }
 
-/** Whether a request is a trail's first page with no filter: the only page that carries the trail's action list. */
-export const unfilteredFirstPage = (q: Partial<AuditQuery> & { unit?: string }) => !q.before && !q.q && !q.action && !q.category && !q.from && !q.to && !q.unit;
+/** Whether a request is a trail's first page with no filter at all, one person included. */
+export const unfilteredFirstPage = (q: Partial<AuditQuery> & { unit?: string }) => !q.before && !q.q && !q.action && !q.category && !q.from && !q.to && !q.unit && !q.person;
+
+/**
+ * Whether a page carries the trail's action list: a first page that nothing narrows but, at most, one person. The list is
+ * the whole trail's and never the person's (readAs keeps the person out of the trail), and the same reader gets it on an
+ * unfiltered first page, so it says nothing new. A trail opened on one person, from a link or a reload, can still be
+ * narrowed by action. Any other filter keeps the list it was given.
+ */
+export const carriesActionList = (q: Partial<AuditQuery> & { unit?: string }) => unfilteredFirstPage({ ...q, person: undefined });
 
 /** Each trail's action list, when it was read and the newest entry it covers, keyed by the trail's SQL and parameters. */
 const actionLists = new WeakMap<AppContext, Map<string, { at: number; through: number; actions: string[] }>>();

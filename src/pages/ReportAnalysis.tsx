@@ -137,7 +137,8 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Coverage" subtitle={`average strength ${a.coverage.avgStrength} of 5`}>
+        {/* No average of another Marine's entries: each keeps its own score in the ledger. */}
+        <Panel title="Coverage" subtitle={a.coverage.avgStrength == null ? undefined : `average strength ${a.coverage.avgStrength} of 5`}>
           <ul className="space-y-2">{a.coverage.fields.map((f) => <li key={f.key}><div className="flex items-center justify-between text-sm"><span className="text-ink">{f.label}</span><span className="fig text-xs text-ink-3">{f.count} · {f.pct}%</span></div><div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-3"><div className={cn('h-full', f.pct >= 80 ? 'bg-good' : f.pct >= 50 ? 'bg-warn' : 'bg-bad')} style={{ width: `${f.pct}%` }} /></div></li>)}</ul>
           {(a.coverage.emptyAreas.length > 0 || a.coverage.unusedCategories.length > 0) && <p className="mt-3 text-xs text-ink-3">{a.coverage.emptyAreas.length ? `Nothing under ${a.coverage.emptyAreas.join(', ')}. ` : ''}{a.coverage.unusedCategories.length ? `Unused: ${a.coverage.unusedCategories.join(', ')}.` : ''}</p>}
         </Panel>

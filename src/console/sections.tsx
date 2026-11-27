@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, CalendarClock, HelpCircle, IdCard, KeyRound, LogOut, Save, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
+import { Building2, CalendarClock, HelpCircle, IdCard, KeyRound, LogOut, Save, ScrollText, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Stat, Switch, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -152,6 +153,8 @@ export function People({ org }: { org: OrgSummary }) {
   const actionsOf = (m: OrgMember) => (
     <>
       <Button size="xs" variant="ghost" onClick={() => setWhy(m)} aria-label={`Why can they? ${m.username}`}><HelpCircle className="h-3 w-3" />Why can they?</Button>
+      {/* What they did and what was done about them, in this Unit Instance's trail. */}
+      {can('org.audit') && <Button size="xs" variant="ghost" asChild><Link to={`/${org.id}/audit?person=${encodeURIComponent(m.id)}`} aria-label={`Audit trail for ${m.username}`}><ScrollText className="h-3 w-3" aria-hidden />Audit trail</Link></Button>}
       {can('org.personnel') && <Button size="xs" variant="ghost" aria-label={`EDIPI for ${m.username}`} onClick={() => setCac({ member: m, edipi: m.edipi || '' })}><IdCard className="h-3 w-3" />EDIPI</Button>}
       {can('org.members') && m.id !== identity?.user.id && <>
         {m.locked_until && <Button size="xs" variant="ghost" aria-label={`Unlock ${m.username}`} onClick={() => setConfirm({ kind: 'unlock', member: m })}><Unlock className="h-3 w-3" />Unlock</Button>}

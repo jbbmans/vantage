@@ -206,8 +206,11 @@ It shows configuration only: no secret, no host name and nothing about another U
 ### 11. The Unit Instance's audit trail
 
 - **Filtered on the server.** `GET /audit` filters as the platform trail does (ADR-0011): by words
-  (action, detail, usernames, people's names, an exact IP or entity id), action, unit and UTC dates. It
-  pages back with `before`.
+  (action, detail, usernames, people's names, an exact IP or entity id), action, unit, UTC dates and one
+  person by user id (`person`, [ADR-0050](0050-reachable-statistics.md)). It pages back with `before`. A person
+  filter only narrows: an id the trail holds nothing for, whoever's, is the same empty page, and the export
+  names it by id, never by name. People links each member to the trail filtered to them for holders of
+  `org.audit`.
 - **Shared code.** The query is shared with the platform trail (`server/services/auditQuery.ts`), and so
   is the page (`src/components/AuditTrail.tsx`).
 - **Export.** `GET /audit/export?format=csv|json` exports the filtered trail. It refuses more than 50,000

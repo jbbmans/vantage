@@ -100,7 +100,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(22).fillColor(INK).text(r.subject || 'Performance record');
     doc.moveDown(0.1);
-    p(`${r.unit ? `${r.unit.short_name || r.unit.name}  ·  ` : ''}${r.person?.mos ? `MOS ${r.person.mos}  ·  ` : ''}${r.track.toUpperCase()} track`, INK2, 10);
+    p(`${r.units.length ? `${r.units.map((u) => u.short_name || u.name).join(', ')}  ·  ` : ''}${r.person?.mos ? `MOS ${r.person.mos}  ·  ` : ''}${r.track.toUpperCase()} track`, INK2, 10);
     p(`Period ${r.period.label} (${r.period.from} to ${r.period.to})  ·  compared with ${r.prior.from} to ${r.prior.to}  ·  generated ${r.generatedAt}`, MUTED, 8.5);
     rule();
 
@@ -164,7 +164,14 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     // ---- 5 Coverage and data quality
     h1('5', 'Coverage and data quality');
     table([{ key: 'label', label: 'Field', width: 50 }, { key: 'count', label: 'Entries', width: 20, align: 'right' }, { key: 'pct', label: 'Coverage', width: 30, align: 'right' }], r.coverage.fields.map((f) => ({ label: f.label, count: f.count, pct: `${f.pct}%` })), { zebra: true });
-    p(`Average strength ${r.coverage.avgStrength} of 5 (${r.coverage.strengthDistribution.map((s) => `${s.count} at ${s.strength}`).join(', ')}).${r.coverage.emptyAreas.length ? ` No entries under ${r.coverage.emptyAreas.join(', ')}.` : ''}${r.coverage.unusedCategories.length ? ` Unused categories: ${r.coverage.unusedCategories.join(', ')}.` : ''}${r.coverage.planned ? ` ${r.coverage.planned} planned entries are excluded from every figure above.` : ''}`, INK2, 9);
+    // An analysis about another Marine gives no average of them: each entry's score stays in the ledger.
+    const coverageNote = [
+      r.coverage.avgStrength == null ? '' : `Average strength ${r.coverage.avgStrength} of 5 (${r.coverage.strengthDistribution.map((s) => `${s.count} at ${s.strength}`).join(', ')}).`,
+      r.coverage.emptyAreas.length ? `No entries under ${r.coverage.emptyAreas.join(', ')}.` : '',
+      r.coverage.unusedCategories.length ? `Unused categories: ${r.coverage.unusedCategories.join(', ')}.` : '',
+      r.coverage.planned ? `${r.coverage.planned} planned entries are excluded from every figure above.` : '',
+    ].filter(Boolean).join(' ');
+    if (coverageNote) p(coverageNote, INK2, 9);
     if (r.quality.length) { h2('Open issues'); for (const q of r.quality) p(`•  ${q.count} ${q.label}: ${q.detail}`, INK2, 9); }
 
     // ---- 6 Goals

@@ -5,8 +5,8 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { freshAuthority } from '../auth/fresh.ts';
-import { sameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
-import { buildReport, periodBounds, trackOf } from '../services/reports.ts';
+import { scopeFor, can, PERMISSIONS, detailUnitsFor, subjectUnits } from '../authz/scope.ts';
+import { buildReport, periodBounds, subjectWhere, trackOf } from '../services/reports.ts';
 import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
@@ -23,7 +23,7 @@ import { hydrate } from '../services/records.ts';
 import { periodClause } from '../services/timeframes.ts';
 import { runAiWorkflow, aiStatus, AiError, assertAiInputStillAllowed } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
-import { audit } from '../services/audit.ts';
+import { audit, auditListedRecords } from '../services/audit.ts';
 import { notifyStaff } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
 import { zonedDay, zonedNow } from '../lib/clock.ts';
@@ -71,27 +71,27 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const scope = scopeFor(req.ctx, req.user, req);
   let userId = req.user.id;
   let unitId: string | null = null;
+  let unitIds: string[] = [];
   if (q.user_id && q.user_id !== req.user.id) {
-    const units = detailUnitsFor(req.ctx, scope, q.user_id);
-    if (!units.length) throw forbidden('You cannot build a report for that Marine.');
+    // Another Marine: what they shared with every unit of one Unit Instance where the caller opens their records, the
+    // instance of the unit asked for (subjectUnits). Private entries are never read.
+    ({ unitId, unitIds } = subjectUnits(req.ctx, scope, q.user_id, q.unit_id, 'You cannot build a report for that Marine.'));
     userId = q.user_id;
-    // A unit the caller cannot open this Marine in falls back to one they can, inside the same Unit Instance. A unit
-    // from an instance where they cannot is not a near miss: it is refused rather than answered with another's figures.
-    const near = !q.unit_id || units.includes(q.unit_id) ? q.unit_id : units.find((u) => sameInstance(req.ctx, u, q.unit_id));
-    if (q.unit_id && !near) throw forbidden('That Marine is not yours to report on in that Unit Instance.', 'cross_instance');
-    unitId = near || units[0];
-    audit(req.ctx, { actor_id: req.user.id, action: 'build_report', entity: 'user', entity_id: userId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
+    // Each unit read keeps the read in its own access log.
+    for (const unit of unitIds) audit(req.ctx, { actor_id: req.user.id, action: 'build_report', entity: 'user', entity_id: userId, subject_id: userId, unit_id: unit, ip: clientIp(req) });
   }
-  return { q, userId, unitId };
+  return { q, userId, unitId, unitIds };
 }
 
 /**
  * After a PDF is drawn, and before it is sent (ADR-0035): the reader's session must still be live and, for another
- * Marine's report, the reader must still open that Marine's records in the unit it was drawn for, both read afresh.
+ * Marine's report, the reader must still open that Marine's records in every unit it was drawn from, both read afresh.
  */
-function stillReportable(req: Parameters<Parameters<typeof wrap>[0]>[0], userId: string, unitId: string | null) {
+function stillReportable(req: Parameters<Parameters<typeof wrap>[0]>[0], userId: string, unitIds: string[]) {
   const { scope } = freshAuthority(req.ctx, req.sessionId, req.user.id);
-  if (userId !== req.user.id && !(unitId && detailUnitsFor(req.ctx, scope, userId).includes(unitId))) {
+  if (userId === req.user.id) return;
+  const units = detailUnitsFor(req.ctx, scope, userId);
+  if (!unitIds.length || !unitIds.every((u) => units.includes(u))) {
     throw forbidden('Your access changed while the file was being drawn. Run the report again.', 'access_changed');
   }
 }
@@ -191,8 +191,11 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const q = parse(metricsQuery, req.query);
   const range = checkRange(q);
   const scope = scopeFor(req.ctx, req.user, req);
-  if (q.unit_id && !can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id)) throw forbidden('You cannot see that unit\'s figures.');
-  if (q.user_id && q.user_id !== req.user.id && !detailUnitsFor(req.ctx, scope, q.user_id).length) throw forbidden('You cannot see that Marine\'s figures.');
+  // Another Marine's figures count what the Analysis about them counts: what they shared with the units of one Unit
+  // Instance where the reader opens their records, the unit asked for choosing the instance (subjectUnits).
+  const other = q.user_id && q.user_id !== req.user.id ? q.user_id : null;
+  const subjectUnitIds = other ? subjectUnits(req.ctx, scope, other, q.unit_id, 'You cannot see that Marine\'s figures.').unitIds : null;
+  if (!other && q.unit_id && !can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id)) throw forbidden('You cannot see that unit\'s figures.');
   const filters: Record<string, string | null> = {};
   if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
   if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
@@ -205,7 +208,7 @@ function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
     scope,
     opts: {
       from, to,
-      unitId: q.unit_id || null, subjectId: q.user_id || null,
+      unitId: other ? null : q.unit_id || null, subjectId: q.user_id || null, subjectUnitIds,
       mineOnly: q.scope === 'me' && !q.unit_id && !q.user_id,
       aggregation: q.aggregation,
       filters: Object.keys(filters).length ? filters : undefined,
@@ -225,19 +228,27 @@ miscRouter.get('/metrics/contributors', wrap((req, res) => {
   const { metric_id: metricId, month } = parse(contributorsQuery, { metric_id: req.query.metric_id || undefined, month: req.query.month || undefined });
   if (!metricId) throw badRequest('Name the metric to open.');
   const { scope, opts } = metricTarget(req);
-  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId, month: month ?? null }));
+  const list = metricContributors(req.ctx, req.user, scope, { ...opts, metricId, month: month ?? null });
+  // Another Marine's records, listed by title and id, are a read of theirs, as any list of records is: one list_records
+  // entry for each unit they came from, at most every five minutes (auditListedRecords). Their figures alone are not.
+  if (opts.subjectId && opts.subjectId !== req.user.id) {
+    for (const table of ['activities', 'trainings'] as const) {
+      const listed = list.records.filter((r) => r.table === table).map((r) => ({ user_id: r.user_id, unit_id: r.unit_id }));
+      if (listed.length) auditListedRecords(req.ctx, req.user.id, table, listed, clientIp(req));
+    }
+  }
+  res.json(list);
 }));
 
 miscRouter.get('/reports', wrap((req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit, track: q.track, narrative: narrativeChoices(q) });
+  const { q, userId, unitId, unitIds } = reportTarget(req);
+  const report = buildReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit, track: q.track, narrative: narrativeChoices(q) });
   res.json(report);
 }));
 
 miscRouter.get('/reports/delta', wrap((req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
-  const params = unitId ? [userId, unitId] : [userId];
+  const { q, userId, unitIds } = reportTarget(req);
+  const { where, params } = subjectWhere(userId, unitIds);
   // The days asked for, or the preset's on the reader's clock; the period before is as long (previousRange).
   const range = q.from && q.to ? rangeOfDays(q.from, q.to) : rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
   // Only the two periods compared are read: an entry or a course with a day in either, as comparePeriods counts them.
@@ -252,17 +263,17 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
 }));
 
 miscRouter.get('/reports/analysis', wrap((req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  res.json(buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track }));
+  const { q, userId, unitId, unitIds } = reportTarget(req);
+  res.json(buildAnalysisReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, track: q.track }));
 }));
 
 miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  const report = buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track });
-  const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
+  const { q, userId, unitId, unitIds } = reportTarget(req);
+  const report = buildAnalysisReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, track: q.track });
+  const base = buildReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
   // Its handling line is the one every report carries (ADR-0020).
   const pdf = await renderAnalysisPdf({ report, narrative: withEdits(base.narrative, q.narrative), pkg: base.pkg, classification: req.ctx.runtime.reportMarking });
-  stillReportable(req, userId, unitId);
+  stillReportable(req, userId, unitIds);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `analysis; ${report.label}`, ip: clientIp(req) });
   const file = `vantage-analysis-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
@@ -271,14 +282,14 @@ miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
 }));
 
 miscRouter.get('/reports/pdf', wrap(async (req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
+  const { q, userId, unitId, unitIds } = reportTarget(req);
+  const report = buildReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
   const title = `${report.track === 'fitrep' ? 'FITREP' : 'JEPES'} input`;
   const pdf = await renderReportPdf({
-    title, subject: report.subject, unitLine: report.unit ? report.unit.short_name || report.unit.name : '', period: report.label, track: report.track,
+    title, subject: report.subject, unitLine: report.units.map((u) => u.short_name || u.name).join(', '), period: report.label, track: report.track,
     generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings, worksheet: report.worksheet,
   });
-  stillReportable(req, userId, unitId);
+  stillReportable(req, userId, unitIds);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: report.label, ip: clientIp(req) });
   const file = `vantage-${report.track}-input-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
@@ -287,10 +298,11 @@ miscRouter.get('/reports/pdf', wrap(async (req, res) => {
 }));
 
 miscRouter.get('/reports/csv', wrap((req, res) => {
-  const { q, userId, unitId } = reportTarget(req);
-  if (userId !== req.user.id && !(unitId && can(scopeFor(req.ctx, req.user, req), PERMISSIONS.EXPORT_DATA, unitId))) throw forbidden('Exporting another Marine’s records needs the unit’s export permission.');
-  const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
-  const params = unitId ? [userId, unitId] : [userId];
+  const { q, userId, unitId, unitIds } = reportTarget(req);
+  // The file holds every unit read, so it leaves only with the export permission in each of them.
+  const scope = scopeFor(req.ctx, req.user, req);
+  if (userId !== req.user.id && !(unitIds.length && unitIds.every((u) => can(scope, PERMISSIONS.EXPORT_DATA, u)))) throw forbidden('Exporting another Marine’s records needs the export permission in every unit it reads.');
+  const { where, params } = subjectWhere(userId, unitIds);
   // Every entry with a day in the period, one that began before it and ran into it included (ADR-0018). All time with
   // no days given is every entry, undated ones too.
   const bounds = q.period === 'all' && !q.from ? null : periodBounds(q.period, q.from, q.to, zoneOf(req.ctx, req.user));

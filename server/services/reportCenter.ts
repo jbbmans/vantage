@@ -6,7 +6,7 @@ import { zonedDay } from '../lib/clock.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { audit } from './audit.ts';
 import { freshAuthority } from '../auth/fresh.ts';
-import { PERMISSIONS, can, detailUnitsFor, membersAcross, orgOfUnit, sameInstance, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
+import { PERMISSIONS, can, membersAcross, orgOfUnit, subjectUnits, subtreeIds, unitTree, type Scope } from '../authz/scope.ts';
 import { getUnit, primaryOrgOf } from './org.ts';
 import { periodBounds } from './reports.ts';
 import { periodClause, recordPeriodClause } from './timeframes.ts';
@@ -47,11 +47,13 @@ import {
  *
  * Who it may be about is decided here, before anything is read or written:
  * - oneself, always, with every record one keeps, private ones included;
- * - another Marine through opening their record in a unit one leads (detailUnitsFor), with what they shared there;
+ * - another Marine through opening their record in a unit one leads (subjectUnits), with what they shared with every unit
+ *   of that Unit Instance where one opens their record, as the Analysis reads it;
  * - a unit through viewing its shared records (the roster also through managing its members), with what is shared in it
  *   and the units beneath it. Figures by Marine need opening member records there, as the unit dashboard does.
  * A file leaves Vantage: another Marine's records as a spreadsheet or data file, and any unit's report as a file, need the
- * unit's export permission. Printing is reading; whoever may see a report may print it, and the print is audited.
+ * export permission in every unit the report reads. Printing is reading; whoever may see a report may print it, and the
+ * print is audited. A read about another Marine is audited once for each unit read, so every unit's access log shows it.
  */
 
 /** The most rows a report reads before it stops and says so. Tables print the first REPORT_ROW_LIMIT of them. */
@@ -76,7 +78,7 @@ export interface ReportTarget {
   subject: ReportSubject;
   /** The Marine it is about: the reader, or one they lead. None for a unit. */
   userId: string | null;
-  /** For a Marine one leads, the unit their shared records are read in; for a unit, the unit. */
+  /** For a Marine one leads, the unit asked for or chosen, which picks the Unit Instance read; for a unit, the unit. */
   unitId: string | null;
   /** The unit and every unit beneath it; empty unless the report is about a unit. */
   unitIds: string[];
@@ -84,7 +86,8 @@ export interface ReportTarget {
   detail: boolean;
   /**
    * The units read where the reader may see figures by Marine. The reports built on the unit dashboard name Marines from
-   * these alone, as the Output tab does; the others name Marines only when this is every unit read (`detail`).
+   * these alone, as the Output tab does; the others name Marines only when this is every unit read (`detail`). For a
+   * Marine one leads, every unit their shared records are read in (subjectUnits), the anchor first.
    */
   detailUnits: string[];
   /** The files the reader may take it away as. */
@@ -128,6 +131,14 @@ const unitLabel = (ctx: AppContext, unitId: string | null) => {
   const u = ctx.db.prepare('SELECT name FROM units WHERE id = ?').get(unitId) as { name: string } | undefined;
   return u ? u.name : null;
 };
+/** Every unit read, by name, the anchor first; none when there is no name to give. */
+const unitsLabel = (ctx: AppContext, unitIds: readonly string[]) => unitIds.map((u) => unitLabel(ctx, u)).filter(Boolean).join(', ') || null;
+
+/**
+ * The units an entry about this report is filed under: for another Marine, every unit read, so each unit's access log
+ * shows the read, as build_report is filed (reportTarget); for oneself or a unit, the one unit the report names.
+ */
+const auditUnits = (t: ReportTarget): Array<string | null> => (t.subject === 'member' && t.detailUnits.length ? t.detailUnits : [t.unitId]);
 
 // Who a report is about
 
@@ -152,14 +163,11 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
   if (subject === 'self') return { type: q.type, subject, userId: user.id, unitId: null, unitIds: [], detail: true, detailUnits: [], files: all };
 
   if (subject === 'member') {
-    const units = detailUnitsFor(ctx, scope, other!);
-    if (!units.length) throw forbidden('You cannot build a report for that Marine.');
-    // As the analysis does: a unit the reader cannot open this Marine in falls back to one they can, inside the same Unit
-    // Instance. A unit in another instance is refused rather than answered with another's figures.
-    const near = !q.unit_id || units.includes(q.unit_id) ? q.unit_id : units.find((u) => sameInstance(ctx, u, q.unit_id));
-    if (q.unit_id && !near) throw forbidden('That Marine is not yours to report on in that Unit Instance.', 'cross_instance');
-    const unitId = near || units[0];
-    return { type: q.type, subject, userId: other, unitId, unitIds: [], detail: true, detailUnits: [unitId], files: can(scope, PERMISSIONS.EXPORT_DATA, unitId) ? all : ['pdf'] };
+    // As the analysis does (subjectUnits): every unit of one Unit Instance where the reader opens this Marine's record,
+    // the unit asked for choosing the instance. A unit in another instance is refused rather than answered from it.
+    const { unitId, unitIds } = subjectUnits(ctx, scope, other!, q.unit_id, 'You cannot build a report for that Marine.');
+    // A spreadsheet or data file holds every unit read, so it leaves only with the export permission in each of them.
+    return { type: q.type, subject, userId: other, unitId, unitIds: [], detail: true, detailUnits: unitIds, files: unitIds.every((u) => can(scope, PERMISSIONS.EXPORT_DATA, u)) ? all : ['pdf'] };
   }
 
   if (!q.unit_id) throw badRequest('Choose the unit the report is about.', { fieldErrors: { unit_id: 'Required.' } });
@@ -187,9 +195,11 @@ function ownership(t: ReportTarget, table: string): { sql: string; params: unkno
     return assigned ? { sql: `(t.user_id = ? OR (t.assignee_id = ? AND t.visibility = 'unit'))`, params: [t.userId, t.userId] } : { sql: 't.user_id = ?', params: [t.userId] };
   }
   if (t.subject === 'member') {
+    // What the Marine shared with the units read, never a private entry.
+    const units = JSON.stringify(t.detailUnits);
     return assigned
-      ? { sql: `(t.user_id = ? OR t.assignee_id = ?) AND t.unit_id = ? AND t.visibility = 'unit'`, params: [t.userId, t.userId, t.unitId] }
-      : { sql: `t.user_id = ? AND t.unit_id = ? AND t.visibility = 'unit'`, params: [t.userId, t.unitId] };
+      ? { sql: `(t.user_id = ? OR t.assignee_id = ?) AND t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'`, params: [t.userId, t.userId, units] }
+      : { sql: `t.user_id = ? AND t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'`, params: [t.userId, units] };
   }
   return { sql: `t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'`, params: [JSON.stringify(t.unitIds)] };
 }
@@ -225,7 +235,7 @@ interface Built {
 
 const sourceNote = (ctx: AppContext, t: ReportTarget) => {
   if (t.subject === 'self') return 'Drawn from your own records, private ones included.';
-  if (t.subject === 'member') return `Drawn from what the Marine shared with ${unitLabel(ctx, t.unitId) || 'the unit'}. Private entries are never included.`;
+  if (t.subject === 'member') return `Drawn from what the Marine shared with ${unitsLabel(ctx, t.detailUnits) || 'the unit'}. Private entries are never included.`;
   const beneath = t.unitIds.length - 1;
   return `Drawn from what is shared with ${unitLabel(ctx, t.unitId) || 'the unit'}${beneath ? ` and the ${beneath} unit${beneath === 1 ? '' : 's'} beneath it` : ''}. Private entries are never included.`;
 };
@@ -235,7 +245,7 @@ const SPAN_NOTE = 'An entry that spans more than one period counts in each perio
 // Individual performance: the analysis, as tables
 
 function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Built {
-  const report = buildAnalysisReport(ctx, { userId: t.userId!, unitId: t.subject === 'member' ? t.unitId : null, period: q.period || 'last12', from: q.from, to: q.to, track: q.track });
+  const report = buildAnalysisReport(ctx, { userId: t.userId!, unitId: t.subject === 'member' ? t.unitId : null, unitIds: t.subject === 'member' ? t.detailUnits : undefined, period: q.period || 'last12', from: q.from, to: q.to, track: q.track });
   const cfg = report.metricsConfig;
   const kindOf = (f: string) => (f === 'money' ? 'money' : f === 'percent' ? 'percent' : f === 'hours' ? 'hours' : 'number') as ReportFigure['kind'];
   const suffix = (f: string) => (f === 'money' ? ` (${cfg.currency_symbol})` : f === 'percent' ? ' (%)' : f === 'hours' ? ' (hours)' : '');
@@ -1513,7 +1523,8 @@ export function buildReportDocument(ctx: AppContext, user: SessionUser, scope: S
   const shownTo = docPeriod?.to && rolling && docPeriod.to > today ? today : docPeriod?.to ?? null;
   return {
     format: REPORT_FORMAT, type: q.type, title: spec.title, about: aboutLine(ctx, t),
-    unit: unitLabel(ctx, t.subject === 'self' ? scope.primaryUnitId : t.unitId),
+    // About another Marine, every unit the report reads, the anchor first, as the source note and the Analysis PDF name them.
+    unit: t.subject === 'self' ? unitLabel(ctx, scope.primaryUnitId) : t.subject === 'member' ? unitsLabel(ctx, t.detailUnits) ?? unitLabel(ctx, t.unitId) : unitLabel(ctx, t.unitId),
     period: docPeriod ? { from: docPeriod.from, to: shownTo, label: docPeriod.label } : null,
     generated: { at: now(), on: today, by: namesOf(ctx, [user.id]).get(user.id) || user.username },
     filters: [...(docPeriod ? [{ label: 'Period', value: docPeriod.label }] : []), ...(built.filters || [])],
@@ -1534,10 +1545,12 @@ export function runReport(ctx: AppContext, user: SessionUser, scope: Scope, q: R
   const doc = buildReportDocument(ctx, user, scope, q, t);
   const printing = purpose === 'print';
   if (printing || t.subject !== 'self') {
-    audit(ctx, {
-      actor_id: user.id, action: printing ? 'print_report' : 'view_report', entity: 'report', entity_id: q.type,
-      subject_id: t.subject === 'member' ? t.userId : null, unit_id: t.unitId, detail: auditDetail(doc), ip,
-    });
+    for (const unit of auditUnits(t)) {
+      audit(ctx, {
+        actor_id: user.id, action: printing ? 'print_report' : 'view_report', entity: 'report', entity_id: q.type,
+        subject_id: t.subject === 'member' ? t.userId : null, unit_id: unit, detail: auditDetail(doc), ip,
+      });
+    }
   }
   return { ...doc, files: t.files };
 }
@@ -1570,7 +1583,7 @@ function exportTarget(ctx: AppContext, user: SessionUser, scope: Scope, q: Repor
   const t = resolveTarget(ctx, user, scope, q);
   if (!t.files.includes(format)) {
     throw forbidden(t.subject === 'member'
-      ? 'Taking another Marine’s records away as a spreadsheet or data file needs the unit’s export permission. The PDF is yours to download.'
+      ? 'Taking another Marine’s records away as a spreadsheet or data file needs the export permission in every unit the report reads. The PDF is yours to download.'
       : 'Downloading a unit’s report needs the export permission in every unit it reads. You may view and print it.');
   }
   return t;
@@ -1605,10 +1618,12 @@ export async function exportReport(ctx: AppContext, user: SessionUser, scope: Sc
   });
   if (!drawnFor || abandoned()) return null;
   const { doc, file, t } = drawnFor;
-  audit(ctx, {
-    actor_id: user.id, action: 'export_report', entity: 'report', entity_id: q.type,
-    subject_id: t.subject === 'member' ? t.userId : null, unit_id: t.unitId, detail: auditDetail(doc, format.toUpperCase()), ip,
-  });
+  for (const unit of auditUnits(t)) {
+    audit(ctx, {
+      actor_id: user.id, action: 'export_report', entity: 'report', entity_id: q.type,
+      subject_id: t.subject === 'member' ? t.userId : null, unit_id: unit, detail: auditDetail(doc, format.toUpperCase()), ip,
+    });
+  }
   return file;
 }
 

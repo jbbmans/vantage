@@ -33,7 +33,9 @@ export interface Analysis {
   byUnitLabel: Array<{ unit: string; total: number; entries: number; prior: number; movement: Movement }>;
   concentration: { topByValue: LedgerRow[]; topByQuantity: LedgerRow[]; top3ValueShare: number; largestValueShare: number; hhi: number; entriesWithValue: number };
   consistency: { spanDays: number; activeDays: number; entriesPerActiveDay: number; longestGapDays: number; weeks: number; zeroWeeks: number; busiestWeek: { week: string; entries: number } | null; meanPerWeek: number; stdevPerWeek: number };
-  coverage: { fields: Array<{ key: string; label: string; count: number; pct: number }>; emptyAreas: string[]; unusedCategories: string[]; strengthDistribution: Array<{ strength: number; count: number }>; avgStrength: number; planned: number };
+  coverage: { fields: Array<{ key: string; label: string; count: number; pct: number }>; emptyAreas: string[]; unusedCategories: string[]; strengthDistribution: Array<{ strength: number; count: number }>;
+    /** The average entry strength: given to the Marine about their own record only, never as a score of another Marine. */
+    avgStrength: number | null; planned: number };
   goals: { total: number; active: number; achieved: number; missed: number; paused: number; attainment: number; items: Array<{ title: string; status: string; current: number; target: number; pct: number; unit_label: string | null; period_end: string | null }> };
   career: {
     trainings: AnalysisTraining[]; trainingHours: number; hoursByType: Array<{ type: string; hours: number; count: number }>; priorTrainingHours: number;
@@ -93,6 +95,8 @@ export interface AnalysisInput {
   today: string; areas: readonly string[]; track: string; metrics?: MetricsConfig;
   goals?: AnalysisGoal[]; trainings?: AnalysisTraining[]; awards?: AnalysisAward[]; counselings?: AnalysisCounseling[];
   profile?: Record<string, unknown> | null;
+  /** Whether to average the entries' strength (by default, yes). Left out of an analysis about another Marine. */
+  averageStrength?: boolean;
 }
 
 export function buildAnalysis(input: AnalysisInput): Analysis {
@@ -199,7 +203,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
     emptyAreas: areas.filter((ar) => !current.some((a) => a.eval_area === ar)),
     unusedCategories: categoryNames(cfg).filter((c) => !current.some((a) => (a.category || 'Other') === c)),
     strengthDistribution: [0, 1, 2, 3, 4, 5].map((s) => ({ strength: s, count: strengths.filter((x) => x === s).length })),
-    avgStrength: strengths.length ? r2(strengths.reduce((n, s) => n + s, 0) / strengths.length) : 0,
+    avgStrength: input.averageStrength === false ? null : strengths.length ? r2(strengths.reduce((n, s) => n + s, 0) / strengths.length) : 0,
     planned,
   };
   const quality = recordHealth({ activities: current as never, goals: goals as never, profile: input.profile || null, track: input.track, now: toDate(input.today) || new Date() });
@@ -232,7 +236,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   if (m.totalDollars) summary.push(`Headline ${label.toLowerCase()} of ${formatDollars(m.totalDollars)}${m.reviewedDollars ? ` with a further ${formatDollars(m.reviewedDollars)} tracked separately` : ''}; ${dir(kpis[1].movement, 'value')}.${concentration.top3ValueShare >= 60 ? ` The top three entries carry ${concentration.top3ValueShare}% of that value, so the headline rests on a few actions.` : ''}`);
   const lead = byArea[0];
   if (lead && lead.entries) summary.push(`${lead.name} leads with ${lead.share}% of entries${coverage.emptyAreas.length ? `; nothing yet under ${coverage.emptyAreas.join(' or ')}` : '; every area has evidence'}.`);
-  summary.push(`${outcomeRate}% of entries state an outcome and the average entry scores ${coverage.avgStrength} of 5 for strength${quality.length ? `; ${quality.slice(0, 2).map((q) => `${q.count} ${q.label}`).join(', ')}` : ''}.`);
+  summary.push(`${outcomeRate}% of entries state an outcome${coverage.avgStrength == null ? '' : ` and the average entry scores ${coverage.avgStrength} of 5 for strength`}${quality.length ? `; ${quality.slice(0, 2).map((q) => `${q.count} ${q.label}`).join(', ')}` : ''}.`);
   if (consistency.longestGapDays >= 21 && current.length) summary.push(`Longest gap without an entry: ${consistency.longestGapDays} days, with ${consistency.zeroWeeks} of ${consistency.weeks} weeks empty.`);
   if (runRate.projectedEntries != null) summary.push(`At the current pace (${Math.round((runRate.elapsedFraction || 0) * 100)}% of the period elapsed) the period closes near ${formatNumber(runRate.projectedEntries)} entries${runRate.projectedValue ? ` and ${formatDollars(runRate.projectedValue)}` : ''}.`);
   if (trainingHours || awards.length) summary.push(`${formatNumber(trainingHours)} training hours and ${awards.length} award${awards.length === 1 ? '' : 's'} in the period${goals.length ? `; ${goalSummary.achieved} of ${goals.length} goals achieved` : ''}.`);

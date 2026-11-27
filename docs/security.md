@@ -275,12 +275,13 @@ print page and every file are drawn from.
 
 - **Whom a report may be about is decided before anything is read** (`resolveTarget`): the reader, always; a Marine
   only where the reader may open their records (`VIEW_MEMBER_DETAIL` and a higher position), from what they shared
-  with that unit; a unit only with `VIEW_RECORDS` there (Personnel also `MANAGE_MEMBERS`), from what is shared with it
-  and the units beneath it. A Marine named in another Unit Instance is refused (`cross_instance`). Figures by Marine
-  in a unit's report need `VIEW_MEMBER_DETAIL`, and are left out, with a note, without it.
+  with the units of one Unit Instance where the reader opens them (`subjectUnits`, ADR-0050); a unit only with
+  `VIEW_RECORDS` there (Personnel also `MANAGE_MEMBERS`), from what is shared with it and the units beneath it. A
+  Marine named in another Unit Instance is refused (`cross_instance`). Figures by Marine in a unit's report need
+  `VIEW_MEMBER_DETAIL`, and are left out, with a note, without it.
 - **Taking a file is its own permission.** A CSV, workbook or JSON of anyone else's records, and any file of a unit's
-  report, needs `EXPORT_DATA` in that unit; a Marine's PDF needs only opening their record. Viewing and printing need
-  no export permission. The answer says which files the reader may take.
+  report, needs `EXPORT_DATA` in every unit it reads; a Marine's PDF needs only opening their record in each of them.
+  Viewing and printing need no export permission. The answer says which files the reader may take.
 - **Audited.** `view_report` for a report about anyone else, `print_report` for every print, `export_report` for
   every file, each with the report, format, period, rows and the Marine or unit. The export route is a bulk route in
   the privileged-route sweep.
@@ -599,6 +600,32 @@ An account is the person for a whole career; Unit Instances hold memberships to 
   hold there or everywhere, or one on the sender or any Marine it went to. A run is a disposition run, audited
   (`team_messages_expired`) when it removes anything. The trail entries stay.
 
+## A Marine's Analysis, one's own activity and one person's trail (ADR-0050)
+
+- **Another Marine's figures stay inside one Unit Instance.** The Analysis, the report, the delta, the CSV, both PDFs,
+  `/api/metrics` and its contributors, and the Report library read, about another Marine, what they shared with every
+  unit of the anchor unit's Unit Instance where the reader opens their records (`subjectUnits`), and nothing from another
+  instance or a private entry. A unit asked for in an instance where the reader opens them nowhere is 403
+  `cross_instance`. Each unit read keeps the read in its access log: `build_report` and the library's `view_report`,
+  `print_report` and `export_report` once for each unit read, `view_member` once for each unit the member page lists,
+  and `list_records` for each unit whose records `/api/metrics/contributors` returns. The figures of `/api/metrics`
+  stay unaudited, as before.
+- **No composite score about another Marine.** Their average entry strength is left out of the Analysis, its PDF and
+  its summary. Each entry's own score stays.
+- **Your activity reads only the session's own person** (`GET /api/me/activity`): the entries they wrote and those on
+  their account nobody did, through `idx_audit_actor` and `idx_audit_subject`. No parameter names anyone else. A row
+  carries no address, user agent, unit or Unit Instance field, entity id, seal or id of anyone; EDIPIs are masked and
+  ids in the words blanked. An entry's words may still name a unit, an instance or a username, as the personal export
+  does. Not audited, as Who has looked at your record is not. That list (`GET /api/me/audit`) now masks
+  EDIPIs too.
+- **A person filter only narrows a trail** (`person`, on the Unit Instance trail, the platform trail, their exports and
+  a unit's access log). It is read inside the trail's own scope, so it adds no row a reader could not page to; an
+  unknown id, one from another Unit Instance and one that never acted there get the same empty page, chain count
+  included. The chain count and action list stay the trail's. A person read walks that person's entries in the
+  service's index, so its time is not hidden. An export names the filter by user id, never a name or a
+  username. The unit access log keeps `unit_id = ?` on both branches, so entries filed under no unit stay out, and
+  decides `VIEW_AUDIT` before anything is read.
+
 ## Product analytics
 
 - The event catalog is closed. A client can only send names and properties declared in `server/services/telemetry.ts`; anything else is dropped with a reason.
@@ -649,6 +676,9 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | Malicious upload | Type proven by content and extension, size cap, cleaned filename, attachment disposition, `nosniff` and a sandboxed download, no inline render |
 | A file sent by email that cannot be called back, or sent to the wrong place | Files by email only after a clean scan now, to allow-listed addresses, over a relay connection proven TLS first, with the sender's confirmation; each file's name, size, SHA-256 and verdict and each Marine in the trail before the first email (ADR-0049) |
 | Reading a team message one was not sent | Opens only for its sender and the Marines it went to while members of its Unit Instance, on the application's host; the same 404 for everyone else (ADR-0049) |
+| A Marine's Analysis or report counting another Unit Instance's units | One subject rule (`subjectUnits`) reads one instance's units where the reader opens the Marine; another instance's unit is 403 `cross_instance`; the reports, the library and the member page write their entry in each unit read (ADR-0050) |
+| Learning from a person filter where someone serves or what they did elsewhere | The filter is read inside the trail; an unknown id, one from another Unit Instance and one with nothing there get the same empty page; exports name it by id only. The time a read takes is not hidden and grows with the person's entries elsewhere (ADR-0050) |
+| Reading another person's activity through Your activity | The route reads the session's person only; no parameter names anyone; rows carry no address, no unit field and no id of anyone (ADR-0050) |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |
 | Disk full | Write refusal near the size threshold; backups from the console |
 | Tracking pixel in imported mail | Remote images stripped, never fetched; the reader is told |

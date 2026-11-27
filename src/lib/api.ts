@@ -218,6 +218,19 @@ export const myRequests = () => request<{ asked_of_you: RequestSummary[]; you_as
 export interface AccessLogPage<Row> { rows: Row[]; next: number | null }
 export interface MyAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; first_name: string | null; last_name: string | null; rank_abbr: string | null }
 export const myAudit = (before?: number | null) => api.get<AccessLogPage<MyAccessRow>>(`/me/audit${before ? `?before=${before}` : ''}`);
+/**
+ * The reader's own activity: what they did, and what happened on their account with nobody signed in (`by: 'account'`).
+ * Filtered by category, action and UTC days as the audit trails are. No address, no unit or Unit Instance field and no
+ * id of anyone is in it; an entry's words may still name a unit.
+ */
+export interface MyActivityRow { seq: number; id: string; at: string; action: string; category: string | null; entity: string | null; detail: string | null; by: 'you' | 'account' }
+export interface MyActivityFilter { category?: string; action?: string; from?: string; to?: string }
+export const myActivity = (filter: MyActivityFilter = {}, before?: number | null) => {
+  const qs = new URLSearchParams(Object.entries(filter).filter((e): e is [string, string] => Boolean(e[1])));
+  if (before) qs.set('before', String(before));
+  const query = qs.toString();
+  return api.get<AccessLogPage<MyActivityRow>>(`/me/activity${query ? `?${query}` : ''}`);
+};
 export const digestPreview = () => api.get('/me/digest/preview');
 export const digestSendNow = () => api.post('/me/digest/send-now');
 export const emailVerify = (email: string) => api.post('/me/email/verify', { email });
@@ -346,8 +359,12 @@ export const unitAnalytics = (id: string, section: AnalyticsSection, from: strin
   api.get<AnalyticsResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}?${qs({ from, to })}`);
 export const unitAnalyticsDrill = (id: string, section: AnalyticsSection, q: { from: string; to: string; visual: string; key: string; series?: string | null }) =>
   api.get<DrillResponse>(`/org/units/${encodeURIComponent(id)}/analytics/${section}/drill?${qs({ from: q.from, to: q.to, visual: q.visual, key: q.key, series: q.series || undefined })}`);
-export interface UnitAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; actor_id: string | null; actor_first: string | null; actor_last: string | null; actor_rank: string | null; subject_first: string | null; subject_last: string | null }
-export const unitAudit = (id: string, before?: number | null) => api.get<AccessLogPage<UnitAccessRow> & { unit_id: string }>(`/org/units/${encodeURIComponent(id)}/audit${before ? `?before=${before}` : ''}`);
+export interface UnitAccessRow { seq: number; id: string; action: string; entity: string | null; entity_id: string | null; detail: string | null; at: string; actor_id: string | null; subject_id: string | null; actor_first: string | null; actor_last: string | null; actor_rank: string | null; subject_first: string | null; subject_last: string | null }
+/** A unit's access log a page at a time; `person` narrows it to one person's entries in the unit, by their id. */
+export const unitAudit = (id: string, before?: number | null, person?: string) => {
+  const query = qs({ before: before || undefined, person });
+  return api.get<AccessLogPage<UnitAccessRow> & { unit_id: string }>(`/org/units/${encodeURIComponent(id)}/audit${query ? `?${query}` : ''}`);
+};
 /** A unit's shared work: the records in two days, or every date with none (ADR-0039). */
 export const unitExport = (id: string, range?: { from: string; to: string }) => api.get(`/org/units/${encodeURIComponent(id)}/export${range ? `?${qs(range)}` : ''}`);
 /** "Why can they?": every grant behind someone's authority, in the units the caller manages. */
@@ -514,7 +531,8 @@ export const platformRevokeStaff = (userId: string, role: string) => api.del(`/p
 export const platformAccess = (status = '') => api.get(`/platform/access?${qs({ status })}`);
 export const platformRequestAccess = (body: { org_id: string; reason: string; minutes?: number }) => api.post('/platform/access', body);
 export const platformEndAccess = (id: string) => api.post(`/platform/access/${enc(id)}/end`);
-export interface PlatformAuditFilter { q?: string; action?: string; category?: string; from?: string; to?: string; before?: number | null; limit?: number }
+/** `person` is one person's id: the entries they wrote and those about them. */
+export interface PlatformAuditFilter { q?: string; action?: string; category?: string; from?: string; to?: string; person?: string; before?: number | null; limit?: number }
 export const platformAudit = (filter: PlatformAuditFilter = {}) => api.get(`/platform/audit?${qs({ ...filter })}`);
 /** The filtered platform trail as a file; the server records the download. */
 export const platformAuditExportUrl = (filter: Omit<PlatformAuditFilter, 'before' | 'limit'>, format: 'csv' | 'json') => `/api/platform/audit/export?${qs({ ...filter, format })}`;

@@ -1,4 +1,5 @@
 import { Router, json, type NextFunction, type Response } from 'express';
+import type { AppContext } from '../context.ts';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { HttpError, badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
@@ -134,9 +135,12 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
 
 /**
  * A unit's access log, newest first, a page at a time: `next` is the `before` of the page after it, null on the last.
- * Whether the reader may read it is decided before a single entry is read.
+ * Whether the reader may read it is decided before a single entry is read. `person` narrows it to one person's entries
+ * in the unit, as the trails do (auditQuery).
  */
-const unitAuditQuery = auditQuery.pick({ before: true }).extend({ limit: z.coerce.number().int().min(1).max(500).optional() });
+const unitAuditQuery = auditQuery.pick({ before: true, person: true }).extend({ limit: z.coerce.number().int().min(1).max(500).optional() });
+const UNIT_AUDIT_COLUMNS = 'al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, al.actor_id, al.subject_id, act.first_name AS actor_first, act.last_name AS actor_last, ar.abbr AS actor_rank, sub.first_name AS subject_first, sub.last_name AS subject_last';
+const UNIT_AUDIT_JOINS = 'LEFT JOIN users act ON act.id = al.actor_id LEFT JOIN ranks ar ON ar.id = act.rank_id LEFT JOIN users sub ON sub.id = al.subject_id';
 orgRouter.get('/units/:unitId/audit', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const scope = scopeFor(req.ctx, req.user, req);
@@ -145,9 +149,21 @@ orgRouter.get('/units/:unitId/audit', wrap((req, res) => {
   // At most 500 a page, as before paging: a page joins two people to every entry.
   const q = parse(unitAuditQuery, req.query);
   const limit = q.limit ?? 200;
-  const rows = req.ctx.db.prepare(`SELECT al.seq, al.id, al.action, al.entity, al.entity_id, al.detail, al.at, al.actor_id, act.first_name AS actor_first, act.last_name AS actor_last, ar.abbr AS actor_rank, sub.first_name AS subject_first, sub.last_name AS subject_last
-    FROM audit_log al LEFT JOIN users act ON act.id = al.actor_id LEFT JOIN ranks ar ON ar.id = act.rank_id LEFT JOIN users sub ON sub.id = al.subject_id
-    WHERE al.unit_id = ? AND al.seq < ? ORDER BY al.seq DESC LIMIT ?`).all(unitId, q.before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number }>;
+  const before = q.before ?? Number.MAX_SAFE_INTEGER;
+  // One person's entries: what they did and what was done about them, each branch newest first from its own index and
+  // merged, as the trails read one person (auditQuery). Both stay inside the unit, so an entry filed under no unit, such
+  // as one about a private entry (ADR-0040), never comes in. An id the unit's log holds nothing for is an empty page.
+  const rows = (q.person
+    ? req.ctx.db.prepare(`SELECT ${UNIT_AUDIT_COLUMNS}
+    FROM audit_log al INDEXED BY idx_audit_actor ${UNIT_AUDIT_JOINS}
+    WHERE al.unit_id = @unit AND al.actor_id = @person AND al.seq < @before
+    UNION ALL SELECT ${UNIT_AUDIT_COLUMNS}
+    FROM audit_log al INDEXED BY idx_audit_subject ${UNIT_AUDIT_JOINS}
+    WHERE al.unit_id = @unit AND al.subject_id = @person AND al.actor_id IS NOT @person AND al.seq < @before
+    ORDER BY seq DESC LIMIT @limit`).all({ unit: unitId, person: q.person, before, limit: limit + 1 })
+    : req.ctx.db.prepare(`SELECT ${UNIT_AUDIT_COLUMNS}
+    FROM audit_log al ${UNIT_AUDIT_JOINS}
+    WHERE al.unit_id = ? AND al.seq < ? ORDER BY al.seq DESC LIMIT ?`).all(unitId, before, limit + 1)) as Array<{ seq: number }>;
   const page = rows.slice(0, limit);
   res.json({ unit_id: unitId, rows: page, next: rows.length > limit ? page.at(-1)!.seq : null });
 }));
@@ -671,6 +687,31 @@ const MEMBER_LIST_LIMIT = 500;
 const MEMBER_ACTIVITY = 'id, user_id, unit_id, visibility, version, frozen_at, created_at, updated_at, date, end_date, start_time, end_time, ongoing, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, status';
 const MEMBER_AWARD = 'id, user_id, unit_id, visibility, version, frozen_at, created_at, updated_at, period_start, date, name, type, status';
 
+/**
+ * The units a Marine's page lists, by Unit Instance, in the page's order: a report or an analysis about them reads one
+ * instance's units together (subjectUnits), so the page offers one for each. A unit in no instance stands alone.
+ */
+function detailInstancesOf(ctx: AppContext, unitIds: string[]): MemberDetailResponse['detailInstances'] {
+  const rows = ctx.db.prepare(
+    `SELECT u.id, u.name, u.short_name, u.org_id, o.name AS org_name, o.short_name AS org_short FROM units u LEFT JOIN organizations o ON o.id = u.org_id
+      WHERE u.id IN (SELECT value FROM json_each(?))`
+  ).all(JSON.stringify(unitIds)) as Array<{ id: string; name: string; short_name: string | null; org_id: string | null; org_name: string | null; org_short: string | null }>;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: MemberDetailResponse['detailInstances'] = [];
+  const byOrg = new Map<string, MemberDetailResponse['detailInstances'][number]>();
+  for (const id of unitIds) {
+    const u = byId.get(id);
+    if (!u) continue;
+    const unit = { id: u.id, name: u.name, short_name: u.short_name };
+    const group = u.org_id ? byOrg.get(u.org_id) : undefined;
+    if (group) { group.units.push(unit); continue; }
+    const made = { org_id: u.org_id, org_name: u.org_id ? u.org_short || u.org_name : null, units: [unit] };
+    if (u.org_id) byOrg.set(u.org_id, made);
+    out.push(made);
+  }
+  return out;
+}
+
 orgRouter.get('/team/:userId', wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
@@ -685,7 +726,9 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
     // When they last signed in is account status: the Marine's, and theirs who manage the Marine, as the roster and the
     // personnel record give it. Reading the Marine's records is not managing them (ADR-0040).
     if (!personnelAccess(ctx, scope, req.user.id, id).manageIn.length) delete person.last_login_at;
-    audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) });
+    // The page lists what the Marine shared with every unit here, so each of those units keeps the read in its own access
+    // log, and each Unit Instance in its trail, as a report about them is filed (build_report).
+    for (const unit of units) audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: unit, ip: clientIp(req) });
   }
   const shared = JSON.stringify(units);
   const unitClause = isSelf ? '' : "AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))";
@@ -731,6 +774,7 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
     // Instance that the leader can open, so neither another command nor a sibling team's roster is learned from it.
     history: isSelf ? membershipHistory(ctx, id, null) : membershipHistory(ctx, id, [...new Set(units.map((u) => orgOfUnit(ctx, u)).filter((o): o is string => Boolean(o)))], 200, scope.viewableUnitIds),
     detailUnits: units,
+    detailInstances: detailInstancesOf(ctx, units),
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
     activities: activities.rows as unknown as MemberActivity[], trainings: trainings.map((t) => (evidence.has(t.id) ? { ...t, evidence_count: evidence.get(t.id) } : t)), awards: awards.rows as unknown as MemberAward[], duties, counselings, goals, tasks: taskList.rows as unknown as Task[],

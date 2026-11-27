@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Printer } from 'lucide-react';
+import { AlertTriangle, FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles, Printer, ShieldCheck } from 'lucide-react';
 import { Button, Select, Panel, Segmented, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
 import { DateText, PageShell } from '@/components/common';
 import DateRangePicker from '@/components/DateRangePicker';
 import { QueryFailure } from '@/components/QueryFailure';
-import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
+import { keys, useIdentity, usePrefs, useSavePrefs, useTrack, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { notShown, packageToText } from '../../shared/bullets';
@@ -27,6 +27,8 @@ import { usePlace } from '@/lib/place';
 const AUDITED_READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as const;
 /** Periods that end today and move with it. */
 const ROLLING_PERIODS = new Set(['last30', 'last90', 'last12', 'all']);
+type View = 'narrative' | 'bullets' | 'delta' | 'analysis';
+const VIEWS: readonly string[] = ['narrative', 'bullets', 'delta', 'analysis'];
 
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const place = usePlace();
@@ -35,17 +37,31 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const prefs = usePrefs();
   const savePrefs = useSavePrefs();
   const myTrack = useTrack();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const subjectId = params.get('user') || '';
   const unitParam = params.get('unit') || '';
-  const { data: team } = useTeam(Boolean(identity?.canLead));
+  // A link may open the page on a view (a Marine's page opens their Analysis). The view is that link's only: it is not
+  // saved as the reader's own, and another address (another Marine, or the reader's own report) opens on its own link's
+  // view or the saved one. A view the reader picks takes the link's out of the address, so a reload or Back shows it.
+  const viewParam = params.get('view') || '';
   const range = usePeriodParam(prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
   const { period, from, to, custom } = range;
   // The bullet style is sent only once someone picks one, so the package is written in the report's own track form by
   // default (FITREP shorthand on a FITREP package, the full JEPES form on a JEPES one) whoever is reading it.
   const [picked, setStyle] = useState<'jepes' | 'fitrep' | 'resume' | ''>('');
   const [track, setTrack] = useState<Track | ''>('');
-  const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');
+  const opensOn = (): View => (VIEWS.includes(viewParam) ? viewParam as View : (prefs.reportView as View) || 'narrative');
+  // The view shown and the address (Marine and link view) it was chosen for. When the address changes the page opens on
+  // the new one's view, except for the address a pick is moving to, whose view is the one just picked.
+  const opened = `${subjectId}|${viewParam}`;
+  const [shown, setShown] = useState<{ view: View; at: string; moving: string | null }>(() => ({ view: opensOn(), at: opened, moving: null }));
+  if (shown.at !== opened) setShown({ view: opened === shown.moving ? shown.view : opensOn(), at: opened, moving: null });
+  const view = shown.view;
+  const pick = (v: View) => {
+    setShown((s) => ({ ...s, view: v, moving: viewParam ? `${subjectId}|` : null }));
+    savePrefs.mutate({ reportView: v });
+    if (viewParam) setParams((p) => { const next = new URLSearchParams(p); next.delete('view'); return next; }, { replace: true });
+  };
   const [limit, setLimit] = useState(8);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   useEffect(() => { setStyle(''); }, [track, subjectId]);
@@ -59,7 +75,11 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
     [period, from, to, custom, subjectId, unitParam],
   );
   const reportMetrics = useMetricsReport(metricParams);
-  const subject = subjectId ? (team?.roster || []).find((r) => r.id === subjectId) : null;
+  // The Marine is named by the report itself, whoever's roster they are on. A report about another Marine names the units
+  // it was drawn from.
+  const other = Boolean(subjectId) && subjectId !== identity?.user.id;
+  const subject = other ? (report?.person as { rank_abbr: string | null; last_name: string } | undefined) : undefined;
+  const drawnFrom = other ? ((report?.units || []) as Array<{ id: string; name: string; short_name: string | null }>) : [];
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
   const style = picked || (effectiveTrack === 'fitrep' ? 'fitrep' : 'jepes');
@@ -91,8 +111,8 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
       eyebrow={place.group}
       title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName}
       lede={effectiveTrack === 'fitrep'
-        ? `MRO worksheet input built from ${subject ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
-        : `Billet accomplishments and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
+        ? `MRO worksheet input built from ${other ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
+        : `Billet accomplishments and a bullet package built from ${other ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
       actions={<>
         <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: 'individual', ...periodQuery({ period, from, to, custom }), ...(track ? { track } : {}), ...(subjectId ? { subject: 'member', user_id: subjectId, ...(unitParam ? { unit_id: unitParam } : {}) } : { subject: 'self' }) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />Export activities</Button>
@@ -106,16 +126,22 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
         <Select aria-label="Evaluation system" className="w-auto min-w-[10rem]" value={track || 'auto'} onValueChange={(v) => setTrack(v === 'auto' ? '' : (v as Track))} options={[{ value: 'auto', label: `By rank (${meta.name})` }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} />
         <Select aria-label="Bullet style" className="w-36" value={style} onValueChange={(v) => setStyle(v as never)} options={[{ value: 'jepes', label: 'JEPES style' }, { value: 'fitrep', label: 'FITREP style' }, { value: 'resume', label: 'Résumé style' }]} />
         <Select aria-label="Bullets per area" className="w-40" value={String(limit)} onValueChange={(v) => setLimit(Number(v))} options={[4, 8, 12, 20].map((n) => ({ value: String(n), label: `${n} per area` }))} />
-        <Segmented className="sm:ml-auto" label="View" value={view} onChange={(v) => { setView(v); savePrefs.mutate({ reportView: v }); }} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }, { value: 'analysis', label: 'Full analysis', 'data-tutorial': 'analysis-full' }]} />
+        <Segmented className="sm:ml-auto" label="View" value={view} onChange={pick} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }, { value: 'analysis', label: 'Full analysis', 'data-tutorial': 'analysis-full' }]} />
       </div>
 
       {isPending ? <Skeleton className="h-72" /> : error || !report ? <div className="card"><EmptyState title="Could not build the report" description={api.errorText(error)} /></div> : (
         <>
+          {drawnFrom.length > 0 && (
+            <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2">
+              <ShieldCheck className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+              Drawn from what {report.subject} shared with {drawnFrom.map((u) => u.short_name || u.name).join(', ')}. Private entries are never included.
+            </p>
+          )}
           {view !== 'narrative' && (edit?.kind === 'changed' || edit?.kind === 'unknown') && (
             <div role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/[.06] px-3 py-2 text-sm text-ink-2">
               <AlertTriangle className="h-4 w-4 shrink-0 text-warn" aria-hidden />
               <span className="min-w-0 flex-1">{edit.kind === 'changed' ? 'The record changed after the narrative was edited.' : 'Vantage cannot say whether the record changed since the narrative was edited.'} The PDFs use the edited text as written.</span>
-              <Button size="sm" variant="ghost" onClick={() => { setView('narrative'); savePrefs.mutate({ reportView: 'narrative' }); }}>Check the narrative</Button>
+              <Button size="sm" variant="ghost" onClick={() => pick('narrative')}>Check the narrative</Button>
             </div>
           )}
           <div className="mb-4">

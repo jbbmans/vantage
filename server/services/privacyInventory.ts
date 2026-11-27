@@ -164,7 +164,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   audit_log: {
     purpose: 'Who did what, so access to somebody else’s record can be answered for. Hash-chained so an entry cannot be removed without detection.',
     authority: 'Security and accountability logging. Required to demonstrate the access controls work.',
-    access: 'The owner. A person sees the entries where somebody else acted on their record.',
+    access: 'The owner. A person sees the entries where somebody else acted on their record, without addresses. They also see those they wrote themselves and those on their account nobody did, without addresses or anyone’s ids. A unit’s access log and the trails can be narrowed to one person, inside what they already show.',
     columns: {
       id: 'technical', seq: 'technical', actor_id: 'identifier', action: 'none', entity: 'none', entity_id: 'technical',
       subject_id: 'identifier', unit_id: 'employment', detail: 'technical', ip: 'technical', at: 'technical',

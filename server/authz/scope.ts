@@ -411,6 +411,32 @@ export function detailUnitsFor(ctx: AppContext, actorScope: Scope, targetId: str
     .filter((unitId) => positionIn(actorScope, unitId) > positionIn(targetScope, unitId));
 }
 
+/** The units another Marine's records are read in: the one asked for or chosen, and every unit read with it. */
+export interface SubjectUnits {
+  /** The unit asked for, or chosen when none was or the reader cannot open the Marine there. It picks the Unit Instance. */
+  unitId: string;
+  /** Every unit of the anchor's Unit Instance where the reader opens this Marine's records, the anchor first. */
+  unitIds: string[];
+}
+
+/**
+ * Which of another Marine's units a report, an analysis or a figure about them reads (ADR-0008). The anchor is the unit
+ * asked for when the reader opens the Marine there; otherwise a unit they do, inside the same Unit Instance, or the
+ * Marine's first such unit when none was asked. A unit from an instance where the reader opens them nowhere is refused
+ * rather than answered with another's figures. What is read is every unit of the anchor's instance where the reader
+ * opens the Marine's records, as their page lists them, and never a unit of another instance. Only for another Marine:
+ * one's own records are read whole, private ones included, by whoever calls this.
+ */
+export function subjectUnits(ctx: AppContext, scope: Scope, subjectId: string, askedUnitId: string | null | undefined, refusal: string): SubjectUnits {
+  const units = detailUnitsFor(ctx, scope, subjectId);
+  if (!units.length) throw forbidden(refusal);
+  const near = !askedUnitId || units.includes(askedUnitId) ? askedUnitId : units.find((u) => sameInstance(ctx, u, askedUnitId));
+  if (askedUnitId && !near) throw forbidden('That Marine is not yours to report on in that Unit Instance.', 'cross_instance');
+  const unitId = near || units[0];
+  // A unit in no Unit Instance matches nothing (sameInstance), so it is read alone.
+  return { unitId, unitIds: [unitId, ...units.filter((u) => u !== unitId && sameInstance(ctx, u, unitId))] };
+}
+
 export interface UnitMember {
   id: string; first_name: string; last_name: string; mos: string | null; billet: string | null; is_primary: number;
   unit_id: string; team: string; rank_abbr: string | null; rank_sort: number | null;

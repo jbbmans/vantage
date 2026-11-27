@@ -8,6 +8,17 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-11-26',
+    title: 'A Marine’s Analysis from their page, and your own activity',
+    items: [
+      'On a Marine’s page, Analysis opens their Analysis. For the period you choose, it counts what they shared with your units in one Unit Instance, the units their page lists for that instance, and says which units it was drawn from. Private entries are never included.',
+      'A leader no longer sees another Marine’s average entry strength. Each entry still shows its own score.',
+      'Settings → Your activity lists what you did in Vantage and what happened on your account, such as a failed sign-in, newest first. Filter it by category, action and dates.',
+      'In a unit’s access log and the console audit trails, the filter beside a name shows only that person’s entries, and a Marine’s page opens its unit’s access log narrowed to them.',
+      'Who has looked at your record shows only the last four digits of an EDIPI.',
+    ],
+  },
+  {
+    date: '2026-11-26',
     title: 'Team messages stay in Vantage, and can carry files',
     items: [
       'A message you send from Email the team is kept for 180 days on a page of its own. Each Marine’s notice and the email’s Read it in Vantage open it. Only you and the Marines it went to can open it.',

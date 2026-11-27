@@ -12,6 +12,27 @@ import { worksheetBlocks } from '../../shared/writer/worksheet.ts';
 
 export interface ReportScope { userId: string; unitId?: string | null }
 
+/** A unit a report about another Marine was drawn from. */
+export interface ReportUnit { id: string; name: string; short_name: string | null }
+
+/**
+ * Whose rows a report reads: every row of one's own, private ones included; of another Marine, only what they shared
+ * with the units read (subjectUnits), never a private entry. `unitIds` is empty for one's own.
+ */
+export function subjectWhere(userId: string, unitIds: readonly string[] | null | undefined): { where: string; params: unknown[] } {
+  return unitIds?.length
+    ? { where: `user_id = ? AND unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit'`, params: [userId, JSON.stringify(unitIds)] }
+    : { where: 'user_id = ?', params: [userId] };
+}
+
+/** The units read, by name, in the order given; one's own report reads none. */
+export function reportUnits(ctx: AppContext, unitIds: readonly string[] | null | undefined): ReportUnit[] {
+  if (!unitIds?.length) return [];
+  const rows = ctx.db.prepare('SELECT id, name, short_name FROM units WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(unitIds)) as ReportUnit[];
+  const byId = new Map(rows.map((u) => [u.id, u]));
+  return unitIds.map((id) => byId.get(id)).filter((u): u is ReportUnit => Boolean(u));
+}
+
 /**
  * The days a request covers, once checkRange has passed them (ADR-0038): two days given win over the period, as a link
  * that carries them means; otherwise the preset's days on the given clock.
@@ -42,12 +63,13 @@ export const REPORT_ACTIVITY_COLUMNS = [
   'quantity', 'unit_label', 'dollar_amount', 'dollar_type', 'result', 'organization', 'system', 'status',
 ] as const;
 
-export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: string | null; period: string; from?: string | null; to?: string | null; style?: BulletStyle; limit?: number; track?: Track | null; narrative?: NarrativeChoices }) {
+export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: string | null; unitIds?: string[]; period: string; from?: string | null; to?: string | null; style?: BulletStyle; limit?: number; track?: Track | null; narrative?: NarrativeChoices }) {
   const { from, to, label } = periodBounds(opts.period, opts.from, opts.to, ctx.config.timezone);
   const person = personOf(ctx, opts.userId);
   const track: Track = opts.track || trackForGrade(person?.rank_grade);
-  const where = opts.unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
-  const params = opts.unitId ? [opts.userId, opts.unitId] : [opts.userId];
+  // Another Marine's report reads every unit of theirs it was drawn for (the anchor alone when none are named).
+  const unitIds = opts.unitId ? (opts.unitIds?.length ? opts.unitIds : [opts.unitId]) : [];
+  const { where, params } = subjectWhere(opts.userId, unitIds);
   // What ran in the period: anything with a day in it, so work begun before the period and still going counts (ADR-0018).
   const inPeriod = (table: 'activities' | 'awards' | 'trainings') => periodClause(table, table, from, to);
   const [a, w, t] = [inPeriod('activities'), inPeriod('awards'), inPeriod('trainings')];
@@ -58,8 +80,8 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const metricsConfig = ctx.runtime.metrics;
   // The narrative reads areas by name as the package does (groupByAreas): a Sgt's JEPES-named entries are FITREP ones.
   const onTrack = activities.map((a) => ({ ...a, eval_area: areaAmong(a.eval_area as string | null, cfg.areas) }));
-  // Credit from the case histories in the same days; for a leader's view, only work shared with that unit.
-  const casework = caseworkFor(ctx, opts.userId, { from, to, timezone: ctx.config.timezone }, opts.unitId ?? null);
+  // Credit from the case histories in the same days; for a leader's view, only work shared with the units read.
+  const casework = caseworkFor(ctx, opts.userId, { from, to, timezone: ctx.config.timezone }, unitIds.length ? unitIds : null);
   // The last quarter of the period counts as recent.
   const span = Date.parse(to) - Date.parse(from);
   const recentFrom = Number.isFinite(span) && span > 0 ? new Date(Date.parse(from) + span * 0.75).toISOString().slice(0, 10) : null;
@@ -75,9 +97,11 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const pkg = buildPackage(activities as never, { style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), track: track === 'fitrep' ? 'fitrep' : 'jepes', limitPerArea: opts.limit ?? 8, areas: areasFor(track), names: cfg.names, metrics: metricsConfig, recentFrom });
   const metrics = aggregateMetrics(activities as never, metricsConfig);
   // The unit the report was built for, with its id: the studio keeps a leader's edit under the unit the server chose.
-  const unit = opts.unitId ? (ctx.db.prepare('SELECT id, name, short_name FROM units WHERE id = ?').get(opts.unitId) as { id: string; name: string; short_name: string | null } | undefined) : undefined;
+  // `units` names every unit it was drawn from, that one first.
+  const units = reportUnits(ctx, unitIds);
+  const unit = units[0];
   return {
-    from, to, label, track, person, unit,
+    from, to, label, track, person, unit, units,
     subject: `${person?.rank_abbr || ''} ${person?.first_name || ''} ${person?.last_name || ''}`.replace(/\s+/g, ' ').trim(),
     narrative, casework, recentFrom, pkg, metrics, metricsConfig, activities, awards, trainings, worksheet,
     counts: { activities: activities.length, awards: awards.length, trainingHours: trainings.reduce((n, t) => n + (Number(t.hours) || 0), 0) },

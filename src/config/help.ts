@@ -371,6 +371,16 @@ export const HELP: HelpSection[] = [
         ],
         also: ['email the team', 'unit message', 'attachment', 'attach', 'files', 'broadcast', 'message'],
       },
+      {
+        id: 'member-analysis',
+        q: 'How do I see one Marine’s Analysis, or what was done on their record?',
+        a: [
+          'Open the Marine’s page and choose Analysis. For the period you choose, it counts what they shared with your units in one Unit Instance, the units their page lists for that instance, and says which units it was drawn from. Private entries are never included. Their average entry strength is not shown to you; each entry still shows its own score. When you open their records in two Unit Instances, their page offers an Analysis for each.',
+          'Opening a Marine’s page, their Analysis or a report about them is written to the access log of each unit it reads.',
+          'With View access log, Access log on their page opens your unit’s log showing only the entries by or about them. In a unit’s access log and in the Unit Manager and Vantage Administrator audit trails, the filter beside a name does the same, and the chip at the top shows everyone again.',
+        ],
+        also: ['analysis', 'marine figures', 'member page', 'access log', 'one person', 'filter', 'show only'],
+      },
     ],
   },
   {
@@ -417,8 +427,9 @@ export const HELP: HelpSection[] = [
         q: 'How do I see who looked at my record?',
         a: [
           'Settings → Security lists it under Who has looked at your record. Every open of your record by somebody else is in it, a download of a file on one of your records included.',
+          'Settings → Your activity lists what you did yourself, newest first: your sign-ins, the records you added or changed, the files you exported. It also lists what happened on your account that nobody did, such as a failed sign-in or a session Vantage ended, marked On your account. Filter it by category, action and dates. Only you can open this list, though the same entries are in the audit trails your Unit Managers and Vantage Administrators read.',
         ],
-        also: ['access log', 'who viewed', 'audit'],
+        also: ['access log', 'who viewed', 'audit', 'my activity', 'sign-in history', 'failed sign-in'],
       },
     ],
   },
