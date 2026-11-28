@@ -99,6 +99,18 @@ These leave the enclave and need an approved connection before they are turned o
 The Vantage Administrator console's overview lists every outbound connection: where it goes, whether it is on, and how
 MCEN treats it.
 
+## The Privacy Act statement
+
+`VANTAGE_PRIVACY_ACT_STATEMENT` holds the statement the command gives for the records Vantage keeps (I-39), as plain
+text, at most 4,000 characters, `\n` for a paragraph break. When it is set, a Marine's Statistics and the Statistics
+report show it above the figures (ADR-0051). Unset, nothing is shown: Vantage supplies no wording of its own. A control
+character, markup (a `<` followed by a letter, `/`, `!` or `?`), or a character the PDF cannot print as itself stops the
+start, and the error says what it found and where: a character by its code (U+FB01, the "fi" a typeset PDF pastes, for
+one), markup by the text it starts. An e-mail address or a web link in angle brackets is text; other words in angle
+brackets are not. The PDF prints Latin-1 (letters such as é, ü and ñ), digits, the section sign, straight and curly
+quotes, the hyphen, the en dash and the em dash; a letter outside Latin-1 (ń, ł) or another hyphen (the non-breaking
+one a word processor inserts) is refused.
+
 ## First start and the first administrator
 
 1. Start the service. The log line names the profile and topology. `/api/health` reports

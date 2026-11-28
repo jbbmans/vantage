@@ -239,10 +239,21 @@ export const HELP: HelpSection[] = [
         id: 'report-kinds',
         q: 'What can Vantage produce?',
         a: [
-          'On Analysis, a narrative written to the character limit, a bullet package, a period-over-period comparison and a full analysis, all built from the same entries, with an analysis PDF. On Packages, an evaluation package written against the records it cites, saved as revisions. In the Report library, reports about you, a Marine or a unit, to print or take as a file.',
+          'On Analysis, a narrative written to the character limit, a bullet package, a period-over-period comparison and a full analysis, all built from the same entries, with an analysis PDF. On Statistics, your record month by month, with duty, training and counseling beside it. On Packages, an evaluation package written against the records it cites, saved as revisions. In the Report library, reports about you, a Marine or a unit, to print or take as a file.',
           'The CSV export round-trips back into import, so a report is never a dead end.',
         ],
         also: ['jepes', 'fitrep', 'pdf', 'narrative', 'bullets'],
+      },
+      {
+        id: 'statistics',
+        q: 'Where do I see my statistics, or a Marine’s?',
+        a: [
+          'Reports & Analytics → Statistics shows your own record over the period you choose: entries and outcomes, the areas they cover, duty and the points that count, training and awards, counseling, and what you added in Vantage, month by month. Your private entries count, and only you see them. The figures are the ones the Analysis and the Duty report give for the same period.',
+          'A Marine’s page has a Statistics tab for a leader who may open their records. It counts what they shared with your units in one Unit Instance, never a private entry, and says which units it was drawn from. When you lead them in two Unit Instances, choose which one. A leader who manages them also sees when they last signed in; nobody sees which pages they opened or how long they spent in Vantage.',
+          'Each look at another Marine’s statistics is written to the access log of each unit it reads, and they see it in Who has looked at your record. Statistics are one Marine’s own history: nobody is ranked, scored or compared.',
+          'Export statistics takes the Statistics report: a PDF, or a spreadsheet, workbook or data file where you may export in every unit it reads. When your deployment sets a Privacy Act statement, it is shown above the figures and printed on the report.',
+        ],
+        also: ['statistics', 'stats', 'figures', 'charts', 'trends', 'privacy act', 'export', 'activity summary'],
       },
       {
         id: 'narrative-writer',

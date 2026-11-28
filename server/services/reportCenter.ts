@@ -20,6 +20,7 @@ import { isAnonymizedDuty } from './duties.ts';
 import { stageOf } from './cases.ts';
 import { comparisonWithChanges, overviewOf } from './errorReports.ts';
 import { withGoalProgress } from './records.ts';
+import { statisticsProfile } from './statistics.ts';
 import { renderReportDocumentPdf } from '../lib/pdfReport.ts';
 import { writeWorkbook, type SheetOut } from '../lib/workbook.ts';
 import { rowsToCsv } from '../../shared/csv.ts';
@@ -32,10 +33,11 @@ import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyS
 import { DUTY_STATUS_LABELS, type DutyStatus } from '../../shared/duty.ts';
 import { isOverridden } from '../../shared/dutyReview.ts';
 import { courseKey } from '../../shared/courses.ts';
+import type { FigureFormat, Visual } from '../../shared/unitAnalytics.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
   REPORT_ROW_LIMIT, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, primaryTable, reportFileName, reportQuerySchema, tableMatrix,
-  type Cell, type ReportColumn, type ReportDocument, type ReportFigure, type ReportFileFormat, type ReportQuery, type ReportSection,
+  type Cell, type ColumnKind, type ReportChart, type ReportColumn, type ReportDocument, type ReportFigure, type ReportFileFormat, type ReportQuery, type ReportSection,
   type ReportSubject, type ReportTable, type ReportType,
 } from '../../shared/reportCatalog.ts';
 
@@ -231,6 +233,8 @@ interface Built {
   primary: string | null;
   filters?: Array<{ label: string; value: string }>;
   period?: Period | null;
+  /** The deployment's Privacy Act statement, for a report that carries it (ADR-0051). */
+  privacy?: string | null;
 }
 
 const sourceNote = (ctx: AppContext, t: ReportTarget) => {
@@ -318,6 +322,69 @@ function buildIndividual(ctx: AppContext, t: ReportTarget, q: ReportQuery): Buil
     sections, primary: 'ledger',
     notes: [sourceNote(ctx, t), SPAN_NOTE, `Measured for ${report.track === 'fitrep' ? 'FITREP' : 'JEPES'}${q.track ? '' : ', by the Marine’s grade'}.`],
     period: { from: report.period.from, to: report.period.to, label: report.label },
+  };
+}
+
+// Statistics: the Statistics tab, as tables (ADR-0051)
+
+const FIGURE_KIND: Record<FigureFormat, Extract<ColumnKind, 'number' | 'money' | 'hours' | 'percent'>> = { number: 'number', money: 'money', hours: 'hours', percent: 'percent', days: 'number' };
+
+function buildStatistics(ctx: AppContext, user: SessionUser, scope: Scope, t: ReportTarget, q: ReportQuery): Built {
+  // The tab's own read, for the Marine and the units the report resolved, so a file says what the tab says.
+  const stats = statisticsProfile(ctx, user, scope, {
+    userId: t.userId!, self: t.subject === 'self', unitId: t.subject === 'member' ? t.unitId : null, unitIds: t.subject === 'member' ? t.detailUnits : [],
+  }, { period: q.period || REPORT_SPECS.statistics.period!, from: q.from, to: q.to });
+  const money = ctx.runtime.metrics.currency_label;
+  const figureLabel = (v: Visual) => (v.format === 'money' ? money : v.format === 'hours' ? 'Hours' : v.format === 'days' ? 'Days' : v.format === 'percent' ? 'Share' : 'Count');
+  const dayOf = (value: string | null, kind: 'day' | 'instant') => (!value ? null : kind === 'day' ? value.slice(0, 10) : zonedDay(ctx.config.timezone, 0, new Date(value)));
+  const visuals = new Map(stats.sections.flatMap((s) => s.visuals.map((v) => [v.id, v] as const)));
+  const sections: ReportSection[] = stats.sections.map((s) => {
+    const figures: ReportFigure[] = [];
+    const tables: ReportTable[] = [];
+    let chart: ReportChart | undefined;
+    for (const v of s.visuals) {
+      if (v.kind === 'kpis') {
+        for (const b of v.buckets) figures.push({ label: b.label, value: b.value, kind: FIGURE_KIND[b.format || v.format], ...(b.hint ? { hint: b.hint } : {}) });
+        continue;
+      }
+      const rows = v.buckets.map((b) => ({ label: b.label, value: b.value, records: b.count }));
+      tables.push(table(v.id, v.question, [
+        { key: 'label', label: v.axis || (v.kind === 'columns' ? 'Month' : 'Part'), width: 26 },
+        { key: 'value', label: figureLabel(v), kind: FIGURE_KIND[v.format], width: 12 }, { key: 'records', label: 'Records', kind: 'number', width: 8 },
+      ], rows, 'Nothing in the range.', v.note ? { note: v.note } : {}));
+      // Each section draws its first figure over time, from the table beside it.
+      if (!chart && v.kind === 'columns') chart = { title: v.question, kind: FIGURE_KIND[v.format], bars: rows.map((r) => ({ label: r.label, value: r.value })), table: v.id, column: 'value', shape: 'columns' };
+    }
+    for (const f of s.facts) figures.push({ label: f.label, value: dayOf(f.value, f.kind), kind: 'date', ...(f.value ? {} : { hint: f.empty }) });
+    return { id: s.id, heading: s.title, lede: s.lede, figures, ...(chart ? { chart } : {}), tables, notes: s.notes };
+  });
+  // Every month's figures side by side: the table a CSV holds.
+  const series = (id: string) => visuals.get(id)?.buckets ?? [];
+  const entryMonths = series('entries_months');
+  const at = (id: string, i: number) => series(id)[i]?.value ?? 0;
+  sections.push({
+    id: 'months', heading: 'Month by month',
+    tables: [table('months', 'Month by month', [
+      { key: 'month', label: 'Month', width: 12 }, { key: 'entries', label: 'Entries', kind: 'number', width: 8 }, { key: 'value', label: money, kind: 'money', width: 12 },
+      { key: 'duty_hours', label: 'Duty hours', kind: 'hours', width: 9 }, { key: 'training_hours', label: 'Training hours', kind: 'hours', width: 9 },
+      { key: 'added', label: 'Records added', kind: 'number', width: 9 },
+    ], entryMonths.map((b, i) => ({
+      month: b.label, entries: b.value, value: at('entries_value_months', i), duty_hours: at('duty_months', i), training_hours: at('training_months', i), added: at('activity_months', i),
+    })), 'Nothing in the range.')],
+  });
+  const tile = (visual: string, key: string) => visuals.get(visual)?.buckets.find((b) => b.key === key)?.value ?? 0;
+  return {
+    summary: [
+      { label: 'Entries in the range', value: tile('entries_now', 'entries'), kind: 'number' },
+      { label: `Headline ${money.toLowerCase()}`, value: tile('entries_now', 'value'), kind: 'money' },
+      { label: 'Duty hours', value: tile('duty_now', 'hours'), kind: 'hours' },
+      { label: 'Approved duty points', value: tile('duty_now', 'approved_points'), kind: 'number' },
+      { label: 'Training hours', value: tile('training_now', 'hours'), kind: 'hours' },
+      { label: 'Counselings', value: tile('counseling_now', 'count'), kind: 'number' },
+    ],
+    sections, primary: 'months', notes: stats.notes,
+    period: { from: stats.period.from, to: stats.period.to, label: stats.period.label },
+    privacy: stats.privacy_act,
   };
 }
 
@@ -1502,6 +1569,7 @@ export function buildReportDocument(ctx: AppContext, user: SessionUser, scope: S
   const built: Built = (() => {
     switch (q.type) {
       case 'individual': return buildIndividual(ctx, t, q);
+      case 'statistics': return buildStatistics(ctx, user, scope, t, q);
       case 'activity': return buildActivity(ctx, t, q, period);
       case 'training': return buildTraining(ctx, user, t, q, period);
       case 'unit': return buildUnit(ctx, t, dated());
@@ -1531,6 +1599,7 @@ export function buildReportDocument(ctx: AppContext, user: SessionUser, scope: S
     marking: ctx.runtime.reportMarking || DEFAULT_REPORT_MARKING,
     currency: ctx.runtime.metrics.currency_symbol,
     summary: built.summary, sections: built.sections, notes: built.notes, primary: built.primary,
+    ...(built.privacy ? { privacy: built.privacy } : {}),
   };
 }
 
@@ -1649,6 +1718,7 @@ export async function renderFile(doc: ReportDocument, format: ReportFileFormat):
     name: 'About',
     rows: [
       [doc.title], [doc.marking], [],
+      ...(doc.privacy ? [['Privacy Act statement', doc.privacy], []] : []),
       ['About', doc.about], ['Unit', doc.unit ?? ''], ['Period', doc.period?.label ?? 'Not dated'],
       ['Generated', `${doc.generated.on} by ${doc.generated.by}`], ...doc.filters.map((f) => [f.label, f.value]), [],
       ...doc.summary.map((f) => [f.label, f.value]), [],

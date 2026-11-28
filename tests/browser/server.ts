@@ -53,6 +53,8 @@ const config = loadConfig({
   // Nearly every spec writes as the same operator, and the suite runs about fifteen minutes: more than 300 changes in
   // one window, which no one person makes. Production keeps its default.
   VANTAGE_MUTATIONS_PER_15_MINUTES: '3000',
+  // A placeholder for the statement a deployment sets (ADR-0051), so the Statistics tab and report draw it. Not legal text.
+  VANTAGE_PRIVACY_ACT_STATEMENT: 'AUTHORITY: The statement this deployment sets.\\nPRINCIPAL PURPOSE: A placeholder for the browser tests.',
 } as NodeJS.ProcessEnv);
 const ctx = createContext(config);
 const app = createApp(ctx);

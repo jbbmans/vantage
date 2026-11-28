@@ -1,6 +1,7 @@
 import { isAbsolute, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAllowedDomains } from './lib/recipientDomains.ts';
+import { pdfDraws } from './lib/winAnsi.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -89,6 +90,12 @@ export interface AppConfig {
   };
   /** Where security.txt sends a vulnerability report first: a mailto: or https: address, or null for the request form only. */
   securityContact: string | null;
+  /**
+   * The Privacy Act statement the deployment shows beside a Marine's statistics and prints on their export
+   * (VANTAGE_PRIVACY_ACT_STATEMENT, ADR-0051): plain text the command supplies, or null to show none. Vantage writes no
+   * statement of its own.
+   */
+  privacyActStatement: string | null;
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
@@ -313,6 +320,39 @@ function securityContact(raw: string | undefined): string | null {
   const value = String(raw ?? '').trim();
   if (!value) return null;
   if (!/^(?:mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/i.test(value)) throw new Error('VANTAGE_SECURITY_CONTACT must be one mailto: or https: address.');
+  return value;
+}
+
+/** The most a Privacy Act statement may run to: a paragraph or a few, never a document. */
+export const PRIVACY_ACT_STATEMENT_MAX = 4000;
+
+/** An e-mail address or a web link in angle brackets: text, since nothing in it can open an attribute. */
+const ANGLED_TEXT = /<(?:[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+|(?:https?:\/\/|mailto:)[^\s<>"'`=]+)>/gi;
+/** What a browser reads as the start of markup: '<' and a letter, '/', '!' or '?'. */
+const MARKUP_START = /<[a-z/!?]/i;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+
+const codeOf = (ch: string) => `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
+
+/**
+ * A Privacy Act statement: plain text, with \n for a paragraph break since a setting is one line, or nothing. A
+ * control character (C0 or C1), markup (an e-mail address or a web link in angle brackets is text), a character the PDF
+ * cannot print as itself (winAnsi.ts), or more than PRIVACY_ACT_STATEMENT_MAX characters stops the start, and the error
+ * names what it found, so the statement reads the same on the screen and in every file.
+ */
+export function privacyActStatement(raw: string | undefined): string | null {
+  const value = String(raw ?? '').replace(/\\n/g, '\n').replace(/\r\n?/g, '\n').split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!value) return null;
+  if (value.length > PRIVACY_ACT_STATEMENT_MAX) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT runs to ${value.length} characters; the most is ${PRIVACY_ACT_STATEMENT_MAX}.`);
+  const control = value.match(CONTROL);
+  if (control) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds the control character ${codeOf(control[0])} at character ${control.index! + 1}. Write \\n for a paragraph break.`);
+  const left = value.replace(ANGLED_TEXT, (m) => ' '.repeat(m.length));
+  const at = left.search(MARKUP_START);
+  if (at >= 0) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds markup at character ${at + 1}: "${value.slice(at, at + 24)}". An e-mail address or a web link in angle brackets is text.`);
+  const chars = [...value];
+  const odd = chars.findIndex((ch) => !pdfDraws(ch));
+  if (odd >= 0) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT holds ${codeOf(chars[odd])} at character ${odd + 1}, which the PDF would print as '?'. Type it again as plain letters, digits and punctuation.`);
   return value;
 }
 
@@ -572,6 +612,7 @@ export function loadConfig(env = process.env): AppConfig {
       indexNowEndpoint: (test && env.VANTAGE_INDEXNOW_URL) || 'https://api.indexnow.org/indexnow',
     },
     securityContact: securityContact(env.VANTAGE_SECURITY_CONTACT),
+    privacyActStatement: privacyActStatement(env.VANTAGE_PRIVACY_ACT_STATEMENT),
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envInt(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30, 1, 7 * 24 * 60),

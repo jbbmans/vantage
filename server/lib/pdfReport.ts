@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { drawMark } from './pdfMark.ts';
+import { WIN_ANSI_EXTRA } from './winAnsi.ts';
 import { LANDSCAPE_COLUMNS, chartBars, formatCell, isRightAligned, labelledColumn, printsWide, type ReportChart, type ReportDocument, type ReportFigure, type ReportTable } from '../../shared/reportCatalog.ts';
 
 /**
@@ -11,8 +12,7 @@ import { LANDSCAPE_COLUMNS, chartBars, formatCell, isRightAligned, labelledColum
 
 const INK = '#111827'; const INK2 = '#4b5563'; const MUTED = '#6b7280'; const RULE = '#d1d5db'; const SOFT = '#f3f4f6'; const ACCENT = '#9f1d22';
 
-/** The standard PDF fonts read WinAnsi: Latin-1 and the punctuation Windows adds to it. Anything else prints as '?'. */
-const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–\u2014˜™š›œžŸ');
+/** The standard PDF fonts read WinAnsi (winAnsi.ts). Anything else prints as '?'. */
 export const pdfText = (text: string) => text.replace(/[\r\t]/g, ' ').replace(/[^\n\x20-\x7e\xa0-\xff]/gu, (ch) => (WIN_ANSI_EXTRA.has(ch) ? ch : '?'));
 
 /** A table wider than this many columns turns the document to landscape, so no column is too narrow to read. */
@@ -94,6 +94,13 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
       doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text(pdfText(f.value), x + colW * 0.36, y, { width: colW * 0.64 - 16, lineBreak: false, ellipsis: true });
     });
     doc.x = left; doc.y = top + boxH;
+  }
+  // The deployment's Privacy Act statement, where the report carries one, under the cover and before any figure (ADR-0051).
+  if (report.privacy) {
+    doc.moveDown(0.6);
+    text('PRIVACY ACT STATEMENT', 'Helvetica-Bold', 7.5, INK2, { characterSpacing: 1.2 });
+    doc.moveDown(0.15);
+    for (const paragraph of report.privacy.split('\n')) if (paragraph.trim()) text(paragraph, 'Helvetica', 8, INK2, { paragraphGap: 2 });
   }
   rule();
 

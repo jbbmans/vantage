@@ -1,6 +1,33 @@
 # Progress
 
-_Updated 2026-11-26_
+_Updated 2026-11-27_
+
+## What changed (2026-11-27: statistics, part 2, one Statistics tab per Marine)
+
+**In review.** HawkScan runs from the pushed branch; the findings are read in the PR. CI results not acted on.
+
+Round 2, from `d2ef1ba` ([ADR-0051](engineering/ADR/0051-marine-statistics.md)). No migration.
+
+- **One read** (`server/services/statistics.ts`, `GET /api/statistics`): a Marine's entries and outcomes, coverage by
+  area, months, duty, training and awards, counseling, and what they added in Vantage, over a range under the one range
+  rule. Entries, training and counseling are `buildAnalysisReport` with the Analysis page's arguments; duty is counted
+  as the Duty report counts it. About oneself every record, private included; about another Marine what they shared
+  with one Unit Instance's units, through `subjectUnits` (403 `forbidden`, 403 `cross_instance`). `view_statistics` in
+  each unit read. The last sign-in only to a leader who manages the Marine. Own history only: no ranking or score.
+- **The export**: a Report library type `statistics` built from the same read, its month by month table the CSV, with
+  the library's file checks and per-unit entries.
+- **The Privacy Act statement**: `VANTAGE_PRIVACY_ACT_STATEMENT` (`server/config.ts`), shown on the tab and the own view
+  and carried by the report (screen, print, PDF, workbook About sheet, JSON) when set; nothing when unset (I-39).
+- **The pages**: `src/components/MarineStatistics.tsx`; a Statistics tab on the member page, read only while open; and
+  Reports & Analytics → Statistics (`/reports/statistics`). The kit's `visualOf` (`shared/unitAnalytics.ts`) now builds
+  a visual on the server and the client alike; the file labels moved to `shared/reportCatalog.ts`.
+- **From the review:** the tab reads again when a record it counts is saved, as the Analysis does; an old `quarter`
+  link is read as the page's own period, so its export runs; an empty fact says what was read ("None in the range",
+  "None shared with these units"); a range longer than the 121 months drawn says where they start; the statement
+  refuses a C1 control, markup or a character the PDF cannot print, naming what and where, and takes an e-mail address
+  or a web link in angle brackets.
+- **Tests:** `tests/server/marineStatistics.test.ts`, `tests/browser/66-marine-statistics.spec.ts`; the navigation and
+  width specs list the new page.
 
 ## What changed (2026-11-26: statistics, part 1, the reachable pieces)
 

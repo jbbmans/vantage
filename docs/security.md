@@ -626,6 +626,27 @@ An account is the person for a whole career; Unit Instances hold memberships to 
   username. The unit access log keeps `unit_id = ?` on both branches, so entries filed under no unit stay out, and
   decides `VIEW_AUDIT` before anything is read.
 
+## A Marine's statistics (ADR-0051)
+
+- **Whom they are about is decided first.** `GET /api/statistics` and the Report library's Statistics report read
+  oneself, or another Marine through `subjectUnits` only: 403 `forbidden` for a reader outside the Marine's chain, a
+  Unit Instance role or Vantage staff, 403 `cross_instance` for a unit of another instance, before anything is read
+  and with nothing logged as read.
+- **What is read about another Marine** is what they shared with the units of one Unit Instance where the reader opens
+  them: never a private record, never another instance. The figures are the Analysis and the Duty report for the same
+  range and units. No ranking, no comparison with anyone, no composite score.
+- **The activity summary is counts only**: records the Marine added, in the range, from what the reader may read. No
+  list of records, no audit entry, no page opened and no time spent. The last sign-in goes only to a reader who
+  manages the Marine (ADR-0040 §10).
+- **Each unit read keeps the read**: `view_statistics` once for each unit read about another Marine (the Marine as
+  subject, so it is in their Who has looked at your record), and the Report library's `view_report`, `print_report`
+  and `export_report` in each unit read. CSV, XLSX and JSON need `EXPORT_DATA` in every unit read; the PDF does not.
+- **The Privacy Act statement** is the deployment's own text (`VANTAGE_PRIVACY_ACT_STATEMENT`): plain text, at most
+  4,000 characters. A control character (C0 or C1), anything a browser reads as the start of markup (`<` and a letter,
+  `/`, `!` or `?`; an e-mail address or a web link in angle brackets is text) or a character the PDF would print as '?'
+  is refused at start, naming what and where, so the statement reads the same on the screen and in every file. Every
+  place it is shown also treats it as text. Vantage supplies none.
+
 ## Product analytics
 
 - The event catalog is closed. A client can only send names and properties declared in `server/services/telemetry.ts`; anything else is dropped with a reason.
@@ -679,6 +700,8 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | A Marine's Analysis or report counting another Unit Instance's units | One subject rule (`subjectUnits`) reads one instance's units where the reader opens the Marine; another instance's unit is 403 `cross_instance`; the reports, the library and the member page write their entry in each unit read (ADR-0050) |
 | Learning from a person filter where someone serves or what they did elsewhere | The filter is read inside the trail; an unknown id, one from another Unit Instance and one with nothing there get the same empty page; exports name it by id only. The time a read takes is not hidden and grows with the person's entries elsewhere (ADR-0050) |
 | Reading another person's activity through Your activity | The route reads the session's person only; no parameter names anyone; rows carry no address, no unit field and no id of anyone (ADR-0050) |
+| A leader outside a Marine's chain, a console role or Vantage staff reading the Marine's statistics | `subjectUnits` decides before anything is read: 403 `forbidden`, or `cross_instance` for another instance's unit; nothing logged as read (ADR-0051) |
+| Statistics used to rank or score Marines against each other | Each Marine's own history only: no comparison, ranking, composite score or projection, and nothing about pages opened or time spent; each read logged in every unit read (ADR-0051) |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |
 | Disk full | Write refusal near the size threshold; backups from the console |
 | Tracking pixel in imported mail | Remote images stripped, never fetched; the reader is told |

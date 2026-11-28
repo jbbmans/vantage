@@ -53,7 +53,7 @@ const USER = [
   'password_change', 'recovery_codes_regenerated', 'revoke_sessions', 'digest_sent',
   // Records: entries, files, counselings, comments, and every read of somebody else's.
   'create', 'edit', 'delete', 'restore', 'import', 'list_records', 'view_record', 'view_member', 'view_roster', 'view_personnel',
-  'view_readiness', 'view_fitness_reports', 'view_unit_dashboard', 'view_unit_analytics', 'drill_unit_analytics', 'view_team_workload', 'acknowledge_counseling', 'counseling_amended', 'upload_attachment',
+  'view_readiness', 'view_fitness_reports', 'view_statistics', 'view_unit_dashboard', 'view_unit_analytics', 'drill_unit_analytics', 'view_team_workload', 'acknowledge_counseling', 'counseling_amended', 'upload_attachment',
   'upload_rejected', 'download_attachment', 'update_attachment', 'delete_attachment', 'comment_added', 'comment_edited', 'comment_deleted',
   'comment_removed_by_moderator', 'export', 'export_csv', 'export_pdf', 'team_message',
   // A team message kept in Vantage (ADR-0049): each file it carried and each Marine it went to, and a send refused whole.

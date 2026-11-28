@@ -20,25 +20,19 @@ import { PROCEDURE_LIST } from '../../shared/procedures';
 import { PERIOD_OPTIONS } from '../../shared/metrics';
 import { CUSTOM_PERIOD, rangeProblems } from '../../shared/dateRange';
 import {
-  CASE_STATES, CUSTOM_DATASETS, PERSONNEL_STATUSES, REPORT_GROUPS, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, isReportType, primaryTable,
+  CASE_STATES, CUSTOM_DATASETS, PERSONNEL_STATUSES, REPORT_FILE_LABELS, REPORT_GROUPS, REPORT_SPECS, REPORT_TYPES, TRAINING_STATUSES, allTables, isReportType, primaryTable,
   type ReportDocument, type ReportFileFormat, type ReportSpec, type ReportSubject, type ReportType,
 } from '../../shared/reportCatalog';
 
 type Params = Record<string, string>;
 
 const SUBJECT_LABEL: Record<ReportSubject, string> = { self: 'You', member: 'A Marine', unit: 'A unit' };
-const FILE_LABEL: Record<ReportFileFormat, [string, string]> = {
-  pdf: ['PDF', 'Laid out for paper, as the print page'],
-  csv: ['Spreadsheet (CSV)', 'The main table'],
-  xlsx: ['Excel workbook', 'Every table, a sheet each, and what the report is about'],
-  json: ['Vantage file (JSON)', 'The whole report as data'],
-};
 const count = (n: number) => n.toLocaleString('en-US');
 const cutLine = (t: { title: string; rows: unknown[]; total: number }) => `${t.title}: the first ${count(t.rows.length)} of ${count(t.total)} rows`;
 
 /** What a file holds, and where the report's row limit cut a table it carries, so a partial file is never taken for whole. */
 function fileHint(doc: ReportDocument, fmt: ReportFileFormat): string {
-  const [, hint] = FILE_LABEL[fmt];
+  const [, hint] = REPORT_FILE_LABELS[fmt];
   const main = primaryTable(doc);
   if (fmt === 'csv') return main && main.total > main.rows.length ? `${hint}. ${cutLine(main)}` : hint;
   if (fmt === 'xlsx') {
@@ -146,7 +140,7 @@ export default function ReportLibrary() {
   const rangeBad = spec.filters.includes('period') && f.period === CUSTOM_PERIOD ? rangeProblems(f.from, f.to, { required: true }) : null;
   const saveParams = rangeBad ? null : savable(params);
   const doc = run.data;
-  const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: FILE_LABEL[fmt][0], hint: fileHint(doc!, fmt), url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
+  const files: DownloadChoice[] = (doc?.files || []).map((fmt) => ({ label: REPORT_FILE_LABELS[fmt][0], hint: fileHint(doc!, fmt), url: api.reportFileUrl(ran!, fmt), fallback: `vantage-report.${fmt}` }));
   // A choice the server refused is named on the field it is about, as well as above the report.
   const invalid = run.error instanceof api.ApiError && run.error.status === 400 ? run.error : null;
   const fe = invalid?.fieldErrors || {};

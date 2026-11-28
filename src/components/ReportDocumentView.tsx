@@ -33,6 +33,13 @@ export default function ReportDocumentView({ doc, variant = 'screen' }: { doc: R
         ) : null}
       </header>
 
+      {doc.privacy ? (
+        <section className="report-section" aria-labelledby="report-privacy">
+          <Heading id="report-privacy" className="report-heading">Privacy Act statement</Heading>
+          {doc.privacy.split('\n').filter((p) => p.trim()).map((p, i) => <p key={i} className="report-lede">{p}</p>)}
+        </section>
+      ) : null}
+
       {doc.summary.length ? <Figures list={doc.summary} fmt={fmt} label="Summary" /> : null}
 
       {doc.sections.map((s) => (

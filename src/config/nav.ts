@@ -1,5 +1,5 @@
 import {
-  Award, BarChart3, Bell, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
+  Award, BarChart3, Bell, ChartColumn, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
   Gauge, GraduationCap, HeartPulse, History, Inbox, KeyRound, LayoutDashboard, Library, LifeBuoy, ListChecks, Mail, MessagesSquare,
   NotebookPen, ScrollText, Settings2, ShieldCheck, Target, Timer, UserPlus, Users, UsersRound, Workflow,
   type LucideIcon,
@@ -109,6 +109,7 @@ export const GROUPS: NavGroup[] = [
     id: 'reports', label: 'Reports & Analytics', icon: FileText, key: 'p', hint: 'Evaluation input, and what the records show', pages: [
       { to: '/reports', end: true, label: 'Packages', icon: ClipboardList, hint: 'Write a JEPES or FITREP report against the records it cites' },
       { to: '/reports/analysis', label: 'Analysis', icon: BarChart3, hint: 'What your record shows, by period' },
+      { to: '/reports/statistics', label: 'Statistics', icon: ChartColumn, hint: 'Your own record over a range, month by month, with the Statistics report' },
       { to: '/reports/library', label: 'Report library', icon: Library, hint: 'Print or file any report: yours, a Marine’s, a unit’s' },
       { to: '/team/dashboard', label: 'Unit dashboard', icon: BarChart3, hint: 'The unit’s output, casework, duty, training and roster, in figures', when: { team: 'dashboard' } },
     ],
@@ -189,7 +190,7 @@ const TABS: Record<string, Record<string, string>> = {
   '/work': { '': '/work/queue', queue: '/work/queue', tasks: '/work/tasks', projects: '/work/projects', mail: '/work/correspondence' },
   '/record': { overview: '/record', entries: '/record/activities', drafts: '/record/drafts', contributions: '/record/contributions' },
   '/career': { plan: '/career', training: '/career/training', awards: '/career/awards', counseling: '/career/counseling', readiness: '/career/readiness', messages: '/maradmins' },
-  '/reports': { packages: '/reports', analysis: '/reports/analysis', library: '/reports/library' },
+  '/reports': { packages: '/reports', analysis: '/reports/analysis', statistics: '/reports/statistics', library: '/reports/library' },
   '/team': { overview: '/team', workload: '/team/workload', roster: '/team/roster', dashboard: '/team/dashboard', invites: '/team/invitations', roles: '/team/roles', units: '/team/units', audit: '/team/access-log' },
 };
 

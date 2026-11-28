@@ -10,6 +10,7 @@ import { buildReport, periodBounds, subjectWhere, trackOf } from '../services/re
 import { metricsReport, metricsResponse, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
+import { marineStatistics } from '../services/statistics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
@@ -265,6 +266,20 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
 miscRouter.get('/reports/analysis', wrap((req, res) => {
   const { q, userId, unitId, unitIds } = reportTarget(req);
   res.json(buildAnalysisReport(req.ctx, { userId, unitId, unitIds, period: q.period, from: q.from, to: q.to, track: q.track }));
+}));
+
+// A Marine's statistics (ADR-0051): one's own, or a Marine whose record one opens, over one range. Whom it may be about
+// is decided in server/services/statistics.ts before anything is read, and a read about another Marine is audited there.
+const statisticsQuery = z.object({
+  period: periodField.default(DEFAULT_PERIOD), ...rangeFields,
+  user_id: z.string().max(64).optional(), unit_id: z.string().max(64).optional(),
+});
+
+miscRouter.get('/statistics', wrap((req, res) => {
+  const parsed = parse(statisticsQuery, req.query);
+  // Both days or neither, real ones, in order, two years at most (ADR-0038). Two days win over a preset.
+  const range = checkRange(parsed);
+  res.json(marineStatistics(req.ctx, req.user, scopeFor(req.ctx, req.user, req), { ...parsed, from: range?.from, to: range?.to }, clientIp(req)));
 }));
 
 miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {

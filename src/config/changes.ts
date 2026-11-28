@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-11-27',
+    title: 'Statistics for each Marine',
+    items: [
+      'Reports & Analytics → Statistics shows your own record over the period you choose: entries and outcomes, duty, training and awards, counseling, and what you added in Vantage, month by month. Private entries are included, and only you see them.',
+      'A Marine’s page has a Statistics tab. It counts what they shared with your units in one Unit Instance, the same figures their Analysis and the Duty report give, and each look is logged in those units’ access logs.',
+      'Export statistics takes the Statistics report as a PDF, or as a spreadsheet, workbook or data file where you may export.',
+      'Statistics are one Marine’s own history: nobody is ranked, scored or compared.',
+    ],
+  },
+  {
     date: '2026-11-26',
     title: 'A Marine’s Analysis from their page, and your own activity',
     items: [

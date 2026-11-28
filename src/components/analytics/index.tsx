@@ -8,7 +8,7 @@ import { QueryFailure } from '@/components/QueryFailure';
 import { ScrollRegion } from '@/components/common';
 import { cn } from '@/lib/utils';
 import { formatDate, formatNumber, NO_VALUE } from '../../../shared/metrics';
-import { counted, formatFigure, rateOf, summaryOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
+import { counted, formatFigure, rateOf, summaryOf, visualOf, type Bucket, type DrillRecord, type FigureFormat, type SeriesTone, type Visual, type VisualSeries } from '../../../shared/unitAnalytics';
 
 export { counted, formatFigure, summaryOf };
 
@@ -354,13 +354,4 @@ export function DrillDialog({ title, description, queryKey, load, expected, onCl
 }
 
 /** A visual built in the browser from figures it already holds (the personal analysis, the error reports' trend). */
-export function clientVisual(v: Omit<Visual, 'value' | 'count' | 'series' | 'buckets'> & {
-  series?: VisualSeries[]; buckets: Array<Omit<Bucket, 'value' | 'count' | 'counts'> & { counts?: number[] }>;
-}): Visual {
-  const series = v.series?.length ? v.series : [{ key: 'all', label: 'All', tone: 'accent' as const }];
-  const buckets = v.buckets.map((b) => {
-    const counts = b.counts ?? b.values.map((x) => (x ? 1 : 0));
-    return { ...b, counts, value: b.values.reduce((n, x) => n + x, 0), count: counts.reduce((n, x) => n + x, 0) };
-  });
-  return { ...v, series, buckets, value: buckets.reduce((n, b) => n + b.value, 0), count: buckets.reduce((n, b) => n + b.count, 0) };
-}
+export const clientVisual = visualOf;
