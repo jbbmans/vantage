@@ -169,19 +169,22 @@ test('the Privacy Act statement is plain text the deployment sets, or none', () 
   assert.equal(privacyActStatement('   '), null);
   assert.equal(privacyActStatement('AUTHORITY: First.\\nROUTINE USES: Second.'), 'AUTHORITY: First.\nROUTINE USES: Second.', 'a \\n in the setting is a paragraph break');
   assert.equal(privacyActStatement('  One   line,\tspaced  '), 'One line, spaced');
-  assert.throws(() => privacyActStatement('<b>AUTHORITY</b>'), /markup tag/);
-  assert.throws(() => privacyActStatement('AUTHORITY <br/> PURPOSE'), /markup tag/);
-  assert.throws(() => privacyActStatement('AUTHORITY\u0007'), /control character/);
-  assert.throws(() => privacyActStatement('AUTHORITY\u0085PURPOSE'), /control character/, 'a C1 control is a control character too');
+  // Whatever a browser would read as the start of markup stops the start, and the error shows where.
+  assert.throws(() => privacyActStatement('<b>AUTHORITY</b>'), /holds markup at character 1: "<b>AUTHORITY<\/b>"/);
+  for (const markup of ['AUTHORITY <br/> PURPOSE', 'A <svg/onload=alert(1)> B', '<img/src=x/onerror=alert(1)>', '<!DOCTYPE html>', '<?xml version="1.0"?>', '<!-- note -->', '<https://example.mil/x/onmouseover=alert(1)>', '<a@example.mil/onload=alert(1)>', 'x<y']) {
+    assert.throws(() => privacyActStatement(markup), /holds markup at character/, markup);
+  }
+  assert.throws(() => privacyActStatement('AUTHORITY\u0007'), /the control character U\+0007 at character 10/);
+  assert.throws(() => privacyActStatement('AUTHORITY\u0092s'), /the control character U\+0092 at character 10/, 'a C1 control is a control character too');
   assert.throws(() => privacyActStatement('x'.repeat(PRIVACY_ACT_STATEMENT_MAX + 1)), /the most is/);
-  assert.equal(privacyActStatement('Less than 5 < 6 is fine, and x<y'), 'Less than 5 < 6 is fine, and x<y', 'a less-than sign is text, not markup');
-  const contact = 'Questions: the Privacy Officer <privacy@example.mil>, or <https://example.mil/privacy/>.';
-  assert.equal(privacyActStatement(contact), contact, 'an address or a link in angle brackets is text');
+  assert.equal(privacyActStatement('Less than 5 < 6 is fine'), 'Less than 5 < 6 is fine', 'a less-than sign before a space is text, not markup');
+  const contact = 'Questions: the Privacy Officer <privacy@example.mil>, <mailto:privacy@example.mil> or <https://example.mil/privacy/>.';
+  assert.equal(privacyActStatement(contact), contact, 'an e-mail address or a web link in angle brackets is text');
   // What the PDF prints as itself is allowed, so the statement reads the same in every file; what it cannot is named.
   const typeset = 'AUTHORITY: 5 U.S.C. § 552a. “ROUTINE USES” – disclosure… Café';
   assert.equal(privacyActStatement(typeset), typeset);
-  assert.throws(() => privacyActStatement('PURPOSE: identi\ufb01cation'), /U\+FB01, which the PDF would print as '\?'/);
-  assert.throws(() => privacyActStatement('5\u202fU.S.C. 552a'), /U\+202F/);
+  assert.throws(() => privacyActStatement('PURPOSE: identi\ufb01cation'), /U\+FB01 at character 16, which the PDF would print as '\?'/);
+  assert.throws(() => privacyActStatement('5\u202fU.S.C. 552a'), /U\+202F at character 2/);
 });
 
 test('a Marine’s own statistics read every record they keep, and are not audited', async () => {

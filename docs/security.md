@@ -642,9 +642,10 @@ An account is the person for a whole career; Unit Instances hold memberships to 
   subject, so it is in their Who has looked at your record), and the Report library's `view_report`, `print_report`
   and `export_report` in each unit read. CSV, XLSX and JSON need `EXPORT_DATA` in every unit read; the PDF does not.
 - **The Privacy Act statement** is the deployment's own text (`VANTAGE_PRIVACY_ACT_STATEMENT`): plain text, at most
-  4,000 characters. A control character (C0 or C1), a markup tag or a character the PDF would print as '?' is refused
-  at start, so the statement reads the same on the screen and in every file. Every place it is shown treats it as text.
-  Vantage supplies none.
+  4,000 characters. A control character (C0 or C1), anything a browser reads as the start of markup (`<` and a letter,
+  `/`, `!` or `?`; an e-mail address or a web link in angle brackets is text) or a character the PDF would print as '?'
+  is refused at start, naming what and where, so the statement reads the same on the screen and in every file. Every
+  place it is shown also treats it as text. Vantage supplies none.
 
 ## Product analytics
 

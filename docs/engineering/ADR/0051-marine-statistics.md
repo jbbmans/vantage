@@ -71,10 +71,11 @@ Read on `d2ef1ba`:
 ### 3. The Privacy Act statement
 
 1. `VANTAGE_PRIVACY_ACT_STATEMENT` (`server/config.ts`): the deployment's statement as plain text, at most 4,000
-   characters, `\n` for a paragraph break. A control character (C0 or C1), a markup tag (an address or a link in angle
-   brackets is text), or a character the standard PDF fonts cannot print as itself (`server/lib/winAnsi.ts`) refuses
-   the start, naming the character, so the statement reads the same on the screen and in every file. Unset or empty,
-   there is none.
+   characters, `\n` for a paragraph break. A control character (C0 or C1), markup (`<` and a letter, `/`, `!` or `?`,
+   as a browser reads it; an e-mail address or a web link in angle brackets is text), or a character the standard PDF
+   fonts cannot print as itself (`server/lib/winAnsi.ts`) refuses the start; the error names the character by its code,
+   or quotes the markup, with where it is. So the statement reads the same on the screen and in every file. Unset or
+   empty, there is none.
 2. When set, the Statistics tab and the own view show it above the figures, under the heading "Privacy Act statement",
    and the Statistics report carries it: on screen and in print, at the head of the PDF, first on the workbook's About
    sheet, and as `privacy` in the JSON. The CSV is the month table alone.
@@ -119,8 +120,8 @@ an id nobody has, a Unit Manager and Vantage staff refused with 403 `forbidden`,
 `forbidden` on the tab and the report while the same leader reads a Marine below them, only that read logged; last
 sign-in to the SNCOIC and not to a Fire Team Leader; an empty fact worded for what was read; custom days and the range
 rule; twelve years of All time drawn as the Analysis's 121 months with the note, the total over every year; the
-setting's characters (an address in angle brackets passes, a C1 control, a tag and a ligature the PDF cannot print are
-refused); the Statistics report's figures and tables equal the tab's, `view_report` and `export_report` per unit, the
+setting's characters (an e-mail address or a link in angle brackets passes; a C1 control, a tag with or without spaces,
+a declaration and a ligature the PDF cannot print are refused, each named with where it is); the Statistics report's figures and tables equal the tab's, `view_report` and `export_report` per unit, the
 statement on the screen, the PDF, the workbook and the JSON, and only the PDF without `EXPORT_DATA` in every unit.
 Browser: `66-marine-statistics` (nothing read before the tab opens, the units note, the statement, the export menu and
 its request, the period in the address, one's own view with private entries, an entry logged on the page read again at

@@ -24,7 +24,8 @@ Round 2, from `d2ef1ba` ([ADR-0051](engineering/ADR/0051-marine-statistics.md)).
 - **From the review:** the tab reads again when a record it counts is saved, as the Analysis does; an old `quarter`
   link is read as the page's own period, so its export runs; an empty fact says what was read ("None in the range",
   "None shared with these units"); a range longer than the 121 months drawn says where they start; the statement
-  refuses a C1 control, a markup tag or a character the PDF cannot print, and takes an address in angle brackets.
+  refuses a C1 control, markup or a character the PDF cannot print, naming what and where, and takes an e-mail address
+  or a web link in angle brackets.
 - **Tests:** `tests/server/marineStatistics.test.ts`, `tests/browser/66-marine-statistics.spec.ts`; the navigation and
   width specs list the new page.
 

@@ -326,23 +326,33 @@ function securityContact(raw: string | undefined): string | null {
 /** The most a Privacy Act statement may run to: a paragraph or a few, never a document. */
 export const PRIVACY_ACT_STATEMENT_MAX = 4000;
 
-/** A markup tag or comment: a name after '<' and a '>' to close it. An address or a link in angle brackets is text. */
-const MARKUP_TAG = /<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>|<!--/i;
+/** An e-mail address or a web link in angle brackets: text, since nothing in it can open an attribute. */
+const ANGLED_TEXT = /<(?:[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+|(?:https?:\/\/|mailto:)[^\s<>"'`=]+)>/gi;
+/** What a browser reads as the start of markup: '<' and a letter, '/', '!' or '?'. */
+const MARKUP_START = /<[a-z/!?]/i;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+
+const codeOf = (ch: string) => `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
 
 /**
  * A Privacy Act statement: plain text, with \n for a paragraph break since a setting is one line, or nothing. A
- * control character (C0 or C1), a markup tag, a character the PDF cannot print as itself (winAnsi.ts), or more than
- * PRIVACY_ACT_STATEMENT_MAX characters stops the start, so the statement reads the same on the screen and in every file.
+ * control character (C0 or C1), markup (an e-mail address or a web link in angle brackets is text), a character the PDF
+ * cannot print as itself (winAnsi.ts), or more than PRIVACY_ACT_STATEMENT_MAX characters stops the start, and the error
+ * names what it found, so the statement reads the same on the screen and in every file.
  */
 export function privacyActStatement(raw: string | undefined): string | null {
   const value = String(raw ?? '').replace(/\\n/g, '\n').replace(/\r\n?/g, '\n').split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!value) return null;
   if (value.length > PRIVACY_ACT_STATEMENT_MAX) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT runs to ${value.length} characters; the most is ${PRIVACY_ACT_STATEMENT_MAX}.`);
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds a control character. Write \\n for a paragraph break.');
-  if (MARKUP_TAG.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds a markup tag.');
-  const odd = [...value].find((ch) => !pdfDraws(ch));
-  if (odd) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT holds U+${odd.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}, which the PDF would print as '?'. Type it again as plain letters, digits and punctuation.`);
+  const control = value.match(CONTROL);
+  if (control) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds the control character ${codeOf(control[0])} at character ${control.index! + 1}. Write \\n for a paragraph break.`);
+  const left = value.replace(ANGLED_TEXT, (m) => ' '.repeat(m.length));
+  const at = left.search(MARKUP_START);
+  if (at >= 0) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds markup at character ${at + 1}: "${value.slice(at, at + 24)}". An e-mail address or a web link in angle brackets is text.`);
+  const chars = [...value];
+  const odd = chars.findIndex((ch) => !pdfDraws(ch));
+  if (odd >= 0) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT holds ${codeOf(chars[odd])} at character ${odd + 1}, which the PDF would print as '?'. Type it again as plain letters, digits and punctuation.`);
   return value;
 }
 
