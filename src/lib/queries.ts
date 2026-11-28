@@ -197,17 +197,17 @@ export function useReviewDuty() {
 export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'duty' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
 
 const FIGURES: ReadonlyArray<readonly unknown[]> = [
-  ['report'], ['delta'], ['analysis'], ['dashboard'], ['unit-analytics'], ['metrics'], ['metric-contributors'],
+  ['report'], ['delta'], ['analysis'], ['statistics'], ['dashboard'], ['unit-analytics'], ['metrics'], ['metric-contributors'],
   ['goal-contributors'], ['records', 'goals'], ['record', 'goals'], ['record-summary'],
 ];
 
 const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
   activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates'], ['duty-candidates']],
   training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline'], ['drafts']],
-  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['drafts']],
-  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet'], ['drafts'], ['record-summary']],
-  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['unit-analytics'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
-  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline'], ['drafts']],
+  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['statistics'], ['dashboard'], ['career'], ['record-timeline'], ['drafts']],
+  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['statistics'], ['dashboard'], ['career'], ['record-timeline'], ['member'], ['personnel'], ['notifications'], ['counseling-revisions'], ['counseling-worksheet'], ['drafts'], ['record-summary']],
+  duty: [['records', 'duties'], ['record', 'duties'], ['report'], ['statistics'], ['unit-analytics'], ['record-timeline'], ['member'], ['personnel'], ['duty-review-queue'], ['duty-reviews']],
+  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['statistics'], ['delta'], ['record-timeline'], ['drafts']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work'], ['drafts']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
   work: [['work-items'], ['unit-analytics'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],

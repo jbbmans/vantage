@@ -355,7 +355,7 @@ function buildStatistics(ctx: AppContext, user: SessionUser, scope: Scope, t: Re
       // Each section draws its first figure over time, from the table beside it.
       if (!chart && v.kind === 'columns') chart = { title: v.question, kind: FIGURE_KIND[v.format], bars: rows.map((r) => ({ label: r.label, value: r.value })), table: v.id, column: 'value', shape: 'columns' };
     }
-    for (const f of s.facts) figures.push({ label: f.label, value: dayOf(f.value, f.kind), kind: 'date' });
+    for (const f of s.facts) figures.push({ label: f.label, value: dayOf(f.value, f.kind), kind: 'date', ...(f.value ? {} : { hint: f.empty }) });
     return { id: s.id, heading: s.title, lede: s.lede, figures, ...(chart ? { chart } : {}), tables, notes: s.notes };
   });
   // Every month's figures side by side: the table a CSV holds.

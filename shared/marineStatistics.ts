@@ -13,10 +13,11 @@ export const STATISTICS_SECTIONS = ['entries', 'duty', 'training', 'counseling',
 export type StatisticsSectionId = (typeof STATISTICS_SECTIONS)[number];
 
 /**
- * When something last happened, named beside a section's figures: the last counseling (a day), the last entry added or
- * the last sign-in (an instant). Null when it never has.
+ * When something last happened, named beside a section's figures: the last counseling in the range (a day), the last
+ * entry added or the last sign-in (an instant). Null when none was found in what was read; `empty` then says so for what
+ * was read, such as the range or the units shared with.
  */
-export interface StatisticsFact { key: string; label: string; kind: 'day' | 'instant'; value: string | null }
+export interface StatisticsFact { key: string; label: string; kind: 'day' | 'instant'; value: string | null; empty: string }
 
 export interface StatisticsSection {
   id: StatisticsSectionId;

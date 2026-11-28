@@ -169,10 +169,19 @@ test('the Privacy Act statement is plain text the deployment sets, or none', () 
   assert.equal(privacyActStatement('   '), null);
   assert.equal(privacyActStatement('AUTHORITY: First.\\nROUTINE USES: Second.'), 'AUTHORITY: First.\nROUTINE USES: Second.', 'a \\n in the setting is a paragraph break');
   assert.equal(privacyActStatement('  One   line,\tspaced  '), 'One line, spaced');
-  assert.throws(() => privacyActStatement('<b>AUTHORITY</b>'), /plain text/);
-  assert.throws(() => privacyActStatement('AUTHORITY\u0007'), /plain text/);
+  assert.throws(() => privacyActStatement('<b>AUTHORITY</b>'), /markup tag/);
+  assert.throws(() => privacyActStatement('AUTHORITY <br/> PURPOSE'), /markup tag/);
+  assert.throws(() => privacyActStatement('AUTHORITY\u0007'), /control character/);
+  assert.throws(() => privacyActStatement('AUTHORITY\u0085PURPOSE'), /control character/, 'a C1 control is a control character too');
   assert.throws(() => privacyActStatement('x'.repeat(PRIVACY_ACT_STATEMENT_MAX + 1)), /the most is/);
-  assert.equal(privacyActStatement('Less than 5 < 6 is fine'), 'Less than 5 < 6 is fine', 'a less-than sign is text, not markup');
+  assert.equal(privacyActStatement('Less than 5 < 6 is fine, and x<y'), 'Less than 5 < 6 is fine, and x<y', 'a less-than sign is text, not markup');
+  const contact = 'Questions: the Privacy Officer <privacy@example.mil>, or <https://example.mil/privacy/>.';
+  assert.equal(privacyActStatement(contact), contact, 'an address or a link in angle brackets is text');
+  // What the PDF prints as itself is allowed, so the statement reads the same in every file; what it cannot is named.
+  const typeset = 'AUTHORITY: 5 U.S.C. § 552a. “ROUTINE USES” – disclosure… Café';
+  assert.equal(privacyActStatement(typeset), typeset);
+  assert.throws(() => privacyActStatement('PURPOSE: identi\ufb01cation'), /U\+FB01, which the PDF would print as '\?'/);
+  assert.throws(() => privacyActStatement('5\u202fU.S.C. 552a'), /U\+202F/);
 });
 
 test('a Marine’s own statistics read every record they keep, and are not audited', async () => {
@@ -283,10 +292,18 @@ test('a reader outside the Marine’s chain, a console role and Vantage staff ar
   const across = await get(g1lead.token, about('FISCAL'));
   assert.equal(across.status, 403);
   assert.equal(across.body.code, 'cross_instance');
-  assert.deepEqual(auditedSince(seq, 'view_statistics'), [], 'nothing was read, so nothing is logged as read');
+  // A leader who opens Marines' records in FISCAL, asked about one who is not below them there: the Fire Team Leader
+  // and FISCAL's SNCO.
+  const above = await get(ftl.token, `/api/statistics?${q({ user_id: mixed.id, unit_id: 'FISCAL', period: 'last30' })}`);
+  assert.equal(above.status, 403, `a leader outside the Marine’s chain: ${JSON.stringify(above.body)}`);
+  assert.equal(above.body.code, 'forbidden');
+  assert.equal((await get(ftl.token, `/api/statistics?${q({ user_id: dual.id, unit_id: 'FISCAL', period: 'last30' })}`)).status, 200, 'while the same leader may read a Marine below them');
+  const readable = auditedSince(seq, 'view_statistics');
+  assert.deepEqual(readable.map((r) => [r.actor_id, r.subject_id, r.unit_id]), [[ftl.id, dual.id, 'FISCAL']], 'only the read allowed is logged; nothing refused was read');
   // The Statistics report is refused to them alike.
   assert.equal((await get(plain.token, `/api/report-center/run?${q({ type: 'statistics', subject: 'member', user_id: dual.id, unit_id: 'FISCAL' })}`)).status, 403);
   assert.equal((await file(unitmgr.token, `/api/report-center/export?${q({ type: 'statistics', subject: 'member', user_id: dual.id, unit_id: 'FISCAL', format: 'pdf' })}`)).status, 403);
+  assert.equal((await get(ftl.token, `/api/report-center/run?${q({ type: 'statistics', subject: 'member', user_id: mixed.id, unit_id: 'FISCAL' })}`)).status, 403, 'and to the leader outside the chain');
 });
 
 test('the last sign-in only to a leader who manages the Marine, and nothing about pages or time', async () => {
@@ -299,7 +316,9 @@ test('the last sign-in only to a leader who manages the Marine, and nothing abou
   assert.ok(managed.find((f) => f.key === 'last_entry')?.value, 'when the last entry was added');
   const led = await facts(ftl.token);
   assert.ok(!led.some((f) => f.key === 'last_sign_in'), 'a Fire Team Leader opens Dual’s record but manages nobody');
-  assert.ok(led.some((f) => f.key === 'last_entry'));
+  assert.equal(led.find((f) => f.key === 'last_entry')?.empty, 'None shared with these units', 'with none found, it says what was read');
+  const own = ((await get(dual.token, `/api/statistics?${q({ period: 'last30' })}`)).body as MarineStatistics).sections.find((x) => x.id === 'activity')!.facts;
+  assert.equal(own.find((f) => f.key === 'last_entry')?.empty, 'None in Vantage', 'one’s own is every entry one keeps');
 });
 
 test('the range is the one range rule’s, and its days are every read’s', async () => {
@@ -316,6 +335,11 @@ test('the range is the one range rule’s, and its days are every read’s', asy
   assert.equal(tile(early, 'entries_now', 'entries'), 0);
   assert.equal(tile(early, 'activity_now', 'entries'), 0, 'nothing was added in those days either');
   assert.deepEqual(visual(early, 'duty_months').buckets.map((b) => b.key)[0], dayAfter(D, -60).slice(0, 7), 'the months start at the range’s first');
+  // The counselings are dated four days ago: none in these days, said so, not that there are none at all.
+  const counseled = early.sections.find((x) => x.id === 'counseling')!.facts.find((f) => f.key === 'last_counseling')!;
+  assert.deepEqual([counseled.label, counseled.value, counseled.empty], ['Last counseling in the range', null, 'None in the range']);
+  const report = (await get(reyes.token, `/api/report-center/run?${q({ type: 'statistics', subject: 'member', user_id: dual.id, unit_id: 'FISCAL', from: dayAfter(D, -60), to: dayAfter(D, -10) })}`)).body as ReportDocument;
+  assert.deepEqual(report.sections.find((x) => x.id === 'counseling')!.figures?.find((f) => f.label === 'Last counseling in the range'), { label: 'Last counseling in the range', value: null, kind: 'date', hint: 'None in the range' }, 'and the report says it alike');
   // The 200-day-old duty is in a range that covers it.
   const year = (await get(dual.token, `/api/statistics?${q({ period: 'last12' })}`)).body as MarineStatistics;
   assert.equal(tile(year, 'duty_now', 'count'), 5);
@@ -394,4 +418,27 @@ test('every record added counts in one month of the activity series, on the inst
   assert.equal(months.reduce((n, b) => n + b.value, 0), visual(s, 'activity_now').value);
   assert.ok(months.at(-1)!.key >= zonedDay(tz).slice(0, 7), 'today’s month is drawn');
   assert.ok(months.every((b, i) => i === 0 || b.key > months[i - 1].key), 'one bar a month, in order');
+});
+
+test('a range longer than the months drawn says where they start, and every total still counts the whole range', async () => {
+  const vet = await app.register('veteran');
+  await enroll(app, op.token, 'FISCAL', vet.id);
+  const token = await login('veteran');
+  for (const date of [dayAfter(D, -365 * 12), D]) {
+    const res = await post(token, '/api/records/activities', { title: `Veteran closed the ledger on ${date}`, date, quantity: 1, unit_label: 'ULOs', result: 'Closed', visibility: 'unit', unit_id: 'FISCAL' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+  }
+  const s = (await get(token, `/api/statistics?${q({ period: 'all' })}`)).body as MarineStatistics;
+  const months = visual(s, 'entries_months').buckets;
+  assert.equal(months.length, 121, 'the latest 121 months, as the Analysis draws them');
+  assert.equal(months.reduce((n, b) => n + b.value, 0), 1, 'the entry twelve years ago is before the first month drawn');
+  assert.equal(tile(s, 'entries_now', 'entries'), 2, 'and the total counts it');
+  const note = s.notes.find((n) => n.includes('121 months'));
+  assert.ok(note?.includes(`starts at ${months[0].label}`), `the tab says where the months start: ${JSON.stringify(s.notes)}`);
+  const analysis = (await get(token, `/api/reports/analysis?${q({ period: 'all' })}`)).body as { monthly: Array<{ month: string }> };
+  assert.deepEqual(months.map((b) => b.key), analysis.monthly.map((m) => m.month), 'the same months as the Analysis');
+  const doc = (await get(token, `/api/report-center/run?${q({ type: 'statistics', subject: 'self', period: 'all' })}`)).body as ReportDocument;
+  assert.ok(doc.notes.includes(note!), 'and the report carries the same note');
+  const short = (await get(token, `/api/statistics?${q({ period: 'last12' })}`)).body as MarineStatistics;
+  assert.ok(!short.notes.some((n) => n.includes('121 months')), 'a range the months cover says nothing of it');
 });

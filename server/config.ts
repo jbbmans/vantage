@@ -1,6 +1,7 @@
 import { isAbsolute, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAllowedDomains } from './lib/recipientDomains.ts';
+import { pdfDraws } from './lib/winAnsi.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -325,16 +326,23 @@ function securityContact(raw: string | undefined): string | null {
 /** The most a Privacy Act statement may run to: a paragraph or a few, never a document. */
 export const PRIVACY_ACT_STATEMENT_MAX = 4000;
 
+/** A markup tag or comment: a name after '<' and a '>' to close it. An address or a link in angle brackets is text. */
+const MARKUP_TAG = /<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>|<!--/i;
+
 /**
- * A Privacy Act statement: plain text, with \n for a paragraph break since a setting is one line, or nothing. Markup and
- * control characters stop the start, as does one longer than PRIVACY_ACT_STATEMENT_MAX.
+ * A Privacy Act statement: plain text, with \n for a paragraph break since a setting is one line, or nothing. A
+ * control character (C0 or C1), a markup tag, a character the PDF cannot print as itself (winAnsi.ts), or more than
+ * PRIVACY_ACT_STATEMENT_MAX characters stops the start, so the statement reads the same on the screen and in every file.
  */
 export function privacyActStatement(raw: string | undefined): string | null {
   const value = String(raw ?? '').replace(/\\n/g, '\n').replace(/\r\n?/g, '\n').split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!value) return null;
   if (value.length > PRIVACY_ACT_STATEMENT_MAX) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT runs to ${value.length} characters; the most is ${PRIVACY_ACT_STATEMENT_MAX}.`);
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u0008\u000b-\u001f\u007f]|<[a-z/!?]/i.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text: no markup and no control characters. Write \\n for a paragraph break.');
+  if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds a control character. Write \\n for a paragraph break.');
+  if (MARKUP_TAG.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text and holds a markup tag.');
+  const odd = [...value].find((ch) => !pdfDraws(ch));
+  if (odd) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT holds U+${odd.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}, which the PDF would print as '?'. Type it again as plain letters, digits and punctuation.`);
   return value;
 }
 

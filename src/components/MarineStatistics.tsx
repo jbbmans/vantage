@@ -12,7 +12,7 @@ import { usePeriodParam } from '@/lib/usePeriodParam';
 import { periodQuery } from '@/lib/periodParams';
 import * as api from '@/lib/api';
 import { formatStamp } from '@/lib/utils';
-import { DEFAULT_PERIOD, formatDate, NO_VALUE } from '../../shared/metrics';
+import { DEFAULT_PERIOD, PERIOD_OPTIONS, formatDate, NO_VALUE, type PeriodKey } from '../../shared/metrics';
 import { REPORT_FILE_LABELS } from '../../shared/reportCatalog';
 import type { MarineStatistics, StatisticsFact, StatisticsSection } from '../../shared/marineStatistics';
 
@@ -28,7 +28,10 @@ export interface StatisticsInstance { unitId: string; label: string }
 
 const AUDITED_READ = { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } as const;
 
-const factText = (f: StatisticsFact) => (!f.value ? (f.key === 'last_sign_in' ? 'Never' : 'None in Vantage') : f.kind === 'instant' ? formatStamp(f.value) : formatDate(f.value));
+/** A preset the Report library takes, so the export runs on the range the figures show. */
+const offered = (period: string | null | undefined): period is PeriodKey => PERIOD_OPTIONS.some((p) => p.value === period);
+
+const factText = (f: StatisticsFact) => (!f.value ? f.empty : f.kind === 'instant' ? formatStamp(f.value) : formatDate(f.value));
 
 function Section({ section }: { section: StatisticsSection }) {
   const [tiles, ...charts] = section.visuals;
@@ -56,7 +59,11 @@ export default function MarineStatisticsView({ userId, instances = [] }: {
 }) {
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
-  const range = usePeriodParam(prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
+  const fallback: PeriodKey = [prefs.reportPeriod, identity?.unitDefaults?.reportPeriod].find(offered) ?? DEFAULT_PERIOD;
+  const asked = usePeriodParam(fallback);
+  // A period the address names that the Report library does not take (the old quarter) is read as the page's own, so
+  // the figures and the export are always the same range.
+  const range = asked.custom || offered(asked.period) ? asked : { ...asked, period: fallback };
   const [chosen, choose] = useParam('in', instances[0]?.unitId ?? '');
   const unitId = userId ? (instances.find((i) => i.unitId === chosen) ?? instances[0])?.unitId : undefined;
   const { period, from, to } = periodQuery(range);

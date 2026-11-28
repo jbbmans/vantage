@@ -47,7 +47,10 @@ Read on `d2ef1ba`:
 3. The answer (`shared/marineStatistics.ts`) is five sections (`entries`, `duty`, `training`, `counseling`,
    `activity`), each a title, a line on what it counts, kit visuals (KPI rows, rates, columns, bars, built with
    `visualOf` from `shared/unitAnalytics.ts`), dated facts and notes; the units read; the range; `privacy_act`; and the
-   files the reader may take.
+   files the reader may take. A fact found empty says so for what was read: the last counseling "None in the range";
+   the last entry "None in Vantage" about oneself and "None shared with these units" about another Marine.
+   Every month series draws the same months, the latest 121 as the Analysis draws them ([ADR-0028](0028-unified-analytics.md) §7); when the range
+   reaches back further, a note says where the months start, and every total still counts the whole range.
 4. **Own history only.** No ranking, no comparison with anyone, no composite score, no projection. About another
    Marine the answer says so in a note.
 5. `GET /api/statistics?user_id&unit_id&period&from&to` (`server/routes/misc.ts`). About another Marine it writes
@@ -68,8 +71,10 @@ Read on `d2ef1ba`:
 ### 3. The Privacy Act statement
 
 1. `VANTAGE_PRIVACY_ACT_STATEMENT` (`server/config.ts`): the deployment's statement as plain text, at most 4,000
-   characters, `\n` for a paragraph break. Markup and control characters refuse the start. Unset or empty, there is
-   none.
+   characters, `\n` for a paragraph break. A control character (C0 or C1), a markup tag (an address or a link in angle
+   brackets is text), or a character the standard PDF fonts cannot print as itself (`server/lib/winAnsi.ts`) refuses
+   the start, naming the character, so the statement reads the same on the screen and in every file. Unset or empty,
+   there is none.
 2. When set, the Statistics tab and the own view show it above the figures, under the heading "Privacy Act statement",
    and the Statistics report carries it: on screen and in print, at the head of the PDF, first on the workbook's About
    sheet, and as `privacy` in the JSON. The CSV is the month table alone.
@@ -82,14 +87,17 @@ Read on `d2ef1ba`:
 1. `src/components/MarineStatistics.tsx`: the period picker (in the address, ADR-0038), a Unit Instance choice when the
    reader opens the Marine in more than one, the units read and that the view was logged, the Privacy Act statement,
    the five sections (KPI row first, the other figures two to a row on wide screens, each with its table view), and
-   **Export statistics** with the files `files` lists. Read once a minute at most and never again on focus.
+   **Export statistics** with the files `files` lists. Read once a minute at most and never again on focus, and again
+   whenever a record it counts is saved in the app, as the Analysis is. A period the Report library does not take
+   (the old `quarter` in a link) is read as the page's own, so the figures and the export are one range.
 2. The member page gains a **Statistics** tab, read only while the tab is open.
 3. Reports & Analytics gains **Statistics** (`/reports/statistics`), one's own.
 
 ## Consequences
 
 - A leader's look at a Marine's statistics is one more entry in each unit's access log, beside `view_member` and
-  `build_report`. Opening the tab again within a minute reads nothing new; changing the range reads again.
+  `build_report`. Opening the tab again within a minute reads nothing new; changing the range, or saving a record it
+  counts, reads again.
 - The figures cannot drift from the Analysis or the Duty report: they are those reads. A change to either changes the
   statistics with it.
 - The activity counts are by when a record was added, not by its date, so an entry dated last year and added this week
@@ -107,8 +115,13 @@ or a private record, equal the Analysis (entries, value, actions counted, areas,
 the Duty report (duty stood, hours, approved points, awaiting review) for the same range and units, with no ranking or
 score among the figures and `view_statistics` once per unit read; a Marine of the unit, a Marine reading their leader,
 an id nobody has, a Unit Manager and Vantage staff refused with 403 `forbidden`, another instance's unit with 403
-`cross_instance`, nothing logged; last sign-in to the SNCOIC and not to a Fire Team Leader; custom days and the range
-rule; the Statistics report's figures and tables equal the tab's, `view_report` and `export_report` per unit, the
+`cross_instance`, a Fire Team Leader asked about FISCAL's SNCO (a leader outside that Marine's chain) refused with 403
+`forbidden` on the tab and the report while the same leader reads a Marine below them, only that read logged; last
+sign-in to the SNCOIC and not to a Fire Team Leader; an empty fact worded for what was read; custom days and the range
+rule; twelve years of All time drawn as the Analysis's 121 months with the note, the total over every year; the
+setting's characters (an address in angle brackets passes, a C1 control, a tag and a ligature the PDF cannot print are
+refused); the Statistics report's figures and tables equal the tab's, `view_report` and `export_report` per unit, the
 statement on the screen, the PDF, the workbook and the JSON, and only the PDF without `EXPORT_DATA` in every unit.
 Browser: `66-marine-statistics` (nothing read before the tab opens, the units note, the statement, the export menu and
-its request, the period in the address, one's own view with private entries, a refusal, axe).
+its request, the period in the address, one's own view with private entries, an entry logged on the page read again at
+once, an old quarter link exported on the range shown, a refusal, axe).

@@ -101,6 +101,30 @@ test('a Marine’s own Statistics, from Reports & Analytics, count what they kee
     await own.keyboard.press('Escape');
     expect(await scan(own)).toEqual([]);
 
+    // An entry logged on the page counts at once: the figures are read again, as the Analysis is.
+    const reread = own.waitForResponse((r) => r.url().includes('/api/statistics?') && r.request().method() === 'GET');
+    await own.locator('button[aria-label="Log activity"]').filter({ visible: true }).first().click();
+    const log = own.getByRole('dialog', { name: 'Log activity' });
+    await log.getByLabel('What did you do?').fill(`Closed out the ${unique('ulo')} obligations`);
+    await log.getByRole('button', { name: 'Save activity' }).click();
+    await expect(own.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
+    const fresh = await (await reread).json() as { sections: Array<{ id: string; visuals: Array<{ id: string; buckets: Array<{ key: string; value: number }> }> }> };
+    expect(fresh.sections.find((x) => x.id === 'entries')!.visuals.find((v) => v.id === 'entries_now')!.buckets.find((b) => b.key === 'entries')!.value).toBe(3);
+    await expect(tiles).toContainText('3');
+
+    // An old link's quarter, which the Report library does not take, is read as the page's own period, so the export
+    // runs on the range the figures show.
+    const asking = own.waitForRequest(/\/api\/statistics\?/);
+    await own.goto('/reports/statistics?period=quarter');
+    const period = new URL((await asking).url()).searchParams.get('period');
+    expect(period).not.toBe('quarter');
+    await view.getByRole('button', { name: 'Export statistics' }).click();
+    const exported = own.waitForResponse(/\/api\/report-center\/export/);
+    await own.getByRole('menuitem', { name: /^PDF/ }).click();
+    const file = await exported;
+    expect(file.status()).toBe(200);
+    expect(new URL(file.url()).searchParams.get('period')).toBe(period);
+
     // Somebody else's, asked for by a Marine who does not lead them, is refused.
     const leader = await (await page.request.get('/api/me')).json();
     const refused = await own.request.get(`/api/statistics?${new URLSearchParams({ user_id: leader.user.id })}`, { headers: H });

@@ -59,17 +59,24 @@ const ALL_TIME_FROM = '1970-01-01';
 /** The most months a series draws, the latest of them, as the Analysis draws its own. */
 const MONTH_LIMIT = 121;
 
+interface RangeMonths {
+  months: Array<{ key: string; label: string }>;
+  /** Whether the range reaches back before the first month drawn, so a total counts months no series shows. */
+  cut: boolean;
+}
+
 /** The range's months, the latest MONTH_LIMIT of them. All time starts at the first month anything was counted in. */
-function monthsOf(from: string, to: string, firstDays: Array<string | null | undefined>): Array<{ key: string; label: string }> {
+function monthsOf(from: string, to: string, firstDays: Array<string | null | undefined>): RangeMonths {
   const first = from > ALL_TIME_FROM ? from : firstDays.filter((d): d is string => Boolean(d)).sort()[0] ?? to;
   const index = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
   const end = index(to);
-  const out: Array<{ key: string; label: string }> = [];
-  for (let i = Math.max(index(first), end - (MONTH_LIMIT - 1)); i <= end; i += 1) {
+  const start = Math.max(index(first), end - (MONTH_LIMIT - 1));
+  const months: Array<{ key: string; label: string }> = [];
+  for (let i = start; i <= end; i += 1) {
     const key = `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
-    out.push({ key, label: monthLabel(key) });
+    months.push({ key, label: monthLabel(key) });
   }
-  return out;
+  return { months, cut: index(first) < start };
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -185,16 +192,21 @@ const kpis = (id: string, question: string, noun: string, tiles: Array<{ key: st
     buckets: tiles.map((x) => ({ key: x.key, label: x.label, ...(x.format ? { format: x.format } : {}), ...(x.hint ? { hint: x.hint } : {}), values: [x.value], counts: [x.count ?? x.value] })),
   });
 
-function sectionsOf(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures, t: StatisticsTarget): StatisticsSection[] {
+/** The months every series draws: the same months for each, from the first anything in the range was counted in. */
+function rangeMonths(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures): RangeMonths {
+  const firstOf = (list: Array<string | null | undefined>) => list.filter((d): d is string => Boolean(d)).sort()[0] ?? null;
+  const trainingDay = (x: (typeof a.career.trainings)[number]) => anchorDay('trainings', x, a.period.from);
+  return monthsOf(a.period.from, a.period.to, [
+    firstOf(a.appendix.map((r) => (r.month ? `${r.month}-01` : null))), duty.firstDay, firstOf(a.career.trainings.map(trainingDay)), act.firstDay,
+  ]);
+}
+
+function sectionsOf(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures, t: StatisticsTarget, months: RangeMonths['months']): StatisticsSection[] {
   const cfg = a.metricsConfig;
   const money = cfg.currency_label;
   const kpi = (key: string) => a.kpis.find((k) => k.key === key);
   const field = (key: string) => a.coverage.fields.find((f) => f.key === key);
-  const firstOf = (list: Array<string | null | undefined>) => list.filter((d): d is string => Boolean(d)).sort()[0] ?? null;
   const trainingDay = (x: (typeof a.career.trainings)[number]) => anchorDay('trainings', x, a.period.from);
-  const months = monthsOf(a.period.from, a.period.to, [
-    firstOf(a.appendix.map((r) => (r.month ? `${r.month}-01` : null))), duty.firstDay, firstOf(a.career.trainings.map(trainingDay)), act.firstDay,
-  ]);
   const monthly = new Map(a.monthly.map((m) => [m.month, m]));
   const valued = new Map<string, number>();
   for (const r of a.appendix) if (r.month && r.summable && r.value) add(valued, r.month, 1);
@@ -320,12 +332,13 @@ function sectionsOf(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures, 
         buckets: k.byType.map((x) => ({ key: x.type, label: words(x.type) || 'Other', values: [x.count], counts: [x.count] })).sort((x, y) => y.values[0] - x.values[0]),
       }),
     ],
-    facts: [{ key: 'last_counseling', label: 'Last counseling', kind: 'day', value: k.lastDate }],
+    facts: [{ key: 'last_counseling', label: 'Last counseling in the range', kind: 'day', value: k.lastDate, empty: 'None in the range' }],
     notes: [],
   };
 
-  const facts: StatisticsFact[] = [{ key: 'last_entry', label: 'Last entry added', kind: 'instant', value: act.lastEntry }];
-  if (act.signInShown) facts.push({ key: 'last_sign_in', label: 'Last signed in', kind: 'instant', value: act.lastSignIn });
+  // The last entry is the last one ever added, not only in the range: of every entry one keeps, or of those shared with the units read.
+  const facts: StatisticsFact[] = [{ key: 'last_entry', label: 'Last entry added', kind: 'instant', value: act.lastEntry, empty: t.self ? 'None in Vantage' : 'None shared with these units' }];
+  if (act.signInShown) facts.push({ key: 'last_sign_in', label: 'Last signed in', kind: 'instant', value: act.lastSignIn, empty: 'Never' });
   const activitySection: StatisticsSection = {
     id: 'activity', title: 'Activity in Vantage',
     lede: `What ${t.self ? 'you' : 'the Marine'} added in the range, whatever day each is dated: counts, not a list.${t.self ? '' : ' From what they shared with the units read.'}`,
@@ -358,6 +371,7 @@ export function statisticsProfile(ctx: AppContext, user: SessionUser, scope: Sco
   const duty = dutyFigures(ctx, t, from, to);
   const act = activityFigures(ctx, user, scope, t, from, to);
   const units = a.units.map((u) => ({ id: u.id, name: u.name, short_name: u.short_name }));
+  const span = rangeMonths(a, duty, act);
   const notes = t.self
     ? ['Drawn from your own records, private ones included. Nobody else’s figures are read or compared.']
     : [
@@ -368,8 +382,12 @@ export function statisticsProfile(ctx: AppContext, user: SessionUser, scope: Sco
     user_id: t.userId, subject: a.subject, self: t.self, track: a.track,
     period: { from, to, label: a.label }, as_of: zonedDay(zoneOf(ctx, user)),
     unit_id: t.self ? null : t.unitId, units,
-    sections: sectionsOf(a, duty, act, t),
-    notes: [...notes, 'An entry, a course or a duty that runs across the range’s edge counts in it, once.'],
+    sections: sectionsOf(a, duty, act, t, span.months),
+    notes: [
+      ...notes, 'An entry, a course or a duty that runs across the range’s edge counts in it, once.',
+      // As the Analysis draws its months (ADR-0028): the latest of them, and every total over the whole range.
+      ...(span.cut ? [`The range reaches back further than ${MONTH_LIMIT} months: each month by month figure starts at ${span.months[0].label}, and every total counts the whole range.`] : []),
+    ],
     privacy_act: ctx.config.privacyActStatement,
     files: statisticsFiles(scope, t),
   };

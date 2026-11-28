@@ -103,8 +103,10 @@ MCEN treats it.
 
 `VANTAGE_PRIVACY_ACT_STATEMENT` holds the statement the command gives for the records Vantage keeps (I-39), as plain
 text, at most 4,000 characters, `\n` for a paragraph break. When it is set, a Marine's Statistics and the Statistics
-report show it above the figures (ADR-0051). Unset, nothing is shown: Vantage supplies no wording of its own. Markup or
-a control character stops the start with the reason.
+report show it above the figures (ADR-0051). Unset, nothing is shown: Vantage supplies no wording of its own. A control
+character, a markup tag, or a character the PDF cannot print as itself stops the start with the reason; the error names
+a character by its code (U+FB01, the "fi" a typeset PDF pastes, for one). An address or a link in angle brackets is
+text. Latin letters, digits, the section sign, straight and curly quotes and dashes all print.
 
 ## First start and the first administrator
 
