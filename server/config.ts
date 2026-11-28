@@ -89,6 +89,12 @@ export interface AppConfig {
   };
   /** Where security.txt sends a vulnerability report first: a mailto: or https: address, or null for the request form only. */
   securityContact: string | null;
+  /**
+   * The Privacy Act statement the deployment shows beside a Marine's statistics and prints on their export
+   * (VANTAGE_PRIVACY_ACT_STATEMENT, ADR-0051): plain text the command supplies, or null to show none. Vantage writes no
+   * statement of its own.
+   */
+  privacyActStatement: string | null;
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
@@ -313,6 +319,22 @@ function securityContact(raw: string | undefined): string | null {
   const value = String(raw ?? '').trim();
   if (!value) return null;
   if (!/^(?:mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/i.test(value)) throw new Error('VANTAGE_SECURITY_CONTACT must be one mailto: or https: address.');
+  return value;
+}
+
+/** The most a Privacy Act statement may run to: a paragraph or a few, never a document. */
+export const PRIVACY_ACT_STATEMENT_MAX = 4000;
+
+/**
+ * A Privacy Act statement: plain text, with \n for a paragraph break since a setting is one line, or nothing. Markup and
+ * control characters stop the start, as does one longer than PRIVACY_ACT_STATEMENT_MAX.
+ */
+export function privacyActStatement(raw: string | undefined): string | null {
+  const value = String(raw ?? '').replace(/\\n/g, '\n').replace(/\r\n?/g, '\n').split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!value) return null;
+  if (value.length > PRIVACY_ACT_STATEMENT_MAX) throw new Error(`VANTAGE_PRIVACY_ACT_STATEMENT runs to ${value.length} characters; the most is ${PRIVACY_ACT_STATEMENT_MAX}.`);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b-\u001f\u007f]|<[a-z/!?]/i.test(value)) throw new Error('VANTAGE_PRIVACY_ACT_STATEMENT is plain text: no markup and no control characters. Write \\n for a paragraph break.');
   return value;
 }
 
@@ -572,6 +594,7 @@ export function loadConfig(env = process.env): AppConfig {
       indexNowEndpoint: (test && env.VANTAGE_INDEXNOW_URL) || 'https://api.indexnow.org/indexnow',
     },
     securityContact: securityContact(env.VANTAGE_SECURITY_CONTACT),
+    privacyActStatement: privacyActStatement(env.VANTAGE_PRIVACY_ACT_STATEMENT),
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envInt(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30, 1, 7 * 24 * 60),

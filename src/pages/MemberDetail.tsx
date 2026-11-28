@@ -27,6 +27,7 @@ import { SharedFitnessReports } from '@/components/FitrepStanding';
 import { humanize, fullName, cn, useMediaQuery } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
 import { PersonnelPanel } from '@/components/PersonnelRecord';
+import MarineStatisticsView from '@/components/MarineStatistics';
 import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
 import DutyDialog, { DUTY_TONE, DutyDetail, type DutyMode } from '@/components/DutyDialog';
 import { ApprovedPoints, DutyReviewActions, DutyReviewHistory } from '@/components/DutyReview';
@@ -163,13 +164,15 @@ export default function MemberDetail() {
       </>}
       {!isSelf && <DraftStrip kind="award" subjectId={id} onContinue={resumeAward.open} />}
       {/* Each count is of every record the reader may see, from the server, not of the list it sends. */}
-      <Tabs value={shownTab} onChange={setTab} className="mb-4" label="This Marine’s records" panel="member-panel" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records || recordsLoading ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records?.counts.activities }, { value: 'counseling', label: 'Counseling', count: records?.counts.counselings }, { value: 'career', label: 'Awards and training', count: records ? records.counts.awards + records.counts.trainings : undefined }, { value: 'duty', label: 'Duty', count: records?.counts.duties }, { value: 'roles', label: 'Roles' }] : [])]} />
+      <Tabs value={shownTab} onChange={setTab} className="mb-4" label="This Marine’s records" panel="member-panel" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records || recordsLoading ? [{ value: 'overview', label: 'Overview' }, { value: 'statistics', label: 'Statistics' }, { value: 'activities', label: 'Activities', count: records?.counts.activities }, { value: 'counseling', label: 'Counseling', count: records?.counts.counselings }, { value: 'career', label: 'Awards and training', count: records ? records.counts.awards + records.counts.trainings : undefined }, { value: 'duty', label: 'Duty', count: records?.counts.duties }, { value: 'roles', label: 'Roles' }] : [])]} />
 
       <TabPanel id="member-panel" value={shownTab}>
       {shownTab === 'personnel' && <PersonnelPanel record={record} onTab={records || recordsLoading ? setTab : undefined} onChanged={reload} />}
       {shownTab !== 'personnel' && recordsLoading && <div className="space-y-3" aria-hidden><Skeleton className="h-24" /><Skeleton className="h-64" /></div>}
 
       {records && <>
+      {/* Read only while the tab is open: another Marine's statistics are logged to each unit's access log. */}
+      {tab === 'statistics' && <MarineStatisticsView userId={isSelf ? undefined : id} instances={instances.map((i) => ({ unitId: i.units[0].id, label: i.org_name || i.units.map((u) => u.short_name || u.name).join(', ') }))} />}
       {tab === 'overview' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Panel title={`${trackMeta(track).areaLabel} balance`} subtitle={records.counts.activities > records.activities.length ? `From the newest ${records.activities.length} of ${records.counts.activities} shared activities` : undefined} className="lg:col-span-1"><ul className="space-y-1.5">{Object.entries(metrics.byArea).map(([area, b]) => <li key={area} className="flex items-center justify-between text-sm"><span className="text-ink">{mapAreaToTrack(area, track)}</span><span className="fig text-xs text-ink-3">{b.count}</span></li>)}{!Object.keys(metrics.byArea).length && <li className="text-sm text-ink-3">No shared entries.</li>}</ul></Panel>

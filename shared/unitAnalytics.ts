@@ -146,6 +146,26 @@ export function drillOf<R>(sources: ReadonlyArray<SourceRecord<R>>, visual: stri
   return { records: records.map((r) => ({ ...r, value: round(r.value) })), value };
 }
 
+/** A visual given as figures already added up: its bars' values per series and, where known, how many records each counts. */
+export type VisualInput = Omit<Visual, 'value' | 'count' | 'series' | 'buckets'> & {
+  series?: VisualSeries[];
+  buckets: Array<Omit<Bucket, 'value' | 'count' | 'counts'> & { counts?: number[] }>;
+};
+
+/**
+ * A visual from figures another reader already added up (a Marine's statistics from their Analysis, the personal
+ * analysis in the browser), drawn as tally's are. A bar's count is the records given for it, or one for each series it
+ * has a figure in.
+ */
+export function visualOf(v: VisualInput): Visual {
+  const series = v.series?.length ? v.series : [ONE_SERIES];
+  const buckets = v.buckets.map((b) => {
+    const counts = b.counts ?? b.values.map((x) => (x ? 1 : 0));
+    return { ...b, values: b.values.map(round), counts, value: round(b.values.reduce((n, x) => n + x, 0)), count: counts.reduce((n, x) => n + x, 0) };
+  });
+  return { ...v, series, buckets, value: round(buckets.reduce((n, b) => n + b.value, 0)), count: buckets.reduce((n, b) => n + b.count, 0) };
+}
+
 /** A visual's rate: the first bar of the total, or null when there is nothing to divide by. */
 export function rateOf(v: Pick<Visual, 'buckets'>): { done: number; of: number; percent: number | null } {
   const done = v.buckets[0]?.value ?? 0;

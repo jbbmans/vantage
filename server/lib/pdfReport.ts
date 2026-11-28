@@ -95,6 +95,13 @@ async function draw(doc: PDFKit.PDFDocument, report: ReportDocument, wide: boole
     });
     doc.x = left; doc.y = top + boxH;
   }
+  // The deployment's Privacy Act statement, where the report carries one, under the cover and before any figure (ADR-0051).
+  if (report.privacy) {
+    doc.moveDown(0.6);
+    text('PRIVACY ACT STATEMENT', 'Helvetica-Bold', 7.5, INK2, { characterSpacing: 1.2 });
+    doc.moveDown(0.15);
+    for (const paragraph of report.privacy.split('\n')) if (paragraph.trim()) text(paragraph, 'Helvetica', 8, INK2, { paragraphGap: 2 });
+  }
   rule();
 
   // Figures in a grid

@@ -37,6 +37,7 @@ const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const ReportLibrary = lazy(() => import('@/pages/ReportLibrary'));
+const Statistics = lazy(() => import('@/pages/Statistics'));
 const PrintReport = lazy(() => import('@/pages/PrintReport'));
 const PrintCounseling = lazy(() => import('@/pages/PrintCounseling'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -260,6 +261,7 @@ function AppRoutes() {
         <Route path="reports" element={<Here><D><ReportStudio /></D></Here>} />
         <Route path="reports/analysis" element={<D><Reports /></D>} />
         <Route path="reports/library" element={<D><ReportLibrary /></D>} />
+        <Route path="reports/statistics" element={<D><Statistics /></D>} />
         <Route path="reference" element={<D><Reference /></D>} />
         <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="team" element={<Here><D><Team section="overview" /></D></Here>} />

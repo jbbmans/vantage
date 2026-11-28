@@ -18,7 +18,7 @@ const WIDTHS = [
 ];
 const APP = ['/', '/record', '/record/activities', '/record/duty', '/record/drafts', '/record/timeline', '/career', '/career/training',
   '/career/awards', '/career/counseling', '/career/readiness', '/goals', '/team', '/team/workload', '/work', '/work/queue', '/work/tasks',
-  '/work/error-reports', '/work/correspondence', '/reports', '/reports/analysis', '/reports/library', '/notifications', '/settings',
+  '/work/error-reports', '/work/correspondence', '/reports', '/reports/analysis', '/reports/statistics', '/reports/library', '/notifications', '/settings',
   '/settings?tab=security', '/help', '/reference'];
 const CONSOLE = ['/console/G8', '/console/G8/people', '/console/G8/units', '/console/G8/audit', '/console/G8/operations'];
 const ADMIN = ['/admin', '/admin/orgs', '/admin/accounts', '/admin/operations', '/admin/audit'];

@@ -99,6 +99,13 @@ These leave the enclave and need an approved connection before they are turned o
 The Vantage Administrator console's overview lists every outbound connection: where it goes, whether it is on, and how
 MCEN treats it.
 
+## The Privacy Act statement
+
+`VANTAGE_PRIVACY_ACT_STATEMENT` holds the statement the command gives for the records Vantage keeps (I-39), as plain
+text, at most 4,000 characters, `\n` for a paragraph break. When it is set, a Marine's Statistics and the Statistics
+report show it above the figures (ADR-0051). Unset, nothing is shown: Vantage supplies no wording of its own. Markup or
+a control character stops the start with the reason.
+
 ## First start and the first administrator
 
 1. Start the service. The log line names the profile and topology. `/api/health` reports

@@ -92,6 +92,7 @@ export const keys = {
   report: (params: Record<string, unknown>) => ['report', params] as const,
   delta: (params: Record<string, unknown>) => ['delta', params] as const,
   analysis: (params: Record<string, unknown>) => ['analysis', params] as const,
+  statistics: (params: Record<string, unknown>) => ['statistics', params] as const,
   dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
   unitAnalytics: (unitId: string, section: string, from: string, to: string) => ['unit-analytics', unitId, section, from, to] as const,
   unitAnalyticsDrill: (params: Record<string, unknown>) => ['unit-analytics-drill', params] as const,

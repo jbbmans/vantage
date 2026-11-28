@@ -10,7 +10,7 @@ import { CUSTOM_PERIOD } from './dateRange.ts';
 
 export const REPORT_FORMAT = 'vantage-report/1';
 
-export const REPORT_TYPES = ['individual', 'unit', 'personnel', 'duty', 'training', 'financial', 'errors', 'comparison', 'workload', 'activity', 'leadership', 'custom'] as const;
+export const REPORT_TYPES = ['individual', 'statistics', 'unit', 'personnel', 'duty', 'training', 'financial', 'errors', 'comparison', 'workload', 'activity', 'leadership', 'custom'] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 export const isReportType = (v: unknown): v is ReportType => (REPORT_TYPES as readonly unknown[]).includes(v);
 
@@ -20,6 +20,13 @@ export type ReportSubject = (typeof REPORT_SUBJECTS)[number];
 
 export const REPORT_FILE_FORMATS = ['pdf', 'csv', 'xlsx', 'json'] as const;
 export type ReportFileFormat = (typeof REPORT_FILE_FORMATS)[number];
+/** What each file is called where it is offered, and what it holds. */
+export const REPORT_FILE_LABELS: Record<ReportFileFormat, [string, string]> = {
+  pdf: ['PDF', 'Laid out for paper, as the print page'],
+  csv: ['Spreadsheet (CSV)', 'The main table'],
+  xlsx: ['Excel workbook', 'Every table, a sheet each, and what the report is about'],
+  json: ['Vantage file (JSON)', 'The whole report as data'],
+};
 
 export type ReportFilterKey =
   | 'period' | 'track' | 'status' | 'kind' | 'category' | 'area' | 'procedure' | 'state' | 'overdue' | 'as_of' | 'dataset' | 'columns' | 'group' | 'sort'
@@ -44,6 +51,11 @@ export const REPORT_SPECS: Record<ReportType, ReportSpec> = {
   individual: {
     key: 'individual', title: 'Individual performance', group: 'Your record', subjects: ['self', 'member'], filters: ['period', 'track'], period: 'last12',
     question: 'What a Marine’s record shows for the period, against the period before.',
+    needs: 'Your own record, or a Marine whose record you may open in a unit you lead.',
+  },
+  statistics: {
+    key: 'statistics', title: 'Statistics', group: 'Your record', subjects: ['self', 'member'], filters: ['period'], period: 'last12',
+    question: 'A Marine’s entries, outcomes, duty, training, counseling and activity in Vantage over a range, month by month.',
     needs: 'Your own record, or a Marine whose record you may open in a unit you lead.',
   },
   activity: {
@@ -339,6 +351,11 @@ export interface ReportDocument {
   notes: string[];
   /** The table a CSV holds. */
   primary: string | null;
+  /**
+   * The Privacy Act statement the deployment sets (ADR-0051), printed under the title of a report that carries one: the
+   * Statistics report. Absent when the deployment sets none.
+   */
+  privacy?: string;
 }
 
 export { DEFAULT_REPORT_MARKING } from './reportMarking.ts';

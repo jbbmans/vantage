@@ -11,6 +11,7 @@ import type { AttachmentDetails, AttachmentRow, AttachmentsResponse } from '../.
 import type { TeamAudience, TeamMessageFileUpload, TeamMessageResult, TeamMessageView } from '../../shared/teamMessages';
 import type { DutyReviewAction, DutyReviewEntry, DutyReviewQueueResponse } from '../../shared/dutyReview';
 import type { CounselingDocument, CounselingField, CounselingRevision } from '../../shared/counseling';
+import type { MarineStatistics } from '../../shared/marineStatistics';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type { AnalyticsResponse, AnalyticsSection, DrillResponse } from '../../shared/unitAnalytics';
@@ -413,6 +414,8 @@ export const metrics = (params: Record<string, string | number | undefined | nul
 export const metricContributors = (params: Record<string, string | number | undefined | null>) => api.get(`/metrics/contributors?${qs(params)}`);
 export const report = (params: Record<string, string | number | undefined | null>) => api.get(`/reports?${qs(params)}`);
 export const reportAnalysis = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/analysis?${qs(params)}`);
+// A Marine's statistics over a range (ADR-0051): one's own with no user_id, or another Marine's through one unit.
+export const marineStatistics = (params: Record<string, string | undefined>) => api.get<MarineStatistics>(`/statistics?${qs(params)}`);
 export const analysisPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/analysis.pdf?${qs(params)}`;
 export const reportDelta = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/delta?${qs(params)}`);
 export const reportPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/pdf?${qs(params)}`;
