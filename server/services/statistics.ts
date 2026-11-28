@@ -310,7 +310,7 @@ function sectionsOf(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures, 
     id: 'counseling', title: 'Counseling',
     lede: 'Final counselings dated in the range, as the Analysis counts them. What was said stays on each counseling.',
     visuals: [
-      kpis('counseling_now', 'How often was the Marine counseled?', 'counseling', [
+      kpis('counseling_now', `How often ${t.self ? 'were you' : 'was the Marine'} counseled?`, 'counseling', [
         { key: 'count', label: 'Counselings', value: k.count },
         { key: 'unacknowledged', label: 'Not yet acknowledged', value: k.unacknowledged },
         ...(k.avgIntervalDays == null ? [] : [{ key: 'interval', label: 'Days between, on average', value: k.avgIntervalDays, count: Math.max(0, k.count - 1), format: 'days' as const }]),
@@ -339,7 +339,7 @@ function sectionsOf(a: AnalysisReport, duty: DutyFigures, act: ActivityFigures, 
     ],
     facts,
     notes: [t.self
-      ? 'Every sign-in, every record you opened and everything else you did is under Settings, Your activity.'
+      ? 'Your sign-ins, and everything else Vantage logged that you did, are under Settings, Your activity.'
       : 'Nothing here says which pages they opened or how long they spent in Vantage.'],
   };
 
